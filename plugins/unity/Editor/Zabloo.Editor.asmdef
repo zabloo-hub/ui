@@ -1,0 +1,8 @@
+{
+  "name": "Zabloo.Editor",
+  "rootNamespace": "Zabloo.Editor",
+  "references": ["Newtonsoft.Json"],
+  "includePlatforms": ["Editor"],
+  "overrideReferences": false,
+  "autoReferenced": true
+}
