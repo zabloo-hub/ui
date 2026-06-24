@@ -1,0 +1,2 @@
+# El JSON resuelto se versiona como snapshot esperado; los temporales no.
+*.tmp.mjs

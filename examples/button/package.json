@@ -1,0 +1,11 @@
+{
+  "name": "@zabloo-example/button",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zabloo/core": "workspace:*",
+    "@zabloo/react": "workspace:*",
+    "react": "^18.3.1"
+  }
+}
