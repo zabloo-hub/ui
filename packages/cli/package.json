@@ -1,0 +1,12 @@
+{
+  "name": "@zabloo/cli",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": { "zabloo": "src/bin.ts" },
+  "dependencies": {
+    "@zabloo/core": "workspace:*",
+    "@zabloo/react": "workspace:*",
+    "esbuild": "^0.23.0",
+    "react": "^18.3.1"
+  }
+}

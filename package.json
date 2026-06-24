@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "build:example": "node --import @zabloo/cli/register packages/cli/src/bin.ts build examples/button/app.tsx"
+    "build:example": "tsx packages/cli/src/bin.ts build examples/button/app.tsx"
   },
   "devDependencies": {
+    "tsx": "^4.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
