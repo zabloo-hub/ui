@@ -53,14 +53,25 @@ Then import the JSON with the engine SDK (Unity first) and it renders in-game. C
 can also be delivered and **hot-updated** from the zabloo platform without recompiling
 or re-shipping through stores.
 
-## Repository layout (planned)
+## Repository layout
 
 ```
 ui/
-├── packages/    core (IR runtime + tessellator) · format (IR spec/types) · authoring tooling
-├── sdk/         unity (C#, reference v1) · godot · unreal   (thin engine adapters)
-└── components/  base component library (free, open source)
+├── packages/
+│   ├── format/          @zabloo/format — IR types + envelope validation
+│   ├── react/           @zabloo/react — React bindings (custom reconciler → IR)
+│   └── cli/             @zabloo/cli — `zabloo` / `zb` (export; dev later)
+├── sdk/
+│   └── unity/           com.zabloo.sdk — UPM package (UI Toolkit custom geometry)
+└── examples/
+    ├── hello-button/    the vertical-slice project (React → IR)
+    └── unity-playground/  Unity project consuming the SDK locally
 ```
+
+Planned next: the shared core (tessellator + IR runtime), the base component library
+(`components/`), `create-zabloo-app`, and the Godot/Unreal adapters.
+
+Tooling: pnpm workspaces · TypeScript (ESM) · tsup · Vitest · Biome · Changesets.
 
 ## License
 

@@ -1,0 +1,12 @@
+{
+  "name": "com.zabloo.sdk",
+  "version": "0.1.0",
+  "displayName": "zabloo SDK",
+  "description": "Renders zabloo IR content inside Unity via UI Toolkit custom geometry (generateVisualContent / Mesh API). Loads versioned IR envelopes — manual imports and platform hot-updates go through the same path.",
+  "unity": "2022.3",
+  "keywords": ["ui", "zabloo", "ir"],
+  "author": {
+    "name": "zabloo"
+  },
+  "license": "MIT"
+}

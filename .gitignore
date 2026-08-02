@@ -23,6 +23,7 @@ node_modules/
 
 # --- Salidas de build comunes ---
 dist/
+*.tsbuildinfo
 build/
 out/
 .cache/

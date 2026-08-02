@@ -1,0 +1,35 @@
+{
+  "name": "@zabloo/react",
+  "version": "0.1.0",
+  "description": "React bindings for zabloo/ui: JSX that emits the zabloo IR via a custom reconciler",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@zabloo/format": "workspace:*",
+    "react-reconciler": "0.33.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-reconciler": "^0.33.0",
+    "react": "^19.2.8"
+  }
+}

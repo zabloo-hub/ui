@@ -1,0 +1,18 @@
+{
+  "name": "hello-button-example",
+  "private": true,
+  "type": "module",
+  "description": "The vertical-slice project: a pressable Button exported as IR and rendered by the Unity SDK",
+  "scripts": {
+    "export": "zabloo export",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@zabloo/react": "workspace:*",
+    "react": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@zabloo/cli": "workspace:*"
+  }
+}
