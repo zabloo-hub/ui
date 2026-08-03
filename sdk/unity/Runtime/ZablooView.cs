@@ -25,6 +25,9 @@ namespace Zabloo
         readonly TokenResolver _tokens;
         readonly FontLibrary _fonts = new FontLibrary();
         readonly LayoutNode _root;
+        readonly System.Collections.Generic.Dictionary<string, LayoutNode> _byId =
+            new System.Collections.Generic.Dictionary<string, LayoutNode>();
+        Vector2 _lastSize;
 
         public ZablooView(Envelope envelope, string viewId)
         {
@@ -48,7 +51,7 @@ namespace Zabloo
         LayoutNode Build(Node ir, VisualElement parentElement)
         {
             // Forward tolerance: unknown node types render as a plain container.
-            if (ir.type != "Container" && ir.type != "Text" && ir.type != "Button")
+            if (ir.type != "Container" && ir.type != "Text" && ir.type != "Button" && ir.type != "Collapse")
             {
                 Debug.LogWarning($"[zabloo] Unknown node type \"{ir.type}\" — rendering fallback container.");
             }
@@ -57,6 +60,7 @@ namespace Zabloo
             var element = new ZablooElement { name = ir.id ?? ir.type };
             node.Element = element;
             parentElement.Add(element);
+            if (!string.IsNullOrEmpty(ir.id)) _byId[ir.id] = node;
 
             ApplyStyle(node);
 
@@ -72,6 +76,11 @@ namespace Zabloo
                     if (IsStaticallyHidden(child)) continue; // display:none semantics
                     node.Children.Add(Build(child, element));
                 }
+            }
+
+            if (ir.type == "Collapse")
+            {
+                WireCollapse(node); // after children exist (header = children[0])
             }
             return node;
         }
@@ -106,6 +115,53 @@ namespace Zabloo
                     OnAction?.Invoke(node.Ir.onClick);
                 }
             });
+        }
+
+        void WireCollapse(LayoutNode node)
+        {
+            node.Open = node.Ir.open ?? true;
+            ApplyOpen(node);
+            if (node.Children.Count == 0) return;
+
+            // The header (children[0], always visible) toggles on tap — default
+            // SDK behavior, keyed by type (the <details>/<summary> model).
+            var headerElement = (ZablooElement)node.Children[0].Element;
+            headerElement.RegisterCallback<PointerUpEvent>(_ =>
+            {
+                node.Open = !node.Open;
+                ApplyOpen(node);
+                RelayoutNow(); // the capability Collapse exists to prove
+            });
+        }
+
+        /// <summary>Content children (index ≥ 1) enter/leave layout — display:none semantics.</summary>
+        void ApplyOpen(LayoutNode node)
+        {
+            for (int i = 1; i < node.Children.Count; i++)
+            {
+                var child = node.Children[i];
+                child.InLayout = node.Open;
+                ((ZablooElement)child.Element).style.display =
+                    node.Open ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+        }
+
+        /// <summary>
+        /// Programmatic toggle for the game (the other half of the "SDK default vs
+        /// game-driven" split; `open` bindings will ride this same path later).
+        /// </summary>
+        public bool SetOpen(string id, bool open)
+        {
+            if (!_byId.TryGetValue(id, out var node) || node.Ir.type != "Collapse")
+            {
+                Debug.LogWarning($"[zabloo] SetOpen: no Collapse with id \"{id}\".");
+                return false;
+            }
+            if (node.Open == open) return true;
+            node.Open = open;
+            ApplyOpen(node);
+            RelayoutNow();
+            return true;
         }
 
         // --- style (base + state overrides, resolved via tokens) ---
@@ -180,11 +236,15 @@ namespace Zabloo
         void Relayout(Vector2 viewSize)
         {
             if (!(viewSize.x > 0) || !(viewSize.y > 0)) return;
+            _lastSize = viewSize;
 
             FlexLayout.Measure(_root, _tokens, MeasureLeaf);
             FlexLayout.Arrange(_root, new Rect(0, 0, viewSize.x, viewSize.y), _tokens);
             SyncRects(_root, Vector2.zero);
         }
+
+        /// <summary>Runtime relayout at the current size (state changes, not resizes).</summary>
+        void RelayoutNow() => Relayout(_lastSize);
 
         Vector2 MeasureLeaf(Node ir)
         {

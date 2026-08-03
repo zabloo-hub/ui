@@ -28,11 +28,19 @@ export interface ButtonProps extends CommonProps {
   children?: ReactNode;
 }
 
+export interface CollapseProps extends CommonProps {
+  /** Initial open state (default: true). The SDK owns the runtime state. */
+  open?: boolean;
+  /** First child = header (always visible, tapping toggles); rest = content. */
+  children?: ReactNode;
+}
+
 // Host components: the string IS the IR primitive type. Cast so JSX sees a
 // normal typed component.
 export const Container = "Container" as unknown as FC<ContainerProps>;
 export const Text = "Text" as unknown as FC<TextProps>;
 export const Button = "Button" as unknown as FC<ButtonProps>;
+export const Collapse = "Collapse" as unknown as FC<CollapseProps>;
 
 /** `<Container>` with `direction: "row"` (authoring sugar, not a primitive). */
 export function Row({ layout, ...rest }: ContainerProps): ReturnType<FC> {

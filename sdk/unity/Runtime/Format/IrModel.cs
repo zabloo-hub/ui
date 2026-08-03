@@ -42,6 +42,10 @@ namespace Zabloo.Format
         // Text
         /// <summary>Static string or a data-path binding.</summary>
         public JToken text;
+
+        // Collapse
+        /// <summary>Initial open state (default true). The SDK owns the runtime state.</summary>
+        public bool? open;
     }
 
     /// <summary>v1 Yoga subset: direction, justify, align, gap, padding, width/height, grow.</summary>

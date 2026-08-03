@@ -15,7 +15,8 @@
         "direction": "column",
         "grow": 1,
         "justify": "center",
-        "align": "center"
+        "align": "center",
+        "gap": 16
       },
       "children": [
         {
@@ -44,6 +45,50 @@
                 "fontSize": 24
               },
               "text": "Comprar"
+            }
+          ]
+        },
+        {
+          "type": "Collapse",
+          "id": "options",
+          "layout": {
+            "padding": "{space.2}",
+            "gap": 8
+          },
+          "style": {
+            "background": "#1f2430",
+            "radius": "{radius.md}"
+          },
+          "open": false,
+          "children": [
+            {
+              "type": "Text",
+              "style": {
+                "color": "#ffffff",
+                "fontSize": 18
+              },
+              "text": "Opciones"
+            },
+            {
+              "type": "Text",
+              "style": {
+                "color": "#9aa4b2"
+              },
+              "text": "Sonido: alto"
+            },
+            {
+              "type": "Text",
+              "style": {
+                "color": "#9aa4b2"
+              },
+              "text": "Idioma: es"
+            },
+            {
+              "type": "Text",
+              "style": {
+                "color": "#9aa4b2"
+              },
+              "text": "Vibracion: si"
             }
           ]
         }

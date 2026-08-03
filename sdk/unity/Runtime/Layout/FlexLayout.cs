@@ -20,6 +20,13 @@ namespace Zabloo.Layouting
         public object Element;
         /// <summary>Runtime interaction state owned by the SDK (Button: pressed).</summary>
         public bool Pressed;
+        /// <summary>Runtime open state owned by the SDK (Collapse).</summary>
+        public bool Open = true;
+        /// <summary>
+        /// display:none semantics — false removes the node from measure/arrange
+        /// entirely (used by Collapse content; later by `visible` bindings).
+        /// </summary>
+        public bool InLayout = true;
     }
 
     /// <summary>
@@ -48,13 +55,16 @@ namespace Zabloo.Layouting
                 bool row = l?.direction == "row";
                 float gap = tokens.Dim(l?.gap);
                 float main = 0, cross = 0;
+                int active = 0;
                 foreach (var child in node.Children)
                 {
+                    if (!child.InLayout) continue; // display:none — out of layout
                     var cs = Measure(child, tokens, measureLeaf);
                     main += row ? cs.x : cs.y;
                     cross = Mathf.Max(cross, row ? cs.y : cs.x);
+                    active++;
                 }
-                main += gap * (node.Children.Count - 1) + padding * 2;
+                main += gap * Mathf.Max(0, active - 1) + padding * 2;
                 cross += padding * 2;
                 size = row ? new Vector2(main, cross) : new Vector2(cross, main);
             }
@@ -69,7 +79,12 @@ namespace Zabloo.Layouting
         public static void Arrange(LayoutNode node, Rect rect, TokenResolver tokens)
         {
             node.Rect = rect;
-            int count = node.Children.Count;
+            var children = new List<LayoutNode>(node.Children.Count);
+            foreach (var child in node.Children)
+            {
+                if (child.InLayout) children.Add(child); // display:none — out of layout
+            }
+            int count = children.Count;
             if (count == 0) return;
 
             var l = node.Ir.layout;
@@ -89,7 +104,7 @@ namespace Zabloo.Layouting
             float totalGrow = 0;
             for (int i = 0; i < count; i++)
             {
-                var child = node.Children[i];
+                var child = children[i];
                 mains[i] = row ? child.Measured.x : child.Measured.y;
                 totalMain += mains[i];
                 totalGrow += child.Ir.layout?.grow ?? 0;
@@ -99,7 +114,7 @@ namespace Zabloo.Layouting
             {
                 for (int i = 0; i < count; i++)
                 {
-                    float grow = node.Children[i].Ir.layout?.grow ?? 0;
+                    float grow = children[i].Ir.layout?.grow ?? 0;
                     mains[i] += remaining * (grow / totalGrow);
                 }
                 remaining = 0;
@@ -120,7 +135,7 @@ namespace Zabloo.Layouting
             float cursor = (row ? content.x : content.y) + lead;
             for (int i = 0; i < count; i++)
             {
-                var child = node.Children[i];
+                var child = children[i];
                 float crossSize = row ? child.Measured.y : child.Measured.x;
                 float crossOffset = 0;
                 switch (l?.align)

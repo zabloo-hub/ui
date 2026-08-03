@@ -1,10 +1,10 @@
 // View "main-menu" (file-based convention: the filename is the view ID).
-// The vertical-slice target: one screen, one pressable Button.
-import { Button, Column, Text } from "@zabloo/react";
+// Slice targets: a pressable Button + a Collapse (runtime relayout on toggle).
+import { Button, Collapse, Column, Text } from "@zabloo/react";
 
 export default function MainMenu() {
   return (
-    <Column layout={{ grow: 1, justify: "center", align: "center" }}>
+    <Column layout={{ grow: 1, justify: "center", align: "center", gap: 16 }}>
       <Button
         id="buy-btn"
         onClick="buy"
@@ -14,6 +14,18 @@ export default function MainMenu() {
       >
         <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Comprar</Text>
       </Button>
+
+      <Collapse
+        id="options"
+        open={false}
+        layout={{ padding: "{space.2}", gap: 8 }}
+        style={{ background: "#1f2430", radius: "{radius.md}" }}
+      >
+        <Text style={{ color: "#ffffff", fontSize: 18 }}>Opciones</Text>
+        <Text style={{ color: "#9aa4b2" }}>Sonido: alto</Text>
+        <Text style={{ color: "#9aa4b2" }}>Idioma: es</Text>
+        <Text style={{ color: "#9aa4b2" }}>Vibracion: si</Text>
+      </Collapse>
     </Column>
   );
 }

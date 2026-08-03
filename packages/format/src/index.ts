@@ -47,7 +47,7 @@ export interface Envelope {
 }
 
 /** v1 node vocabulary (closed set). */
-export type ZNode = ContainerNode | TextNode | ButtonNode;
+export type ZNode = ContainerNode | TextNode | ButtonNode | CollapseNode;
 
 export type StateName = "hover" | "pressed" | "disabled" | "focused";
 
@@ -105,6 +105,21 @@ export interface ButtonNode extends NodeBase {
   type: "Button";
   /** Named action, exposed idiomatically per engine (C# event / signal / Blueprint). */
   onClick?: string;
+  children?: ZNode[];
+}
+
+/**
+ * Collapsible region (the `<details>`/`<summary>` model): `children[0]` is the
+ * header — always visible, tapping it toggles — and the rest is content that
+ * enters/leaves layout with `display:none` semantics. The SDK owns the runtime
+ * open state (keyed by type) and re-runs layout on toggle; the game can also
+ * drive it programmatically (`SetOpen(id, open)`).
+ */
+export interface CollapseNode extends NodeBase {
+  type: "Collapse";
+  /** Initial state (default: true). */
+  open?: boolean;
+  /** `children[0]` = header; `children[1..]` = collapsible content. */
   children?: ZNode[];
 }
 

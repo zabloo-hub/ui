@@ -10,6 +10,7 @@
 import type {
   Bindable,
   ButtonNode,
+  CollapseNode,
   ContainerNode,
   Layout,
   StateName,
@@ -20,7 +21,7 @@ import type {
 } from "@zabloo/format";
 
 /** v1 host vocabulary — mirrors the closed IR primitive set. */
-export type HostType = "Container" | "Text" | "Button";
+export type HostType = "Container" | "Text" | "Button" | "Collapse";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -34,7 +35,7 @@ export interface CommonProps {
 export interface HostInstance {
   kind: "instance";
   type: HostType;
-  props: CommonProps & { onClick?: string; bind?: string };
+  props: CommonProps & { onClick?: string; bind?: string; open?: boolean };
   children: HostNode[];
 }
 
@@ -50,7 +51,7 @@ export interface HostContainer {
   children: HostNode[];
 }
 
-const HOST_TYPES: ReadonlySet<string> = new Set(["Container", "Text", "Button"]);
+const HOST_TYPES: ReadonlySet<string> = new Set(["Container", "Text", "Button", "Collapse"]);
 
 export function isHostType(type: string): type is HostType {
   return HOST_TYPES.has(type);
@@ -59,8 +60,8 @@ export function isHostType(type: string): type is HostType {
 export function createHostInstance(type: string, props: HostInstance["props"]): HostInstance {
   if (!isHostType(type)) {
     throw new Error(
-      `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button ` +
-        `(Row/Column are sugar from @zabloo/react).`,
+      `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
+        `Collapse (Row/Column are sugar from @zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -90,6 +91,18 @@ export function toIR(instance: HostInstance): ZNode {
         ...(instance.props.onClick !== undefined && { onClick: instance.props.onClick }),
         ...childrenIR(instance),
       };
+      return node;
+    }
+    case "Collapse": {
+      const node: CollapseNode = {
+        type: "Collapse",
+        ...base,
+        ...(instance.props.open !== undefined && { open: instance.props.open }),
+        ...childrenIR(instance),
+      };
+      if (!node.children || node.children.length < 2) {
+        throw new Error("<Collapse> needs at least a header (first child) and one content child.");
+      }
       return node;
     }
     case "Container": {

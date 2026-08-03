@@ -1,6 +1,6 @@
 import { createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
-import { Button, Column, Container, Row, renderToIR, Text } from "./index.js";
+import { Button, Collapse, Column, Container, Row, renderToIR, Text } from "./index.js";
 
 describe("renderToIR", () => {
   it("emits the vertical-slice Button tree", () => {
@@ -58,6 +58,32 @@ describe("renderToIR", () => {
         },
       ],
     });
+  });
+
+  it("serializes Collapse (header = first child, content = rest)", () => {
+    const ir = renderToIR(
+      h(
+        Collapse,
+        { id: "options", open: false },
+        h(Text, null, "Opciones"),
+        h(Text, null, "Sonido: alto"),
+      ),
+    );
+    expect(ir).toEqual({
+      type: "Collapse",
+      id: "options",
+      open: false,
+      children: [
+        { type: "Text", text: "Opciones" },
+        { type: "Text", text: "Sonido: alto" },
+      ],
+    });
+  });
+
+  it("rejects Collapse without header + content", () => {
+    expect(() => renderToIR(h(Collapse, null, h(Text, null, "solo header")))).toThrow(
+      /header .* and one content child/,
+    );
   });
 
   it("serializes Text bindings", () => {

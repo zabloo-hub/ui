@@ -21,6 +21,9 @@ namespace Zabloo
         /// <summary>Fires with the action name declared in the IR (e.g. "buy").</summary>
         public event Action<string> OnAction;
 
+        /// <summary>The live view (e.g. for `View.SetOpen("options", false)`); null before OnEnable.</summary>
+        public ZablooView View => _viewElement;
+
         ZablooView _viewElement;
 
         void OnEnable()

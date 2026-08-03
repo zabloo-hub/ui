@@ -9,6 +9,8 @@
 export {
   Button,
   type ButtonProps,
+  Collapse,
+  type CollapseProps,
   Column,
   type CommonProps,
   Container,
