@@ -12,9 +12,17 @@ program
 program
   .command("export")
   .description("Export the project's views (src/views/*.tsx) as a versioned IR envelope")
-  .action(() => {
-    console.error("zabloo export: not implemented yet — lands with the vertical slice.");
-    process.exitCode = 1;
+  .option("--cwd <dir>", "project root", ".")
+  .action(async (options: { cwd: string }) => {
+    const { exportProject } = await import("./export.js");
+    try {
+      const { outFile, viewIds } = await exportProject(options.cwd);
+      console.log(`zabloo export: wrote ${viewIds.length} view(s) [${viewIds.join(", ")}]`);
+      console.log(`  → ${outFile}`);
+    } catch (error) {
+      console.error(`zabloo export: ${error instanceof Error ? error.message : error}`);
+      process.exitCode = 1;
+    }
   });
 
 program.parse();
