@@ -20,6 +20,33 @@
       },
       "children": [
         {
+          "type": "Container",
+          "layout": {
+            "direction": "row",
+            "gap": 8
+          },
+          "children": [
+            {
+              "type": "Text",
+              "style": {
+                "color": "#facc15",
+                "fontSize": 20
+              },
+              "text": "Oro:"
+            },
+            {
+              "type": "Text",
+              "style": {
+                "color": "#facc15",
+                "fontSize": 20
+              },
+              "text": {
+                "bind": "player.gold"
+              }
+            }
+          ]
+        },
+        {
           "type": "Button",
           "id": "buy-btn",
           "layout": {
@@ -47,6 +74,16 @@
               "text": "Comprar"
             }
           ]
+        },
+        {
+          "type": "Text",
+          "visible": {
+            "bind": "shop.thanked"
+          },
+          "style": {
+            "color": "#4ade80"
+          },
+          "text": "Gracias por tu compra"
         },
         {
           "type": "Collapse",

@@ -23,11 +23,15 @@ namespace Zabloo.Layouting
         public bool Pressed;
         /// <summary>Runtime open state owned by the SDK (Collapse).</summary>
         public bool Open = true;
+        /// <summary>`visible` value (bound or static) — display:none semantics.</summary>
+        public bool VisibleFlag = true;
+        /// <summary>False while hidden as content of a closed Collapse.</summary>
+        public bool SectionShown = true;
         /// <summary>
         /// display:none semantics — false removes the node from measure/arrange
-        /// entirely (used by Collapse content; later by `visible` bindings).
+        /// entirely. Both hiding sources compose through the same mechanism.
         /// </summary>
-        public bool InLayout = true;
+        public bool InLayout => VisibleFlag && SectionShown;
     }
 
     /// <summary>

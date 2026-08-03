@@ -1,11 +1,16 @@
 // View "main-menu" (file-based convention: the filename is the view ID).
 // Slice targets: pressable Button, Collapse (runtime relayout) and Accordion
 // (flattened composite: Container + group "exclusive-open").
-import { Accordion, Button, Collapse, Column, Text } from "@zabloo/react";
+import { Accordion, Button, Collapse, Column, Row, Text } from "@zabloo/react";
 
 export default function MainMenu() {
   return (
     <Column layout={{ grow: 1, justify: "center", align: "center", gap: 16 }}>
+      <Row layout={{ gap: 8 }}>
+        <Text style={{ color: "#facc15", fontSize: 20 }}>Oro:</Text>
+        <Text bind="player.gold" style={{ color: "#facc15", fontSize: 20 }} />
+      </Row>
+
       <Button
         id="buy-btn"
         onClick="buy"
@@ -15,6 +20,10 @@ export default function MainMenu() {
       >
         <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Comprar</Text>
       </Button>
+
+      <Text visible={{ bind: "shop.thanked" }} style={{ color: "#4ade80" }}>
+        Gracias por tu compra
+      </Text>
 
       <Collapse
         id="options"

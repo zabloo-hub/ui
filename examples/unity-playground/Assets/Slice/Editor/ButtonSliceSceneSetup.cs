@@ -55,17 +55,30 @@ namespace Zabloo.Playground.EditorTools
                 AssetDatabase.SaveAssets();
             }
 
-            var go = new GameObject("ZablooButtonSlice");
-            var doc = go.AddComponent<UIDocument>();
+            // Idempotent: reuses the existing slice GameObject if present.
+            var go = GameObject.Find("ZablooButtonSlice");
+            if (go == null)
+            {
+                go = new GameObject("ZablooButtonSlice");
+                Undo.RegisterCreatedObjectUndo(go, "Set Up Button Slice Scene");
+            }
+
+            var doc = go.GetComponent<UIDocument>();
+            if (doc == null) doc = go.AddComponent<UIDocument>();
             doc.panelSettings = panelSettings;
 
-            var zabloo = go.AddComponent<ZablooDocument>();
+            var zabloo = go.GetComponent<ZablooDocument>();
+            if (zabloo == null) zabloo = go.AddComponent<ZablooDocument>();
             var so = new SerializedObject(zabloo);
             so.FindProperty("_envelope").objectReferenceValue = envelope;
             so.FindProperty("_view").stringValue = "main-menu";
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            Undo.RegisterCreatedObjectUndo(go, "Set Up Button Slice Scene");
+            if (go.GetComponent<Playground.SliceDemoDriver>() == null)
+            {
+                go.AddComponent<Playground.SliceDemoDriver>();
+            }
+
             Selection.activeGameObject = go;
             Debug.Log("[zabloo slice] Scene ready — press Play and click the button (watch for `action: buy`).");
         }

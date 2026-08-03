@@ -22,11 +22,23 @@ namespace Zabloo
 
         const int DefaultFontSize = 16;
 
+        enum BindingKind { Text, Visible }
+
+        struct BoundNode
+        {
+            public LayoutNode Node;
+            public BindingKind Kind;
+        }
+
         readonly TokenResolver _tokens;
         readonly FontLibrary _fonts = new FontLibrary();
         readonly LayoutNode _root;
         readonly System.Collections.Generic.Dictionary<string, LayoutNode> _byId =
             new System.Collections.Generic.Dictionary<string, LayoutNode>();
+        readonly System.Collections.Generic.Dictionary<string, object> _data =
+            new System.Collections.Generic.Dictionary<string, object>();
+        readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<BoundNode>> _bindings =
+            new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<BoundNode>>();
         Vector2 _lastSize;
 
         public ZablooView(Envelope envelope, string viewId)
@@ -62,6 +74,18 @@ namespace Zabloo
             parentElement.Add(element);
             if (!string.IsNullOrEmpty(ir.id)) _byId[ir.id] = node;
 
+            // Data-path bindings (decision 2026-08-01: the two dynamic mechanisms).
+            if (ir.type == "Text" && TryGetBind(ir.text, out var textPath))
+            {
+                Register(textPath, node, BindingKind.Text);
+            }
+            if (TryGetBind(ir.visible, out var visiblePath))
+            {
+                Register(visiblePath, node, BindingKind.Visible);
+                node.VisibleFlag = false; // bound visibility: hidden until data says so
+                SyncDisplay(node);
+            }
+
             ApplyStyle(node);
 
             if (ir.type == "Button")
@@ -87,12 +111,96 @@ namespace Zabloo
             return node;
         }
 
-        bool IsStaticallyHidden(Node ir)
+        /// <summary>Static `visible: false` prunes the subtree; bindings build normally.</summary>
+        static bool IsStaticallyHidden(Node ir) =>
+            ir.visible != null && ir.visible.Type == JTokenType.Boolean && !(bool)ir.visible;
+
+        // --- data bindings (the game's data API) ---
+
+        static bool TryGetBind(JToken token, out string path)
         {
-            if (ir.visible == null) return false;
-            if (ir.visible.Type == JTokenType.Boolean) return !(bool)ir.visible;
-            Debug.LogWarning("[zabloo] `visible` bindings are not evaluated yet — defaulting to visible.");
+            path = null;
+            if (token is JObject obj && obj["bind"] is JToken bind && bind.Type == JTokenType.String)
+            {
+                path = (string)bind;
+                return !string.IsNullOrEmpty(path);
+            }
             return false;
+        }
+
+        void Register(string path, LayoutNode node, BindingKind kind)
+        {
+            if (!_bindings.TryGetValue(path, out var list))
+            {
+                list = new System.Collections.Generic.List<BoundNode>();
+                _bindings[path] = list;
+            }
+            list.Add(new BoundNode { Node = node, Kind = kind });
+        }
+
+        /// <summary>
+        /// The game's data entry point: pushes a value at a path ("player.gold").
+        /// Bound Text re-renders (and re-measures — text width changes relayout);
+        /// bound `visible` toggles display:none. One relayout per call.
+        /// </summary>
+        public void SetData(string path, object value)
+        {
+            _data[path] = value;
+            if (!_bindings.TryGetValue(path, out var bound)) return;
+
+            bool dirty = false;
+            foreach (var b in bound)
+            {
+                if (b.Kind == BindingKind.Text)
+                {
+                    ApplyStyle(b.Node);
+                    dirty = true;
+                }
+                else
+                {
+                    bool visible = IsTruthy(value);
+                    if (b.Node.VisibleFlag != visible)
+                    {
+                        b.Node.VisibleFlag = visible;
+                        SyncDisplay(b.Node);
+                        dirty = true;
+                    }
+                }
+            }
+            if (dirty) RelayoutNow();
+        }
+
+        static bool IsTruthy(object value)
+        {
+            switch (value)
+            {
+                case null: return false;
+                case bool b: return b;
+                case int i: return i != 0;
+                case long l: return l != 0;
+                case float f: return f != 0;
+                case double d: return d != 0;
+                case string s: return s.Length > 0;
+                default: return true;
+            }
+        }
+
+        static string FormatValue(object value)
+        {
+            switch (value)
+            {
+                case null: return "";
+                case bool b: return b ? "true" : "false";
+                case float f: return f.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                case double d: return d.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                default: return value.ToString();
+            }
+        }
+
+        void SyncDisplay(LayoutNode node)
+        {
+            ((ZablooElement)node.Element).style.display =
+                node.InLayout ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         // --- behavior (SDK-owned, keyed by component type) ---
@@ -179,9 +287,8 @@ namespace Zabloo
             for (int i = 1; i < node.Children.Count; i++)
             {
                 var child = node.Children[i];
-                child.InLayout = node.Open;
-                ((ZablooElement)child.Element).style.display =
-                    node.Open ? DisplayStyle.Flex : DisplayStyle.None;
+                child.SectionShown = node.Open;
+                SyncDisplay(child); // composes with a bound `visible` on the same node
             }
         }
 
@@ -258,12 +365,15 @@ namespace Zabloo
         int FontSize(StyleProps style) =>
             Mathf.Max(1, Mathf.RoundToInt(_tokens.Dim(style?.fontSize, DefaultFontSize)));
 
-        static string ResolveText(Node ir)
+        string ResolveText(Node ir)
         {
             if (ir.text == null) return "";
             if (ir.text.Type == JTokenType.String) return (string)ir.text;
-            // {"bind": "player.gold"} — data bindings land after the slice.
-            Debug.LogWarning("[zabloo] Text bindings are not evaluated yet — rendering empty.");
+            if (TryGetBind(ir.text, out var path))
+            {
+                // Absent data renders empty until the game pushes a value.
+                return _data.TryGetValue(path, out var value) ? FormatValue(value) : "";
+            }
             return "";
         }
 
@@ -303,20 +413,42 @@ namespace Zabloo
 
         // --- fonts ---
 
-        /// <summary>Accumulates per-size charsets so atlases contain what the view needs.</summary>
+        /// <summary>Printable ASCII — the default charset for bound (dynamic) text.</summary>
+        static readonly string AsciiCharset = BuildAscii();
+
+        static string BuildAscii()
+        {
+            var sb = new StringBuilder(95);
+            for (char c = ' '; c <= '~'; c++) sb.Append(c);
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Accumulates per-size charsets so atlases contain what the view needs.
+        /// Bound text is dynamic, so it requests printable ASCII (non-ASCII dynamic
+        /// charsets are part of the open text strategy).
+        /// </summary>
         void CollectCharsets(Node ir)
         {
             if (ir.type == "Text")
             {
-                var text = ResolveText(ir);
-                if (text.Length > 0)
+                int size = FontSize(ir.style);
+                if (TryGetBind(ir.text, out _))
                 {
-                    var unique = new StringBuilder();
-                    foreach (char c in text)
+                    _fonts.Request(size, AsciiCharset);
+                }
+                else
+                {
+                    var text = ResolveText(ir);
+                    if (text.Length > 0)
                     {
-                        if (unique.ToString().IndexOf(c) < 0) unique.Append(c);
+                        var unique = new StringBuilder();
+                        foreach (char c in text)
+                        {
+                            if (unique.ToString().IndexOf(c) < 0) unique.Append(c);
+                        }
+                        _fonts.Request(size, unique.ToString());
                     }
-                    _fonts.Request(FontSize(ir.style), unique.ToString());
                 }
             }
             if (ir.children != null)
