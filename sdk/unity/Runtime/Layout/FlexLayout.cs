@@ -11,6 +11,7 @@ namespace Zabloo.Layouting
     public sealed class LayoutNode
     {
         public Node Ir;
+        public LayoutNode Parent;
         public readonly List<LayoutNode> Children = new List<LayoutNode>();
         /// <summary>Preferred size from the measure pass.</summary>
         public Vector2 Measured;

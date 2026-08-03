@@ -12,6 +12,7 @@ import type {
   ButtonNode,
   CollapseNode,
   ContainerNode,
+  GroupBehavior,
   Layout,
   StateName,
   StateOverride,
@@ -35,7 +36,12 @@ export interface CommonProps {
 export interface HostInstance {
   kind: "instance";
   type: HostType;
-  props: CommonProps & { onClick?: string; bind?: string; open?: boolean };
+  props: CommonProps & {
+    onClick?: string;
+    bind?: string;
+    open?: boolean;
+    group?: GroupBehavior;
+  };
   children: HostNode[];
 }
 
@@ -106,7 +112,12 @@ export function toIR(instance: HostInstance): ZNode {
       return node;
     }
     case "Container": {
-      const node: ContainerNode = { type: "Container", ...base, ...childrenIR(instance) };
+      const node: ContainerNode = {
+        type: "Container",
+        ...base,
+        ...(instance.props.group !== undefined && { group: instance.props.group }),
+        ...childrenIR(instance),
+      };
       return node;
     }
   }

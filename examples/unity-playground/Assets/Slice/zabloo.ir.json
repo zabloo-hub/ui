@@ -91,6 +91,121 @@
               "text": "Vibracion: si"
             }
           ]
+        },
+        {
+          "type": "Container",
+          "id": "menu",
+          "layout": {
+            "direction": "column",
+            "gap": 4
+          },
+          "group": "exclusive-open",
+          "children": [
+            {
+              "type": "Collapse",
+              "id": "missions",
+              "layout": {
+                "padding": "{space.2}",
+                "gap": 8
+              },
+              "style": {
+                "background": "#1f2430",
+                "radius": "{radius.md}"
+              },
+              "open": true,
+              "children": [
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#ffffff",
+                    "fontSize": 18
+                  },
+                  "text": "Misiones"
+                },
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#9aa4b2"
+                  },
+                  "text": "Derrota al dragon"
+                },
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#9aa4b2"
+                  },
+                  "text": "Recoge 10 gemas"
+                }
+              ]
+            },
+            {
+              "type": "Collapse",
+              "id": "inventory",
+              "layout": {
+                "padding": "{space.2}",
+                "gap": 8
+              },
+              "style": {
+                "background": "#1f2430",
+                "radius": "{radius.md}"
+              },
+              "open": false,
+              "children": [
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#ffffff",
+                    "fontSize": 18
+                  },
+                  "text": "Inventario"
+                },
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#9aa4b2"
+                  },
+                  "text": "Espada de hierro"
+                },
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#9aa4b2"
+                  },
+                  "text": "Pocion x3"
+                }
+              ]
+            },
+            {
+              "type": "Collapse",
+              "id": "social",
+              "layout": {
+                "padding": "{space.2}",
+                "gap": 8
+              },
+              "style": {
+                "background": "#1f2430",
+                "radius": "{radius.md}"
+              },
+              "open": false,
+              "children": [
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#ffffff",
+                    "fontSize": 18
+                  },
+                  "text": "Social"
+                },
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#9aa4b2"
+                  },
+                  "text": "3 amigos conectados"
+                }
+              ]
+            }
+          ]
         }
       ]
     }

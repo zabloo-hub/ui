@@ -7,11 +7,13 @@
  * the IR (decision 2026-08-01: closed vocabulary of 3 primitives).
  */
 
-import type { Bindable } from "@zabloo/format";
+import type { Bindable, GroupBehavior } from "@zabloo/format";
 import { createElement, type FC, type ReactNode } from "react";
 import type { CommonProps } from "./host.js";
 
 export interface ContainerProps extends CommonProps {
+  /** Cross-child behavior the SDK enforces generically (decision 2026-08-03). */
+  group?: GroupBehavior;
   children?: ReactNode;
 }
 
@@ -50,6 +52,20 @@ export function Row({ layout, ...rest }: ContainerProps): ReturnType<FC> {
 /** `<Container>` with `direction: "column"` (authoring sugar, not a primitive). */
 export function Column({ layout, ...rest }: ContainerProps): ReturnType<FC> {
   return createElement(Container, { ...rest, layout: { direction: "column", ...layout } });
+}
+
+/**
+ * Accordion — the first flattened composite (decision 2026-08-03): NOT an IR type.
+ * Emits a column `Container` with `group: "exclusive-open"`; children should be
+ * `<Collapse>`s. The SDK enforces "only one open" generically; older SDKs ignore
+ * the `group` prop and degrade to independent Collapses.
+ */
+export function Accordion({ layout, ...rest }: Omit<ContainerProps, "group">): ReturnType<FC> {
+  return createElement(Container, {
+    ...rest,
+    group: "exclusive-open",
+    layout: { direction: "column", ...layout },
+  });
 }
 
 /** Re-exported prop aliases for user components. */

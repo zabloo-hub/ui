@@ -74,7 +74,9 @@ namespace Zabloo
                 foreach (var child in ir.children)
                 {
                     if (IsStaticallyHidden(child)) continue; // display:none semantics
-                    node.Children.Add(Build(child, element));
+                    var childNode = Build(child, element);
+                    childNode.Parent = node;
+                    node.Children.Add(childNode);
                 }
             }
 
@@ -127,11 +129,48 @@ namespace Zabloo
             // SDK behavior, keyed by type (the <details>/<summary> model).
             var headerElement = (ZablooElement)node.Children[0].Element;
             headerElement.RegisterCallback<PointerUpEvent>(_ =>
+                SetCollapseOpen(node, !node.Open));
+        }
+
+        /// <summary>
+        /// The single state-mutation path for Collapse (header tap, `SetOpen`, and
+        /// later `open` bindings all land here). Enforces the parent's declared
+        /// group behavior, then re-runs layout — runtime relayout on state change.
+        /// </summary>
+        void SetCollapseOpen(LayoutNode node, bool open)
+        {
+            if (node.Open == open) return;
+            node.Open = open;
+            ApplyOpen(node);
+            if (open) EnforceGroup(node);
+            RelayoutNow();
+        }
+
+        /// <summary>
+        /// Generic group behaviors declared on the parent Container (decision
+        /// 2026-08-03: composites flatten; cross-child behavior is declared, not a
+        /// type). Unknown behaviors are ignored — forward tolerance.
+        /// </summary>
+        void EnforceGroup(LayoutNode opened)
+        {
+            var parent = opened.Parent;
+            var group = parent?.Ir.group;
+            if (group == null) return;
+
+            if (group != "exclusive-open")
             {
-                node.Open = !node.Open;
-                ApplyOpen(node);
-                RelayoutNow(); // the capability Collapse exists to prove
-            });
+                Debug.LogWarning($"[zabloo] Unknown group behavior \"{group}\" — ignoring.");
+                return;
+            }
+
+            foreach (var sibling in parent.Children)
+            {
+                if (sibling != opened && sibling.Ir.type == "Collapse" && sibling.Open)
+                {
+                    sibling.Open = false;
+                    ApplyOpen(sibling);
+                }
+            }
         }
 
         /// <summary>Content children (index ≥ 1) enter/leave layout — display:none semantics.</summary>
@@ -157,10 +196,7 @@ namespace Zabloo
                 Debug.LogWarning($"[zabloo] SetOpen: no Collapse with id \"{id}\".");
                 return false;
             }
-            if (node.Open == open) return true;
-            node.Open = open;
-            ApplyOpen(node);
-            RelayoutNow();
+            SetCollapseOpen(node, open);
             return true;
         }
 

@@ -7,6 +7,7 @@
  */
 
 export {
+  Accordion,
   Button,
   type ButtonProps,
   Collapse,

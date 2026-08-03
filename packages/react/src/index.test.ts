@@ -1,6 +1,6 @@
 import { createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
-import { Button, Collapse, Column, Container, Row, renderToIR, Text } from "./index.js";
+import { Accordion, Button, Collapse, Column, Container, Row, renderToIR, Text } from "./index.js";
 
 describe("renderToIR", () => {
   it("emits the vertical-slice Button tree", () => {
@@ -84,6 +84,42 @@ describe("renderToIR", () => {
     expect(() => renderToIR(h(Collapse, null, h(Text, null, "solo header")))).toThrow(
       /header .* and one content child/,
     );
+  });
+
+  it("flattens Accordion to Container + group (composites never reach the IR)", () => {
+    const ir = renderToIR(
+      h(
+        Accordion,
+        { layout: { gap: 4 } },
+        h(Collapse, { id: "a", open: true }, h(Text, null, "A"), h(Text, null, "a1")),
+        h(Collapse, { id: "b", open: false }, h(Text, null, "B"), h(Text, null, "b1")),
+      ),
+    );
+    expect(ir).toEqual({
+      type: "Container",
+      group: "exclusive-open",
+      layout: { direction: "column", gap: 4 },
+      children: [
+        {
+          type: "Collapse",
+          id: "a",
+          open: true,
+          children: [
+            { type: "Text", text: "A" },
+            { type: "Text", text: "a1" },
+          ],
+        },
+        {
+          type: "Collapse",
+          id: "b",
+          open: false,
+          children: [
+            { type: "Text", text: "B" },
+            { type: "Text", text: "b1" },
+          ],
+        },
+      ],
+    });
   });
 
   it("serializes Text bindings", () => {

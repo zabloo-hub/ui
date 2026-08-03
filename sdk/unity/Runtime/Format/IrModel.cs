@@ -35,6 +35,10 @@ namespace Zabloo.Format
 
         public List<Node> children;
 
+        // Container
+        /// <summary>Cross-child behavior the SDK enforces generically (e.g. "exclusive-open").</summary>
+        public string group;
+
         // Button
         /// <summary>Named action, exposed as a C# event by the SDK.</summary>
         public string onClick;

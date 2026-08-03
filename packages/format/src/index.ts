@@ -91,8 +91,19 @@ interface NodeBase {
   states?: Partial<Record<StateName, StateOverride>>;
 }
 
+/**
+ * Declarative group behaviors (decision 2026-08-03, composites): composites are
+ * NOT IR types — they flatten to primitives at authoring time, and cross-child
+ * behavior is declared with `group` and implemented generically by the SDK.
+ * Older SDKs ignore unknown `group` values, so composites degrade gracefully
+ * (an Accordion becomes independent Collapses) instead of failing to render.
+ */
+export type GroupBehavior = "exclusive-open";
+
 export interface ContainerNode extends NodeBase {
   type: "Container";
+  /** Cross-child behavior the SDK enforces (e.g. Accordion = "exclusive-open"). */
+  group?: GroupBehavior;
   children?: ZNode[];
 }
 
