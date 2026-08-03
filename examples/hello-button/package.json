@@ -4,6 +4,7 @@
   "type": "module",
   "description": "The vertical-slice project: a pressable Button exported as IR and rendered by the Unity SDK",
   "scripts": {
+    "dev": "zabloo dev",
     "export": "zabloo export",
     "typecheck": "tsc --noEmit"
   },

@@ -19,7 +19,7 @@ namespace Zabloo.Playground
         {
             _doc = GetComponent<ZablooDocument>();
             _doc.OnAction += OnZablooAction;
-            _doc.View?.SetData("player.gold", _gold);
+            _doc.SetData("player.gold", _gold); // cached — survives dev-mode reloads
         }
 
         void OnDestroy()
@@ -31,8 +31,8 @@ namespace Zabloo.Playground
         {
             if (action != "buy") return;
             _gold -= 100;
-            _doc.View.SetData("player.gold", _gold);
-            _doc.View.SetData("shop.thanked", true);
+            _doc.SetData("player.gold", _gold);
+            _doc.SetData("shop.thanked", true);
         }
     }
 }
