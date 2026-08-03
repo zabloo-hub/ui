@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@zabloo/format": "workspace:*",
+    "@zabloo/renderer-web": "workspace:*",
     "commander": "^15.0.0",
     "jiti": "^2.7.0"
   }

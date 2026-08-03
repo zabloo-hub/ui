@@ -1,0 +1,27 @@
+{
+  "name": "@zabloo/renderer-web",
+  "version": "0.1.0",
+  "description": "zabloo web renderer: consumes IR envelopes and self-renders them to WebGL2 (own layout, own tessellation, own glyph atlas). Seed of the visual editor canvas.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./global": "./dist/index.global.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,iife --global-name ZablooRenderer --dts --clean --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@zabloo/format": "workspace:*"
+  }
+}

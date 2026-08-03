@@ -48,6 +48,9 @@ importers:
       '@zabloo/format':
         specifier: workspace:*
         version: link:../format
+      '@zabloo/renderer-web':
+        specifier: workspace:*
+        version: link:../renderer-web
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -75,6 +78,12 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
+
+  packages/renderer-web:
+    dependencies:
+      '@zabloo/format':
+        specifier: workspace:*
+        version: link:../format
 
 packages:
 

@@ -32,13 +32,16 @@ program
 
 program
   .command("dev")
-  .description("Watch the project, re-export on change and push to the engine editor's dev mode")
+  .description(
+    "Watch the project, re-export on change, serve the web preview and push to the engine editor's dev mode",
+  )
   .option("--cwd <dir>", "project root", ".")
   .option("--port <port>", "dev-mode port of the engine editor", "5077")
-  .action(async (options: { cwd: string; port: string }) => {
+  .option("--preview-port <port>", "port of the web preview", "5078")
+  .action(async (options: { cwd: string; port: string; previewPort: string }) => {
     const { resolve } = await import("node:path");
     const { devLoop } = await import("./dev.js");
-    await devLoop(resolve(options.cwd), Number(options.port));
+    await devLoop(resolve(options.cwd), Number(options.port), Number(options.previewPort));
   });
 
 program.parse();

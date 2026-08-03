@@ -13,11 +13,16 @@ import { spawn } from "node:child_process";
 import { watch } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { startPreviewServer } from "./preview-server.js";
 
-export async function devLoop(root: string, port: number): Promise<void> {
+export async function devLoop(root: string, port: number, previewPort: number): Promise<void> {
   const url = `http://127.0.0.1:${port}/zabloo/envelope`;
+  let lastEnvelope: string | null = null;
+  const preview = startPreviewServer(previewPort, () => lastEnvelope);
+
   console.log(`zabloo dev: watching ${root}`);
-  console.log(`           pushing to ${url} (Unity: menu Zabloo → Dev Mode)`);
+  console.log(`           engine push → ${url} (Unity: menu Zabloo → Dev Mode)`);
+  console.log(`           web preview → ${preview.url}`);
 
   let running = false;
   let queued = false;
@@ -30,7 +35,11 @@ export async function devLoop(root: string, port: number): Promise<void> {
     running = true;
     try {
       const outFile = await exportInChild(root);
-      if (outFile) await push(outFile, url);
+      if (outFile) {
+        lastEnvelope = await readFile(outFile, "utf8");
+        preview.notify(); // browser preview reloads via SSE
+        await push(lastEnvelope, url); // engine dev mode (if open)
+      }
     } finally {
       running = false;
       if (queued) {
@@ -81,8 +90,7 @@ function exportInChild(root: string): Promise<string | null> {
   });
 }
 
-async function push(outFile: string, url: string): Promise<void> {
-  const body = await readFile(outFile);
+async function push(body: string, url: string): Promise<void> {
   try {
     const res = await fetch(url, {
       method: "POST",

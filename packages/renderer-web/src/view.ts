@@ -1,0 +1,442 @@
+/**
+ * The web view — the browser sibling of the Unity SDK's ZablooView + Document:
+ * builds the node tree from an envelope, owns runtime state keyed by type
+ * (Button pressed, Collapse open, exclusive-open groups), resolves tokens and
+ * bindings, runs the renderer's own layout pass and re-tessellates on change.
+ * The browser provides a GPU canvas and pointer events — nothing else.
+ */
+
+import {
+  type Envelope,
+  parseEnvelope,
+  type Style,
+  type TokenValue,
+  type ZNode,
+} from "@zabloo/format";
+import { GLRenderer } from "./gl.js";
+import { FontLibrary } from "./glyphs.js";
+import { arrange, inLayout, type LayoutNode, measure, type Rect } from "./layout.js";
+import { type Color, GeometryBuilder } from "./tessellator.js";
+
+const DEFAULT_FONT_SIZE = 16;
+
+/** Loose view of a node — the union fields the renderer reads. */
+interface AnyNode {
+  type: string;
+  id?: string;
+  visible?: unknown;
+  layout?: ZNode["layout"];
+  style?: Style;
+  states?: Record<string, { style?: Style } | undefined>;
+  children?: ZNode[];
+  onClick?: string;
+  text?: unknown;
+  open?: boolean;
+  group?: string;
+}
+
+export interface MountOptions {
+  /** View ID to render (default: the envelope's first view). */
+  view?: string;
+  /** Named actions declared in the IR (e.g. onClick: "buy") fire here. */
+  onAction?: (action: string) => void;
+  /** Canvas clear color (CSS hex). */
+  background?: string;
+}
+
+export interface ZablooHandle {
+  readonly viewIds: string[];
+  /** Same loading path as the SDK: any versioned payload (dev push, hot-update). */
+  reload(envelope: string | object): void;
+  /** The game/page data channel — bound Text/visible react (cached + replayed). */
+  setData(path: string, value: unknown): void;
+  setOpen(id: string, open: boolean): boolean;
+  dispose(): void;
+}
+
+export function mount(
+  canvas: HTMLCanvasElement,
+  envelope: string | object,
+  options: MountOptions = {},
+): ZablooHandle {
+  const view = new WebView(canvas, toEnvelope(envelope), options);
+  return view.handle();
+}
+
+function toEnvelope(input: string | object): Envelope {
+  return parseEnvelope(typeof input === "string" ? JSON.parse(input) : input);
+}
+
+class WebView {
+  private envelope: Envelope;
+  private viewId: string;
+  private readonly gl: GLRenderer;
+  private readonly fonts: FontLibrary;
+  private readonly clearColor: Color;
+  private readonly onAction?: (action: string) => void;
+
+  private root!: LayoutNode;
+  private byId = new Map<string, LayoutNode>();
+  private visibleBindings = new Map<string, LayoutNode[]>();
+  private readonly data = new Map<string, unknown>();
+  private pressedNode: LayoutNode | null = null;
+  private readonly disposers: Array<() => void> = [];
+
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    envelope: Envelope,
+    options: MountOptions,
+  ) {
+    this.envelope = envelope;
+    this.viewId = options.view ?? Object.keys(envelope.views)[0];
+    this.onAction = options.onAction;
+    this.clearColor = parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
+    this.gl = new GLRenderer(canvas);
+    this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1);
+
+    this.build();
+    this.listen();
+    this.resize();
+  }
+
+  handle(): ZablooHandle {
+    return {
+      viewIds: Object.keys(this.envelope.views),
+      reload: (input) => {
+        this.envelope = toEnvelope(input);
+        if (!this.envelope.views[this.viewId]) {
+          this.viewId = Object.keys(this.envelope.views)[0];
+        }
+        this.build();
+        this.render();
+      },
+      setData: (path, value) => this.setData(path, value),
+      setOpen: (id, open) => this.setOpen(id, open),
+      dispose: () => {
+        for (const dispose of this.disposers) dispose();
+      },
+    };
+  }
+
+  // --- build ---
+
+  private build(): void {
+    const rootIr = this.envelope.views[this.viewId];
+    if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
+    this.byId = new Map();
+    this.visibleBindings = new Map();
+    this.pressedNode = null;
+    this.root = this.buildNode(rootIr, null);
+  }
+
+  private buildNode(ir: ZNode, parent: LayoutNode | null): LayoutNode {
+    const node: LayoutNode = {
+      ir,
+      parent,
+      children: [],
+      measured: { x: 0, y: 0 },
+      rect: { x: 0, y: 0, width: 0, height: 0 },
+      pressed: false,
+      open: true,
+      visibleFlag: true,
+      sectionShown: true,
+    };
+    const any = ir as AnyNode;
+
+    if (any.id) this.byId.set(any.id, node);
+
+    const visiblePath = bindPath(any.visible);
+    if (visiblePath !== null) {
+      // Bound visibility: hidden until data says so (same default as the SDK).
+      node.visibleFlag = isTruthy(this.data.get(visiblePath));
+      pushMapList(this.visibleBindings, visiblePath, node);
+    }
+
+    for (const childIr of any.children ?? []) {
+      const childAny = childIr as AnyNode;
+      // Static visible:false prunes the subtree; bindings build normally.
+      if (childAny.visible === false) continue;
+      node.children.push(this.buildNode(childIr, node));
+    }
+
+    if (any.type === "Collapse") {
+      node.open = any.open ?? true;
+      this.applyOpen(node);
+    }
+    return node;
+  }
+
+  // --- behavior (renderer-owned, keyed by component type) ---
+
+  private applyOpen(node: LayoutNode): void {
+    for (let i = 1; i < node.children.length; i++) {
+      node.children[i].sectionShown = node.open;
+    }
+  }
+
+  /** Single state-mutation path (tap, setOpen — `open` bindings later). */
+  private setCollapseOpen(node: LayoutNode, open: boolean): void {
+    if (node.open === open) return;
+    node.open = open;
+    this.applyOpen(node);
+    if (open) this.enforceGroup(node);
+    this.render();
+  }
+
+  private enforceGroup(opened: LayoutNode): void {
+    const group = (opened.parent?.ir as AnyNode | undefined)?.group;
+    if (group === undefined) return;
+    if (group !== "exclusive-open") {
+      console.warn(`[zabloo] Unknown group behavior "${group}" — ignoring.`);
+      return;
+    }
+    for (const sibling of opened.parent?.children ?? []) {
+      if (sibling !== opened && sibling.ir.type === "Collapse" && sibling.open) {
+        sibling.open = false;
+        this.applyOpen(sibling);
+      }
+    }
+  }
+
+  setOpen(id: string, open: boolean): boolean {
+    const node = this.byId.get(id);
+    if (node?.ir.type !== "Collapse") {
+      console.warn(`[zabloo] setOpen: no Collapse with id "${id}".`);
+      return false;
+    }
+    this.setCollapseOpen(node, open);
+    return true;
+  }
+
+  setData(path: string, value: unknown): void {
+    this.data.set(path, value);
+    for (const node of this.visibleBindings.get(path) ?? []) {
+      node.visibleFlag = isTruthy(value);
+    }
+    // Bound text is resolved at tessellation time — a render is enough.
+    this.render();
+  }
+
+  // --- input (pointer → hit test on layout rects) ---
+
+  private listen(): void {
+    const down = (event: PointerEvent) => {
+      const hit = this.hitTest(this.eventPoint(event));
+      const button = hit && this.findUp(hit, (n) => n.ir.type === "Button");
+      if (button) {
+        button.pressed = true;
+        this.pressedNode = button;
+        this.canvas.setPointerCapture(event.pointerId);
+        this.render();
+      }
+    };
+    const up = (event: PointerEvent) => {
+      const point = this.eventPoint(event);
+      const pressed = this.pressedNode;
+      if (pressed) {
+        pressed.pressed = false;
+        this.pressedNode = null;
+        this.render();
+        if (contains(pressed.rect, point)) {
+          const action = (pressed.ir as AnyNode).onClick;
+          if (action) this.onAction?.(action);
+        }
+        return;
+      }
+      // Collapse header toggle (the <details>/<summary> model).
+      const hit = this.hitTest(point);
+      const header = hit && this.findUp(hit, isCollapseHeader);
+      if (header?.parent) this.setCollapseOpen(header.parent, !header.parent.open);
+    };
+    const resize = () => this.resize();
+
+    this.canvas.addEventListener("pointerdown", down);
+    this.canvas.addEventListener("pointerup", up);
+    globalThis.addEventListener("resize", resize);
+    this.disposers.push(() => {
+      this.canvas.removeEventListener("pointerdown", down);
+      this.canvas.removeEventListener("pointerup", up);
+      globalThis.removeEventListener("resize", resize);
+    });
+  }
+
+  private eventPoint(event: PointerEvent): { x: number; y: number } {
+    const bounds = this.canvas.getBoundingClientRect();
+    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+  }
+
+  /** Deepest in-layout node under the point (later siblings win). */
+  private hitTest(
+    point: { x: number; y: number },
+    node: LayoutNode = this.root,
+  ): LayoutNode | null {
+    if (!inLayout(node) || !contains(node.rect, point)) return null;
+    for (let i = node.children.length - 1; i >= 0; i--) {
+      const hit = this.hitTest(point, node.children[i]);
+      if (hit) return hit;
+    }
+    return node;
+  }
+
+  private findUp(node: LayoutNode, predicate: (n: LayoutNode) => boolean): LayoutNode | null {
+    let current: LayoutNode | null = node;
+    while (current) {
+      if (predicate(current)) return current;
+      current = current.parent;
+    }
+    return null;
+  }
+
+  // --- tokens / style resolution ---
+
+  private token(value: unknown): TokenValue | undefined {
+    if (
+      typeof value === "string" &&
+      value.length > 2 &&
+      value.startsWith("{") &&
+      value.endsWith("}")
+    ) {
+      const key = value.slice(1, -1);
+      const resolved = this.envelope.tokens[key];
+      if (resolved === undefined) console.warn(`[zabloo] Unknown design token ${value}`);
+      return resolved;
+    }
+    return value as TokenValue;
+  }
+
+  private dim = (value: unknown, fallback = 0): number => {
+    const resolved = this.token(value);
+    return typeof resolved === "number" ? resolved : fallback;
+  };
+
+  private color(value: unknown, fallback: Color): Color {
+    const resolved = this.token(value);
+    return (typeof resolved === "string" && parseColor(resolved)) || fallback;
+  }
+
+  private effectiveStyle(node: LayoutNode): Style | undefined {
+    const any = node.ir as AnyNode;
+    const base = any.style;
+    const pressed = node.pressed ? any.states?.pressed?.style : undefined;
+    return pressed ? { ...base, ...pressed } : base;
+  }
+
+  private fontSize(style: Style | undefined): number {
+    return Math.max(1, Math.round(this.dim(style?.fontSize, DEFAULT_FONT_SIZE)));
+  }
+
+  private resolveText(ir: ZNode): string {
+    const raw = (ir as AnyNode).text;
+    if (typeof raw === "string") return raw;
+    const path = bindPath(raw);
+    if (path !== null) return formatValue(this.data.get(path));
+    return "";
+  }
+
+  // --- layout + paint ---
+
+  private resize(): void {
+    const dpr = globalThis.devicePixelRatio ?? 1;
+    const width = this.canvas.clientWidth || this.canvas.width;
+    const height = this.canvas.clientHeight || this.canvas.height;
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
+    this.render();
+  }
+
+  private logicalSize(): { width: number; height: number } {
+    const dpr = globalThis.devicePixelRatio ?? 1;
+    return { width: this.canvas.width / dpr, height: this.canvas.height / dpr };
+  }
+
+  render(): void {
+    const { width, height } = this.logicalSize();
+    if (!(width > 0) || !(height > 0)) return;
+
+    measure(this.root, this.dim, (ir) => {
+      if (ir.type !== "Text") return { x: 0, y: 0 };
+      const atlas = this.fonts.get(this.fontSize((ir as AnyNode).style));
+      return atlas.measure(this.resolveText(ir));
+    });
+    arrange(this.root, { x: 0, y: 0, width, height }, this.dim);
+
+    const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);
+    this.paint(this.root, geometry);
+    this.gl.draw(geometry.batches(), width, height, this.clearColor);
+  }
+
+  private paint(node: LayoutNode, geometry: GeometryBuilder): void {
+    if (!inLayout(node)) return;
+    const style = this.effectiveStyle(node);
+
+    if (style?.background !== undefined) {
+      geometry.roundedRect(
+        node.rect,
+        this.dim(style.radius),
+        this.color(style.background, [1, 0, 1, 1]),
+      );
+    }
+    if (node.ir.type === "Text") {
+      const atlas = this.fonts.get(this.fontSize(style));
+      geometry.text(
+        node.rect.x,
+        node.rect.y,
+        this.resolveText(node.ir),
+        atlas,
+        this.color(style?.color, [1, 1, 1, 1]),
+      );
+    }
+    for (const child of node.children) this.paint(child, geometry);
+  }
+}
+
+// --- helpers ---
+
+function isCollapseHeader(node: LayoutNode): boolean {
+  return node.parent?.ir.type === "Collapse" && node.parent.children[0] === node;
+}
+
+function contains(rect: Rect, point: { x: number; y: number }): boolean {
+  return (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.width &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.height
+  );
+}
+
+function bindPath(value: unknown): string | null {
+  if (typeof value === "object" && value !== null && "bind" in value) {
+    const path = (value as { bind: unknown }).bind;
+    if (typeof path === "string" && path.length > 0) return path;
+  }
+  return null;
+}
+
+function isTruthy(value: unknown): boolean {
+  if (value === undefined || value === null || value === false) return false;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") return value.length > 0;
+  return true;
+}
+
+function formatValue(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "number" && !Number.isInteger(value))
+    return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return String(value);
+}
+
+function pushMapList<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
+}
+
+function parseColor(hex: string): Color | null {
+  const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
+  if (!match) return null;
+  const rgb = Number.parseInt(match[1], 16);
+  const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
+  return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
+}
