@@ -1,15 +1,17 @@
 /**
  * The v1 zabloo component set — own components/props/rules, NOT a web UI kit.
  *
- * `Container`, `Text` and `Button` are host components: the reconciler receives
- * their type string directly and emits IR primitives. `Row`/`Column` are authoring
- * sugar (plain function components) that emit a `Container` — they never reach
- * the IR (decision 2026-08-01: closed vocabulary of 3 primitives).
+ * Each primitive is a function component that resolves its `variant` (an
+ * authoring-time concept — decision 2026-08-03 §6) against the project theme
+ * and emits the host primitive with fully resolved style/states. `Row`/`Column`
+ * and `Accordion` are authoring sugar that emit a `Container` — composites and
+ * variants never reach the IR.
  */
 
-import type { Bindable, GroupBehavior } from "@zabloo/format";
+import type { GroupBehavior } from "@zabloo/format";
 import { createElement, type FC, type ReactNode } from "react";
 import type { CommonProps } from "./host.js";
+import { useVariant } from "./theme.js";
 
 export interface ContainerProps extends CommonProps {
   /** Cross-child behavior the SDK enforces generically (decision 2026-08-03). */
@@ -37,12 +39,21 @@ export interface CollapseProps extends CommonProps {
   children?: ReactNode;
 }
 
-// Host components: the string IS the IR primitive type. Cast so JSX sees a
-// normal typed component.
-export const Container = "Container" as unknown as FC<ContainerProps>;
-export const Text = "Text" as unknown as FC<TextProps>;
-export const Button = "Button" as unknown as FC<ButtonProps>;
-export const Collapse = "Collapse" as unknown as FC<CollapseProps>;
+/** Wraps a host primitive with variant resolution (variant never reaches the IR). */
+function primitive<P extends CommonProps>(type: string): FC<P> {
+  const Component = (props: P) => {
+    const { variant, style, states, ...rest } = props;
+    const resolved = useVariant(type, variant, { style, states });
+    return createElement(type, { ...rest, style: resolved.style, states: resolved.states });
+  };
+  Component.displayName = type;
+  return Component as FC<P>;
+}
+
+export const Container: FC<ContainerProps> = primitive<ContainerProps>("Container");
+export const Text: FC<TextProps> = primitive<TextProps>("Text");
+export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
+export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
 
 /** `<Container>` with `direction: "row"` (authoring sugar, not a primitive). */
 export function Row({ layout, ...rest }: ContainerProps): ReturnType<FC> {
@@ -55,7 +66,7 @@ export function Column({ layout, ...rest }: ContainerProps): ReturnType<FC> {
 }
 
 /**
- * Accordion — the first flattened composite (decision 2026-08-03): NOT an IR type.
+ * Accordion — a flattened composite (decision 2026-08-03): NOT an IR type.
  * Emits a column `Container` with `group: "exclusive-open"`; children should be
  * `<Collapse>`s. The SDK enforces "only one open" generically; older SDKs ignore
  * the `group` prop and degrade to independent Collapses.
@@ -70,6 +81,3 @@ export function Accordion({ layout, ...rest }: Omit<ContainerProps, "group">): R
 
 /** Re-exported prop aliases for user components. */
 export type { CommonProps } from "./host.js";
-
-/** Convenience alias: a bindable value (static or `{ bind: "path" }`). */
-export type { Bindable };

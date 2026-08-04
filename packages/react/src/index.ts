@@ -21,3 +21,4 @@ export {
   type TextProps,
 } from "./components.js";
 export { renderToIR } from "./reconciler.js";
+export { ThemeProvider, type ThemeVariants, type VariantDef, type ZablooTheme } from "./theme.js";

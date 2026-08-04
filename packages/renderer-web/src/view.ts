@@ -33,6 +33,7 @@ interface AnyNode {
   text?: unknown;
   open?: boolean;
   group?: string;
+  autofocus?: boolean;
 }
 
 export interface MountOptions {
@@ -80,6 +81,8 @@ class WebView {
   private visibleBindings = new Map<string, LayoutNode[]>();
   private readonly data = new Map<string, unknown>();
   private pressedNode: LayoutNode | null = null;
+  private focusedNode: LayoutNode | null = null;
+  private autofocusNode: LayoutNode | null = null;
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -126,7 +129,10 @@ class WebView {
     this.byId = new Map();
     this.visibleBindings = new Map();
     this.pressedNode = null;
+    this.focusedNode = null;
+    this.autofocusNode = null;
     this.root = this.buildNode(rootIr, null);
+    if (this.autofocusNode) this.setFocus(this.autofocusNode);
   }
 
   private buildNode(ir: ZNode, parent: LayoutNode | null): LayoutNode {
@@ -137,6 +143,7 @@ class WebView {
       measured: { x: 0, y: 0 },
       rect: { x: 0, y: 0, width: 0, height: 0 },
       pressed: false,
+      focused: false,
       open: true,
       visibleFlag: true,
       sectionShown: true,
@@ -144,6 +151,7 @@ class WebView {
     const any = ir as AnyNode;
 
     if (any.id) this.byId.set(any.id, node);
+    if (any.autofocus) this.autofocusNode = node;
 
     const visiblePath = bindPath(any.visible);
     if (visiblePath !== null) {
@@ -217,6 +225,88 @@ class WebView {
     this.render();
   }
 
+  // --- focus & directional navigation (decision 2026-08-03 §7) ---
+  // Automatic spatial navigation from live layout rects: zero authoring cost,
+  // survives relayout/hot-update/Collapse. Focusability derives from component
+  // identity (Button, Collapse header); `states.focused` styles the focused node.
+
+  private isFocusable(node: LayoutNode): boolean {
+    return node.ir.type === "Button" || isCollapseHeader(node);
+  }
+
+  private collectFocusables(node: LayoutNode = this.root, out: LayoutNode[] = []): LayoutNode[] {
+    if (!inLayout(node)) return out; // pruned subtrees have stale rects
+    if (this.isFocusable(node)) out.push(node);
+    for (const child of node.children) this.collectFocusables(child, out);
+    return out;
+  }
+
+  private setFocus(node: LayoutNode | null): void {
+    if (this.focusedNode === node) return;
+    if (this.focusedNode) this.focusedNode.focused = false;
+    this.focusedNode = node;
+    if (node) node.focused = true;
+  }
+
+  /** Moves focus in a direction (unit axis): the console-UI spatial algorithm. */
+  moveFocus(dx: number, dy: number): void {
+    const candidates = this.collectFocusables();
+    if (candidates.length === 0) return;
+
+    const current = this.focusedNode;
+    if (!current || !candidates.includes(current)) {
+      this.setFocus(
+        this.autofocusNode && candidates.includes(this.autofocusNode)
+          ? this.autofocusNode
+          : candidates[0],
+      );
+      this.render();
+      return;
+    }
+
+    const from = center(current.rect);
+    let best: LayoutNode | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      if (candidate === current) continue;
+      const to = center(candidate.rect);
+      const deltaX = to.x - from.x;
+      const deltaY = to.y - from.y;
+      const projection = deltaX * dx + deltaY * dy;
+      if (projection <= 0.5) continue; // must lie in the direction of travel
+      const orthogonal = Math.abs(deltaX * dy) + Math.abs(deltaY * dx);
+      const score = projection + orthogonal * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    if (best) {
+      this.setFocus(best);
+      this.render();
+    }
+  }
+
+  /** Press/release the focused node (Enter/Space/gamepad-A semantics). */
+  pressFocused(down: boolean): void {
+    const node = this.focusedNode;
+    if (!node || !inLayout(node)) return;
+    if (down) {
+      node.pressed = true;
+      this.render();
+      return;
+    }
+    if (!node.pressed) return;
+    node.pressed = false;
+    this.render();
+    if (node.ir.type === "Button") {
+      const action = (node.ir as AnyNode).onClick;
+      if (action) this.onAction?.(action);
+    } else if (node.parent) {
+      this.setCollapseOpen(node.parent, !node.parent.open);
+    }
+  }
+
   // --- input (pointer → hit test on layout rects) ---
 
   private listen(): void {
@@ -226,9 +316,23 @@ class WebView {
       if (button) {
         button.pressed = true;
         this.pressedNode = button;
+        this.setFocus(button); // pointer and directional nav share one focus
         this.canvas.setPointerCapture(event.pointerId);
         this.render();
       }
+    };
+    const keydown = (event: KeyboardEvent) => {
+      const direction = KEY_DIRECTIONS[event.key];
+      if (direction) {
+        event.preventDefault();
+        this.moveFocus(direction[0], direction[1]);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        if (!event.repeat) this.pressFocused(true);
+      }
+    };
+    const keyup = (event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") this.pressFocused(false);
     };
     const up = (event: PointerEvent) => {
       const point = this.eventPoint(event);
@@ -252,10 +356,14 @@ class WebView {
 
     this.canvas.addEventListener("pointerdown", down);
     this.canvas.addEventListener("pointerup", up);
+    globalThis.addEventListener("keydown", keydown);
+    globalThis.addEventListener("keyup", keyup);
     globalThis.addEventListener("resize", resize);
     this.disposers.push(() => {
       this.canvas.removeEventListener("pointerdown", down);
       this.canvas.removeEventListener("pointerup", up);
+      globalThis.removeEventListener("keydown", keydown);
+      globalThis.removeEventListener("keyup", keyup);
       globalThis.removeEventListener("resize", resize);
     });
   }
@@ -316,9 +424,13 @@ class WebView {
 
   private effectiveStyle(node: LayoutNode): Style | undefined {
     const any = node.ir as AnyNode;
-    const base = any.style;
-    const pressed = node.pressed ? any.states?.pressed?.style : undefined;
-    return pressed ? { ...base, ...pressed } : base;
+    let style = any.style;
+    // Merge order: base → focused → pressed (pressed wins while held).
+    if (node.focused && any.states?.focused?.style)
+      style = { ...style, ...any.states.focused.style };
+    if (node.pressed && any.states?.pressed?.style)
+      style = { ...style, ...any.states.pressed.style };
+    return style;
   }
 
   private fontSize(style: Style | undefined): number {
@@ -394,6 +506,17 @@ class WebView {
 
 function isCollapseHeader(node: LayoutNode): boolean {
   return node.parent?.ir.type === "Collapse" && node.parent.children[0] === node;
+}
+
+const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+};
+
+function center(rect: Rect): { x: number; y: number } {
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
 }
 
 function contains(rect: Rect, point: { x: number; y: number }): boolean {

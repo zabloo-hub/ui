@@ -47,31 +47,80 @@
           ]
         },
         {
-          "type": "Button",
-          "id": "buy-btn",
+          "type": "Container",
           "layout": {
-            "padding": "{space.4}"
+            "direction": "row",
+            "gap": 12
           },
-          "style": {
-            "background": "{color.primary}",
-            "radius": "{radius.md}"
-          },
-          "states": {
-            "pressed": {
-              "style": {
-                "background": "{color.primary.hover}"
-              }
-            }
-          },
-          "onClick": "buy",
           "children": [
             {
-              "type": "Text",
-              "style": {
-                "color": "{color.on-primary}",
-                "fontSize": 24
+              "type": "Button",
+              "id": "buy-btn",
+              "layout": {
+                "padding": "{space.4}"
               },
-              "text": "Comprar"
+              "style": {
+                "background": "{color.primary}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "pressed": {
+                  "style": {
+                    "background": "{color.primary.hover}"
+                  }
+                },
+                "focused": {
+                  "style": {
+                    "background": "#7c86f2"
+                  }
+                }
+              },
+              "autofocus": true,
+              "onClick": "buy",
+              "children": [
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "{color.on-primary}",
+                    "fontSize": 24
+                  },
+                  "text": "Comprar"
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "quit-btn",
+              "layout": {
+                "padding": "{space.4}"
+              },
+              "style": {
+                "background": "#2f3446",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "pressed": {
+                  "style": {
+                    "background": "#3b4160"
+                  }
+                },
+                "focused": {
+                  "style": {
+                    "background": "#4a5170"
+                  }
+                }
+              },
+              "onClick": "quit",
+              "children": [
+                {
+                  "type": "Text",
+                  "style": {
+                    "color": "#c8cede",
+                    "fontSize": 24
+                  },
+                  "text": "Salir"
+                }
+              ]
             }
           ]
         },
@@ -103,6 +152,13 @@
               "style": {
                 "color": "#ffffff",
                 "fontSize": 18
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "color": "#a5b4fc"
+                  }
+                }
               },
               "text": "Opciones"
             },
@@ -157,6 +213,13 @@
                     "color": "#ffffff",
                     "fontSize": 18
                   },
+                  "states": {
+                    "focused": {
+                      "style": {
+                        "color": "#a5b4fc"
+                      }
+                    }
+                  },
                   "text": "Misiones"
                 },
                 {
@@ -194,6 +257,13 @@
                     "color": "#ffffff",
                     "fontSize": 18
                   },
+                  "states": {
+                    "focused": {
+                      "style": {
+                        "color": "#a5b4fc"
+                      }
+                    }
+                  },
                   "text": "Inventario"
                 },
                 {
@@ -230,6 +300,13 @@
                   "style": {
                     "color": "#ffffff",
                     "fontSize": 18
+                  },
+                  "states": {
+                    "focused": {
+                      "style": {
+                        "color": "#a5b4fc"
+                      }
+                    }
                   },
                   "text": "Social"
                 },

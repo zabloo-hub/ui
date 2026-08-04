@@ -1,6 +1,17 @@
 import { createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
-import { Accordion, Button, Collapse, Column, Container, Row, renderToIR, Text } from "./index.js";
+import {
+  Accordion,
+  Button,
+  Collapse,
+  Column,
+  Container,
+  Row,
+  renderToIR,
+  Text,
+  ThemeProvider,
+  type ZablooTheme,
+} from "./index.js";
 
 describe("renderToIR", () => {
   it("emits the vertical-slice Button tree", () => {
@@ -131,6 +142,54 @@ describe("renderToIR", () => {
 
   it("joins mixed text children", () => {
     expect(renderToIR(h(Text, null, "Gold: ", 42))).toEqual({ type: "Text", text: "Gold: 42" });
+  });
+
+  it("resolves variants at authoring time — they never reach the IR", () => {
+    const theme: ZablooTheme = {
+      variants: {
+        Button: {
+          primary: {
+            style: { background: "{color.primary}", radius: "{radius.md}" },
+            states: { pressed: { style: { background: "{color.primary.hover}" } } },
+          },
+        },
+      },
+    };
+    const ir = renderToIR(
+      h(
+        ThemeProvider,
+        { theme },
+        h(
+          Button,
+          { variant: "primary", style: { radius: 99 }, onClick: "buy" },
+          h(Text, null, "x"),
+        ),
+      ),
+    );
+    expect(ir).toEqual({
+      type: "Button",
+      onClick: "buy",
+      // variant style merged UNDER explicit props (radius 99 wins); no `variant` field.
+      style: { background: "{color.primary}", radius: 99 },
+      states: { pressed: { style: { background: "{color.primary.hover}" } } },
+      children: [{ type: "Text", text: "x" }],
+    });
+  });
+
+  it("fails loudly on unknown variants", () => {
+    const theme: ZablooTheme = { variants: { Button: { primary: {} } } };
+    expect(() =>
+      renderToIR(h(ThemeProvider, { theme }, h(Button, { variant: "ghost" }, h(Text, null, "x")))),
+    ).toThrow(/Unknown Button variant "ghost".*primary/);
+  });
+
+  it("serializes autofocus", () => {
+    expect(renderToIR(h(Button, { autofocus: true, onClick: "a" }, h(Text, null, "x")))).toEqual({
+      type: "Button",
+      autofocus: true,
+      onClick: "a",
+      children: [{ type: "Text", text: "x" }],
+    });
   });
 
   it("rejects raw text outside <Text>", () => {

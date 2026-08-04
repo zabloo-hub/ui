@@ -25,6 +25,7 @@ export interface LayoutNode {
   rect: Rect;
   // Runtime state owned by the renderer (same split as the Unity SDK).
   pressed: boolean;
+  focused: boolean;
   open: boolean;
   /** `visible` value (bound or static) — display:none semantics. */
   visibleFlag: boolean;

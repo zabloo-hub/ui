@@ -11,15 +11,20 @@ export default function MainMenu() {
         <Text bind="player.gold" style={{ color: "#facc15", fontSize: 20 }} />
       </Row>
 
-      <Button
-        id="buy-btn"
-        onClick="buy"
-        layout={{ padding: "{space.4}" }}
-        style={{ background: "{color.primary}", radius: "{radius.md}" }}
-        states={{ pressed: { style: { background: "{color.primary.hover}" } } }}
-      >
-        <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Comprar</Text>
-      </Button>
+      <Row layout={{ gap: 12 }}>
+        <Button
+          id="buy-btn"
+          variant="primary"
+          autofocus
+          onClick="buy"
+          layout={{ padding: "{space.4}" }}
+        >
+          <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Comprar</Text>
+        </Button>
+        <Button id="quit-btn" variant="secondary" onClick="quit" layout={{ padding: "{space.4}" }}>
+          <Text style={{ color: "#c8cede", fontSize: 24 }}>Salir</Text>
+        </Button>
+      </Row>
 
       <Text visible={{ bind: "shop.thanked" }} style={{ color: "#4ade80" }}>
         Gracias por tu compra
@@ -31,7 +36,12 @@ export default function MainMenu() {
         layout={{ padding: "{space.2}", gap: 8 }}
         style={{ background: "#1f2430", radius: "{radius.md}" }}
       >
-        <Text style={{ color: "#ffffff", fontSize: 18 }}>Opciones</Text>
+        <Text
+          states={{ focused: { style: { color: "#a5b4fc" } } }}
+          style={{ color: "#ffffff", fontSize: 18 }}
+        >
+          Opciones
+        </Text>
         <Text style={{ color: "#9aa4b2" }}>Sonido: alto</Text>
         <Text style={{ color: "#9aa4b2" }}>Idioma: es</Text>
         <Text style={{ color: "#9aa4b2" }}>Vibracion: si</Text>
@@ -44,7 +54,12 @@ export default function MainMenu() {
           layout={{ padding: "{space.2}", gap: 8 }}
           style={{ background: "#1f2430", radius: "{radius.md}" }}
         >
-          <Text style={{ color: "#ffffff", fontSize: 18 }}>Misiones</Text>
+          <Text
+            states={{ focused: { style: { color: "#a5b4fc" } } }}
+            style={{ color: "#ffffff", fontSize: 18 }}
+          >
+            Misiones
+          </Text>
           <Text style={{ color: "#9aa4b2" }}>Derrota al dragon</Text>
           <Text style={{ color: "#9aa4b2" }}>Recoge 10 gemas</Text>
         </Collapse>
@@ -54,7 +69,12 @@ export default function MainMenu() {
           layout={{ padding: "{space.2}", gap: 8 }}
           style={{ background: "#1f2430", radius: "{radius.md}" }}
         >
-          <Text style={{ color: "#ffffff", fontSize: 18 }}>Inventario</Text>
+          <Text
+            states={{ focused: { style: { color: "#a5b4fc" } } }}
+            style={{ color: "#ffffff", fontSize: 18 }}
+          >
+            Inventario
+          </Text>
           <Text style={{ color: "#9aa4b2" }}>Espada de hierro</Text>
           <Text style={{ color: "#9aa4b2" }}>Pocion x3</Text>
         </Collapse>
@@ -64,7 +84,12 @@ export default function MainMenu() {
           layout={{ padding: "{space.2}", gap: 8 }}
           style={{ background: "#1f2430", radius: "{radius.md}" }}
         >
-          <Text style={{ color: "#ffffff", fontSize: 18 }}>Social</Text>
+          <Text
+            states={{ focused: { style: { color: "#a5b4fc" } } }}
+            style={{ color: "#ffffff", fontSize: 18 }}
+          >
+            Social
+          </Text>
           <Text style={{ color: "#9aa4b2" }}>3 amigos conectados</Text>
         </Collapse>
       </Accordion>

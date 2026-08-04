@@ -33,6 +33,9 @@ namespace Zabloo.Format
         /// <summary>Per-state style overrides; the SDK owns runtime state, keyed by type.</summary>
         public Dictionary<string, StateOverride> states;
 
+        /// <summary>Receives initial focus (directional navigation, decision 2026-08-03 §7).</summary>
+        public bool? autofocus;
+
         public List<Node> children;
 
         // Container

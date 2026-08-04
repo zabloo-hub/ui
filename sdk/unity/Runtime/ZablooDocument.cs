@@ -93,6 +93,30 @@ namespace Zabloo
             _viewElement = null;
         }
 
+#if ENABLE_LEGACY_INPUT_MANAGER
+        /// <summary>
+        /// Directional navigation input (decision 2026-08-03 §7): arrows move focus
+        /// spatially, Enter/Space presses. Gamepad d-pad maps to the same calls when
+        /// input bindings are added — the model is input-source agnostic.
+        /// </summary>
+        void Update()
+        {
+            if (_viewElement == null) return;
+            if (Input.GetKeyDown(KeyCode.UpArrow)) _viewElement.MoveFocus(0, -1);
+            if (Input.GetKeyDown(KeyCode.DownArrow)) _viewElement.MoveFocus(0, 1);
+            if (Input.GetKeyDown(KeyCode.LeftArrow)) _viewElement.MoveFocus(-1, 0);
+            if (Input.GetKeyDown(KeyCode.RightArrow)) _viewElement.MoveFocus(1, 0);
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))
+            {
+                _viewElement.PressFocused(true);
+            }
+            if (Input.GetKeyUp(KeyCode.Return) || Input.GetKeyUp(KeyCode.Space))
+            {
+                _viewElement.PressFocused(false);
+            }
+        }
+#endif
+
         void Dispatch(string action)
         {
             if (_logActions) Debug.Log($"[zabloo] action: {action}");

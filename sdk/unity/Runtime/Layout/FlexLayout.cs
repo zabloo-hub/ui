@@ -21,6 +21,8 @@ namespace Zabloo.Layouting
         public object Element;
         /// <summary>Runtime interaction state owned by the SDK (Button: pressed).</summary>
         public bool Pressed;
+        /// <summary>Runtime focus state owned by the SDK (directional navigation).</summary>
+        public bool Focused;
         /// <summary>Runtime open state owned by the SDK (Collapse).</summary>
         public bool Open = true;
         /// <summary>`visible` value (bound or static) — display:none semantics.</summary>

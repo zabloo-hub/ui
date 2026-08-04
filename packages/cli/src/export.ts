@@ -24,10 +24,11 @@ interface ZablooConfig {
 
 /** Shapes we need from the project's own copies of react / @zabloo/react. */
 interface ProjectReact {
-  createElement: (type: unknown) => unknown;
+  createElement: (type: unknown, props?: unknown, ...children: unknown[]) => unknown;
 }
 interface ProjectZablooReact {
   renderToIR: (element: unknown) => ZNode;
+  ThemeProvider: unknown;
 }
 
 export interface ExportResult {
@@ -45,7 +46,7 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
 
   const config = ((await tryImport(jiti, join(root, "zabloo.config.ts"))) ?? {}) as ZablooConfig;
   const theme = (await tryImport(jiti, join(root, "src", "theme.ts"))) as
-    | { tokens?: Record<string, TokenValue> }
+    | { tokens?: Record<string, TokenValue>; variants?: unknown }
     | undefined;
   const tokens = theme?.tokens ?? {};
 
@@ -77,7 +78,13 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
     if (id in views) {
       throw new Error(`Duplicate view id "${id}" (from ${file})`);
     }
-    views[id] = zablooReact.renderToIR(react.createElement(mod.default));
+    // Views render inside the project theme so variants resolve at emit time.
+    const element = react.createElement(
+      zablooReact.ThemeProvider,
+      { theme: { variants: theme?.variants } },
+      react.createElement(mod.default),
+    );
+    views[id] = zablooReact.renderToIR(element);
   }
 
   const envelope: Envelope = { v: IR_VERSION, tokens, views };

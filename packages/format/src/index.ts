@@ -89,6 +89,12 @@ interface NodeBase {
   layout?: Layout;
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
+  /**
+   * Receives initial focus (decision 2026-08-03 §7: navigation is automatic
+   * spatial — the SDK moves focus from live layout rects; focusability derives
+   * from component identity; `states.focused` styles the focused node).
+   */
+  autofocus?: boolean;
 }
 
 /**

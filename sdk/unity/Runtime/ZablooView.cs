@@ -40,6 +40,8 @@ namespace Zabloo
         readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<BoundNode>> _bindings =
             new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<BoundNode>>();
         Vector2 _lastSize;
+        LayoutNode _focused;
+        LayoutNode _autofocus;
 
         public ZablooView(Envelope envelope, string viewId)
         {
@@ -54,6 +56,7 @@ namespace Zabloo
 
             CollectCharsets(rootIr);
             _root = Build(rootIr, this);
+            if (_autofocus != null) SetFocus(_autofocus);
 
             RegisterCallback<GeometryChangedEvent>(evt => Relayout(evt.newRect.size));
         }
@@ -73,6 +76,7 @@ namespace Zabloo
             node.Element = element;
             parentElement.Add(element);
             if (!string.IsNullOrEmpty(ir.id)) _byId[ir.id] = node;
+            if (ir.autofocus == true) _autofocus = node;
 
             // Data-path bindings (decision 2026-08-01: the two dynamic mechanisms).
             if (ir.type == "Text" && TryGetBind(ir.text, out var textPath))
@@ -210,6 +214,7 @@ namespace Zabloo
             element.RegisterCallback<PointerDownEvent>(e =>
             {
                 node.Pressed = true;
+                SetFocus(node); // pointer and directional nav share one focus
                 ApplyStyle(node);
                 element.CapturePointer(e.pointerId);
             });
@@ -337,11 +342,16 @@ namespace Zabloo
 
         StyleProps EffectiveStyle(LayoutNode node)
         {
-            var baseStyle = node.Ir.style;
-            if (node.Pressed
-                && node.Ir.states != null
-                && node.Ir.states.TryGetValue("pressed", out var over)
-                && over?.style != null)
+            // Merge order: base → focused → pressed (pressed wins while held).
+            var style = node.Ir.style;
+            if (node.Focused) style = MergeState(style, node.Ir, "focused");
+            if (node.Pressed) style = MergeState(style, node.Ir, "pressed");
+            return style;
+        }
+
+        static StyleProps MergeState(StyleProps baseStyle, Node ir, string state)
+        {
+            if (ir.states != null && ir.states.TryGetValue(state, out var over) && over?.style != null)
             {
                 return Merge(baseStyle, over.style);
             }
@@ -375,6 +385,97 @@ namespace Zabloo
                 return _data.TryGetValue(path, out var value) ? FormatValue(value) : "";
             }
             return "";
+        }
+
+        // --- focus & directional navigation (decision 2026-08-03 §7) ---
+        // Automatic spatial navigation from live layout rects: zero authoring cost,
+        // survives relayout/hot-update/Collapse. Focusability derives from component
+        // identity (Button, Collapse header); `states.focused` styles the focused node.
+
+        bool IsFocusable(LayoutNode node) =>
+            node.Ir.type == "Button" ||
+            (node.Parent != null && node.Parent.Ir.type == "Collapse" && node.Parent.Children.Count > 0
+                && node.Parent.Children[0] == node);
+
+        void CollectFocusables(LayoutNode node, System.Collections.Generic.List<LayoutNode> output)
+        {
+            if (!node.InLayout) return; // pruned subtrees have stale rects
+            if (IsFocusable(node)) output.Add(node);
+            foreach (var child in node.Children) CollectFocusables(child, output);
+        }
+
+        void SetFocus(LayoutNode node)
+        {
+            if (_focused == node) return;
+            var previous = _focused;
+            _focused = node;
+            if (previous != null)
+            {
+                previous.Focused = false;
+                ApplyStyle(previous);
+            }
+            if (node != null)
+            {
+                node.Focused = true;
+                ApplyStyle(node);
+            }
+        }
+
+        /// <summary>Moves focus in a direction — the console-UI spatial algorithm.</summary>
+        public void MoveFocus(int dx, int dy)
+        {
+            var candidates = new System.Collections.Generic.List<LayoutNode>();
+            CollectFocusables(_root, candidates);
+            if (candidates.Count == 0) return;
+
+            if (_focused == null || !candidates.Contains(_focused))
+            {
+                SetFocus(_autofocus != null && candidates.Contains(_autofocus) ? _autofocus : candidates[0]);
+                return;
+            }
+
+            var from = _focused.Rect.center;
+            LayoutNode best = null;
+            float bestScore = float.PositiveInfinity;
+            foreach (var candidate in candidates)
+            {
+                if (candidate == _focused) continue;
+                var delta = candidate.Rect.center - from;
+                float projection = delta.x * dx + delta.y * dy;
+                if (projection <= 0.5f) continue; // must lie in the direction of travel
+                float orthogonal = Mathf.Abs(delta.x * dy) + Mathf.Abs(delta.y * dx);
+                float score = projection + orthogonal * 2f;
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    best = candidate;
+                }
+            }
+            if (best != null) SetFocus(best);
+        }
+
+        /// <summary>Press/release the focused node (Enter/Space/gamepad-A semantics).</summary>
+        public void PressFocused(bool down)
+        {
+            var node = _focused;
+            if (node == null || !node.InLayout) return;
+            if (down)
+            {
+                node.Pressed = true;
+                ApplyStyle(node);
+                return;
+            }
+            if (!node.Pressed) return;
+            node.Pressed = false;
+            ApplyStyle(node);
+            if (node.Ir.type == "Button")
+            {
+                if (!string.IsNullOrEmpty(node.Ir.onClick)) OnAction?.Invoke(node.Ir.onClick);
+            }
+            else if (node.Parent != null)
+            {
+                SetCollapseOpen(node.Parent, !node.Parent.Open); // Collapse header
+            }
         }
 
         // --- layout (the SDK's own pass; never UI Toolkit's flexbox) ---
