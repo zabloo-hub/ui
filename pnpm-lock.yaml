@@ -58,6 +58,8 @@ importers:
         specifier: ^2.7.0
         version: 2.7.0
 
+  packages/create-zabloo-app: {}
+
   packages/format: {}
 
   packages/react:

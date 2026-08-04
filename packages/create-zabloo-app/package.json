@@ -1,0 +1,19 @@
+{
+  "name": "create-zabloo-app",
+  "version": "0.1.0",
+  "description": "Scaffold a zabloo/ui project: author game UI in React, export versioned IR, render it in-engine",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "create-zabloo-app": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --clean --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  }
+}
