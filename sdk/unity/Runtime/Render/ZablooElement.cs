@@ -16,6 +16,9 @@ namespace Zabloo.Rendering
         bool _hasBackground;
         Color _background;
         float _radius;
+        float _borderWidth;
+        Color _borderColor;
+        float _opacity = 1f;
 
         string _text;
         Color _textColor;
@@ -27,17 +30,20 @@ namespace Zabloo.Rendering
             generateVisualContent += OnGenerateVisualContent;
         }
 
-        public void SetBackground(Color color, float radius)
+        /// <summary>
+        /// The node's implicit paint in one call: background fill, inset border, and
+        /// the subtree-inherited opacity product (multiplied into every vertex alpha).
+        /// </summary>
+        public void SetPaint(
+            bool hasBackground, Color background, float radius,
+            float borderWidth, Color borderColor, float opacity)
         {
-            _hasBackground = true;
-            _background = color;
+            _hasBackground = hasBackground;
+            _background = background;
             _radius = radius;
-            MarkDirtyRepaint();
-        }
-
-        public void ClearBackground()
-        {
-            _hasBackground = false;
+            _borderWidth = borderWidth;
+            _borderColor = borderColor;
+            _opacity = opacity;
             MarkDirtyRepaint();
         }
 
@@ -59,15 +65,23 @@ namespace Zabloo.Rendering
 
         void OnGenerateVisualContent(MeshGenerationContext mgc)
         {
+            if (_opacity <= 0f) return; // invisible — but still occupies layout
             var rect = new Rect(0, 0, resolvedStyle.width, resolvedStyle.height);
             if (_hasBackground)
             {
-                Tessellation.RoundedRect(mgc, rect, _radius, _background);
+                Tessellation.RoundedRect(mgc, rect, _radius, Fade(_background));
+            }
+            if (_borderWidth > 0f)
+            {
+                Tessellation.RoundedRectBorder(mgc, rect, _radius, _borderWidth, Fade(_borderColor));
             }
             if (!string.IsNullOrEmpty(_text) && _atlas != null)
             {
-                Tessellation.Text(mgc, _text, _atlas, _textColor);
+                Tessellation.Text(mgc, _text, _atlas, Fade(_textColor));
             }
         }
+
+        Color Fade(Color color) =>
+            _opacity >= 1f ? color : new Color(color.r, color.g, color.b, color.a * _opacity);
     }
 }

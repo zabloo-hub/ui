@@ -18,14 +18,15 @@ export const variants: ThemeVariants = {
       style: { background: "{color.primary}", radius: "{radius.md}" },
       states: {
         pressed: { style: { background: "{color.primary.hover}" } },
-        focused: { style: { background: "#7c86f2" } },
+        // Focus ring: inset border (paints inside the layout rect).
+        focused: { style: { borderWidth: 2, borderColor: "#ffffff" } },
       },
     },
     secondary: {
       style: { background: "#2f3446", radius: "{radius.md}" },
       states: {
         pressed: { style: { background: "#3b4160" } },
-        focused: { style: { background: "#4a5170" } },
+        focused: { style: { borderWidth: 2, borderColor: "#8b93a8" } },
       },
     },
   },

@@ -34,7 +34,12 @@ export default function MainMenu() {
         id="options"
         open={false}
         layout={{ padding: "{space.2}", gap: 8 }}
-        style={{ background: "#1f2430", radius: "{radius.md}" }}
+        style={{
+          background: "#1f2430",
+          radius: "{radius.md}",
+          borderWidth: 1,
+          borderColor: "#3b4160",
+        }}
       >
         <Text
           states={{ focused: { style: { color: "#a5b4fc" } } }}
@@ -93,6 +98,12 @@ export default function MainMenu() {
           <Text style={{ color: "#9aa4b2" }}>3 amigos conectados</Text>
         </Collapse>
       </Accordion>
+
+      {/* Opacity inherits multiplicatively: 0.5 on the Row dims both Texts. */}
+      <Row layout={{ gap: 6 }} style={{ opacity: 0.5 }}>
+        <Text style={{ color: "#9aa4b2" }}>zabloo/ui</Text>
+        <Text style={{ color: "#9aa4b2" }}>— demo build</Text>
+      </Row>
     </Column>
   );
 }

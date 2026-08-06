@@ -22,7 +22,12 @@ export default function MainMenu() {
         id="options"
         open={false}
         layout={{ padding: "{space.2}", gap: 8 }}
-        style={{ background: "{color.surface}", radius: "{radius.md}" }}
+        style={{
+          background: "{color.surface}",
+          radius: "{radius.md}",
+          borderWidth: 1,
+          borderColor: "#3b4160",
+        }}
       >
         <Text
           states={{ focused: { style: { color: "#a5b4fc" } } }}
@@ -33,6 +38,12 @@ export default function MainMenu() {
         <Text style={{ color: "{color.muted}" }}>Sound: on</Text>
         <Text style={{ color: "{color.muted}" }}>Language: en</Text>
       </Collapse>
+
+      {/* Opacity inherits multiplicatively: 0.5 on the Row dims both Texts. */}
+      <Row layout={{ gap: 6 }} style={{ opacity: 0.5 }}>
+        <Text style={{ color: "{color.muted}" }}>my-game-ui</Text>
+        <Text style={{ color: "{color.muted}" }}>— demo build</Text>
+      </Row>
     </Column>
   );
 }

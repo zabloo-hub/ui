@@ -41,25 +41,56 @@ export class GeometryBuilder {
 
     // Perimeter: 4 corner arcs traversed clockwise on screen (y down), fan
     // around the centroid — identical to the SDK.
-    const centers = [
-      [rect.x + r, rect.y + r], // TL: 180 → 270
-      [rect.x + rect.width - r, rect.y + r], // TR: 270 → 360
-      [rect.x + rect.width - r, rect.y + rect.height - r], // BR: 0 → 90
-      [rect.x + r, rect.y + rect.height - r], // BL: 90 → 180
-    ];
-
     pushVertex(batch, rect.x + rect.width / 2, rect.y + rect.height / 2, 0, 0, color);
-    const perimeter = 4 * (CORNER_SEGMENTS + 1);
-    for (let corner = 0; corner < 4; corner++) {
-      const start = (180 + corner * 90) * (Math.PI / 180);
-      for (let s = 0; s <= CORNER_SEGMENTS; s++) {
-        const angle = start + (Math.PI / 2) * (s / CORNER_SEGMENTS);
-        const [cx, cy] = centers[corner];
-        pushVertex(batch, cx + r * Math.cos(angle), cy + r * Math.sin(angle), 0, 0, color);
-      }
+    const points = perimeter(rect, r);
+    for (const [x, y] of points) pushVertex(batch, x, y, 0, 0, color);
+    for (let i = 0; i < points.length; i++) {
+      batch.indices.push(base, base + 1 + i, base + 1 + ((i + 1) % points.length));
     }
-    for (let i = 0; i < perimeter; i++) {
-      batch.indices.push(base, base + 1 + i, base + 1 + ((i + 1) % perimeter));
+  }
+
+  /**
+   * INSET border: a ring between the rect edge and the edge inset by `width`
+   * (CSS border-box model — nothing paints outside the layout rect, so
+   * hit-testing on layout rects stays honest and clipping never cuts a border).
+   */
+  roundedRectBorder(rect: Rect, radius: number, width: number, color: Color): void {
+    if (!(rect.width > 0) || !(rect.height > 0) || !(width > 0)) return;
+    const r = Math.min(radius, rect.width * 0.5, rect.height * 0.5);
+
+    // Border thick enough to cover the whole rect: just fill it.
+    if (width * 2 >= Math.min(rect.width, rect.height)) {
+      this.roundedRect(rect, r, color);
+      return;
+    }
+
+    const inner: Rect = {
+      x: rect.x + width,
+      y: rect.y + width,
+      width: rect.width - width * 2,
+      height: rect.height - width * 2,
+    };
+    const batch = this.solid;
+    const base = batch.vertices.length / 8;
+
+    // Outer then inner perimeter, same parametrization → stitch quads.
+    // (radius 0 degenerates corner arcs to repeated points — harmless.)
+    const outer = perimeter(rect, r);
+    const innerPts = perimeter(inner, Math.max(0, r - width));
+    for (const [x, y] of outer) pushVertex(batch, x, y, 0, 0, color);
+    for (const [x, y] of innerPts) pushVertex(batch, x, y, 0, 0, color);
+
+    const count = outer.length;
+    for (let i = 0; i < count; i++) {
+      const next = (i + 1) % count;
+      batch.indices.push(
+        base + i,
+        base + next,
+        base + count + next,
+        base + count + next,
+        base + count + i,
+        base + i,
+      );
     }
   }
 
@@ -104,4 +135,27 @@ export class GeometryBuilder {
 
 function pushVertex(batch: Batch, x: number, y: number, u: number, v: number, color: Color): void {
   batch.vertices.push(x, y, u, v, color[0], color[1], color[2], color[3]);
+}
+
+/**
+ * Rounded-rect perimeter: 4 corner arcs traversed clockwise on screen (y down),
+ * 4 × (CORNER_SEGMENTS + 1) points — same parametrization as the Unity SDK.
+ */
+function perimeter(rect: Rect, r: number): Array<[number, number]> {
+  const centers = [
+    [rect.x + r, rect.y + r], // TL: 180 → 270
+    [rect.x + rect.width - r, rect.y + r], // TR: 270 → 360
+    [rect.x + rect.width - r, rect.y + rect.height - r], // BR: 0 → 90
+    [rect.x + r, rect.y + rect.height - r], // BL: 90 → 180
+  ];
+  const points: Array<[number, number]> = [];
+  for (let corner = 0; corner < 4; corner++) {
+    const start = (180 + corner * 90) * (Math.PI / 180);
+    for (let s = 0; s <= CORNER_SEGMENTS; s++) {
+      const angle = start + (Math.PI / 2) * (s / CORNER_SEGMENTS);
+      const [cx, cy] = centers[corner];
+      points.push([cx + r * Math.cos(angle), cy + r * Math.sin(angle)]);
+    }
+  }
+  return points;
 }

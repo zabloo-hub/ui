@@ -319,16 +319,20 @@ namespace Zabloo
             var element = (ZablooElement)node.Element;
             var style = EffectiveStyle(node);
 
-            if (style?.background != null)
-            {
-                element.SetBackground(
-                    _tokens.Color(style.background, Color.magenta),
-                    _tokens.Dim(style.radius));
-            }
-            else
-            {
-                element.ClearBackground();
-            }
+            // Opacity inherits multiplicatively down the subtree (per-vertex alpha;
+            // not render-to-texture group opacity — decision 2026-08-06).
+            float parentOpacity = node.Parent?.PaintOpacity ?? 1f;
+            float opacity = Mathf.Clamp01(style?.opacity ?? 1f) * parentOpacity;
+            bool opacityChanged = !Mathf.Approximately(opacity, node.PaintOpacity);
+            node.PaintOpacity = opacity;
+
+            element.SetPaint(
+                style?.background != null,
+                _tokens.Color(style?.background, Color.magenta),
+                _tokens.Dim(style?.radius),
+                _tokens.Dim(style?.borderWidth),
+                _tokens.Color(style?.borderColor, Color.magenta),
+                opacity);
 
             if (node.Ir.type == "Text")
             {
@@ -337,6 +341,12 @@ namespace Zabloo
                     ResolveText(node.Ir),
                     _tokens.Color(style?.color, Color.white),
                     _fonts.Get(size));
+            }
+
+            // A changed product must restyle the subtree (children read our cache).
+            if (opacityChanged)
+            {
+                foreach (var child in node.Children) ApplyStyle(child);
             }
         }
 

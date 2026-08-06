@@ -477,15 +477,29 @@ class WebView {
     this.gl.draw(geometry.batches(), width, height, this.clearColor);
   }
 
-  private paint(node: LayoutNode, geometry: GeometryBuilder): void {
+  private paint(node: LayoutNode, geometry: GeometryBuilder, parentOpacity = 1): void {
     if (!inLayout(node)) return;
     const style = this.effectiveStyle(node);
+
+    // Opacity inherits multiplicatively down the subtree (per-vertex alpha;
+    // not render-to-texture group opacity — decision 2026-08-06).
+    const opacity = Math.min(1, Math.max(0, style?.opacity ?? 1)) * parentOpacity;
+    if (opacity <= 0) return; // invisible — but still occupies layout
 
     if (style?.background !== undefined) {
       geometry.roundedRect(
         node.rect,
         this.dim(style.radius),
-        this.color(style.background, [1, 0, 1, 1]),
+        fade(this.color(style.background, [1, 0, 1, 1]), opacity),
+      );
+    }
+    const borderWidth = this.dim(style?.borderWidth);
+    if (borderWidth > 0) {
+      geometry.roundedRectBorder(
+        node.rect,
+        this.dim(style?.radius),
+        borderWidth,
+        fade(this.color(style?.borderColor, [1, 0, 1, 1]), opacity),
       );
     }
     if (node.ir.type === "Text") {
@@ -495,10 +509,10 @@ class WebView {
         node.rect.y,
         this.resolveText(node.ir),
         atlas,
-        this.color(style?.color, [1, 1, 1, 1]),
+        fade(this.color(style?.color, [1, 1, 1, 1]), opacity),
       );
     }
-    for (const child of node.children) this.paint(child, geometry);
+    for (const child of node.children) this.paint(child, geometry, opacity);
   }
 }
 
@@ -514,6 +528,10 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
 };
+
+function fade(color: Color, opacity: number): Color {
+  return opacity >= 1 ? color : [color[0], color[1], color[2], color[3] * opacity];
+}
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };

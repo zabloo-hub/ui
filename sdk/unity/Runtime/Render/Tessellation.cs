@@ -25,16 +25,6 @@ namespace Zabloo.Rendering
                 return;
             }
 
-            // Perimeter: 4 corner arcs, traversed clockwise on screen (y down).
-            // Corner centers + arc start angles (degrees, y-down space).
-            var centers = new Vector2[]
-            {
-                new Vector2(rect.xMin + radius, rect.yMin + radius), // TL: 180 → 270
-                new Vector2(rect.xMax - radius, rect.yMin + radius), // TR: 270 → 360
-                new Vector2(rect.xMax - radius, rect.yMax - radius), // BR: 0 → 90
-                new Vector2(rect.xMin + radius, rect.yMax - radius), // BL: 90 → 180
-            };
-
             int perimeterCount = 4 * (CornerSegments + 1);
             var mwd = mgc.Allocate(perimeterCount + 1, perimeterCount * 3);
             Color32 tint = color;
@@ -44,6 +34,73 @@ namespace Zabloo.Rendering
                 position = new Vector3(rect.center.x, rect.center.y, Vertex.nearZ),
                 tint = tint,
             });
+            EmitPerimeter(mwd, rect, radius, tint);
+
+            for (int i = 0; i < perimeterCount; i++)
+            {
+                mwd.SetNextIndex(0);
+                mwd.SetNextIndex((ushort)(1 + i));
+                mwd.SetNextIndex((ushort)(1 + (i + 1) % perimeterCount));
+            }
+        }
+
+        /// <summary>
+        /// Strokes an INSET border: a ring between the rect edge and the edge inset by
+        /// `width` (CSS border-box model — nothing paints outside the layout rect, so
+        /// hit-testing on layout rects stays honest and clipping never cuts a border).
+        /// </summary>
+        public static void RoundedRectBorder(MeshGenerationContext mgc, Rect rect, float radius, float width, Color color)
+        {
+            if (!(rect.width > 0) || !(rect.height > 0) || !(width > 0)) return;
+            radius = Mathf.Clamp(radius, 0, Mathf.Min(rect.width, rect.height) * 0.5f);
+
+            // Border thick enough to cover the whole rect: just fill it.
+            if (width * 2 >= Mathf.Min(rect.width, rect.height))
+            {
+                RoundedRect(mgc, rect, radius, color);
+                return;
+            }
+
+            var inner = new Rect(
+                rect.x + width, rect.y + width,
+                rect.width - width * 2, rect.height - width * 2);
+            float innerRadius = Mathf.Max(0, radius - width);
+
+            int perimeterCount = 4 * (CornerSegments + 1);
+            var mwd = mgc.Allocate(perimeterCount * 2, perimeterCount * 6);
+            Color32 tint = color;
+
+            // Outer then inner perimeter, same parametrization → stitch quads.
+            // (radius 0 degenerates corner arcs to repeated points — harmless.)
+            EmitPerimeter(mwd, rect, radius, tint);
+            EmitPerimeter(mwd, inner, innerRadius, tint);
+
+            for (int i = 0; i < perimeterCount; i++)
+            {
+                int next = (i + 1) % perimeterCount;
+                mwd.SetNextIndex((ushort)i);
+                mwd.SetNextIndex((ushort)next);
+                mwd.SetNextIndex((ushort)(perimeterCount + next));
+                mwd.SetNextIndex((ushort)(perimeterCount + next));
+                mwd.SetNextIndex((ushort)(perimeterCount + i));
+                mwd.SetNextIndex((ushort)i);
+            }
+        }
+
+        /// <summary>
+        /// Emits the rounded-rect perimeter: 4 corner arcs traversed clockwise on
+        /// screen (y down), 4 × (CornerSegments + 1) vertices.
+        /// </summary>
+        static void EmitPerimeter(MeshWriteData mwd, Rect rect, float radius, Color32 tint)
+        {
+            // Corner centers + arc start angles (degrees, y-down space).
+            var centers = new Vector2[]
+            {
+                new Vector2(rect.xMin + radius, rect.yMin + radius), // TL: 180 → 270
+                new Vector2(rect.xMax - radius, rect.yMin + radius), // TR: 270 → 360
+                new Vector2(rect.xMax - radius, rect.yMax - radius), // BR: 0 → 90
+                new Vector2(rect.xMin + radius, rect.yMax - radius), // BL: 90 → 180
+            };
 
             for (int corner = 0; corner < 4; corner++)
             {
@@ -58,13 +115,6 @@ namespace Zabloo.Rendering
                         tint = tint,
                     });
                 }
-            }
-
-            for (int i = 0; i < perimeterCount; i++)
-            {
-                mwd.SetNextIndex(0);
-                mwd.SetNextIndex((ushort)(1 + i));
-                mwd.SetNextIndex((ushort)(1 + (i + 1) % perimeterCount));
             }
         }
 

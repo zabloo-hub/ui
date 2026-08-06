@@ -37,39 +37,62 @@ authoring (React/JSX + tokens) → IR (tree + styles + events) → per-engine SD
 
 ## Status
 
-🚧 **Early foundations.** The minimal IR v1 is defined and we are validating it with a
-vertical slice: `JSX → IR JSON → Unity SDK` rendering an interactive Button via UI
-Toolkit custom geometry (`generateVisualContent` / Mesh API). **Unity is the reference
-SDK for v1**; Godot and Unreal are designed in parallel and come later.
+🚧 **Working end-to-end, pre-release.** The IR v1 is validated in code across **two
+render targets** — the Unity SDK (UI Toolkit custom geometry:
+`generateVisualContent` / Mesh API) and a WebGL2 renderer — both running the same
+self-render pipeline: own Flexbox layout pass, own tessellator, own glyph atlases.
 
-## How it will work
+What works today:
+
+- **4 primitives** — `Container`, `Text`, `Button`, `Collapse` — plus authoring-time
+  composites (`Row`/`Column`, `Accordion`) that flatten to primitives.
+- **Styling**: design tokens (flat dictionary, theme hot-update without re-emitting the
+  tree), per-state overrides (`pressed` / `focused`), variants resolved at export time,
+  and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset
+  border), `color`, `fontSize`, `opacity` (inherits multiplicatively).
+- **Interactivity**: SDK-owned behavior keyed by component type, named actions surfaced
+  as C# events, data-path bindings (`SetData("player.gold", …)` re-lays out live),
+  automatic spatial focus/navigation (arrows/Enter today, gamepad-ready).
+- **Dev loop**: save a `.tsx` → `zabloo dev` re-exports and hot-pushes to the Unity
+  editor *and* a live browser preview — through the same loading path as production
+  hot-update.
+
+**Unity is the reference SDK for v1**; Godot and Unreal are designed in parallel (every
+IR decision is validated against all three) and come later. Packages are not yet
+published to npm.
+
+## How it works
 
 ```bash
-# in your zabloo project (React)
-zabloo export        # emits your views/scenes as versioned IR JSON
+npx create-zabloo-app my-game-ui   # scaffold a React authoring project
+pnpm dev                            # watch → web preview + live push to Unity
+pnpm build                          # = zabloo export → versioned IR envelope in dist/
 ```
 
-Then import the JSON with the engine SDK (Unity first) and it renders in-game. Content
-can also be delivered and **hot-updated** from the zabloo platform without recompiling
-or re-shipping through stores.
+Then import the envelope with the engine SDK (Unity first) and it renders in-game.
+Content can also be delivered and **hot-updated** from the zabloo platform without
+recompiling or re-shipping through stores — the dev loop uses that exact path.
 
 ## Repository layout
 
 ```
 ui/
 ├── packages/
-│   ├── format/          @zabloo/format — IR types + envelope validation
-│   ├── react/           @zabloo/react — React bindings (custom reconciler → IR)
-│   └── cli/             @zabloo/cli — `zabloo` / `zb` (export; dev later)
+│   ├── format/            @zabloo/format — IR types + envelope validation
+│   ├── react/             @zabloo/react — React bindings (custom reconciler → IR)
+│   ├── cli/               @zabloo/cli — `zabloo` / `zb` (export, dev)
+│   ├── renderer-web/      @zabloo/renderer-web — WebGL2 self-renderer (preview/editor)
+│   └── create-zabloo-app/ project scaffolder
 ├── sdk/
-│   └── unity/           com.zabloo.sdk — UPM package (UI Toolkit custom geometry)
+│   └── unity/             com.zabloo.sdk — UPM package (UI Toolkit custom geometry)
 └── examples/
-    ├── hello-button/    the vertical-slice project (React → IR)
+    ├── hello-button/      the vertical-slice project (React → IR)
     └── unity-playground/  Unity project consuming the SDK locally
 ```
 
-Planned next: the shared core (tessellator + IR runtime), the base component library
-(`components/`), `create-zabloo-app`, and the Godot/Unreal adapters.
+Planned next: npm publication, the base component library (`components/`), more style
+and component capabilities (images, scrolling/clipping), extraction of the shared core
+(tessellator + IR runtime), and the Godot/Unreal adapters.
 
 Tooling: pnpm workspaces · TypeScript (ESM) · tsup · Vitest · Biome · Changesets.
 

@@ -29,6 +29,8 @@ namespace Zabloo.Layouting
         public bool VisibleFlag = true;
         /// <summary>False while hidden as content of a closed Collapse.</summary>
         public bool SectionShown = true;
+        /// <summary>Inherited opacity product (own × ancestors) — paint-time cache.</summary>
+        public float PaintOpacity = 1f;
         /// <summary>
         /// display:none semantics — false removes the node from measure/arrange
         /// entirely. Both hiding sources compose through the same mechanism.
