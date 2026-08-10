@@ -35,7 +35,8 @@ export function jpegMeta(bytes: Buffer): ImageMeta | null {
       offset += 2; // standalone marker (TEM/RSTn/SOI/EOI): no length field
       continue;
     }
-    const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+    const isSof =
+      marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
     if (isSof) {
       if (offset + 9 > bytes.length) return null;
       return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) };

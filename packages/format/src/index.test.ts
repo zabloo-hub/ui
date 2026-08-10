@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IR_VERSION, parseEnvelope, supportsVersion, decodeAssetData } from "./index.js";
+import { decodeAssetData, IR_VERSION, parseEnvelope, supportsVersion } from "./index.js";
 
 const validEnvelope = {
   v: IR_VERSION,
@@ -98,21 +98,21 @@ describe("parseEnvelope: assets", () => {
     expect(() =>
       parseEnvelope({ ...validEnvelope, assets: { x: { mime: "image/png", size: 3 } } }),
     ).toThrow("`hash`");
-    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { hash: "h", size: 3 } } })).toThrow(
-      "`mime`",
-    );
-    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, size: "3" } } })).toThrow(
-      "`size`",
-    );
+    expect(() =>
+      parseEnvelope({ ...validEnvelope, assets: { x: { hash: "h", size: 3 } } }),
+    ).toThrow("`mime`");
+    expect(() =>
+      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, size: "3" } } }),
+    ).toThrow("`size`");
   });
 
   it("rejects data that is not base64-shaped (without decoding it)", () => {
-    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "!!" } } })).toThrow(
-      "base64",
-    );
-    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "AAA" } } })).toThrow(
-      "base64",
-    );
+    expect(() =>
+      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "!!" } } }),
+    ).toThrow("base64");
+    expect(() =>
+      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "AAA" } } }),
+    ).toThrow("base64");
   });
 });
 
