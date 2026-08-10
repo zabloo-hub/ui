@@ -39,3 +39,6 @@ pnpm-debug.log*
 # --- Misc ---
 .tmp/
 tmp/
+
+# --- Contexto de Claude (generado por ai-docs/setup.sh; fuente en ai-docs) ---
+/CLAUDE.md
