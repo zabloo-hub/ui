@@ -97,7 +97,8 @@ interface NodeBase {
   /**
    * Clips children's paint AND hit-testing to this node's layout rect
    * (paint-only config, like `opacity` — no runtime state). Overflowing
-   * children neither draw nor receive input outside the rect.
+   * children neither draw nor receive input outside the rect; a node's
+   * effective clipping rect is the intersection with all ancestor clips.
    */
   clip?: boolean;
 }
@@ -155,6 +156,7 @@ export type ScrollAxis = "vertical" | "horizontal" | "both";
  * children are measured UNCONSTRAINED on the scrollable axis, and the SDK owns
  * the runtime scroll offset (clamped to `max(0, contentSize - viewport)` on
  * every relayout) plus the wheel/drag input and the overlay scrollbar.
+ * Padding counts as content (pads the children, expands scrollable bounds).
  * Always clips; an explicit `clip: false` is ignored.
  */
 export interface ScrollViewNode extends NodeBase {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { IR_VERSION, parseEnvelope, supportsVersion, type Envelope, type ScrollViewNode } from "./index.js";
+import {
+  type Envelope,
+  IR_VERSION,
+  parseEnvelope,
+  type ScrollViewNode,
+  supportsVersion,
+} from "./index.js";
 
 const validEnvelope = {
   v: IR_VERSION,
@@ -106,5 +112,38 @@ describe("scroll & clipping (ZAB-5)", () => {
       children: Array<{ text: string }>;
     };
     expect(node.children[0]?.text).toBe("kept");
+  });
+
+  // Type assertions: clip placement and axis/clip type safety
+  it("rejects non-boolean clip values at type-check time", () => {
+    const invalidClip: ScrollViewNode = {
+      type: "ScrollView",
+      // @ts-expect-error — clip must be boolean, not string
+      clip: "yes",
+    };
+    expect(invalidClip).toBeDefined();
+  });
+
+  it("rejects invalid axis values at type-check time", () => {
+    const node: ScrollViewNode = {
+      type: "ScrollView",
+      // @ts-expect-error — "diagonal" is not a valid ScrollAxis
+      axis: "diagonal",
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("accepts clip on all NodeBase-derived primitives (positive assertion)", () => {
+    // Positive: clip belongs on NodeBase and is available on any primitive
+    const withClip: Envelope = {
+      v: IR_VERSION,
+      tokens: {},
+      views: {
+        button: { type: "Button", clip: true },
+        text: { type: "Text", text: "clipped", clip: false },
+        container: { type: "Container", clip: true },
+      },
+    };
+    expect(withClip.views.button?.type).toBe("Button");
   });
 });
