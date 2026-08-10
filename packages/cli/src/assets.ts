@@ -8,8 +8,8 @@
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
-import type { AssetEntry, AssetRef, ZNode } from "@zabloo/format";
+import { extname, isAbsolute, join, normalize } from "node:path";
+import { type AssetEntry, type AssetRef, isAssetRef, type ZNode } from "@zabloo/format";
 import { imageMeta } from "./image-meta.js";
 
 /** Which props carry assets, per node type (grows with the format — F3 adds fonts). */
@@ -52,19 +52,30 @@ export async function collectAssets(
     while (stack.length > 0) {
       const node = stack.pop() as ZNode & { children?: ZNode[] };
       for (const prop of ASSET_PROPS[node.type] ?? []) {
+        const where = `view "${viewId}", node "${node.id ?? "?"}" (${node.type})`;
         const record = node as unknown as Record<string, unknown>;
         const value = record[prop];
-        if (typeof value !== "string" || value.startsWith("asset:")) continue;
+        if (value === undefined) continue;
+        if (typeof value !== "string") {
+          throw new Error(
+            `${where}: asset prop "${prop}" takes a path string; bindings are not supported for assets`,
+          );
+        }
+        if (isAssetRef(value)) continue;
 
-        const where = `view "${viewId}", node "${node.id ?? "?"}" (${node.type})`;
         const id = normalize(value).replaceAll("\\", "/");
-        if (id.startsWith("..")) {
+        if (isAbsolute(value) || id === ".." || id.startsWith("../")) {
           throw new Error(`${where}: asset path "${value}" escapes src/assets/`);
         }
         if (!(id in assets)) {
           const entry = await readAsset(id, join(assetsDir, id), where);
           assets[id] = entry;
           totalBytes += entry.size;
+          if (totalBytes > TOTAL_MAX_BYTES) {
+            throw new Error(
+              `assets exceed the 50 MB hot-update limit (total: ${mb(totalBytes)} MB) — reduce or split the project`,
+            );
+          }
           if (entry.size > ASSET_WARN_BYTES) {
             warnings.push(
               `asset "${id}" weighs ${mb(entry.size)} MB — consider compressing/rescaling`,
@@ -77,11 +88,6 @@ export async function collectAssets(
     }
   }
 
-  if (totalBytes > TOTAL_MAX_BYTES) {
-    throw new Error(
-      `assets exceed the 50 MB hot-update limit (total: ${mb(totalBytes)} MB) — reduce or split the project`,
-    );
-  }
   if (totalBytes > TOTAL_WARN_BYTES) {
     warnings.push(`assets total ${mb(totalBytes)} MB (> 15 MB) — hot-updates will be heavy`);
   }
@@ -102,6 +108,11 @@ async function readAsset(id: string, absPath: string, where: string): Promise<As
     throw new Error(`${where}: asset "${id}" not found at ${absPath}`);
   }
   const meta = imageMeta(mime, bytes);
+  if (meta === null && (mime === "image/png" || mime === "image/jpeg")) {
+    throw new Error(
+      `${where}: asset "${id}" content does not match its extension (or the file is corrupt/truncated)`,
+    );
+  }
   return {
     hash: createHash("sha256").update(bytes).digest("hex"),
     mime,

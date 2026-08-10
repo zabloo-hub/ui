@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ZNode } from "@zabloo/format";
 import { beforeEach, describe, expect, it } from "vitest";
-import { ASSET_WARN_BYTES, collectAssets, TOTAL_MAX_BYTES } from "./assets.js";
-import { fakePng } from "./image-fixtures.js";
+import { ASSET_WARN_BYTES, collectAssets, TOTAL_MAX_BYTES, TOTAL_WARN_BYTES } from "./assets.js";
+import { fakeJpeg, fakePng } from "./image-fixtures.js";
 
 let dir: string;
 beforeEach(async () => {
@@ -87,11 +87,54 @@ describe("collectAssets", () => {
     );
   });
 
+  it("rejects absolute paths", async () => {
+    await expect(collectAssets({ main: imageView("/etc/passwd.png") }, dir)).rejects.toThrow(
+      /escapes/,
+    );
+  });
+
+  it("errors when an asset prop is a binding, not a path string", async () => {
+    const views = {
+      main: {
+        type: "Container",
+        children: [
+          { type: "Image", id: "logo", src: { bind: "player.avatar" } } as unknown as ZNode,
+        ],
+      } as ZNode,
+    };
+    await expect(collectAssets(views, dir)).rejects.toThrow(
+      /path string.*bindings are not supported/s,
+    );
+  });
+
+  it("errors when a file's content does not match its extension", async () => {
+    await writeFile(join(dir, "fake.png"), fakeJpeg(4, 4));
+    await expect(collectAssets({ main: imageView("fake.png") }, dir)).rejects.toThrow(
+      /does not match its extension/,
+    );
+  });
+
+  it("errors on truncated/corrupt image content", async () => {
+    await writeFile(join(dir, "broken.png"), fakePng(1, 1).subarray(0, 10));
+    await expect(collectAssets({ main: imageView("broken.png") }, dir)).rejects.toThrow(
+      /does not match its extension/,
+    );
+  });
+
   it("warns on a single asset above 2 MB", async () => {
     const big = Buffer.concat([fakePng(1, 1), Buffer.alloc(ASSET_WARN_BYTES)]);
     await writeFile(join(dir, "big.png"), big);
     const { warnings } = await collectAssets({ main: imageView("big.png") }, dir);
     expect(warnings.some((w) => w.includes("big.png"))).toBe(true);
+  });
+
+  it("warns (without erroring) when the total is between 15 MB and 50 MB", async () => {
+    const warn = Buffer.concat([fakePng(1, 1), Buffer.alloc(TOTAL_WARN_BYTES)]);
+    await writeFile(join(dir, "warn.png"), warn);
+    const { warnings, totalBytes } = await collectAssets({ main: imageView("warn.png") }, dir);
+    expect(totalBytes).toBeGreaterThan(TOTAL_WARN_BYTES);
+    expect(totalBytes).toBeLessThan(TOTAL_MAX_BYTES);
+    expect(warnings.some((w) => w.includes("15 MB"))).toBe(true);
   });
 
   it("hard-errors when the total exceeds 50 MB", async () => {

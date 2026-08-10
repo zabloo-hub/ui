@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { decodeAssetData, IR_VERSION, parseEnvelope, supportsVersion } from "./index.js";
+import {
+  assetIdFromRef,
+  decodeAssetData,
+  IR_VERSION,
+  isAssetRef,
+  parseEnvelope,
+  supportsVersion,
+} from "./index.js";
 
 const validEnvelope = {
   v: IR_VERSION,
@@ -113,6 +120,53 @@ describe("parseEnvelope: assets", () => {
     expect(() =>
       parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "AAA" } } }),
     ).toThrow("base64");
+  });
+
+  it("rejects non-finite size", () => {
+    expect(() =>
+      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, size: Number.NaN } } }),
+    ).toThrow("`size`");
+    expect(() =>
+      parseEnvelope({
+        ...validEnvelope,
+        assets: { x: { ...asset, size: Number.POSITIVE_INFINITY } },
+      }),
+    ).toThrow("`size`");
+  });
+
+  it("rejects non-finite width/height", () => {
+    expect(() =>
+      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, width: Number.NaN } } }),
+    ).toThrow("`width`");
+    expect(() =>
+      parseEnvelope({
+        ...validEnvelope,
+        assets: { x: { ...asset, height: Number.POSITIVE_INFINITY } },
+      }),
+    ).toThrow("`height`");
+  });
+});
+
+describe("isAssetRef", () => {
+  it("accepts well-formed asset refs", () => {
+    expect(isAssetRef("asset:hero.png")).toBe(true);
+    expect(isAssetRef("asset:icons/coin.png")).toBe(true);
+  });
+
+  it("rejects non-refs", () => {
+    expect(isAssetRef("hero.png")).toBe(false);
+    expect(isAssetRef("asset:")).toBe(false);
+    expect(isAssetRef(42)).toBe(false);
+    expect(isAssetRef(null)).toBe(false);
+    expect(isAssetRef(undefined)).toBe(false);
+    expect(isAssetRef({ bind: "player.avatar" })).toBe(false);
+  });
+});
+
+describe("assetIdFromRef", () => {
+  it("strips the `asset:` prefix", () => {
+    expect(assetIdFromRef("asset:hero.png")).toBe("hero.png");
+    expect(assetIdFromRef("asset:icons/coin.png")).toBe("icons/coin.png");
   });
 });
 

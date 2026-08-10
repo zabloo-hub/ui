@@ -233,6 +233,23 @@ export function decodeAssetData(entry: AssetEntry): Uint8Array {
   return bytes;
 }
 
+/**
+ * True if `value` is a well-formed asset reference (`"asset:<id>"` with a non-empty
+ * id). SDK consumers should use this instead of hand-rolled `startsWith("asset:")`
+ * string surgery.
+ */
+export function isAssetRef(value: unknown): value is AssetRef {
+  return typeof value === "string" && value.startsWith("asset:") && value.length > "asset:".length;
+}
+
+/**
+ * Extract the manifest id from an asset ref (strips the `asset:` prefix). SDK
+ * consumers should use this instead of hand-rolled string surgery.
+ */
+export function assetIdFromRef(ref: AssetRef): string {
+  return ref.slice("asset:".length);
+}
+
 const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /** Cheap shape checks only — `data` is never decoded here (that would pay the cost twice). */
@@ -247,13 +264,19 @@ function validateAssetEntry(id: string, value: unknown): void {
   if (typeof entry.mime !== "string" || entry.mime.length === 0) {
     throw new Error(`IR envelope: asset "${id}": missing non-empty \`mime\``);
   }
-  if (typeof entry.size !== "number" || entry.size < 0) {
+  if (typeof entry.size !== "number" || !Number.isFinite(entry.size) || entry.size < 0) {
     throw new Error(`IR envelope: asset "${id}": missing numeric \`size\``);
   }
-  if (entry.width !== undefined && typeof entry.width !== "number") {
+  if (
+    entry.width !== undefined &&
+    (typeof entry.width !== "number" || !Number.isFinite(entry.width))
+  ) {
     throw new Error(`IR envelope: asset "${id}": \`width\` must be a number`);
   }
-  if (entry.height !== undefined && typeof entry.height !== "number") {
+  if (
+    entry.height !== undefined &&
+    (typeof entry.height !== "number" || !Number.isFinite(entry.height))
+  ) {
     throw new Error(`IR envelope: asset "${id}": \`height\` must be a number`);
   }
   if (
