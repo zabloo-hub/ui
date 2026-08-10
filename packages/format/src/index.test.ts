@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IR_VERSION, parseEnvelope, supportsVersion } from "./index.js";
+import { IR_VERSION, parseEnvelope, supportsVersion, type Envelope, type ScrollViewNode } from "./index.js";
 
 const validEnvelope = {
   v: IR_VERSION,
@@ -52,5 +52,59 @@ describe("supportsVersion", () => {
     expect(supportsVersion(IR_VERSION)).toBe(true);
     expect(supportsVersion(IR_VERSION + 1)).toBe(false);
     expect(supportsVersion(1.5)).toBe(false);
+  });
+});
+
+describe("scroll & clipping (ZAB-5)", () => {
+  // Typed without casts: this file failing `tsc --noEmit` IS the type test.
+  const scrollEnvelope: Envelope = {
+    v: IR_VERSION,
+    tokens: {},
+    views: {
+      settings: {
+        type: "ScrollView",
+        axis: "horizontal",
+        scrollbar: false,
+        layout: { grow: 1 },
+        children: [
+          {
+            type: "Container",
+            clip: true,
+            children: [{ type: "Text", text: "row" }],
+          },
+        ],
+      },
+    },
+  };
+
+  it("accepts a ScrollView view with clipped children", () => {
+    const env = parseEnvelope(scrollEnvelope);
+    expect(env.views.settings?.type).toBe("ScrollView");
+  });
+
+  it("axis and scrollbar are optional (defaults live in the SDK)", () => {
+    const bare: ScrollViewNode = { type: "ScrollView" };
+    const env = parseEnvelope({ v: IR_VERSION, tokens: {}, views: { s: bare } });
+    expect(env.views.s?.type).toBe("ScrollView");
+  });
+
+  it("unknown node types pass through parse with their subtree intact", () => {
+    // What lets an old SDK apply the normative fallback (render as Container
+    // preserving children) instead of losing the content.
+    const env = parseEnvelope({
+      v: IR_VERSION,
+      tokens: {},
+      views: {
+        f: {
+          type: "FutureThing",
+          futureProp: 1,
+          children: [{ type: "Text", text: "kept" }],
+        },
+      },
+    });
+    const node = env.views.f as unknown as {
+      children: Array<{ text: string }>;
+    };
+    expect(node.children[0]?.text).toBe("kept");
   });
 });
