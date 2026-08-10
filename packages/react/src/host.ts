@@ -21,7 +21,7 @@ import type {
   ZNode,
 } from "@zabloo/format";
 
-/** v1 host vocabulary — mirrors the closed IR primitive set. */
+/** Host vocabulary — the IR primitives authorable in v1 (ScrollView + `clip`: F1, pending). */
 export type HostType = "Container" | "Text" | "Button" | "Collapse";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
