@@ -216,6 +216,23 @@ export function parseEnvelope(data: unknown): Envelope {
   return data as Envelope;
 }
 
+/**
+ * Decode an asset's inlined bytes. Browser-safe on purpose (atob, no `node:` imports)
+ * — shared by the web renderer and the CLI preview; the Unity SDK decodes on its side
+ * (Convert.FromBase64String).
+ */
+export function decodeAssetData(entry: AssetEntry): Uint8Array {
+  if (entry.data === undefined) {
+    throw new Error("asset has no inline `data` (deferred resolution is not supported yet)");
+  }
+  const binary = atob(entry.data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;
 
 /** Cheap shape checks only — `data` is never decoded here (that would pay the cost twice). */

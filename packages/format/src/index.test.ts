@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IR_VERSION, parseEnvelope, supportsVersion } from "./index.js";
+import { IR_VERSION, parseEnvelope, supportsVersion, decodeAssetData } from "./index.js";
 
 const validEnvelope = {
   v: IR_VERSION,
@@ -112,6 +112,21 @@ describe("parseEnvelope: assets", () => {
     );
     expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "AAA" } } })).toThrow(
       "base64",
+    );
+  });
+});
+
+describe("decodeAssetData", () => {
+  it("round-trips bytes through base64", () => {
+    const bytes = new Uint8Array([0, 1, 2, 250, 255]);
+    const data = btoa(String.fromCharCode(...bytes));
+    const entry = { hash: "h", mime: "application/octet-stream", size: bytes.length, data };
+    expect(decodeAssetData(entry)).toEqual(bytes);
+  });
+
+  it("throws a clear error when data is absent (deferred resolution not supported yet)", () => {
+    expect(() => decodeAssetData({ hash: "h", mime: "image/png", size: 1 })).toThrow(
+      "no inline `data`",
     );
   });
 });
