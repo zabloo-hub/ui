@@ -1,9 +1,9 @@
 /**
  * `zabloo dev` — the authoring dev loop (decision 2026-08-02, implemented
- * 2026-08-03): watch the project, re-export on change, and push the envelope to
- * the engine editor's dev mode over localhost. The push goes through the SAME
- * payload/loader path as a manual import or a production hot-update — the dev
- * loop dogfoods hot-update.
+ * 2026-08-03, web-first since 2026-08-10): watch the project, re-export on
+ * change and serve the live web preview. With `--unity`, each export is also
+ * pushed to the Unity editor's dev mode over localhost — through the SAME
+ * payload/loader path as a manual import or a production hot-update.
  *
  * Each export runs in a child process: user code executes with a clean module
  * graph every time (no stale-module cache, single React instance per run).
@@ -15,14 +15,25 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startPreviewServer } from "./preview-server.js";
 
-export async function devLoop(root: string, port: number, previewPort: number): Promise<void> {
-  const url = `http://127.0.0.1:${port}/zabloo/envelope`;
+export async function devLoop(
+  root: string,
+  previewPort: number,
+  unity: { port: number } | null,
+): Promise<void> {
+  const unityUrl = unity ? `http://127.0.0.1:${unity.port}/zabloo/envelope` : null;
+  const pushToEngine = createPusher(unityUrl);
   let lastEnvelope: string | null = null;
   const preview = startPreviewServer(previewPort, () => lastEnvelope);
 
   console.log(`zabloo dev: watching ${root}`);
-  console.log(`           engine push → ${url} (Unity: menu Zabloo → Dev Mode)`);
   console.log(`           web preview → ${preview.url}`);
+  if (unityUrl) {
+    console.log(`           engine push → ${unityUrl} (Unity: menu Zabloo → Dev Mode)`);
+  } else {
+    console.log(
+      "           tip: zabloo dev --unity pushes each save to the Unity editor (Zabloo → Dev Mode)",
+    );
+  }
 
   let running = false;
   let queued = false;
@@ -38,7 +49,7 @@ export async function devLoop(root: string, port: number, previewPort: number): 
       if (outFile) {
         lastEnvelope = await readFile(outFile, "utf8");
         preview.notify(); // browser preview reloads via SSE
-        await push(lastEnvelope, url); // engine dev mode (if open)
+        await pushToEngine(lastEnvelope); // engine dev mode (no-op without --unity)
       }
     } finally {
       running = false;
@@ -62,6 +73,30 @@ export async function devLoop(root: string, port: number, previewPort: number): 
 
   await run(); // initial export + push
   await new Promise<never>(() => {}); // keep watching until Ctrl+C
+}
+
+/** Push an envelope to the engine editor's dev mode; no-op when there is no target. */
+export function createPusher(url: string | null): (body: string) => Promise<void> {
+  if (!url) return async () => {};
+  return async (body) => {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+      if (res.ok) {
+        console.log(`zabloo dev: pushed ${new Date().toLocaleTimeString()} ✔`);
+      } else {
+        console.error(`zabloo dev: engine rejected the push (${res.status}): ${await res.text()}`);
+      }
+    } catch {
+      console.warn(
+        "zabloo dev: exported, but the engine dev mode is not reachable — " +
+          "is the Unity editor open with Zabloo → Dev Mode enabled?",
+      );
+    }
+  };
 }
 
 /** Runs `zabloo export --porcelain` in a child process; resolves to the outFile. */
@@ -88,24 +123,4 @@ function exportInChild(root: string): Promise<string | null> {
       }
     });
   });
-}
-
-async function push(body: string, url: string): Promise<void> {
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body,
-    });
-    if (res.ok) {
-      console.log(`zabloo dev: pushed ${new Date().toLocaleTimeString()} ✔`);
-    } else {
-      console.error(`zabloo dev: engine rejected the push (${res.status}): ${await res.text()}`);
-    }
-  } catch {
-    console.warn(
-      "zabloo dev: exported, but the engine dev mode is not reachable — " +
-        "is the Unity editor open with Zabloo → Dev Mode enabled?",
-    );
-  }
 }
