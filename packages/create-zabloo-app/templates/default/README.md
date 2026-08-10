@@ -5,14 +5,15 @@ Game UI authored in React, exported as a versioned [zabloo](https://github.com/z
 ## Commands
 
 ```bash
-pnpm dev     # watch + live preview at http://localhost:5078 + push to the engine editor
-pnpm build   # export the envelope to dist/zabloo.ir.json
+pnpm dev        # watch + live web preview at http://localhost:5078
+pnpm dev:unity  # same, plus push each save to the Unity editor's dev mode
+pnpm build      # export the envelope to dist/zabloo.ir.json
 ```
 
 ## Dev loop
 
 - **Web preview (no engine needed):** `pnpm dev` and open http://localhost:5078 — it live-reloads on save, shows a data panel for bound paths, logs actions, and supports arrow-key/Enter navigation.
-- **Unity:** install the zabloo SDK package, enable **Zabloo → Dev Mode** in the editor, and every save hot-swaps the running view (even in Play mode). For a manual import, copy `dist/zabloo.ir.json` into your project and assign it to a `ZablooDocument`.
+- **Unity:** install the zabloo SDK package, enable **Zabloo → Dev Mode** in the editor, and run `pnpm dev:unity` — every save hot-swaps the running view (even in Play mode). For a manual import, copy `dist/zabloo.ir.json` into your project and assign it to a `ZablooDocument`.
 
 ## Project layout
 

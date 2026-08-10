@@ -53,9 +53,9 @@ What works today:
 - **Interactivity**: SDK-owned behavior keyed by component type, named actions surfaced
   as C# events, data-path bindings (`SetData("player.gold", …)` re-lays out live),
   automatic spatial focus/navigation (arrows/Enter today, gamepad-ready).
-- **Dev loop**: save a `.tsx` → `zabloo dev` re-exports and hot-pushes to the Unity
-  editor *and* a live browser preview — through the same loading path as production
-  hot-update.
+- **Dev loop**: save a `.tsx` → `zabloo dev` re-exports into a live browser preview;
+  add `--unity` to also hot-push each save to the Unity editor — through the same
+  loading path as production hot-update.
 
 **Unity is the reference SDK for v1**; Godot and Unreal are designed in parallel (every
 IR decision is validated against all three) and come later. Packages are not yet
@@ -65,7 +65,8 @@ published to npm.
 
 ```bash
 npx create-zabloo-app my-game-ui   # scaffold a React authoring project
-pnpm dev                            # watch → web preview + live push to Unity
+pnpm dev                            # watch → live web preview
+pnpm dev:unity                      # …plus hot-push each save to the Unity editor
 pnpm build                          # = zabloo export → versioned IR envelope in dist/
 ```
 

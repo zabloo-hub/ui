@@ -52,6 +52,7 @@ async function main(): Promise<void> {
     type: "module",
     scripts: {
       dev: "zabloo dev",
+      "dev:unity": "zabloo dev --unity",
       build: "zabloo export",
       typecheck: "tsc --noEmit",
     },
@@ -78,8 +79,9 @@ async function main(): Promise<void> {
   Next steps:
     cd ${target}
     pnpm install
-    pnpm dev      # web preview → http://localhost:5078 (+ Unity: menu Zabloo → Dev Mode)
-    pnpm build    # export → dist/zabloo.ir.json
+    pnpm dev        # web preview → http://localhost:5078
+    pnpm dev:unity  # + push each save to the Unity editor (menu Zabloo → Dev Mode)
+    pnpm build      # export → dist/zabloo.ir.json
 `);
 }
 
