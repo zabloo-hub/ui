@@ -3,7 +3,8 @@
  *
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
- * - v1 vocabulary is a closed set of 3 primitives: Container, Text, Button.
+ * - v1 vocabulary is a closed set grown by capability: Container, Text, Button, Collapse, Image.
+ * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
  * - Styles are resolved per node and reference a flat token dictionary in the envelope.
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
  * - Paint is 100% implicit from style in v1 (no explicit draw-command layer).
@@ -33,6 +34,29 @@ export type Dim = number | TokenRef;
 /** Color: a literal (e.g. `"#4f46e5"`) or a token reference. */
 export type ColorValue = string | TokenRef;
 
+/** A reference to an asset in the envelope's manifest, e.g. `"asset:icons/coin.png"`. */
+export type AssetRef = `asset:${string}`;
+
+/**
+ * One asset in the envelope's manifest (decision 2026-08-11, ZAB-10). `hash` is the
+ * content identity (SHA-256 hex): dedup today, content-addressed caching/CDN once the
+ * platform exists. `data` is optional in the SCHEMA only — v1 exports always inline
+ * it; a future platform may omit it and let SDKs resolve bytes by hash (deferred
+ * resolution) without a format change.
+ */
+export interface AssetEntry {
+  hash: string;
+  /** MIME type, e.g. "image/png". The format is generic; accepted MIMEs are an export concern. */
+  mime: string;
+  /** Byte size of the decoded content. */
+  size: number;
+  /** Pixel dimensions (images): lets layout reserve space before decoding. */
+  width?: number;
+  height?: number;
+  /** Content bytes, base64-encoded. */
+  data?: string;
+}
+
 /**
  * Versioned multi-view envelope — the unit the SDK loader consumes, whether it comes
  * from a manual import or a platform hot-update (one loading path).
@@ -44,10 +68,12 @@ export interface Envelope {
   tokens: Record<string, TokenValue>;
   /** Documents (views/scenes) keyed by view ID. */
   views: Record<string, ZNode>;
+  /** Asset manifest keyed by logical id. Optional: envelopes without assets stay valid as-is. */
+  assets?: Record<string, AssetEntry>;
 }
 
 /** v1 node vocabulary (closed set). */
-export type ZNode = ContainerNode | TextNode | ButtonNode | CollapseNode;
+export type ZNode = ContainerNode | TextNode | ButtonNode | CollapseNode | ImageNode;
 
 export type StateName = "hover" | "pressed" | "disabled" | "focused";
 
@@ -140,6 +166,16 @@ export interface CollapseNode extends NodeBase {
   children?: ZNode[];
 }
 
+/**
+ * Textured rectangle. `src` references the envelope's asset manifest; at authoring
+ * time the prop carries a path relative to `src/assets/` and `zabloo export` rewrites
+ * it to the final `asset:<id>` ref (ZAB-13 implements the component + rendering).
+ */
+export interface ImageNode extends NodeBase {
+  type: "Image";
+  src: AssetRef;
+}
+
 /** True if this package's reader can consume content with version `v`. */
 export function supportsVersion(v: number): boolean {
   return Number.isInteger(v) && v === IR_VERSION;
@@ -169,5 +205,46 @@ export function parseEnvelope(data: unknown): Envelope {
   if (typeof env.views !== "object" || env.views === null) {
     throw new Error("IR envelope: missing `views` map");
   }
+  if (env.assets !== undefined) {
+    if (typeof env.assets !== "object" || env.assets === null || Array.isArray(env.assets)) {
+      throw new Error("IR envelope: `assets` must be an object");
+    }
+    for (const [id, entry] of Object.entries(env.assets)) {
+      validateAssetEntry(id, entry);
+    }
+  }
   return data as Envelope;
+}
+
+const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;
+
+/** Cheap shape checks only — `data` is never decoded here (that would pay the cost twice). */
+function validateAssetEntry(id: string, value: unknown): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`IR envelope: asset "${id}" must be an object`);
+  }
+  const entry = value as Record<string, unknown>;
+  if (typeof entry.hash !== "string" || entry.hash.length === 0) {
+    throw new Error(`IR envelope: asset "${id}": missing non-empty \`hash\``);
+  }
+  if (typeof entry.mime !== "string" || entry.mime.length === 0) {
+    throw new Error(`IR envelope: asset "${id}": missing non-empty \`mime\``);
+  }
+  if (typeof entry.size !== "number" || entry.size < 0) {
+    throw new Error(`IR envelope: asset "${id}": missing numeric \`size\``);
+  }
+  if (entry.width !== undefined && typeof entry.width !== "number") {
+    throw new Error(`IR envelope: asset "${id}": \`width\` must be a number`);
+  }
+  if (entry.height !== undefined && typeof entry.height !== "number") {
+    throw new Error(`IR envelope: asset "${id}": \`height\` must be a number`);
+  }
+  if (
+    entry.data !== undefined &&
+    (typeof entry.data !== "string" ||
+      entry.data.length % 4 !== 0 ||
+      !BASE64_SHAPE.test(entry.data))
+  ) {
+    throw new Error(`IR envelope: asset "${id}": \`data\` is not base64`);
+  }
 }

@@ -54,3 +54,64 @@ describe("supportsVersion", () => {
     expect(supportsVersion(1.5)).toBe(false);
   });
 });
+
+describe("parseEnvelope: assets", () => {
+  const asset = {
+    hash: "a".repeat(64),
+    mime: "image/png",
+    size: 3,
+    width: 1,
+    height: 1,
+    data: "AAAA",
+  };
+
+  it("accepts an envelope without assets (unchanged)", () => {
+    expect(parseEnvelope(validEnvelope).assets).toBeUndefined();
+  });
+
+  it("accepts a valid asset entry", () => {
+    const env = parseEnvelope({ ...validEnvelope, assets: { "hero.png": asset } });
+    expect(env.assets?.["hero.png"]?.hash).toBe("a".repeat(64));
+  });
+
+  it("accepts an entry without data/width/height (deferred-resolution shape)", () => {
+    const bare = { hash: asset.hash, mime: asset.mime, size: asset.size };
+    const env = parseEnvelope({ ...validEnvelope, assets: { "hero.png": bare } });
+    expect(env.assets?.["hero.png"]?.data).toBeUndefined();
+  });
+
+  it("is forward-tolerant: unknown entry fields pass through", () => {
+    const env = parseEnvelope({
+      ...validEnvelope,
+      assets: { "hero.png": { ...asset, futureField: true } },
+    });
+    expect(env.assets?.["hero.png"]?.mime).toBe("image/png");
+  });
+
+  it("rejects a non-object assets section", () => {
+    expect(() => parseEnvelope({ ...validEnvelope, assets: [] })).toThrow(
+      "`assets` must be an object",
+    );
+  });
+
+  it("rejects entries missing hash, mime or size", () => {
+    expect(() =>
+      parseEnvelope({ ...validEnvelope, assets: { x: { mime: "image/png", size: 3 } } }),
+    ).toThrow("`hash`");
+    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { hash: "h", size: 3 } } })).toThrow(
+      "`mime`",
+    );
+    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, size: "3" } } })).toThrow(
+      "`size`",
+    );
+  });
+
+  it("rejects data that is not base64-shaped (without decoding it)", () => {
+    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "!!" } } })).toThrow(
+      "base64",
+    );
+    expect(() => parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "AAA" } } })).toThrow(
+      "base64",
+    );
+  });
+});
