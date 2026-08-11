@@ -120,7 +120,10 @@ export interface StateOverride {
   style?: Style;
 }
 
-/** Yoga subset decided for v1: direction, justify, align, gap, padding, width/height, grow. */
+/**
+ * Yoga subset decided for v1: direction, justify, align, gap, padding,
+ * width/height, grow — plus `wrap` (2026-08-11, ZAB-32).
+ */
 export interface Layout {
   direction?: "row" | "column";
   justify?: "start" | "center" | "end" | "space-between";
@@ -130,6 +133,23 @@ export interface Layout {
   width?: Dim;
   height?: Dim;
   grow?: number;
+  /**
+   * Break the main axis into several lines when the children do not fit
+   * (decision 2026-08-11, ZAB-32 — the subset extension ZAB-29 left pending for
+   * `<Grid>`). Default: false, one single line, which is what every node emitted
+   * so far assumes.
+   *
+   * A grid is this and nothing else: a wrapping row whose items have a width, so
+   * N of them fit per line. `justify`/`align` keep meaning what they mean **within
+   * a line**, and how the lines themselves are distributed on the cross axis
+   * (Yoga's `align-content`) stays OUT of the subset — lines stack from the start,
+   * which is the only behavior a grid of equal rows can tell apart anyway.
+   *
+   * `grow` is per line: the leftovers of a line are shared between the children on
+   * it. An SDK that predates this flag lays the children out on one single line —
+   * the row overflows (and clips, if the node clips) but no content is lost.
+   */
+  wrap?: boolean;
 }
 
 /** Alignment of a text block inside its rect, on either axis. */
@@ -377,7 +397,19 @@ export type ScrollAxis = "vertical" | "horizontal" | "both";
  * the runtime scroll offset (clamped to `max(0, contentSize - viewport)` on
  * every relayout) plus the wheel/drag input and the overlay scrollbar.
  * Padding counts as content (pads the children, expands scrollable bounds).
- * Always clips; an explicit `clip: false` is ignored.
+ * Always clips, paint AND hit-testing; an explicit `clip: false` is ignored.
+ *
+ * **No states, no events (decision 2026-08-11, ZAB-9).** The offset is runtime
+ * state, not a *style* state: a ScrollView is not focusable and carries no
+ * `hover`/`pressed`/`selected`/`checked`, so `states.*` on this node never
+ * applies (its children keep theirs — scrolling by drag does not become a click
+ * on the Button under the finger). It emits no action either: there is no
+ * `onScroll` in v1. A game moves it through the SDK's host channel
+ * (`SetScroll(id, x, y)` — the `SetOpen` counterpart), which is API, not IR.
+ *
+ * Deferred, all compatible extensions: an authored/bindable offset and
+ * auto-scrolling to the focused node land with gamepad input; inertia, a
+ * styleable scrollbar (`scrollbar` boolean → object) and snapping come after.
  */
 export interface ScrollViewNode extends NodeBase {
   type: "ScrollView";
