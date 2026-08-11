@@ -264,12 +264,21 @@ export interface BadgeProps extends CommonProps {
   children?: ReactNode;
 }
 
-/** Wraps a host primitive with variant resolution (variant never reaches the IR). */
+/**
+ * Wraps a host primitive with variant resolution (variant never reaches the IR).
+ * The theme's motion defaults are resolved here too: a node's own `transition`
+ * always wins, so authoring stays explicit while the theme sets the baseline.
+ */
 function primitive<P extends CommonProps>(type: string): FC<P> {
   const Component = (props: P) => {
-    const { variant, style, states, ...rest } = props;
-    const resolved = useVariant(type, variant, { style, states });
-    return createElement(type, { ...rest, style: resolved.style, states: resolved.states });
+    const { variant, style, states, transition, ...rest } = props;
+    const resolved = useVariant(type, variant, { style, states, transition });
+    return createElement(type, {
+      ...rest,
+      style: resolved.style,
+      states: resolved.states,
+      transition: resolved.transition,
+    });
   };
   Component.displayName = type;
   return Component as FC<P>;

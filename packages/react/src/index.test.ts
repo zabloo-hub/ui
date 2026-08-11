@@ -396,6 +396,52 @@ describe("renderToIR", () => {
     });
   });
 
+  it("gives every node of a type the theme's motion, with or without a variant", () => {
+    const theme: ZablooTheme = {
+      transitions: { Button: { duration: "{motion.fast}" } },
+      variants: { Button: { primary: { style: { background: "{color.primary}" } } } },
+    };
+    const ir = renderToIR(
+      h(
+        ThemeProvider,
+        { theme },
+        h(
+          Column,
+          null,
+          h(Button, { onClick: "a" }),
+          h(Button, { variant: "primary", onClick: "b" }),
+        ),
+      ),
+    ) as ContainerNode;
+
+    expect(ir.children?.[0]).toEqual({
+      type: "Button",
+      onClick: "a",
+      transition: { duration: "{motion.fast}" },
+    });
+    expect(ir.children?.[1]).toEqual({
+      type: "Button",
+      onClick: "b",
+      style: { background: "{color.primary}" },
+      transition: { duration: "{motion.fast}" },
+    });
+    // Keyed by component: a type the theme says nothing about carries no motion.
+    expect(ir.transition).toBeUndefined();
+  });
+
+  it("lets the variant override the theme's motion, and the node override both", () => {
+    const theme: ZablooTheme = {
+      transitions: { Button: { duration: 200 } },
+      variants: { Button: { snappy: { transition: { duration: 80, easing: "ease-in" } } } },
+    };
+    const at = (props: Record<string, unknown>) =>
+      (renderToIR(h(ThemeProvider, { theme }, h(Button, props))) as ContainerNode).transition;
+
+    expect(at({})).toEqual({ duration: 200 });
+    expect(at({ variant: "snappy" })).toEqual({ duration: 80, easing: "ease-in" });
+    expect(at({ variant: "snappy", transition: { duration: 0 } })).toEqual({ duration: 0 });
+  });
+
   it("fails loudly on unknown variants", () => {
     const theme: ZablooTheme = { variants: { Button: { primary: {} } } };
     expect(() =>

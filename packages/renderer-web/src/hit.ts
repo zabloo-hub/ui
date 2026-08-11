@@ -14,9 +14,14 @@ import { contains, inFlow, type LayoutNode } from "./layout.js";
 /** Resolves a node's painted corner radius (effective style + tokens live in the view). */
 export type NodeRadius = (node: LayoutNode) => number;
 
-/** A ScrollView always clips; any node opts in with `clip: true`. */
+/**
+ * A ScrollView always clips; any node opts in with `clip: true`. A behavior may
+ * also turn it on for a frame (`forcedClip`) — a Collapse whose box is closing
+ * has to cut the content it is closing over, and an author should not have to
+ * remember to ask for that.
+ */
 export function clipsChildren(node: LayoutNode): boolean {
-  return node.ir.type === "ScrollView" || node.ir.clip === true;
+  return node.ir.type === "ScrollView" || node.ir.clip === true || node.forcedClip;
 }
 
 /** The clipping region a node's children inherit (its own is `inherited`). */

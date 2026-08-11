@@ -30,6 +30,7 @@ import {
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
 import { type Clip, clipContains, isEmptyClip } from "./clip.js";
+import { closedHeight, collapseTarget } from "./collapse.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
@@ -37,6 +38,7 @@ import { childClip, effectiveClip } from "./hit.js";
 import {
   arrange,
   contains,
+  createLayoutNode,
   inFlow,
   inLayout,
   type LayoutNode,
@@ -66,9 +68,10 @@ import {
   valueAt,
 } from "./slider.js";
 import { beadOpacity, DEFAULT_PERIOD } from "./spinner.js";
+import { effectiveStyle } from "./states.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 import { layoutText, placeLines, type TextLayoutOptions } from "./text.js";
-import { isSelected, nextChecked, slotShown } from "./toggle.js";
+import { isSelected, nextChecked, slotOpacity } from "./toggle.js";
 import {
   clearNodeAnim,
   createNodeAnim,
@@ -234,6 +237,8 @@ class WebView {
   private readonly data = new Map<string, unknown>();
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
+  /** Node under the mouse, if any — the only state the pointer owns by itself. */
+  private hoveredNode: LayoutNode | null = null;
   private scrollDrag: ScrollDrag | null = null;
   /** Slider being dragged with the pointer, and the one being nudged with the keyboard. */
   private sliderDrag: SliderGesture | null = null;
@@ -348,6 +353,7 @@ class WebView {
     this.sliderBindings = new Map();
     this.pressedNode = null;
     this.focusedNode = null;
+    this.hoveredNode = null;
     this.scrollDrag = null;
     this.sliderDrag = null;
     this.sliderKeys = null;
@@ -366,32 +372,9 @@ class WebView {
   }
 
   private buildNode(ir: ZNode, parent: LayoutNode | null): LayoutNode {
-    const node: LayoutNode = {
-      ir,
-      parent,
-      children: [],
-      measured: { x: 0, y: 0 },
-      rect: { x: 0, y: 0, width: 0, height: 0 },
-      pressed: false,
-      focused: false,
-      open: true,
-      selected: false,
-      selectedIndex: 0,
-      checked: false,
-      sliderValue: 0,
-      groupValue: undefined,
-      visibleFlag: true,
-      sectionShown: true,
-      progress: 0,
-      loopStartedAt: null,
-      scrollOffset: { x: 0, y: 0 },
-      scrollMax: { x: 0, y: 0 },
-      resolved: {},
-      textBlock: null,
-      // Fresh state: the first resolve pass has nothing to tween from, so this
-      // node snaps into its initial values — which is also why a reload snaps.
-      anim: createNodeAnim(),
-    };
+    // Fresh state: the first resolve pass has nothing to tween from, so this
+    // node snaps into its initial values — which is also why a reload snaps.
+    const node = createLayoutNode(ir, parent);
     const any = ir as AnyNode;
 
     if (any.id) this.byId.set(any.id, node);
@@ -441,6 +424,7 @@ class WebView {
       // an empty store leaves the control at its minimum, as the SDK does.
       const initial = path !== null ? this.data.get(path) : any.value;
       node.sliderValue = quantize(toNumber(initial, range.min), range);
+      node.sliderDisplay = node.sliderValue;
       if (path !== null) pushMapList(this.sliderBindings, path, node);
     }
     if (any.type === "Toggle") {
@@ -454,27 +438,60 @@ class WebView {
         } else {
           node.checked = any.checked === true;
         }
-        this.applyChecked(node);
       }
+      // The crossfade starts settled on the initial state: a mount snaps.
+      node.checkedProgress = node.checked ? 1 : 0;
     }
     return node;
   }
 
   // --- behavior (renderer-owned, keyed by component type) ---
 
+  /**
+   * The content is in layout while the Collapse is open — and for as long as the
+   * height tween runs, which is what a closing Collapse animates over.
+   */
   private applyOpen(node: LayoutNode): void {
+    const shown = node.open || node.collapseAnimating;
     for (let i = 1; i < node.children.length; i++) {
-      node.children[i].sectionShown = node.open;
+      node.children[i].sectionShown = shown;
     }
   }
 
-  /** Single state-mutation path (tap, setOpen — `open` bindings later). */
+  /**
+   * Single state-mutation path (tap, setOpen — `open` bindings later). With a
+   * usable `transition` the box animates between the header's height and the
+   * content's (decision 2026-08-11 §5); without one the content snaps in and out,
+   * which is the pre-F7 behavior exactly.
+   */
   private setCollapseOpen(node: LayoutNode, open: boolean): void {
     if (node.open === open) return;
     node.open = open;
-    this.applyOpen(node);
+    this.startCollapse(node);
     if (open) this.enforceGroup(node);
     this.render();
+  }
+
+  /**
+   * Puts a Collapse's new `open` state into effect: the height tween if the node
+   * declares a usable transition and does not declare its own height (a declared
+   * box belongs to the author — the behavior does not fight it), the plain
+   * show/hide otherwise.
+   */
+  private startCollapse(node: LayoutNode): void {
+    if (this.animates(node) && node.ir.layout?.height === undefined) {
+      // The content enters layout now so the next measure can size it; while it
+      // was out there is no honest open height, hence the one pending frame.
+      node.collapsePending = !node.collapseAnimating && node.open;
+      node.collapseAnimating = true;
+    }
+    this.applyOpen(node);
+  }
+
+  /** Whether this node's declared transition would actually tween anything. */
+  private animates(node: LayoutNode): boolean {
+    const transition = this.transitionOf(node);
+    return transition !== null && transition.duration > 0 && Number.isFinite(transition.duration);
   }
 
   /**
@@ -551,19 +568,16 @@ class WebView {
     for (const sibling of opened.parent?.children ?? []) {
       if (sibling !== opened && sibling.ir.type === "Collapse" && sibling.open) {
         sibling.open = false;
-        this.applyOpen(sibling);
+        // Through the same path as a tap: in an accordion the one that closes
+        // animates shut while the one that opens animates open.
+        this.startCollapse(sibling);
       }
     }
   }
 
   // --- Toggle: checked state, indicator slots and exclusive-check groups ---
-
-  /** `children[0]` is in layout while checked, `children[1]` while unchecked. */
-  private applyChecked(node: LayoutNode): void {
-    for (let i = 0; i < node.children.length; i++) {
-      node.children[i].sectionShown = slotShown(i, node.checked);
-    }
-  }
+  // Both indicator slots stay in layout, sharing one box: which one you see is
+  // opacity, tweened by `crossfadeSlots` (decision 2026-08-11, ZAB-36).
 
   /** The nearest `"exclusive-check"` ancestor, if this Toggle is one of its options. */
   private exclusiveGroupOf(node: LayoutNode): LayoutNode | null {
@@ -591,7 +605,6 @@ class WebView {
   private applyGroupValue(group: LayoutNode): void {
     for (const option of this.groupOptions(group)) {
       option.checked = isSelected(group.groupValue, (option.ir as AnyNode).value);
-      this.applyChecked(option);
     }
   }
 
@@ -614,7 +627,6 @@ class WebView {
     } else {
       if (node.checked === checked) return;
       node.checked = checked;
-      this.applyChecked(node);
       const path = bindPath(any.checked);
       if (path !== null) this.writeData(path, checked);
     }
@@ -781,7 +793,6 @@ class WebView {
     }
     for (const node of this.checkedBindings.get(path) ?? []) {
       node.checked = isTruthy(value);
-      this.applyChecked(node);
     }
     for (const group of this.groupBindings.get(path) ?? []) {
       group.groupValue = value;
@@ -1060,6 +1071,11 @@ class WebView {
       }
     };
     const move = (event: PointerEvent) => {
+      // Hover is a MOUSE state: a finger that taps and leaves would otherwise
+      // keep a control lit up with nothing over it.
+      if (event.pointerType === "" || event.pointerType === "mouse") {
+        if (this.setHover(this.hoverableAt(this.eventPoint(event)))) this.render();
+      }
       const slider = this.sliderDrag;
       if (slider) {
         // No drag threshold: a slider follows the finger from the first pixel
@@ -1170,11 +1186,15 @@ class WebView {
         scrollable.scrollOffset.y + event.deltaY,
       );
     };
+    const leave = () => {
+      if (this.setHover(null)) this.render();
+    };
     const resize = () => this.resize();
 
     this.canvas.addEventListener("pointerdown", down);
     this.canvas.addEventListener("pointermove", move);
     this.canvas.addEventListener("pointerup", up);
+    this.canvas.addEventListener("pointerleave", leave);
     this.canvas.addEventListener("wheel", wheel, { passive: false });
     globalThis.addEventListener("keydown", keydown);
     globalThis.addEventListener("keyup", keyup);
@@ -1183,6 +1203,7 @@ class WebView {
       this.canvas.removeEventListener("pointerdown", down);
       this.canvas.removeEventListener("pointermove", move);
       this.canvas.removeEventListener("pointerup", up);
+      this.canvas.removeEventListener("pointerleave", leave);
       this.canvas.removeEventListener("wheel", wheel);
       globalThis.removeEventListener("keydown", keydown);
       globalThis.removeEventListener("keyup", keyup);
@@ -1198,6 +1219,27 @@ class WebView {
   /** The overlay layer first (top-down, a modal captures), then the tree — clipped subtrees excluded. */
   private hitTest(point: Point) {
     return resolveHit(this.root, this.layer, point, this.radiusOf);
+  }
+
+  /**
+   * The control the pointer is over, if any. Hoverable is the same set as
+   * focusable — what takes input is what may look different under the pointer —
+   * so hover and directional navigation light up exactly the same nodes, and a
+   * modal's backdrop (which captures input) lights up nothing below it.
+   */
+  private hoverableAt(point: Point): LayoutNode | null {
+    const resolved = this.hitTest(point);
+    if (resolved.kind !== "node") return null;
+    return this.findUp(resolved.node, (node) => this.isFocusable(node));
+  }
+
+  /** Moves the hover, returning whether anything changed (the caller repaints). */
+  private setHover(node: LayoutNode | null): boolean {
+    if (this.hoveredNode === node) return false;
+    if (this.hoveredNode) this.hoveredNode.hovered = false;
+    this.hoveredNode = node;
+    if (node) node.hovered = true;
+    return true;
   }
 
   /** Is this node's own rect reachable at that point, given its ancestors' clips? */
@@ -1253,20 +1295,10 @@ class WebView {
     return (typeof resolved === "string" && parseColor(resolved)) || fallback;
   }
 
+  /** This frame's style: the base plus every active state, in `STATE_ORDER`. */
   private effectiveStyle(node: LayoutNode): Style | undefined {
     const any = node.ir as AnyNode;
-    let style = any.style;
-    // Merge order: base → value states (selected/checked) → focused → pressed
-    // (pressed wins while held). A node never carries both value states.
-    if (node.selected && any.states?.selected?.style)
-      style = { ...style, ...any.states.selected.style };
-    if (node.checked && any.states?.checked?.style)
-      style = { ...style, ...any.states.checked.style };
-    if (node.focused && any.states?.focused?.style)
-      style = { ...style, ...any.states.focused.style };
-    if (node.pressed && any.states?.pressed?.style)
-      style = { ...style, ...any.states.pressed.style };
-    return style;
+    return effectiveStyle(any.style, any.states, node);
   }
 
   private fontSize(style: Style | undefined): number {
@@ -1329,11 +1361,16 @@ class WebView {
       this.forgetAnim(node);
       return;
     }
+    node.forcedClip = false;
     const style = this.effectiveStyle(node);
     const layout = node.ir.layout;
     const targets: ResolvedValues = {
       background: this.optionalColor(style?.background, MISSING_COLOR),
-      borderColor: this.optionalColor(style?.borderColor, MISSING_COLOR),
+      // An undeclared border color HOLDS the last one instead of dropping it: the
+      // border it paints is leaving through `borderWidth`, and a focus ring that
+      // loses its color halfway out would flash the missing-color magenta.
+      borderColor:
+        this.optionalColor(style?.borderColor, MISSING_COLOR) ?? node.resolved.borderColor,
       color: this.optionalColor(style?.color, DEFAULT_TEXT_COLOR),
       // These have renderer defaults, so both endpoints always resolve and a state
       // that introduces one still animates (only auto sizes and colors can snap).
@@ -1349,10 +1386,93 @@ class WebView {
     const { values, animating } = stepNode(node.anim, targets, transition, now);
     node.resolved = values;
     if (animating) this.animating = true;
+    // Behaviors that tween a value of their own, with endpoints they compute
+    // (decision 2026-08-11 §5) — they run BEFORE the children, since a Collapse
+    // decides here whether its content is in layout at all this frame.
     if (node.ir.type === "ProgressBar") this.resolveProgress(node, transition, now);
+    else if (node.ir.type === "Slider") this.resolveSlider(node, transition, now);
+    else if (node.ir.type === "Collapse") this.resolveCollapse(node, transition, now);
     for (const child of node.children) this.resolve(child, now);
-    // After the children: the wave modulates values they have already resolved.
+    // After the children: these modulate values they have already resolved.
     if (node.ir.type === "Spinner") this.spin(node, now);
+    else if (node.ir.type === "Toggle") this.crossfadeSlots(node, transition, now);
+  }
+
+  /**
+   * The Slider's painted value. A change that comes from the game (a binding,
+   * `setValue`) glides; the one in the player's hand does NOT — a thumb that
+   * lags the finger reads as a broken control, not as juice — so a gesture in
+   * flight steps with no transition, which is the engine's instant path.
+   */
+  private resolveSlider(
+    node: LayoutNode,
+    transition: ResolvedTransition | null,
+    now: number,
+  ): void {
+    const gesturing = this.sliderDrag?.node === node || this.sliderKeys?.node === node;
+    const stepped = stepValue(
+      node.anim,
+      "value",
+      node.sliderValue,
+      gesturing ? null : transition,
+      now,
+    );
+    node.sliderDisplay = stepped.value;
+    if (stepped.animating) this.animating = true;
+  }
+
+  /**
+   * The Collapse's open/close: the behavior tweens the node's OWN height between
+   * the header's box and the height measured with the content in (`collapse.ts`),
+   * clipping while it runs. The content stays in layout for exactly that long, so
+   * a closed Collapse still costs nothing once the tween ends.
+   */
+  private resolveCollapse(
+    node: LayoutNode,
+    transition: ResolvedTransition | null,
+    now: number,
+  ): void {
+    if (!node.collapseAnimating) return;
+    const closed = closedHeight(node.children[0]?.natural.y ?? 0, node.resolved.padding ?? 0);
+    // While pending, this frame's measure is what learns the open height: aim at
+    // the closed box so the content that just entered layout does not flash.
+    const target = node.collapsePending
+      ? closed
+      : collapseTarget(node.open, node.natural.y, closed);
+    const stepped = stepValue(node.anim, "collapse", target, transition, now);
+
+    if (node.collapsePending || stepped.animating) {
+      node.collapsePending = false;
+      node.resolved.height = stepped.value;
+      node.forcedClip = true;
+      this.animating = true;
+      return;
+    }
+    // Settled: the override goes away and the box is whatever the content asks
+    // for — a closed one drops its content out of layout, as it always did.
+    node.collapseAnimating = false;
+    this.applyOpen(node);
+  }
+
+  /**
+   * The Toggle's indicator: the two slots share a box, so which one you see is
+   * their opacity — multiplied onto whatever they resolved, like the Spinner's
+   * wave. With no transition the progress is 0 or 1 and the swap is instant,
+   * exactly as it was before F7.
+   */
+  private crossfadeSlots(
+    node: LayoutNode,
+    transition: ResolvedTransition | null,
+    now: number,
+  ): void {
+    const stepped = stepValue(node.anim, "checked", node.checked ? 1 : 0, transition, now);
+    node.checkedProgress = stepped.value;
+    if (stepped.animating) this.animating = true;
+    for (let i = 0; i < node.children.length && i < 2; i++) {
+      const slot = node.children[i];
+      if (!inLayout(slot)) continue;
+      slot.resolved.opacity = (slot.resolved.opacity ?? 1) * slotOpacity(i, stepped.value);
+    }
   }
 
   /**
@@ -1404,6 +1524,14 @@ class WebView {
     clearNodeAnim(node.anim);
     // A spinner that comes back starts its wave over, like a mount.
     node.loopStartedAt = null;
+    if (node.collapseAnimating) {
+      // A Collapse taken out of layout mid-tween lands on its logical state: it
+      // comes back open or closed, never halfway through a motion nobody saw.
+      node.collapseAnimating = false;
+      node.collapsePending = false;
+      node.forcedClip = false;
+      this.applyOpen(node);
+    }
     for (const child of node.children) this.forgetAnim(child);
   }
 
@@ -1485,6 +1613,9 @@ class WebView {
     this.layer = collectLayer(this.root);
     this.syncModalFocus();
     this.syncAutoClose();
+    // A control that left layout under the pointer (a tab panel switching, a
+    // Collapse closing) must not keep wearing the hover state on its way back.
+    if (this.hoveredNode && !inLayout(this.hoveredNode)) this.setHover(null);
 
     // The resolve pass walks the whole tree, overlay subtrees included: a node in
     // the layer tweens like any other, it just gets laid out and painted apart.

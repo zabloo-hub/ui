@@ -62,4 +62,10 @@ export {
   type TooltipProps,
 } from "./components.js";
 export { renderToIR } from "./reconciler.js";
-export { ThemeProvider, type ThemeVariants, type VariantDef, type ZablooTheme } from "./theme.js";
+export {
+  ThemeProvider,
+  type ThemeTransitions,
+  type ThemeVariants,
+  type VariantDef,
+  type ZablooTheme,
+} from "./theme.js";

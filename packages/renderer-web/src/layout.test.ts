@@ -1,8 +1,14 @@
 import type { Layout, SliderNode, ZNode } from "@zabloo/format";
 import { describe, expect, it } from "vitest";
-import { arrange, type LayoutNode, type MeasureLeaf, measure, type Rect } from "./layout.js";
+import {
+  arrange,
+  createLayoutNode,
+  type LayoutNode,
+  type MeasureLeaf,
+  measure,
+  type Rect,
+} from "./layout.js";
 import type { ResolvedValues } from "./transition.js";
-import { createNodeAnim } from "./transition.js";
 
 /**
  * A tree in the state the resolve pass leaves it in: tokens already collapsed into
@@ -13,30 +19,9 @@ function node(
   resolved: ResolvedValues = {},
   children: LayoutNode[] = [],
 ): LayoutNode {
-  const built: LayoutNode = {
-    ir: ir as ZNode,
-    parent: null,
-    children,
-    measured: { x: 0, y: 0 },
-    rect: { x: 0, y: 0, width: 0, height: 0 },
-    pressed: false,
-    focused: false,
-    open: true,
-    selected: false,
-    selectedIndex: 0,
-    checked: false,
-    sliderValue: 0,
-    groupValue: undefined,
-    visibleFlag: true,
-    sectionShown: true,
-    progress: 0,
-    loopStartedAt: null,
-    scrollOffset: { x: 0, y: 0 },
-    scrollMax: { x: 0, y: 0 },
-    resolved,
-    textBlock: null,
-    anim: createNodeAnim(),
-  };
+  const built = createLayoutNode(ir as ZNode);
+  built.children = children;
+  built.resolved = resolved;
   for (const child of children) child.parent = built;
   return built;
 }
@@ -174,6 +159,9 @@ function slider(props: Omit<SliderNode, "type" | "children"> = {}, value = 0, le
     node({ type: "Container", layout: thumb }, resolvedOf(thumb)),
   ]);
   built.sliderValue = value;
+  // Settled: the arrange pass paints the DISPLAY value, which only trails the
+  // logical one while a bound change is gliding into place.
+  built.sliderDisplay = value;
   measure(built, noLeaf, null);
   return built;
 }
@@ -253,5 +241,75 @@ describe("arrange: Slider", () => {
     arrange(built, { x: 0, y: 0, width: 200, height: 6 });
     expect(built.children[0].rect).toEqual({ x: 0, y: 0, width: 0, height: 0 });
     expect(built.children[1].rect.x).toBe(182);
+  });
+});
+
+/** The shape `<Checkbox>`/`<Switch>` emit: two indicator slots and a label. */
+function toggle(checkedSize = 30, uncheckedSize = 30) {
+  const slot = (size: number) => {
+    const layout: Layout = { width: size, height: size };
+    return node({ type: "Container", layout }, resolvedOf(layout));
+  };
+  return node({ type: "Toggle", layout: { direction: "row", gap: 10 } }, { gap: 10, padding: 0 }, [
+    slot(checkedSize),
+    slot(uncheckedSize),
+    node({ type: "Text", text: "Sound" }, {}, []),
+  ]);
+}
+
+describe("Toggle: the indicator slots share one box", () => {
+  it("measures the two slots as ONE item, as big as the larger of them", () => {
+    // 30 (the shared box) + 10 gap + 50 (label): the unchecked slot adds nothing
+    // to the main axis — it sits ON the checked one, ready to crossfade.
+    const built = toggle(30, 20);
+    measure(built, () => ({ x: 50, y: 10 }), null);
+    expect(built.measured).toEqual({ x: 90, y: 30 });
+  });
+
+  it("reserves the LARGER slot, so flipping never resizes the control", () => {
+    const small = toggle(20, 30);
+    const large = toggle(30, 20);
+    measure(small, () => ({ x: 50, y: 10 }), null);
+    measure(large, () => ({ x: 50, y: 10 }), null);
+    expect(small.measured).toEqual(large.measured);
+  });
+
+  it("arranges both slots on the same rect, with the label after the shared box", () => {
+    const built = toggle();
+    measure(built, () => ({ x: 50, y: 10 }), null);
+    arrange(built, { x: 0, y: 0, width: 90, height: 30 });
+    expect(built.children[1].rect).toEqual(built.children[0].rect);
+    expect(built.children[0].rect).toEqual({ x: 0, y: 0, width: 30, height: 30 });
+    expect(built.children[2].rect.x).toBe(40); // 30 + the 10px gap
+  });
+
+  it("lays a lone slot out normally (a slot hidden by `visible`)", () => {
+    const built = toggle();
+    built.children[0].visibleFlag = false;
+    measure(built, () => ({ x: 50, y: 10 }), null);
+    arrange(built, { x: 0, y: 0, width: 90, height: 30 });
+    expect(built.children[1].rect).toEqual({ x: 0, y: 0, width: 30, height: 30 });
+    expect(built.children[2].rect.x).toBe(40);
+  });
+});
+
+describe("measure: the natural size", () => {
+  it("keeps what the content asked for when a declared height replaces it", () => {
+    const layout: Layout = { direction: "column" };
+    const built = node({ type: "Collapse", layout }, { height: 24, padding: 0 }, [
+      node({ type: "Text", text: "Options" }, {}),
+      node({ type: "Text", text: "Sound: on" }, {}),
+    ]);
+    measure(built, () => ({ x: 60, y: 20 }), null);
+    // The box is the override — a closing Collapse, say; the natural size is the
+    // content's, which is exactly where its motion has to open back to.
+    expect(built.measured.y).toBe(24);
+    expect(built.natural.y).toBe(40); // two 20px lines
+  });
+
+  it("is the measured size itself when nothing overrides it", () => {
+    const built = node({ type: "Container" }, {}, [node({ type: "Text", text: "hi" }, {})]);
+    measure(built, () => ({ x: 30, y: 20 }), null);
+    expect(built.natural).toEqual(built.measured);
   });
 });

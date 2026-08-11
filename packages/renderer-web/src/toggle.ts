@@ -5,14 +5,25 @@
  */
 
 /**
- * Which indicator slot is in layout: `children[0]` only while checked,
- * `children[1]` only while unchecked, `children[2..]` (the label) always.
- * Paint stays implicit — the check/knob is composed, not a new draw command.
+ * How visible each child is at a given `checked` progress (0 = unchecked,
+ * 1 = checked): `children[0]` is the checked indicator, `children[1]` the
+ * unchecked one, `children[2..]` (the label) is always fully shown.
+ *
+ * The two indicator slots SHARE one box — the layout pass lays `children[1]` on
+ * top of `children[0]` instead of after it — so the swap is a cross-fade rather
+ * than one subtree replacing another (decision 2026-08-11, ZAB-36, extending the
+ * two-slot model of ZAB-23). With no `transition` the progress is only ever 0 or
+ * 1, which is exactly the pre-F7 look: one indicator, fully opaque.
+ *
+ * Paint stays implicit — the check/knob is still composed, not a new draw
+ * command — and the multiplier composes with the slot's own `opacity` the same
+ * way the Spinner's wave does (2026-08-06).
  */
-export function slotShown(index: number, checked: boolean): boolean {
+export function slotOpacity(index: number, progress: number): number {
+  const checked = progress > 1 ? 1 : progress > 0 ? progress : 0; // NaN → 0
   if (index === 0) return checked;
-  if (index === 1) return !checked;
-  return true;
+  if (index === 1) return 1 - checked;
+  return 1;
 }
 
 /**

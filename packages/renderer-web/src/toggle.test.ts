@@ -1,27 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { isSelected, nextChecked, slotShown } from "./toggle.js";
+import { isSelected, nextChecked, slotOpacity } from "./toggle.js";
 
-describe("slotShown", () => {
+describe("slotOpacity", () => {
   it("shows children[0] only while checked", () => {
-    expect(slotShown(0, true)).toBe(true);
-    expect(slotShown(0, false)).toBe(false);
+    expect(slotOpacity(0, 1)).toBe(1);
+    expect(slotOpacity(0, 0)).toBe(0);
   });
 
   it("shows children[1] only while unchecked", () => {
-    expect(slotShown(1, false)).toBe(true);
-    expect(slotShown(1, true)).toBe(false);
+    expect(slotOpacity(1, 0)).toBe(1);
+    expect(slotOpacity(1, 1)).toBe(0);
   });
 
   it("always shows the rest (the label)", () => {
-    expect(slotShown(2, true)).toBe(true);
-    expect(slotShown(2, false)).toBe(true);
-    expect(slotShown(7, false)).toBe(true);
+    expect(slotOpacity(2, 1)).toBe(1);
+    expect(slotOpacity(2, 0)).toBe(1);
+    expect(slotOpacity(7, 0.5)).toBe(1);
   });
 
-  it("never shows both indicator slots at once", () => {
-    for (const checked of [true, false]) {
-      expect(slotShown(0, checked)).not.toBe(slotShown(1, checked));
+  it("crossfades: the two indicators always add up to one", () => {
+    for (const progress of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(slotOpacity(0, progress) + slotOpacity(1, progress)).toBe(1);
     }
+  });
+
+  it("settles on the endpoints, so no transition means the pre-F7 swap", () => {
+    expect(slotOpacity(0, 0.5)).toBe(0.5);
+    expect(slotOpacity(1, 0.5)).toBe(0.5);
+  });
+
+  it("clamps a progress outside 0..1 (and NaN) instead of painting nonsense", () => {
+    expect(slotOpacity(0, 2)).toBe(1);
+    expect(slotOpacity(0, -1)).toBe(0);
+    expect(slotOpacity(0, Number.NaN)).toBe(0);
+    expect(slotOpacity(1, Number.NaN)).toBe(1);
   });
 });
 

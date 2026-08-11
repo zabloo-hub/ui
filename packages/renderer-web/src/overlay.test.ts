@@ -1,6 +1,6 @@
 import type { OverlayNode, ZNode } from "@zabloo/format";
 import { describe, expect, it } from "vitest";
-import { inLayout, type LayoutNode, type Rect } from "./layout.js";
+import { createLayoutNode, inLayout, type LayoutNode, type Rect } from "./layout.js";
 import {
   autofocusIn,
   collectLayer,
@@ -18,31 +18,11 @@ const VIEW: Rect = { x: 0, y: 0, width: 100, height: 100 };
 
 /** A layout node in the state a fresh build + arrange leaves it in. */
 function node(ir: ZNode, rect: Rect, children: LayoutNode[] = []): LayoutNode {
-  const built: LayoutNode = {
-    ir,
-    parent: null,
-    children,
-    measured: { x: rect.width, y: rect.height },
-    rect,
-    pressed: false,
-    focused: false,
-    open: true,
-    selected: false,
-    selectedIndex: 0,
-    checked: false,
-    sliderValue: 0,
-    groupValue: undefined,
-    visibleFlag: true,
-    sectionShown: true,
-    progress: 0,
-    loopStartedAt: null,
-    scrollOffset: { x: 0, y: 0 },
-    scrollMax: { x: 0, y: 0 },
-    // The layer rules read no animatable value: an un-resolved node is enough.
-    resolved: {},
-    textBlock: null,
-    anim: createNodeAnim(),
-  };
+  // The layer rules read no animatable value: an un-resolved node is enough.
+  const built = createLayoutNode(ir);
+  built.children = children;
+  built.measured = { x: rect.width, y: rect.height };
+  built.rect = rect;
   for (const child of children) child.parent = built;
   return built;
 }

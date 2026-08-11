@@ -1,7 +1,7 @@
 // Every .tsx in src/views/ is one document of the exported envelope; the
 // filename is the view ID the SDK loads by (`export const id = "…"` pins a
 // stable ID if you rename the file).
-import { Button, Collapse, Column, Image, Row, Text } from "@zabloo/react";
+import { Button, Collapse, Column, Image, Row, Switch, Text } from "@zabloo/react";
 import { GoldRow } from "../components/GoldRow";
 
 export default function MainMenu() {
@@ -26,6 +26,11 @@ export default function MainMenu() {
 
       <GoldRow />
 
+      {/* Motion comes from the theme (`transitions` in src/theme.ts), so these
+          buttons fade between hover, pressed and their focus ring without a prop
+          here. A transition starts whenever a resolved value changes — there is
+          no trigger list — and an interruption leaves from the color on screen,
+          so releasing mid-animation never snaps back. */}
       <Row layout={{ gap: 12 }}>
         <Button variant="primary" autofocus onClick="play" layout={{ padding: "{space.4}" }}>
           <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Play</Text>
@@ -52,7 +57,12 @@ export default function MainMenu() {
         >
           Options
         </Text>
-        <Text style={{ color: "{color.muted}" }}>Sound: on</Text>
+        {/* Opening and closing animates the Collapse's own height, between the
+            header's box and the height measured with the content in — the box
+            clips while it moves, and what is below it slides along. */}
+        <Switch checked={{ bind: "settings.sfx" }} onChange="sfx-changed">
+          <Text style={{ color: "{color.muted}" }}>Sound</Text>
+        </Switch>
         <Text style={{ color: "{color.muted}" }}>Language: en</Text>
       </Collapse>
 
