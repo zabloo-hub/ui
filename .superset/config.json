@@ -1,4 +1,7 @@
 {
   "setup": ["./.superset/setup.sh"],
-  "run": ["pnpm build && pnpm --filter hello-button-example dev"]
+  "run": [
+    "pnpm build && PORT=$(./.superset/lib/port-for-workspace.sh) && pnpm --filter hello-button-example dev --preview-port $PORT && echo \"Preview: http://localhost:$PORT\""
+  ],
+  "teardown": ["./.superset/teardown.sh"]
 }
