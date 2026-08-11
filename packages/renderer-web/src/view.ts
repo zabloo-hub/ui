@@ -46,10 +46,14 @@ import {
   type Rect,
 } from "./layout.js";
 import {
+  ANCHOR_OFFSET,
+  anchorBox,
+  anchorSpec,
   autofocusIn,
   collectLayer,
   focusScope,
   isModal,
+  isOnScreen,
   isWithin,
   overlaySpec,
   type Point,
@@ -228,6 +232,8 @@ class WebView {
   /** Overlays already out of the live layer but still fading — pixels, never input. */
   private readonly exiting = new Set<LayoutNode>();
   private byId = new Map<string, LayoutNode>();
+  /** Anchor ids already reported as missing — the warning is per author error, not per frame. */
+  private warnedAnchors = new Set<string>();
   private visibleBindings = new Map<string, LayoutNode[]>();
   /** Bound `checked` (Toggle) and bound group `value` (exclusive-check), by data path. */
   private checkedBindings = new Map<string, LayoutNode[]>();
@@ -347,6 +353,7 @@ class WebView {
     const rootIr = this.envelope.views[this.viewId];
     if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
     this.byId = new Map();
+    this.warnedAnchors = new Set();
     this.visibleBindings = new Map();
     this.checkedBindings = new Map();
     this.groupBindings = new Map();
@@ -998,7 +1005,105 @@ class WebView {
     for (const child of node.children) this.eachOverlay(child, visit);
   }
 
-  /** Arms `autoCloseMs` while an overlay is in the layer; disarms it when it leaves. */
+  // --- anchoring (decision 2026-08-11, ZAB-46) ---
+
+  /**
+   * The node an overlay is anchored to. An `id` that resolves to nothing is
+   * authoring error, not runtime state: it warns once (repeating it every frame
+   * would bury the console) and the overlay falls back to the layer placement it
+   * still carries, so a typo shows a v1 tooltip instead of nothing at all.
+   */
+  private anchorNode(id: string): LayoutNode | null {
+    const node = this.byId.get(id);
+    if (node) return node;
+    if (!this.warnedAnchors.has(id)) {
+      this.warnedAnchors.add(id);
+      console.warn(`[zabloo] Overlay anchor "${id}" matches no node in this view`);
+    }
+    return null;
+  }
+
+  /**
+   * Whether an anchored overlay may be in the layer this frame — everything else
+   * is unconditionally allowed, so this composes with `inLayout` as the layer's
+   * predicate.
+   *
+   * Two rules, both from the relation: an overlay whose anchor is off screen has
+   * nothing to point at and leaves (fading out like any other close), and a
+   * hover-triggered one is up exactly while its anchor is hovered or focused — the
+   * pointer and the gamepad answer of the same question. `visible` still gates
+   * both, since it gates entry into the layer in the first place.
+   */
+  /**
+   * The layer's predicate: in layout, and — for an anchored overlay — with its
+   * anchor still on screen and, when it rides its hover, under the pointer or the
+   * focus. Everything the layer owns (input, focus, timers, the presence tween's
+   * target) reads it through `this.layer`, so the two capabilities of ZAB-46 need
+   * no wiring of their own anywhere else.
+   */
+  private layerPresent = (node: LayoutNode): boolean => inLayout(node) && this.anchorAllows(node);
+
+  private anchorAllows(node: LayoutNode): boolean {
+    const spec = anchorSpec(node);
+    if (spec === null) return true;
+    const anchor = this.anchorNode(spec.id);
+    if (anchor === null) return true;
+    if (!isOnScreen(anchor, this.radiusOf)) return false;
+    if (spec.trigger === "manual") return true;
+    // Hover lights up exactly the focusable set (decision 2026-08-11, ZAB-36), so
+    // an anchor that takes no input is never hovered NOR focused and the hint
+    // would simply never appear. Say so instead of staying dark.
+    if (!this.isFocusable(anchor) && !this.warnedAnchors.has(spec.id)) {
+      this.warnedAnchors.add(spec.id);
+      console.warn(
+        `[zabloo] Overlay anchor "${spec.id}" is a ${anchor.ir.type}, which takes no ` +
+          `hover or focus: a trigger:"hover" overlay anchored to it never shows.`,
+      );
+    }
+    return anchor.hovered || anchor.focused;
+  }
+
+  /**
+   * Lays one layer entry out. Unanchored, the entry IS the view: its own flex
+   * places the content anywhere on the layer. Anchored, the content goes where
+   * `anchorBox` puts it around the anchor, while the entry's own rect stays the
+   * view's — that is what keeps a modal popover dimming and capturing the whole
+   * screen while its panel hangs off a button.
+   *
+   * The content is sized from `natural`, so `layout.width`/`height` on an Overlay
+   * stay ignored (a layer is not sized — size the child), and `padding` keeps
+   * meaning "margin from the view's edges": it is taken out of the box and given
+   * back around it, so the same number does the same job anchored or not.
+   */
+  private arrangeOverlay(overlay: LayoutNode, viewRect: Rect): void {
+    const spec = anchorSpec(overlay);
+    const anchor = spec === null ? null : this.anchorNode(spec.id);
+    if (spec === null || anchor === null) {
+      arrange(overlay, viewRect);
+      return;
+    }
+    const padding = overlay.resolved.padding ?? 0;
+    const box = anchorBox(
+      anchor.rect,
+      { x: overlay.natural.x - padding * 2, y: overlay.natural.y - padding * 2 },
+      spec.at,
+      this.dim(spec.offset, ANCHOR_OFFSET),
+      deflate(viewRect, padding),
+    );
+    arrange(overlay, {
+      x: box.x - padding,
+      y: box.y - padding,
+      width: box.width + padding * 2,
+      height: box.height + padding * 2,
+    });
+    overlay.rect = viewRect;
+  }
+
+  /**
+   * Arms `autoCloseMs` while an overlay is in the layer; disarms it when it leaves.
+   * Never for a hover-triggered one: what dismisses that is leaving the anchor, and
+   * a timer would take the hint away from under a pointer still resting on it.
+   */
   private syncAutoClose(): void {
     for (const [overlay, timer] of this.autoCloseTimers) {
       if (this.layer.includes(overlay)) continue;
@@ -1008,6 +1113,7 @@ class WebView {
     for (const overlay of this.layer) {
       const ms = overlaySpec(overlay)?.autoCloseMs;
       if (ms === undefined || this.autoCloseTimers.has(overlay)) continue;
+      if (anchorSpec(overlay)?.trigger === "hover") continue;
       const timer = setTimeout(() => {
         this.autoCloseTimers.delete(overlay);
         this.requestDismiss(overlay);
@@ -1607,10 +1713,11 @@ class WebView {
     if (!(width > 0) || !(height > 0)) return;
     const viewRect: Rect = { x: 0, y: 0, width, height };
 
-    // The layer settles first: it reads no rects (only `visible` and section
-    // state), and the focus an opening modal moves has to reach THIS frame's
-    // resolve pass — otherwise `states.focused` would land one frame late.
-    this.layer = collectLayer(this.root);
+    // The layer settles first: the focus an opening modal moves has to reach THIS
+    // frame's resolve pass — otherwise `states.focused` would land one frame late.
+    // An anchored entry is the one thing here that reads rects, and it reads the
+    // ones already laid out (see `isOnScreen`).
+    this.layer = collectLayer(this.root, this.layerPresent);
     this.syncModalFocus();
     this.syncAutoClose();
     // A control that left layout under the pointer (a tab panel switching, a
@@ -1636,13 +1743,10 @@ class WebView {
     const paintLayer =
       this.exiting.size === 0
         ? this.layer
-        : collectLayer(this.root, (node) => inLayout(node) || this.exiting.has(node));
-    // Every layer entry is arranged against the view rect — that is why
-    // `layout.width`/`height` on an Overlay are ignored — and its own layout
-    // props place the content inside it.
+        : collectLayer(this.root, (node) => this.layerPresent(node) || this.exiting.has(node));
     for (const overlay of paintLayer) {
       measure(overlay, this.measureLeaf, width);
-      arrange(overlay, viewRect);
+      this.arrangeOverlay(overlay, viewRect);
     }
 
     const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);

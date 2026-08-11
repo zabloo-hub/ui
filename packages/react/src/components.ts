@@ -15,6 +15,8 @@ import type {
   GroupBehavior,
   ImageFit,
   Layout,
+  OverlayAnchor,
+  OverlayTrigger,
   ScrollAxis,
   SliderAxis,
   Style,
@@ -93,6 +95,12 @@ export interface OverlayProps extends CommonProps {
   onDismiss?: string;
   /** Self-dismiss delay in ms, counted from the moment it enters the layer. */
   autoCloseMs?: number;
+  /**
+   * Places this overlay against another node's rect, and optionally ties it to
+   * that node's hover/focus. The raw primitive takes the IR object as it is; the
+   * three composites below spread it over flat props.
+   */
+  anchor?: OverlayAnchor;
   children?: ReactNode;
 }
 
@@ -109,9 +117,22 @@ export type OverlayPosition =
   | "bottom-right";
 
 /** Props shared by the three overlay composites — a modal is always modal, hence the Omit. */
-interface OverlaySugarProps extends Omit<OverlayProps, "modal"> {
-  /** Placement of the content on the layer. */
+interface OverlaySugarProps extends Omit<OverlayProps, "modal" | "anchor"> {
+  /**
+   * Placement of the content. On the layer by default; AROUND the anchor when
+   * there is one, where `top-left` reads as "above, flush with its left edge".
+   */
   position?: OverlayPosition;
+  /**
+   * `id` of the node this overlay hangs from. The layer placement is still
+   * emitted, so an SDK that predates anchoring shows the same overlay where
+   * `position` says on the layer.
+   */
+  anchor?: string;
+  /** Distance from the anchor's edge. Default: 8. Ignored without an anchor. */
+  offset?: Dim;
+  /** What puts it in the layer: `visible` alone, or the anchor's hover/focus. */
+  trigger?: OverlayTrigger;
 }
 
 export interface ModalProps extends OverlaySugarProps {
@@ -840,9 +861,48 @@ const PLACEMENT: Record<OverlayPosition, { justify: Layout["justify"]; align: La
   "bottom-right": { justify: "end", align: "end" },
 };
 
-/** The layer's layout for a placement, with the author's `layout` overriding it. */
-function layerLayout(position: OverlayPosition, layout: Layout | undefined): Layout {
-  return { direction: "row", ...PLACEMENT[position], padding: LAYER_INSET, ...layout };
+/**
+ * Margin an anchored overlay keeps from the view's edges: the content is placed
+ * against its anchor, so the inset is only what keeps a clamped bubble from
+ * touching the screen — not the frame an unanchored layer needs.
+ */
+const ANCHORED_INSET = 8;
+
+/**
+ * The layer's layout for a placement, with the author's `layout` overriding it.
+ * The placement travels even when anchored: it is what an SDK that ignores
+ * `anchor` falls back to, and what the renderer itself uses when the `id`
+ * matches no node.
+ */
+function layerLayout(
+  position: OverlayPosition,
+  layout: Layout | undefined,
+  anchored: boolean,
+): Layout {
+  return {
+    direction: "row",
+    ...PLACEMENT[position],
+    padding: anchored ? ANCHORED_INSET : LAYER_INSET,
+    ...layout,
+  };
+}
+
+/** The anchor object the IR carries, or nothing at all when there is no `id`. */
+function anchorOf(
+  anchor: string | undefined,
+  position: OverlayPosition,
+  offset: Dim | undefined,
+  trigger: OverlayTrigger | undefined,
+): { anchor: OverlayAnchor } | undefined {
+  if (anchor === undefined) return undefined;
+  return {
+    anchor: {
+      id: anchor,
+      at: position,
+      ...(offset !== undefined && { offset }),
+      ...(trigger !== undefined && { trigger }),
+    },
+  };
 }
 
 /** A bare string/number message becomes a `<Text>`; a node is used as it is. */
@@ -876,6 +936,9 @@ export function Modal({
   panel,
   layout,
   style,
+  anchor,
+  offset,
+  trigger,
   children,
   ...rest
 }: ModalProps): ReturnType<FC> {
@@ -884,8 +947,9 @@ export function Modal({
     {
       ...rest,
       modal: true,
-      layout: layerLayout(position, layout),
+      layout: layerLayout(position, layout, anchor !== undefined),
       style: { ...BACKDROP, ...style },
+      ...anchorOf(anchor, position, offset, trigger),
     },
     createElement(
       Container,
@@ -1053,12 +1117,22 @@ export function Toast({
   autoCloseMs = 3000,
   z = TOAST_Z,
   layout,
+  anchor,
+  offset,
+  trigger,
   children,
   ...rest
 }: ToastProps): ReturnType<FC> {
   return createElement(
     Overlay,
-    { ...rest, modal: false, z, autoCloseMs, layout: layerLayout(position, layout) },
+    {
+      ...rest,
+      modal: false,
+      z,
+      autoCloseMs,
+      layout: layerLayout(position, layout, anchor !== undefined),
+      ...anchorOf(anchor, position, offset, trigger),
+    },
     createElement(
       Container,
       {
@@ -1075,10 +1149,20 @@ export function Toast({
  * A hint bubble over the UI: the same non-modal layer as a `<Toast>`, smaller and
  * without a timer.
  *
- * v1 has no anchoring to another node's rect and no hover/focus trigger — both are
- * capabilities the IR does not have yet — so a tooltip is placed on the layer like
- * any other overlay and shown by its `visible` binding, which the game moves with
- * `SetData` when it decides the hint applies.
+ * With an `anchor` it hangs from that node's rect — flipping to the other side
+ * when it does not fit and sliding to stay on screen — and it shows itself while
+ * the anchor is hovered or focused, which is the same hint for a mouse and for a
+ * gamepad (decision 2026-08-11, ZAB-46):
+ *
+ * ```tsx
+ * <Button id="jump-btn" onClick="jump"><Text>Saltar</Text></Button>
+ * <Tooltip anchor="jump-btn" position="top">Pulsa A para saltar</Tooltip>
+ * ```
+ *
+ * Without one it is placed on the layer and shown by its `visible` binding, which
+ * the game moves with `SetData` when it decides the hint applies — the v1 tooltip,
+ * unchanged. `trigger="manual"` is the same thing with an anchor: a bubble the game
+ * opens, hanging from a control.
  *
  * ```tsx
  * <Tooltip visible={{ bind: "ui.hint" }} position="top">Pulsa A para saltar</Tooltip>
@@ -1090,12 +1174,24 @@ export function Tooltip({
   label,
   z = TOOLTIP_Z,
   layout,
+  anchor,
+  offset,
+  // A tooltip hanging from a control is a hint about that control: showing it
+  // while the player is on it is the whole point, and `visible` is still there
+  // for the game to gate it. `trigger="manual"` opts out.
+  trigger = anchor === undefined ? undefined : "hover",
   children,
   ...rest
 }: TooltipProps): ReturnType<FC> {
   return createElement(
     Overlay,
-    { ...rest, modal: false, z, layout: layerLayout(position, layout) },
+    {
+      ...rest,
+      modal: false,
+      z,
+      layout: layerLayout(position, layout, anchor !== undefined),
+      ...anchorOf(anchor, position, offset, trigger),
+    },
     createElement(
       Container,
       {

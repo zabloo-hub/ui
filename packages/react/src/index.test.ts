@@ -829,6 +829,54 @@ describe("renderToIR", () => {
     ]);
   });
 
+  it("anchors a Tooltip to a node and shows it with that node's hover/focus", () => {
+    const ir = renderToIR(h(Tooltip, { anchor: "jump-btn" }, "Pulsa A")) as OverlayNode;
+    expect(ir.anchor).toEqual({ id: "jump-btn", at: "top", trigger: "hover" });
+    // The layer placement travels too: it is what an SDK that predates anchoring
+    // renders, and what the renderer falls back to when the id matches no node.
+    expect(ir.layout).toEqual({ direction: "row", justify: "center", align: "start", padding: 8 });
+  });
+
+  it("reads `position` as the side of the anchor, and takes the offset", () => {
+    const ir = renderToIR(
+      h(Tooltip, { anchor: "slot-3", position: "bottom-left", offset: "{space.2}" }, "Vacío"),
+    ) as OverlayNode;
+    expect(ir.anchor).toEqual({
+      id: "slot-3",
+      at: "bottom-left",
+      offset: "{space.2}",
+      trigger: "hover",
+    });
+  });
+
+  it("opts a Tooltip out of the hover trigger with `manual`", () => {
+    const ir = renderToIR(
+      h(Tooltip, { anchor: "buy-btn", trigger: "manual", visible: { bind: "ui.hint" } }, "Caro"),
+    ) as OverlayNode;
+    expect(ir.anchor).toEqual({ id: "buy-btn", at: "top", trigger: "manual" });
+  });
+
+  it("anchors a Modal too — a popover keeps its backdrop and its capture", () => {
+    const ir = renderToIR(
+      h(Modal, { anchor: "menu-btn", position: "bottom-right" }, h(Text, null, "Ajustes")),
+    ) as OverlayNode;
+    expect(ir.modal).toBe(true);
+    // No trigger: only `<Tooltip>` assumes hover, and a menu is opened, not grazed.
+    expect(ir.anchor).toEqual({ id: "menu-btn", at: "bottom-right" });
+  });
+
+  it("leaves the anchor out of an unanchored overlay, layer inset included", () => {
+    const ir = renderToIR(h(Tooltip, { visible: { bind: "ui.hint" } }, "Pulsa A")) as OverlayNode;
+    expect(ir.anchor).toBeUndefined();
+    expect(ir.layout?.padding).toBe(24);
+  });
+
+  it("emits the raw Overlay's anchor 1:1, and rejects one that anchors nothing", () => {
+    const anchor = { id: "buy-btn", at: "right", offset: 12, trigger: "hover" } as const;
+    expect((renderToIR(h(Overlay, { anchor })) as OverlayNode).anchor).toEqual(anchor);
+    expect(() => renderToIR(h(Overlay, { anchor: { id: "" } }))).toThrow(/needs the `id`/);
+  });
+
   it("lets an explicit layout override the placement sugar", () => {
     const ir = renderToIR(
       h(Modal, { position: "bottom", layout: { align: "center", padding: 0 } }),
