@@ -5,12 +5,22 @@
  * No scene graph — the IR tree is the scene graph.
  */
 
-import type { GlyphAtlas } from "./glyphs.js";
+/**
+ * Anything this layer can upload as a texture — a glyph atlas or a decoded image.
+ * Structural on purpose: the GL layer knows about pixels and versions, not about
+ * what produced them.
+ */
+export interface TextureSource {
+  /** Bumped whenever the pixels change; the upload is skipped while it holds. */
+  readonly version: number;
+  /** Null while an async decode is still in flight (falls back to white). */
+  readonly bitmap: TexImageSource | null;
+}
 
 /** A geometry batch: everything sharing one texture (one draw call). */
 export interface Batch {
   /** Null = solid geometry (bound to a built-in 1×1 white texture). */
-  atlas: GlyphAtlas | null;
+  texture: TextureSource | null;
   /** Interleaved: x,y, u,v, r,g,b,a (logical px; colors 0..1). */
   vertices: number[];
   indices: number[];
@@ -49,10 +59,7 @@ export class GLRenderer {
   private readonly ibo: WebGLBuffer;
   private readonly uResolution: WebGLUniformLocation;
   private readonly whiteTexture: WebGLTexture;
-  private readonly atlasTextures = new Map<
-    GlyphAtlas,
-    { texture: WebGLTexture; version: number }
-  >();
+  private readonly textures = new Map<TextureSource, { texture: WebGLTexture; version: number }>();
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
@@ -108,7 +115,7 @@ export class GLRenderer {
 
     for (const batch of batches) {
       if (batch.indices.length === 0) continue;
-      gl.bindTexture(gl.TEXTURE_2D, this.textureFor(batch.atlas));
+      gl.bindTexture(gl.TEXTURE_2D, this.textureFor(batch.texture));
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(batch.vertices), gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
@@ -117,20 +124,40 @@ export class GLRenderer {
     }
   }
 
-  /** Uploads (or re-uploads, if the atlas grew) the atlas bitmap as a texture. */
-  private textureFor(atlas: GlyphAtlas | null): WebGLTexture {
-    if (atlas === null) return this.whiteTexture;
+  /** Drops a source's texture (an asset evicted from the cache on hot-update). */
+  evict(source: TextureSource): void {
+    const entry = this.textures.get(source);
+    if (!entry) return;
+    this.gl.deleteTexture(entry.texture);
+    this.textures.delete(source);
+  }
+
+  /** Releases every GPU resource this renderer owns (the view's `dispose`). */
+  dispose(): void {
     const gl = this.gl;
-    let entry = this.atlasTextures.get(atlas);
+    for (const entry of this.textures.values()) gl.deleteTexture(entry.texture);
+    this.textures.clear();
+    gl.deleteTexture(this.whiteTexture);
+    gl.deleteBuffer(this.vbo);
+    gl.deleteBuffer(this.ibo);
+    gl.deleteProgram(this.program);
+  }
+
+  /** Uploads (or re-uploads, if the pixels changed) a source's bitmap as a texture. */
+  private textureFor(source: TextureSource | null): WebGLTexture {
+    const bitmap = source?.bitmap;
+    if (!source || !bitmap) return this.whiteTexture;
+    const gl = this.gl;
+    let entry = this.textures.get(source);
     if (!entry) {
       entry = { texture: gl.createTexture() as WebGLTexture, version: -1 };
-      this.atlasTextures.set(atlas, entry);
+      this.textures.set(source, entry);
     }
-    if (entry.version !== atlas.version) {
+    if (entry.version !== source.version) {
       gl.bindTexture(gl.TEXTURE_2D, entry.texture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas.canvas);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
       setTexParams(gl);
-      entry.version = atlas.version;
+      entry.version = source.version;
     }
     return entry.texture;
   }
