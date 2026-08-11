@@ -65,6 +65,27 @@ export function inLayout(node: LayoutNode): boolean {
   return node.visibleFlag && node.sectionShown;
 }
 
+/**
+ * Whether a node participates in its parent's flow. An `Overlay` never does
+ * (decision 2026-08-11): it is declared in place but belongs to the view's
+ * overlay layer, so it is neither measured nor arranged by its parent — the view
+ * lays it out afterwards against the view rect. Two consequences come for free:
+ * `layout.width`/`height` on an Overlay are ignored, and an Overlay inside a
+ * `ScrollView` does not scroll with the content.
+ */
+export function inFlow(node: LayoutNode): boolean {
+  return inLayout(node) && node.ir.type !== "Overlay";
+}
+
+export function contains(rect: Rect, point: { x: number; y: number }): boolean {
+  return (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.width &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.height
+  );
+}
+
 export type MeasureLeaf = (ir: ZNode) => { x: number; y: number };
 
 function layoutOf(node: LayoutNode): Layout | undefined {
@@ -86,7 +107,7 @@ export function measure(node: LayoutNode, measureLeaf: MeasureLeaf): { x: number
     let cross = 0;
     let active = 0;
     for (const child of node.children) {
-      if (!inLayout(child)) continue; // display:none — out of layout
+      if (!inFlow(child)) continue; // display:none, or lifted to the overlay layer
       const cs = measure(child, measureLeaf);
       main += row ? cs.x : cs.y;
       cross = Math.max(cross, row ? cs.y : cs.x);
@@ -107,7 +128,7 @@ export function measure(node: LayoutNode, measureLeaf: MeasureLeaf): { x: number
 /** Top-down arrange into `rect` (view space). */
 export function arrange(node: LayoutNode, rect: Rect): void {
   node.rect = rect;
-  const children = node.children.filter(inLayout);
+  const children = node.children.filter(inFlow);
   const count = children.length;
   if (count === 0) return;
 

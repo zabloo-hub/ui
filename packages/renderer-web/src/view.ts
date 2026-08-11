@@ -1,14 +1,18 @@
 /**
  * The web view — the browser sibling of the Unity SDK's ZablooView + Document:
  * builds the node tree from an envelope, owns runtime state keyed by type
- * (Button pressed, Collapse open, Toggle checked, group behaviors), resolves
- * tokens and bindings, runs the renderer's own layout pass and re-tessellates on
- * change. The browser provides a GPU canvas and pointer events — nothing else.
+ * (Button pressed, Collapse open, Toggle checked, group behaviors, the overlay
+ * layer's focus stack and auto-close timers), resolves tokens and bindings, runs
+ * the renderer's own layout pass and re-tessellates on change. The browser
+ * provides a GPU canvas and pointer events — nothing else.
  *
  * Every frame starts with the resolve pass: tokens and states collapse into each
  * node's animatable values, the transition engine tweens the ones that moved, and
  * measure/arrange/paint run on that result. While anything is animating the view
  * schedules the next frame itself; otherwise it repaints only on change.
+ *
+ * Layout and paint then run in two passes: the tree, and above it the overlay
+ * layer (`overlay.ts` owns the layering, input-capture and focus-scope rules).
  */
 
 import {
@@ -23,7 +27,26 @@ import {
 import { ImageLibrary } from "./assets.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
-import { arrange, inLayout, type LayoutNode, measure, type Rect } from "./layout.js";
+import {
+  arrange,
+  contains,
+  inFlow,
+  inLayout,
+  type LayoutNode,
+  measure,
+  type Rect,
+} from "./layout.js";
+import {
+  autofocusIn,
+  collectLayer,
+  focusScope,
+  isModal,
+  isWithin,
+  overlaySpec,
+  type Point,
+  resolveHit,
+  topModal,
+} from "./overlay.js";
 import { clamp } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
@@ -40,6 +63,8 @@ const DEFAULT_FONT_SIZE = 16;
 /** Paint fallbacks for a declared color whose token does not resolve (author error). */
 const MISSING_COLOR: Color = [1, 0, 1, 1];
 const DEFAULT_TEXT_COLOR: Color = [1, 1, 1, 1];
+/** No tint: an Image with no `color` shows its own pixels (decision 2026-08-11, ZAB-13). */
+const UNTINTED: Color = [1, 1, 1, 1];
 
 /** Loose view of a node — the union fields the renderer reads. */
 interface AnyNode {
@@ -128,6 +153,13 @@ class WebView {
   private readonly onDataChanged?: (path: string, value: unknown) => void;
 
   private root!: LayoutNode;
+  /** The view's overlays, flattened and ordered — rebuilt on every render. */
+  private layer: LayoutNode[] = [];
+  /** Open modals, innermost last, each with the focus it interrupted. */
+  private readonly modalStack: Array<{ overlay: LayoutNode; previousFocus: LayoutNode | null }> =
+    [];
+  /** Live `autoCloseMs` timers, keyed by the overlay they will dismiss. */
+  private readonly autoCloseTimers = new Map<LayoutNode, ReturnType<typeof setTimeout>>();
   private byId = new Map<string, LayoutNode>();
   private visibleBindings = new Map<string, LayoutNode[]>();
   /** Bound `checked` (Toggle) and bound group `value` (exclusive-check), by data path. */
@@ -136,8 +168,9 @@ class WebView {
   private readonly data = new Map<string, unknown>();
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
-  private autofocusNode: LayoutNode | null = null;
   private scrollDrag: ScrollDrag | null = null;
+  /** Overlay whose backdrop took the pointer down, pending a release on it. */
+  private backdropPress: LayoutNode | null = null;
   /** Pending self-scheduled frame, while a transition is in flight. */
   private frame: number | null = null;
   /** Set by the resolve pass when any node still has a tween running. */
@@ -189,6 +222,7 @@ class WebView {
       dispose: () => {
         this.cancelFrame();
         for (const dispose of this.disposers) dispose();
+        this.clearAutoClose();
         this.images.dispose();
         this.gl.dispose();
       },
@@ -206,10 +240,15 @@ class WebView {
     this.groupBindings = new Map();
     this.pressedNode = null;
     this.focusedNode = null;
-    this.autofocusNode = null;
     this.scrollDrag = null;
+    this.backdropPress = null;
+    // The tree is new, so every node identity the layer state referenced is gone.
+    this.layer = [];
+    this.modalStack.length = 0;
+    this.clearAutoClose();
     this.root = this.buildNode(rootIr, null);
-    if (this.autofocusNode) this.setFocus(this.autofocusNode);
+    // Initial focus (`autofocus`) is settled by the first render, together with
+    // the overlay layer — a modal that starts open owns the focus from frame one.
   }
 
   private buildNode(ir: ZNode, parent: LayoutNode | null): LayoutNode {
@@ -238,7 +277,6 @@ class WebView {
     const any = ir as AnyNode;
 
     if (any.id) this.byId.set(any.id, node);
-    if (any.autofocus) this.autofocusNode = node;
 
     const visiblePath = bindPath(any.visible);
     if (visiblePath !== null) {
@@ -542,11 +580,27 @@ class WebView {
     return node.ir.type === "Button" || node.ir.type === "Toggle" || isCollapseHeader(node);
   }
 
-  private collectFocusables(node: LayoutNode = this.root, out: LayoutNode[] = []): LayoutNode[] {
+  /**
+   * Navigation candidates: everything focusable inside the current focus scope —
+   * the whole view, or just the topmost modal while one is up (the focus-trap
+   * derives from `modal`, decision 2026-08-11). Overlay children are reached by
+   * walking the tree in place, so a non-modal toast's Button is a normal
+   * candidate without trapping anything.
+   */
+  private collectFocusables(node = this.scope(), out: LayoutNode[] = []): LayoutNode[] {
     if (!inLayout(node)) return out; // pruned subtrees have stale rects
     if (this.isFocusable(node)) out.push(node);
     for (const child of node.children) this.collectFocusables(child, out);
     return out;
+  }
+
+  private scope(): LayoutNode {
+    return focusScope(this.root, this.layer);
+  }
+
+  /** The scope's declared initial focus (`autofocus`), if it is really focusable. */
+  private autofocus(scope: LayoutNode = this.scope()): LayoutNode | null {
+    return autofocusIn(scope, (node) => this.isFocusable(node));
   }
 
   private setFocus(node: LayoutNode | null): void {
@@ -563,11 +617,7 @@ class WebView {
 
     const current = this.focusedNode;
     if (!current || !candidates.includes(current)) {
-      this.setFocus(
-        this.autofocusNode && candidates.includes(this.autofocusNode)
-          ? this.autofocusNode
-          : candidates[0],
-      );
+      this.setFocus(this.autofocus() ?? candidates[0]);
       this.render();
       return;
     }
@@ -614,12 +664,98 @@ class WebView {
     }
   }
 
+  // --- overlay layer (decision 2026-08-11, ZAB-19) ---
+
+  /**
+   * Keeps focus inside the layer's rules across relayouts: an opening modal
+   * remembers the focus it interrupts and hands it to its `autofocus`, and a
+   * closing one gives that focus back. Runs on every render — the single funnel
+   * every state change already goes through — so it never misses an overlay
+   * opened by a binding, a reload or the game.
+   */
+  private syncModalFocus(): void {
+    const modals = this.layer.filter(isModal);
+
+    // Gone from the layer (closed or hidden): the OUTERMOST one that left owns
+    // the restore, so closing a whole stack returns to what preceded all of it.
+    let restored: LayoutNode | null = null;
+    for (let i = this.modalStack.length - 1; i >= 0; i--) {
+      if (modals.includes(this.modalStack[i].overlay)) continue;
+      restored = this.modalStack[i].previousFocus;
+      this.modalStack.splice(i, 1);
+    }
+    for (const modal of modals) {
+      if (this.modalStack.some((entry) => entry.overlay === modal)) continue;
+      this.modalStack.push({ overlay: modal, previousFocus: this.focusedNode });
+      restored = null; // opening wins over closing: the new modal owns the focus
+    }
+
+    const scope = this.scope();
+    const current = this.focusedNode;
+    if (current && inLayout(current) && isWithin(current, scope)) return;
+    // Outside the scope (or gone): the restored node if it still qualifies,
+    // otherwise the scope's `autofocus` — and nothing at all if neither does,
+    // rather than leaving a node under the modal wearing the focused state.
+    const candidate =
+      restored && inLayout(restored) && this.isFocusable(restored) && isWithin(restored, scope)
+        ? restored
+        : this.autofocus(scope);
+    this.setFocus(candidate);
+  }
+
+  /**
+   * A dismiss request — Escape, a tap on the backdrop, an `autoCloseMs` timeout.
+   * Closing is the renderer's default behavior: it writes `false` into the bound
+   * `visible` path (the read/write binding mechanism of decision 2026-08-11,
+   * which also notifies the game) and fires the declared `onDismiss` action.
+   * With a static `visible` there is nothing to write — only the action fires,
+   * and closing is the game's call.
+   */
+  private requestDismiss(overlay: LayoutNode): void {
+    const spec = overlaySpec(overlay);
+    if (spec === null) return;
+    const path = bindPath((overlay.ir as AnyNode).visible);
+    if (path !== null) this.writeData(path, false);
+    if (spec.onDismiss) this.onAction?.(spec.onDismiss);
+    this.render();
+  }
+
+  /** Arms `autoCloseMs` while an overlay is in the layer; disarms it when it leaves. */
+  private syncAutoClose(): void {
+    for (const [overlay, timer] of this.autoCloseTimers) {
+      if (this.layer.includes(overlay)) continue;
+      clearTimeout(timer);
+      this.autoCloseTimers.delete(overlay);
+    }
+    for (const overlay of this.layer) {
+      const ms = overlaySpec(overlay)?.autoCloseMs;
+      if (ms === undefined || this.autoCloseTimers.has(overlay)) continue;
+      const timer = setTimeout(() => {
+        this.autoCloseTimers.delete(overlay);
+        this.requestDismiss(overlay);
+      }, ms);
+      this.autoCloseTimers.set(overlay, timer);
+    }
+  }
+
+  private clearAutoClose(): void {
+    for (const timer of this.autoCloseTimers.values()) clearTimeout(timer);
+    this.autoCloseTimers.clear();
+  }
+
   // --- input (pointer → hit test on layout rects) ---
 
   private listen(): void {
     const down = (event: PointerEvent) => {
       const point = this.eventPoint(event);
-      const hit = this.hitTest(point);
+      const resolved = this.hitTest(point);
+      if (resolved.kind === "backdrop") {
+        // A tap on a modal's backdrop: dismissed on release, like a button click.
+        this.backdropPress = resolved.overlay;
+        this.canvas.setPointerCapture(event.pointerId);
+        return;
+      }
+      const hit = resolved.kind === "node" ? resolved.node : null;
       const pressable =
         hit && this.findUp(hit, (n) => n.ir.type === "Button" || n.ir.type === "Toggle");
       if (pressable) {
@@ -666,6 +802,13 @@ class WebView {
       } else if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         if (!event.repeat) this.pressFocused(true);
+      } else if (event.key === "Escape") {
+        // The web's gamepad-B: a dismiss request for the modal that owns input.
+        const modal = topModal(this.layer);
+        if (modal) {
+          event.preventDefault();
+          this.requestDismiss(modal);
+        }
       }
     };
     const keyup = (event: KeyboardEvent) => {
@@ -681,16 +824,31 @@ class WebView {
         if (contains(pressed.rect, point)) this.activate(pressed);
         return;
       }
+      const backdrop = this.backdropPress;
+      this.backdropPress = null;
+      if (backdrop) {
+        const resolved = this.hitTest(point);
+        if (resolved.kind === "backdrop" && resolved.overlay === backdrop) {
+          this.requestDismiss(backdrop);
+        }
+        return;
+      }
       const drag = this.scrollDrag;
       this.scrollDrag = null;
       if (drag?.moved) return; // a scroll gesture, not a tap
       // Collapse header toggle (the <details>/<summary> model).
-      const hit = this.hitTest(point);
+      const resolved = this.hitTest(point);
+      const hit = resolved.kind === "node" ? resolved.node : null;
       const header = hit && this.findUp(hit, isCollapseHeader);
       if (header?.parent) this.setCollapseOpen(header.parent, !header.parent.open);
     };
     const wheel = (event: WheelEvent) => {
-      const hit = this.hitTest(this.eventPoint(event));
+      const resolved = this.hitTest(this.eventPoint(event));
+      if (resolved.kind === "backdrop") {
+        event.preventDefault(); // the modal captures the wheel: nothing below scrolls
+        return;
+      }
+      const hit = resolved.kind === "node" ? resolved.node : null;
       const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
       if (!scrollable) return;
       event.preventDefault();
@@ -725,22 +883,20 @@ class WebView {
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
-  /** Deepest in-layout node under the point (later siblings win). */
-  private hitTest(
-    point: { x: number; y: number },
-    node: LayoutNode = this.root,
-  ): LayoutNode | null {
-    if (!inLayout(node) || !contains(node.rect, point)) return null;
-    for (let i = node.children.length - 1; i >= 0; i--) {
-      const hit = this.hitTest(point, node.children[i]);
-      if (hit) return hit;
-    }
-    return node;
+  /** The overlay layer first (top-down, a modal captures), then the tree. */
+  private hitTest(point: Point) {
+    return resolveHit(this.root, this.layer, point);
   }
 
+  /**
+   * Nearest ancestor matching `predicate`, stopping at an `Overlay`: a layer
+   * entry is the top of its own input scope, so a gesture inside a modal never
+   * reaches the ScrollView or Collapse it happens to be declared inside.
+   */
   private findUp(node: LayoutNode, predicate: (n: LayoutNode) => boolean): LayoutNode | null {
     let current: LayoutNode | null = node;
     while (current) {
+      if (current.ir.type === "Overlay") return null;
       if (predicate(current)) return current;
       current = current.parent;
     }
@@ -896,30 +1052,52 @@ class WebView {
     return { width: this.canvas.width / dpr, height: this.canvas.height / dpr };
   }
 
+  private measureLeaf = (ir: ZNode): { x: number; y: number } => {
+    if (ir.type === "Text") {
+      const atlas = this.fonts.get(this.fontSize((ir as AnyNode).style));
+      return atlas.measure(this.resolveText(ir));
+    }
+    if (ir.type === "Image") {
+      // Intrinsic size straight from the manifest — no decode needed, so the
+      // image occupies its space from the very first frame.
+      const asset = this.images.get((ir as AnyNode).src);
+      return asset ? { x: asset.width, y: asset.height } : { x: 0, y: 0 };
+    }
+    return { x: 0, y: 0 };
+  };
+
   render(): void {
     const { width, height } = this.logicalSize();
     if (!(width > 0) || !(height > 0)) return;
+    const viewRect: Rect = { x: 0, y: 0, width, height };
 
+    // The layer settles first: it reads no rects (only `visible` and section
+    // state), and the focus an opening modal moves has to reach THIS frame's
+    // resolve pass — otherwise `states.focused` would land one frame late.
+    this.layer = collectLayer(this.root);
+    this.syncModalFocus();
+    this.syncAutoClose();
+
+    // The resolve pass walks the whole tree, overlay subtrees included: a node in
+    // the layer tweens like any other, it just gets laid out and painted apart.
     this.animating = false;
     this.resolve(this.root, now());
 
-    measure(this.root, (ir) => {
-      if (ir.type === "Text") {
-        const atlas = this.fonts.get(this.fontSize((ir as AnyNode).style));
-        return atlas.measure(this.resolveText(ir));
-      }
-      if (ir.type === "Image") {
-        // Intrinsic size straight from the manifest — no decode needed, so the
-        // image occupies its space from the very first frame.
-        const asset = this.images.get((ir as AnyNode).src);
-        return asset ? { x: asset.width, y: asset.height } : { x: 0, y: 0 };
-      }
-      return { x: 0, y: 0 };
-    });
-    arrange(this.root, { x: 0, y: 0, width, height });
+    measure(this.root, this.measureLeaf);
+    arrange(this.root, viewRect);
+    // Every layer entry is arranged against the view rect — that is why
+    // `layout.width`/`height` on an Overlay are ignored — and its own layout
+    // props place the content inside it.
+    for (const overlay of this.layer) {
+      measure(overlay, this.measureLeaf);
+      arrange(overlay, viewRect);
+    }
 
     const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);
     this.paint(this.root, geometry);
+    // Then the layer, in `(z, document order)` — each entry is a paint root, so
+    // it does not inherit the opacity of wherever it was declared.
+    for (const overlay of this.layer) this.paint(overlay, geometry);
     this.gl.draw(geometry.batches(), width, height, this.clearColor);
 
     // A tween in flight owns the clock: keep painting until everything settles.
@@ -965,12 +1143,15 @@ class WebView {
         // means white, i.e. the image as it is (decision 2026-08-11, ZAB-13).
         geometry.image(node.rect, asset, {
           fit: (node.ir as AnyNode).fit,
-          color: fade(this.color(style?.color, [1, 1, 1, 1]), opacity),
-          radius: this.dim(style?.radius),
+          color: fade(values.color ?? UNTINTED, opacity),
+          radius,
         });
       }
     }
-    for (const child of node.children) this.paint(child, geometry, opacity);
+    // Overlay children are skipped here: they paint in the layer pass, above.
+    for (const child of node.children) {
+      if (inFlow(child)) this.paint(child, geometry, opacity);
+    }
   }
 }
 
@@ -997,15 +1178,6 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-}
-
-function contains(rect: Rect, point: { x: number; y: number }): boolean {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  );
 }
 
 function bindPath(value: unknown): string | null {

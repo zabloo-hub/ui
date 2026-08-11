@@ -335,6 +335,22 @@ describe("overlays & z-order (ZAB-19)", () => {
     expect(node).toBeDefined();
   });
 
+  it("takes an auto-close timeout (Toast) and keeps it optional", () => {
+    const toast: OverlayNode = { type: "Overlay", modal: false, z: 10, autoCloseMs: 4000 };
+    const sticky: OverlayNode = { type: "Overlay", modal: false, z: 10 };
+    expect(toast.autoCloseMs).toBe(4000);
+    expect(sticky.autoCloseMs).toBeUndefined();
+  });
+
+  it("rejects a tokenized autoCloseMs at type-check time", () => {
+    const node: OverlayNode = {
+      type: "Overlay",
+      // @ts-expect-error — a behavior timeout is a plain number, not themeable motion
+      autoCloseMs: "{motion.slow}",
+    };
+    expect(node).toBeDefined();
+  });
+
   it("rejects a non-numeric z at type-check time", () => {
     const node: OverlayNode = {
       type: "Overlay",
