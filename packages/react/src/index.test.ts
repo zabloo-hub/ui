@@ -9,6 +9,8 @@ import {
   Row,
   renderToIR,
   ScrollView,
+  Tab,
+  Tabs,
   Text,
   ThemeProvider,
   type ZablooTheme,
@@ -213,6 +215,74 @@ describe("renderToIR", () => {
       onClick: "a",
       children: [{ type: "Text", text: "x" }],
     });
+  });
+
+  it("flattens Tabs to bar + panels (positional contract, no id wiring)", () => {
+    const ir = renderToIR(
+      h(
+        Tabs,
+        { selected: 1, bar: { layout: { gap: 8 } } },
+        h(Tab, { key: "video", id: "tab-video", label: "Video" }, h(Text, null, "resolución")),
+        h(
+          Tab,
+          {
+            key: "audio",
+            label: h(Text, { style: { color: "#fff" } }, "Audio"),
+            panel: { id: "audio-panel" },
+          },
+          h(Text, null, "volumen"),
+        ),
+      ),
+    );
+
+    expect(ir).toEqual({
+      type: "Container",
+      group: "exclusive-select",
+      selected: 1,
+      layout: { direction: "column" },
+      children: [
+        {
+          type: "Container",
+          layout: { direction: "row", gap: 8 },
+          children: [
+            { type: "Button", id: "tab-video", children: [{ type: "Text", text: "Video" }] },
+            {
+              type: "Button",
+              children: [{ type: "Text", style: { color: "#fff" }, text: "Audio" }],
+            },
+          ],
+        },
+        { type: "Container", children: [{ type: "Text", text: "resolución" }] },
+        { type: "Container", id: "audio-panel", children: [{ type: "Text", text: "volumen" }] },
+      ],
+    });
+  });
+
+  it("omits selected when the first tab is the default one", () => {
+    const ir = renderToIR(h(Tabs, null, h(Tab, { label: "Only" }, h(Text, null, "panel")))) as {
+      selected?: number;
+    };
+    expect(ir.selected).toBeUndefined();
+  });
+
+  it("rejects a Tabs whose children are not Tabs", () => {
+    expect(() => renderToIR(h(Tabs, null, h(Container, null)))).toThrow(/must all be <Tab>/);
+  });
+
+  it("rejects an empty Tabs", () => {
+    expect(() => renderToIR(h(Tabs, null))).toThrow(/at least one <Tab>/);
+  });
+
+  it("rejects a selected index outside the tab range", () => {
+    expect(() =>
+      renderToIR(h(Tabs, { selected: 2 }, h(Tab, { label: "A" }, h(Text, null, "a")))),
+    ).toThrow(/out of range/);
+  });
+
+  it("rejects a <Tab> rendered outside a <Tabs>", () => {
+    expect(() => renderToIR(h(Tab, { label: "A" }, h(Text, null, "a")))).toThrow(
+      /direct child of <Tabs>/,
+    );
   });
 
   it("rejects raw text outside <Text>", () => {

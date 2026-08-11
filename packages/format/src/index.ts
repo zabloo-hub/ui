@@ -85,7 +85,12 @@ export type ZNode =
   | ImageNode
   | OverlayNode;
 
-export type StateName = "hover" | "pressed" | "disabled" | "focused";
+/**
+ * Runtime states a node can be styled in. The SDK owns the state itself, keyed by
+ * component type — `selected` is the state a member of an `"exclusive-select"`
+ * group carries while it is the chosen one (decision 2026-08-11, Tabs).
+ */
+export type StateName = "hover" | "pressed" | "disabled" | "focused" | "selected";
 
 /** Per-state style overrides. The SDK owns runtime state, keyed by component type. */
 export interface StateOverride {
@@ -182,13 +187,27 @@ interface NodeBase {
  * behavior is declared with `group` and implemented generically by the SDK.
  * Older SDKs ignore unknown `group` values, so composites degrade gracefully
  * (an Accordion becomes independent Collapses) instead of failing to render.
+ *
+ * - `"exclusive-open"` (Accordion): when a child `Collapse` opens, its siblings close.
+ * - `"exclusive-select"` (Tabs, decision 2026-08-11): exactly one child is shown at a
+ *   time. Positional contract, like Collapse's header — no id wiring in the JSON:
+ *   `children[0]` is the **tab bar**, whose own children are the tab buttons, and
+ *   `children[1..n]` are the **panels**, one per button in bar order. Selecting index
+ *   `i` puts `children[i + 1]` in layout (siblings leave it, `display:none`
+ *   semantics) and gives bar button `i` the `selected` state.
  */
-export type GroupBehavior = "exclusive-open";
+export type GroupBehavior = "exclusive-open" | "exclusive-select";
 
 export interface ContainerNode extends NodeBase {
   type: "Container";
   /** Cross-child behavior the SDK enforces (e.g. Accordion = "exclusive-open"). */
   group?: GroupBehavior;
+  /**
+   * Initially selected index for `group: "exclusive-select"` (default: 0), the
+   * counterpart of `CollapseNode.open` — initial state travels in the IR, the
+   * runtime state belongs to the SDK. Ignored without that group behavior.
+   */
+  selected?: number;
   children?: ZNode[];
 }
 
