@@ -377,6 +377,11 @@ describe("virtualized Repeat", () => {
     );
     arrange(built, { x: 0, y: 0, width: 400, height: 136 });
     expect(built.children[4].rect).toMatchObject({ x: 0, y: 68 });
+  });
+});
+
+// --- Toggle (ZAB-36): the indicator slots share one box ---
+
 /** The shape `<Checkbox>`/`<Switch>` emit: two indicator slots and a label. */
 function toggle(checkedSize = 30, uncheckedSize = 30) {
   const slot = (size: number) => {
