@@ -10,6 +10,8 @@
 set -euo pipefail
 
 pnpm install --prefer-offline
+pnpm build
+pnpm install --prefer-offline
 
 AI_DOCS="$(cd "${SUPERSET_ROOT_PATH:-.}/.." 2>/dev/null && pwd)/ai-docs"
 if [ -d "$AI_DOCS" ] && [ ! -e CLAUDE.md ]; then
