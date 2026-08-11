@@ -1,0 +1,4 @@
+{
+  "setup": ["./.superset/setup.sh"],
+  "run": ["pnpm build && pnpm --filter hello-button-example dev"]
+}
