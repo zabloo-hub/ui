@@ -5,7 +5,8 @@
  * never used — golden rule: the core owns layout).
  */
 
-import type { Layout, ZNode } from "@zabloo/format";
+import type { Layout, ScrollAxis, ZNode } from "@zabloo/format";
+import { clamp, resolveScrollMax } from "./scroll.js";
 
 export interface Rect {
   x: number;
@@ -31,6 +32,10 @@ export interface LayoutNode {
   visibleFlag: boolean;
   /** False while hidden as content of a closed Collapse. */
   sectionShown: boolean;
+  /** Runtime scroll position (ScrollView only) — re-clamped on every relayout. */
+  scrollOffset: { x: number; y: number };
+  /** Content overflow bounds for `scrollOffset`, recomputed on every relayout. */
+  scrollMax: { x: number; y: number };
 }
 
 export function inLayout(node: LayoutNode): boolean {
@@ -137,6 +142,23 @@ export function arrange(node: LayoutNode, rect: Rect, dim: TokenDim): void {
       break;
   }
 
+  const isScrollView = node.ir.type === "ScrollView";
+  if (isScrollView) {
+    let maxNaturalCross = 0;
+    for (const child of children) {
+      maxNaturalCross = Math.max(maxNaturalCross, row ? child.measured.y : child.measured.x);
+    }
+    const direction = row ? "row" : "column";
+    const mainOverflow = totalMain - contentMain;
+    const crossOverflow = maxNaturalCross - contentCross;
+    const axis = (node.ir as { axis?: ScrollAxis }).axis;
+    node.scrollMax = resolveScrollMax(direction, axis, mainOverflow, crossOverflow);
+    node.scrollOffset = {
+      x: clamp(node.scrollOffset.x, 0, node.scrollMax.x),
+      y: clamp(node.scrollOffset.y, 0, node.scrollMax.y),
+    };
+  }
+
   let cursor = (row ? content.x : content.y) + lead;
   for (let i = 0; i < count; i++) {
     const child = children[i];
@@ -158,6 +180,10 @@ export function arrange(node: LayoutNode, rect: Rect, dim: TokenDim): void {
     const childRect: Rect = row
       ? { x: cursor, y: crossPos, width: mains[i], height: crossSize }
       : { x: crossPos, y: cursor, width: crossSize, height: mains[i] };
+    if (isScrollView) {
+      childRect.x -= node.scrollOffset.x;
+      childRect.y -= node.scrollOffset.y;
+    }
     arrange(child, childRect, dim);
     cursor += mains[i] + between;
   }

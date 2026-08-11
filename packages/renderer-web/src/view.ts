@@ -16,6 +16,7 @@ import {
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
 import { arrange, inLayout, type LayoutNode, measure, type Rect } from "./layout.js";
+import { clamp } from "./scroll.js";
 import { type Color, GeometryBuilder } from "./tessellator.js";
 
 const DEFAULT_FONT_SIZE = 16;
@@ -36,6 +37,17 @@ interface AnyNode {
   autofocus?: boolean;
 }
 
+/** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
+interface ScrollDrag {
+  node: LayoutNode;
+  startPoint: { x: number; y: number };
+  lastPoint: { x: number; y: number };
+  moved: boolean;
+}
+
+/** Below this many px of pointer travel, a gesture still counts as a click/tap. */
+const DRAG_THRESHOLD = 4;
+
 export interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
   view?: string;
@@ -52,6 +64,7 @@ export interface ZablooHandle {
   /** The game/page data channel — bound Text/visible react (cached + replayed). */
   setData(path: string, value: unknown): void;
   setOpen(id: string, open: boolean): boolean;
+  setScroll(id: string, x: number, y: number): boolean;
   dispose(): void;
 }
 
@@ -83,6 +96,7 @@ class WebView {
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
   private autofocusNode: LayoutNode | null = null;
+  private scrollDrag: ScrollDrag | null = null;
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -115,6 +129,7 @@ class WebView {
       },
       setData: (path, value) => this.setData(path, value),
       setOpen: (id, open) => this.setOpen(id, open),
+      setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
         for (const dispose of this.disposers) dispose();
       },
@@ -131,6 +146,7 @@ class WebView {
     this.pressedNode = null;
     this.focusedNode = null;
     this.autofocusNode = null;
+    this.scrollDrag = null;
     this.root = this.buildNode(rootIr, null);
     if (this.autofocusNode) this.setFocus(this.autofocusNode);
   }
@@ -147,6 +163,8 @@ class WebView {
       open: true,
       visibleFlag: true,
       sectionShown: true,
+      scrollOffset: { x: 0, y: 0 },
+      scrollMax: { x: 0, y: 0 },
     };
     const any = ir as AnyNode;
 
@@ -213,6 +231,27 @@ class WebView {
       return false;
     }
     this.setCollapseOpen(node, open);
+    return true;
+  }
+
+  /** Single state-mutation path (wheel, drag, setScroll) — clamps against the last relayout's bounds. */
+  private setScrollOffset(node: LayoutNode, x: number, y: number): void {
+    const next = {
+      x: clamp(x, 0, node.scrollMax.x),
+      y: clamp(y, 0, node.scrollMax.y),
+    };
+    if (next.x === node.scrollOffset.x && next.y === node.scrollOffset.y) return;
+    node.scrollOffset = next;
+    this.render();
+  }
+
+  setScroll(id: string, x: number, y: number): boolean {
+    const node = this.byId.get(id);
+    if (node?.ir.type !== "ScrollView") {
+      console.warn(`[zabloo] setScroll: no ScrollView with id "${id}".`);
+      return false;
+    }
+    this.setScrollOffset(node, x, y);
     return true;
   }
 
@@ -311,7 +350,8 @@ class WebView {
 
   private listen(): void {
     const down = (event: PointerEvent) => {
-      const hit = this.hitTest(this.eventPoint(event));
+      const point = this.eventPoint(event);
+      const hit = this.hitTest(point);
       const button = hit && this.findUp(hit, (n) => n.ir.type === "Button");
       if (button) {
         button.pressed = true;
@@ -319,7 +359,35 @@ class WebView {
         this.setFocus(button); // pointer and directional nav share one focus
         this.canvas.setPointerCapture(event.pointerId);
         this.render();
+        return;
       }
+      // Not yet a scroll gesture — held back until the drag threshold clears
+      // it, so a plain tap still reaches the Collapse-toggle handling in `up`.
+      const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
+      if (scrollable) {
+        this.scrollDrag = {
+          node: scrollable,
+          startPoint: point,
+          lastPoint: point,
+          moved: false,
+        };
+        this.canvas.setPointerCapture(event.pointerId);
+      }
+    };
+    const move = (event: PointerEvent) => {
+      const drag = this.scrollDrag;
+      if (!drag) return;
+      const point = this.eventPoint(event);
+      if (!drag.moved) {
+        const dx = point.x - drag.startPoint.x;
+        const dy = point.y - drag.startPoint.y;
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        drag.moved = true;
+      }
+      const dx = point.x - drag.lastPoint.x;
+      const dy = point.y - drag.lastPoint.y;
+      drag.lastPoint = point;
+      this.setScrollOffset(drag.node, drag.node.scrollOffset.x - dx, drag.node.scrollOffset.y - dy);
     };
     const keydown = (event: KeyboardEvent) => {
       const direction = KEY_DIRECTIONS[event.key];
@@ -347,28 +415,46 @@ class WebView {
         }
         return;
       }
+      const drag = this.scrollDrag;
+      this.scrollDrag = null;
+      if (drag?.moved) return; // a scroll gesture, not a tap
       // Collapse header toggle (the <details>/<summary> model).
       const hit = this.hitTest(point);
       const header = hit && this.findUp(hit, isCollapseHeader);
       if (header?.parent) this.setCollapseOpen(header.parent, !header.parent.open);
     };
+    const wheel = (event: WheelEvent) => {
+      const hit = this.hitTest(this.eventPoint(event));
+      const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
+      if (!scrollable) return;
+      event.preventDefault();
+      this.setScrollOffset(
+        scrollable,
+        scrollable.scrollOffset.x + event.deltaX,
+        scrollable.scrollOffset.y + event.deltaY,
+      );
+    };
     const resize = () => this.resize();
 
     this.canvas.addEventListener("pointerdown", down);
+    this.canvas.addEventListener("pointermove", move);
     this.canvas.addEventListener("pointerup", up);
+    this.canvas.addEventListener("wheel", wheel, { passive: false });
     globalThis.addEventListener("keydown", keydown);
     globalThis.addEventListener("keyup", keyup);
     globalThis.addEventListener("resize", resize);
     this.disposers.push(() => {
       this.canvas.removeEventListener("pointerdown", down);
+      this.canvas.removeEventListener("pointermove", move);
       this.canvas.removeEventListener("pointerup", up);
+      this.canvas.removeEventListener("wheel", wheel);
       globalThis.removeEventListener("keydown", keydown);
       globalThis.removeEventListener("keyup", keyup);
       globalThis.removeEventListener("resize", resize);
     });
   }
 
-  private eventPoint(event: PointerEvent): { x: number; y: number } {
+  private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
     const bounds = this.canvas.getBoundingClientRect();
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
