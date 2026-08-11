@@ -3,17 +3,16 @@
  *
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
- * - v1 vocabulary is a closed set grown by capability: Container, Text, Button, Collapse, Image.
+ * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
+ *   Collapse, ScrollView, Image.
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
  * - Styles are resolved per node and reference a flat token dictionary in the envelope.
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
  * - Paint is 100% implicit from style in v1 (no explicit draw-command layer).
  * - Two dynamic mechanisms only: named actions and data-path bindings.
- * - Forward-tolerant: SDKs ignore unknown props, render a fallback for unknown node
- *   types, and refuse only on a major-version mismatch.
- *
- * NOTE: the exact v1 style property set is being finalized during the vertical slice —
- * expect additions here, not restructuring.
+ * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
+ *   Container preserving `layout`/`style`/`visible`/`children` (normative rule,
+ *   decision 2026-08-11), and refuse only on a major-version mismatch.
  */
 
 /** Major IR version implemented by this package. */
@@ -73,7 +72,13 @@ export interface Envelope {
 }
 
 /** v1 node vocabulary (closed set). */
-export type ZNode = ContainerNode | TextNode | ButtonNode | CollapseNode | ImageNode;
+export type ZNode =
+  | ContainerNode
+  | TextNode
+  | ButtonNode
+  | CollapseNode
+  | ScrollViewNode
+  | ImageNode;
 
 export type StateName = "hover" | "pressed" | "disabled" | "focused";
 
@@ -121,6 +126,13 @@ interface NodeBase {
    * from component identity; `states.focused` styles the focused node).
    */
   autofocus?: boolean;
+  /**
+   * Clips children's paint AND hit-testing to this node's layout rect
+   * (paint-only config, like `opacity` — no runtime state). Overflowing
+   * children neither draw nor receive input outside the rect; a node's
+   * effective clipping rect is the intersection with all ancestor clips.
+   */
+  clip?: boolean;
 }
 
 /**
@@ -163,6 +175,28 @@ export interface CollapseNode extends NodeBase {
   /** Initial state (default: true). */
   open?: boolean;
   /** `children[0]` = header; `children[1..]` = collapsible content. */
+  children?: ZNode[];
+}
+
+/** Scrollable axis of a ScrollView. */
+export type ScrollAxis = "vertical" | "horizontal" | "both";
+
+/**
+ * Scrollable region (5th primitive, decision 2026-08-11). A normal flex
+ * container on both sides: its own size comes from its layout props, and
+ * `direction`/`justify`/`align`/`gap`/`padding` apply to its children — but
+ * children are measured UNCONSTRAINED on the scrollable axis, and the SDK owns
+ * the runtime scroll offset (clamped to `max(0, contentSize - viewport)` on
+ * every relayout) plus the wheel/drag input and the overlay scrollbar.
+ * Padding counts as content (pads the children, expands scrollable bounds).
+ * Always clips; an explicit `clip: false` is ignored.
+ */
+export interface ScrollViewNode extends NodeBase {
+  type: "ScrollView";
+  /** Scrollable axis. Default: "vertical". */
+  axis?: ScrollAxis;
+  /** Overlay position indicator painted by the SDK. Default: true. */
+  scrollbar?: boolean;
   children?: ZNode[];
 }
 
