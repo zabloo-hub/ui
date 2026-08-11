@@ -4,8 +4,8 @@
  * Each primitive is a function component that resolves its `variant` (an
  * authoring-time concept — decision 2026-08-03 §6) against the project theme
  * and emits the host primitive with fully resolved style/states. `Row`/`Column`
- * and `Accordion` are authoring sugar that emit a `Container` — composites and
- * variants never reach the IR.
+ * and `Accordion` are authoring sugar that emit a `Container`, and `List`/`Grid`
+ * sugar over the `Repeat` — composites and variants never reach the IR.
  */
 
 import type {
@@ -18,10 +18,12 @@ import type {
   SliderAxis,
   Style,
 } from "@zabloo/format";
+import { INDEX_SEGMENT, ITEM_ALIAS } from "@zabloo/format";
 import {
   Children,
   createElement,
   type FC,
+  Fragment,
   isValidElement,
   type ReactElement,
   type ReactNode,
@@ -682,6 +684,232 @@ export function Badge({
     },
     children ?? text,
   );
+}
+
+/**
+ * The `Repeat` primitive. NOT exported, for the same reason `Toggle` and `Slider`
+ * are not: its slots are positional (`children[0]` template, `children[1..]` empty
+ * state) and `<List>`/`<Grid>` are the one place that convention is written down.
+ */
+interface RepeatPrimitiveProps extends CommonProps {
+  items?: string;
+  as?: string;
+  keyPath?: string;
+  children?: ReactNode;
+}
+const Repeat: FC<RepeatPrimitiveProps> = primitive<RepeatPrimitiveProps>("Repeat");
+
+/**
+ * Builds the binding paths of the current element inside a template. Call it for a
+ * field (`item("price.amount")` → `"item.price.amount"`) or bare for the whole
+ * element (`item()` → `"item"`), and read `$index` for its position.
+ *
+ * It exists so the alias lives in ONE place: rename `as` and every binding in the
+ * template follows, which is what makes nested lists (each with its own alias)
+ * readable.
+ */
+export interface ItemRef {
+  (path?: string): string;
+  /** The element's position in the array — a number the data does not contain. */
+  readonly $index: string;
+}
+
+/** An item template: nodes that bind by hand, or a function given the item's paths. */
+export type ItemTemplate = ReactNode | ((item: ItemRef) => ReactNode);
+
+/** Props shared by the two ways of laying repeated items out. */
+export interface RepeatProps extends CommonProps {
+  /**
+   * Data path of the array to repeat, e.g. `"shop.items"`. Always a binding: the
+   * game owns the data and the document carries only structure.
+   */
+  items: string;
+  /**
+   * Alias the template binds against (`"it"` → `bind="it.name"`). Default: `"item"`.
+   * Declared rather than reserved so a nested list can still reach the outer
+   * element — pick a name that is not a root of your data, which it would shadow.
+   */
+  as?: string;
+  /**
+   * Path RELATIVE to the item naming its stable identity (`"id"`, `"meta.sku"`).
+   * Absent = identity is positional. It is what keeps per-item state (focus, a
+   * checked Toggle, a scroll offset) with the item across a `SetData` that
+   * reorders, and what lets the renderer recycle instances. Named `keyPath`
+   * because React owns `key`.
+   */
+  keyPath?: string;
+  /** Shown while the array is empty, absent or not an array at all. */
+  empty?: ReactNode;
+}
+
+export interface ListProps extends RepeatProps {
+  /** Item flow. Default: "vertical". */
+  axis?: "vertical" | "horizontal";
+  /** The item template — a single node, or a function that receives its paths. */
+  children?: ItemTemplate;
+}
+
+export interface GridProps extends RepeatProps {
+  /** Items per line. The grid's geometry is resolved from it at authoring time. */
+  columns: number;
+  /**
+   * Width of one cell in px. Give this OR `layout.width` — the grid solves the
+   * other one so exactly `columns` cells fit per line.
+   */
+  itemWidth?: number;
+  /** Props for the cell container that sizes each column. */
+  cell?: Omit<ContainerProps, "children">;
+  /** The item template — any number of nodes; the cell holds them. */
+  children?: ItemTemplate;
+}
+
+function itemRef(alias: string): ItemRef {
+  const ref = (path?: string): string =>
+    path === undefined || path.length === 0 ? alias : `${alias}.${path}`;
+  return Object.assign(ref, { $index: `${alias}.${INDEX_SEGMENT}` });
+}
+
+/** Resolves the template to its root nodes — running the render-prop, if it is one. */
+function templateNodes(children: ItemTemplate | undefined, alias: string): ReactNode[] {
+  const rendered = typeof children === "function" ? children(itemRef(alias)) : children;
+  return Children.toArray(rendered);
+}
+
+/**
+ * A data-driven list: the template is emitted ONCE and the SDK instantiates it per
+ * element of the bound array (the `Repeat` primitive — decision 2026-08-11, ZAB-29).
+ * The list node IS the flex container of the items, so `layout` (gap, padding,
+ * justify, align) lays them out like any other container.
+ *
+ * ```tsx
+ * <List items="shop.items" as="it" keyPath="id" layout={{ gap: 8 }}
+ *       empty={<Text>Nothing here yet</Text>}>
+ *   {(it) => (
+ *     <Row layout={{ gap: 12, align: "center" }}>
+ *       <Text bind={it("name")} />
+ *       <Text bind={it("price")} />
+ *       <Button onClick="buy"><Text>Buy</Text></Button>
+ *     </Row>
+ *   )}
+ * </List>
+ * ```
+ *
+ * The template is a single node because `children[0]` IS the template and
+ * `children[1..]` are the empty state — the positional convention of the primitive.
+ */
+export function List({ axis, empty, as, layout, children, ...rest }: ListProps): ReturnType<FC> {
+  const nodes = templateNodes(children, as ?? ITEM_ALIAS);
+  if (nodes.length === 0) throw new Error("<List> needs an item template as its children.");
+  if (nodes.length > 1 || isFragment(nodes[0])) {
+    throw new Error(
+      "A <List> template is a single node — wrap the items' contents in a <Row> or <Column>.",
+    );
+  }
+  return createElement(
+    Repeat,
+    {
+      ...rest,
+      ...(as !== undefined && { as }),
+      layout: { direction: axis === "horizontal" ? "row" : "column", ...layout },
+    },
+    nodes[0],
+    empty,
+  );
+}
+
+/**
+ * A list that wraps into lines of `columns` cells — the same `Repeat`, laid out as a
+ * wrapping row (decision 2026-08-11, ZAB-32: `wrap` joins the layout subset).
+ *
+ * ```tsx
+ * <Grid items="inventory.slots" columns={4} itemWidth={72} layout={{ gap: 8 }}>
+ *   {(slot) => <Text bind={slot("name")} />}
+ * </Grid>
+ * ```
+ *
+ * The geometry is arithmetic, not a percentage: v1 has no fractional dims, so the
+ * grid solves `itemWidth` from `layout.width` (or the other way round) at authoring
+ * time and each cell carries the resulting px. That is also why `gap`/`padding` must
+ * be numbers here — a token only resolves inside the SDK, too late for this sum.
+ */
+export function Grid({
+  columns,
+  itemWidth,
+  cell,
+  empty,
+  as,
+  layout,
+  children,
+  ...rest
+}: GridProps): ReturnType<FC> {
+  const nodes = templateNodes(children, as ?? ITEM_ALIAS);
+  if (nodes.length === 0) throw new Error("<Grid> needs an item template as its children.");
+  const { width, cellWidth } = gridGeometry(columns, itemWidth, layout);
+  return createElement(
+    Repeat,
+    {
+      ...rest,
+      ...(as !== undefined && { as }),
+      // direction/wrap are the grid itself, not defaults: the geometry above is
+      // solved for a wrapping row, so they are not the author's to override.
+      layout: { ...layout, direction: "row", wrap: true, width },
+    },
+    createElement(Container, { ...cell, layout: { ...cell?.layout, width: cellWidth } }, ...nodes),
+    empty,
+  );
+}
+
+/** The px a `<Grid>` needs so exactly `columns` cells fit on a line. */
+function gridGeometry(
+  columns: number,
+  itemWidth: number | undefined,
+  layout: GridProps["layout"],
+): { width: number; cellWidth: number } {
+  if (!Number.isInteger(columns) || columns < 1) {
+    throw new Error(`<Grid columns={${columns}}> must be an integer >= 1.`);
+  }
+  const gap = numericDim(layout?.gap, "gap");
+  const padding = numericDim(layout?.padding, "padding");
+  const around = gap * (columns - 1) + padding * 2;
+  if (itemWidth !== undefined) {
+    if (!Number.isFinite(itemWidth) || itemWidth <= 0) {
+      throw new Error(`<Grid itemWidth={${itemWidth}}> must be a positive number of px.`);
+    }
+    // Rounded UP so the line always has room for the last cell: summing the cells
+    // one by one and summing them as `columns * itemWidth` need not land on the
+    // same float, and a hair too little would push a cell to the next line.
+    return { width: Math.ceil(columns * itemWidth + around), cellWidth: itemWidth };
+  }
+  const width = numericDim(layout?.width, "width");
+  if (width <= 0) {
+    throw new Error(
+      "<Grid> needs its geometry: pass `itemWidth`, or a numeric `layout.width` to divide.",
+    );
+  }
+  // Floored for the mirror-image reason: an inexact division would otherwise make
+  // the cells add up to slightly MORE than the line. The leftover px stay as slack.
+  const cellWidth = Math.floor((width - around) / columns);
+  if (cellWidth <= 0) {
+    throw new Error(
+      `<Grid columns={${columns}}> does not fit in ${width}px with gap ${gap} and padding ${padding}.`,
+    );
+  }
+  return { width, cellWidth };
+}
+
+function numericDim(value: Dim | undefined, name: string): number {
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(
+      `<Grid> resolves its cell width at authoring time, so layout.${name} must be a ` +
+        `number of px here (got ${JSON.stringify(value)}).`,
+    );
+  }
+  return value;
+}
+
+function isFragment(node: ReactNode): boolean {
+  return isValidElement(node) && node.type === Fragment;
 }
 
 /** Re-exported prop aliases for user components. */

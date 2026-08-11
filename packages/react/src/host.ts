@@ -20,6 +20,7 @@ import type {
   ImageNode,
   Layout,
   ProgressBarNode,
+  RepeatNode,
   ScrollAxis,
   ScrollViewNode,
   SliderAxis,
@@ -45,7 +46,8 @@ export type HostType =
   | "Slider"
   | "Image"
   | "ProgressBar"
-  | "Spinner";
+  | "Spinner"
+  | "Repeat";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -105,6 +107,15 @@ export interface HostInstance {
     /** Spinner: cycle length and ramp curve (its wave floor is `min`, above). */
     period?: Dim;
     easing?: Easing;
+    /**
+     * Repeat: the bound array's path (always a binding — the data never travels in
+     * the document), the item alias the template binds against, and the path
+     * relative to the item that names its identity. `keyPath` and not `key`
+     * because React owns that prop name.
+     */
+    items?: string;
+    as?: string;
+    keyPath?: string;
   };
   children: HostNode[];
 }
@@ -132,6 +143,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "Image",
   "ProgressBar",
   "Spinner",
+  "Repeat",
 ]);
 
 export function isHostType(type: string): type is HostType {
@@ -142,8 +154,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Toggle, Slider, Image, ProgressBar, Spinner ` +
-        `(Row/Column/Checkbox/Switch/Radio/Badge are sugar from @zabloo/react).`,
+        `Collapse, ScrollView, Toggle, Slider, Image, ProgressBar, Spinner, Repeat ` +
+        `(Row/Column/Checkbox/Switch/Radio/Badge/List/Grid are sugar from @zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -305,6 +317,30 @@ export function toIR(instance: HostInstance): ZNode {
         ...(instance.props.period !== undefined && { period: instance.props.period }),
         ...(instance.props.min !== undefined && { min: instance.props.min }),
         ...(instance.props.easing !== undefined && { easing: instance.props.easing }),
+        children,
+      };
+      return node;
+    }
+    case "Repeat": {
+      const { items, as, keyPath } = instance.props;
+      if (typeof items !== "string" || items.length === 0) {
+        throw new Error(
+          '<List>/<Grid> need an `items` data path, e.g. items="shop.items". The array ' +
+            "lives in the game's data, never in the document.",
+        );
+      }
+      const { children } = childrenIR(instance);
+      // children[0] is the template and it is positional, like Collapse's header:
+      // a Repeat without one would emit a list that can only ever be empty.
+      if (!children || children.length === 0) {
+        throw new Error("<List>/<Grid> need an item template as their children.");
+      }
+      const node: RepeatNode = {
+        type: "Repeat",
+        ...base,
+        items: { bind: items },
+        ...(as !== undefined && { as }),
+        ...(keyPath !== undefined && { key: keyPath }),
         children,
       };
       return node;
