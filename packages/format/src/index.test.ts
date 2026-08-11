@@ -5,6 +5,7 @@ import {
   type Envelope,
   IR_VERSION,
   isAssetRef,
+  type OverlayNode,
   parseEnvelope,
   type ScrollViewNode,
   supportsVersion,
@@ -271,5 +272,96 @@ describe("scroll & clipping (ZAB-5)", () => {
       },
     };
     expect(withClip.views.button?.type).toBe("Button");
+  });
+});
+
+describe("overlays & z-order (ZAB-19)", () => {
+  // Typed without casts: this file failing `tsc --noEmit` IS the type test.
+  const overlayEnvelope: Envelope = {
+    v: IR_VERSION,
+    tokens: { "color.scrim": "#00000088" },
+    views: {
+      shop: {
+        type: "Container",
+        children: [
+          { type: "Button", onClick: "open-confirm", children: [{ type: "Text", text: "Buy" }] },
+          {
+            // A modal: declared where the UI that opens it lives, hidden until
+            // the game says otherwise; its own background IS the backdrop.
+            type: "Overlay",
+            visible: { bind: "ui.confirmOpen" },
+            onDismiss: "close-confirm",
+            style: { background: "{color.scrim}" },
+            layout: { justify: "center", align: "center" },
+            children: [{ type: "Container", children: [{ type: "Text", text: "Sure?" }] }],
+          },
+          {
+            // A toast: above everything, but input passes through its layer.
+            type: "Overlay",
+            modal: false,
+            z: 10,
+            layout: { justify: "end", align: "end", padding: 16 },
+            children: [{ type: "Text", text: "Purchased" }],
+          },
+        ],
+      },
+    },
+  };
+
+  it("accepts a view with modal and non-modal overlays", () => {
+    const env = parseEnvelope(overlayEnvelope);
+    const children = (env.views.shop as { children: OverlayNode[] }).children;
+    expect(children[1]?.type).toBe("Overlay");
+    expect(children[2]?.modal).toBe(false);
+  });
+
+  it("modal, z and onDismiss are optional (defaults live in the SDK)", () => {
+    const bare: OverlayNode = { type: "Overlay" };
+    const env = parseEnvelope({ v: IR_VERSION, tokens: {}, views: { o: bare } });
+    expect(env.views.o?.type).toBe("Overlay");
+  });
+
+  it("rejects a non-boolean modal at type-check time", () => {
+    const node: OverlayNode = {
+      type: "Overlay",
+      // @ts-expect-error — modal must be boolean, not string
+      modal: "yes",
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("rejects a non-numeric z at type-check time", () => {
+    const node: OverlayNode = {
+      type: "Overlay",
+      // @ts-expect-error — z must be a number, not a token ref
+      z: "{layer.modal}",
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("carries no backdrop field: the overlay's own style paints it", () => {
+    const node: OverlayNode = {
+      type: "Overlay",
+      style: { background: "#0008" },
+      // @ts-expect-error — backdrop is not a field; paint stays implicit from style
+      backdrop: "#0008",
+    };
+    expect(node.style?.background).toBe("#0008");
+  });
+
+  it("nests inside any subtree and takes NodeBase props", () => {
+    // Overlays are declared in place — including inside a ScrollView — and are
+    // lifted to the view's overlay layer by the SDK, never affecting siblings.
+    const env: Envelope = {
+      v: IR_VERSION,
+      tokens: {},
+      views: {
+        inventory: {
+          type: "ScrollView",
+          children: [{ type: "Overlay", id: "tooltip", modal: false, autofocus: false }],
+        },
+      },
+    };
+    expect(parseEnvelope(env).views.inventory?.type).toBe("ScrollView");
   });
 });
