@@ -75,6 +75,22 @@ importers:
         specifier: workspace:*
         version: link:../../packages/cli
 
+  examples/tabs-settings:
+    dependencies:
+      '@zabloo/react':
+        specifier: workspace:*
+        version: link:../../packages/react
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      '@zabloo/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+
   packages/cli:
     dependencies:
       '@zabloo/format':

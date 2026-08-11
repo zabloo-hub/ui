@@ -9,13 +9,22 @@
  */
 
 import type { Bindable, GroupBehavior, ScrollAxis, Style } from "@zabloo/format";
-import { createElement, type FC, type ReactElement, type ReactNode } from "react";
+import {
+  Children,
+  createElement,
+  type FC,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import type { CommonProps } from "./host.js";
 import { useVariant } from "./theme.js";
 
 export interface ContainerProps extends CommonProps {
   /** Cross-child behavior the SDK enforces generically (decision 2026-08-03). */
   group?: GroupBehavior;
+  /** Initially selected index of an `"exclusive-select"` group (default: 0). */
+  selected?: number;
   /** Selected value of an `"exclusive-check"` group — see `<RadioGroup>`. */
   value?: Bindable<string | number>;
   children?: ReactNode;
@@ -263,6 +272,91 @@ export function RadioGroup({ layout, ...rest }: RadioGroupProps): ReturnType<FC>
     group: "exclusive-check",
     layout: { direction: "column", ...layout },
   });
+}
+
+export interface TabProps extends CommonProps {
+  /**
+   * Tab label. A bare string/number is wrapped in `<Text>`; pass a node (e.g. a
+   * styled `<Text>` or a `<Row>` with an icon) for full control.
+   */
+  label: ReactNode;
+  /** Props for this tab's panel container. The rest of the props style its button. */
+  panel?: Omit<ContainerProps, "group" | "selected" | "children">;
+  /** Panel content — shown only while this tab is the selected one. */
+  children?: ReactNode;
+}
+
+/**
+ * One tab of a `<Tabs>`. A marker component: it never renders itself — `<Tabs>`
+ * reads its props at authoring time and emits the button/panel pair.
+ */
+export function Tab(_props: TabProps): ReturnType<FC> {
+  throw new Error("<Tab> must be a direct child of <Tabs>.");
+}
+
+export interface TabsProps extends Omit<ContainerProps, "group" | "children"> {
+  /** Initially selected tab (default: 0). The SDK owns the runtime selection. */
+  selected?: number;
+  /** Props for the tab bar container (`children[0]`) — a row unless overridden. */
+  bar?: Omit<ContainerProps, "group" | "selected" | "children">;
+  /** `<Tab>` elements, in bar order. */
+  children?: ReactNode;
+}
+
+/**
+ * Tabs — a flattened composite (decision 2026-08-11, extending 2026-08-03 §5):
+ * NOT an IR type. Emits a column `Container` with `group: "exclusive-select"`,
+ * whose `children[0]` is the tab bar of `Button`s and whose `children[1..n]` are
+ * the panels, one per button in bar order. The SDK enforces "exactly one shown"
+ * generically — the unselected panels leave the layout — and styles the active
+ * button with `states.selected`. Older SDKs ignore the `group` prop and degrade
+ * to the bar plus every panel stacked.
+ */
+export function Tabs({ bar, layout, selected, children, ...rest }: TabsProps): ReturnType<FC> {
+  const tabs = Children.toArray(children).map((child, index) => {
+    if (!isValidElement(child) || child.type !== Tab) {
+      throw new Error("<Tabs> children must all be <Tab> elements.");
+    }
+    return { props: child.props as TabProps, key: child.key ?? String(index) };
+  });
+  if (tabs.length === 0) throw new Error("<Tabs> needs at least one <Tab>.");
+  if (selected !== undefined && (selected < 0 || selected >= tabs.length)) {
+    throw new Error(
+      `<Tabs selected={${selected}}> is out of range — there ${
+        tabs.length === 1 ? "is 1 tab" : `are ${tabs.length} tabs`
+      }.`,
+    );
+  }
+
+  const buttons = tabs.map(({ props, key }) =>
+    createElement(
+      Button,
+      { key, ...tabButtonProps(props) },
+      typeof props.label === "string" || typeof props.label === "number"
+        ? createElement(Text, null, props.label)
+        : props.label,
+    ),
+  );
+  const panels = tabs.map(({ props, key }) =>
+    createElement(Container, { key, ...props.panel }, props.children),
+  );
+
+  return createElement(
+    Container,
+    {
+      ...rest,
+      group: "exclusive-select",
+      ...(selected !== undefined && { selected }),
+      layout: { direction: "column", ...layout },
+    },
+    createElement(Container, { ...bar, layout: { direction: "row", ...bar?.layout } }, buttons),
+    ...panels,
+  );
+}
+
+/** A `<Tab>`'s own props style its bar button; `label`/`panel`/`children` do not. */
+function tabButtonProps({ label: _label, panel: _panel, children: _children, ...rest }: TabProps) {
+  return rest;
 }
 
 /** Re-exported prop aliases for user components. */

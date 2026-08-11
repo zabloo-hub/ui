@@ -4,7 +4,9 @@
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
- *   Collapse, ScrollView, Image, Toggle.
+ *   Collapse, ScrollView, Image, Overlay, Toggle.
+ * - Overlay nodes leave their parent's flow and are painted in a single top layer
+ *   above the whole view, ordered by `(z, document order)` (decision 2026-08-11).
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
  * - Styles are resolved per node and reference a flat token dictionary in the envelope.
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
@@ -13,6 +15,8 @@
  *   are READ/WRITE from v1 on the controls that own a value (Toggle): the SDK
  *   writes the new value into its own data store and notifies the game through
  *   one callback (decision 2026-08-11, ZAB-23).
+ * - Style/layout changes may be tweened by a per-node `transition` (duration + easing
+ *   from a closed curve set) — no keyframes, no timelines (decision 2026-08-11).
  * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
  *   Container preserving `layout`/`style`/`visible`/`children` (normative rule,
  *   decision 2026-08-11), and refuse only on a major-version mismatch.
@@ -82,14 +86,18 @@ export type ZNode =
   | CollapseNode
   | ScrollViewNode
   | ImageNode
+  | OverlayNode
   | ToggleNode;
 
 /**
- * `checked` (ZAB-23) is the first state a node carries as *value*, not as a
- * transient interaction: it styles a Toggle that is on. Merge order in the SDKs:
- * base → checked → focused → pressed.
+ * Runtime states a node can be styled in. The SDK owns the state itself, keyed by
+ * component type — `selected` is the state a member of an `"exclusive-select"`
+ * group carries while it is the chosen one (decision 2026-08-11, Tabs), and
+ * `checked` the one a `Toggle` carries while it is on (decision 2026-08-11,
+ * ZAB-23). Both are *value* states, not transient interactions; they merge before
+ * the interaction ones: base → selected/checked → focused → pressed.
  */
-export type StateName = "hover" | "pressed" | "disabled" | "focused" | "checked";
+export type StateName = "hover" | "pressed" | "disabled" | "focused" | "selected" | "checked";
 
 /** Per-state style overrides. The SDK owns runtime state, keyed by component type. */
 export interface StateOverride {
@@ -122,6 +130,36 @@ export interface Style {
   opacity?: number;
 }
 
+/**
+ * Closed set of easing curves (decision 2026-08-11). Defined as closed-form cubic
+ * polynomials rather than CSS cubic-béziers so every target computes the SAME number
+ * without a solver — see `easeProgress`, the normative reference implementation.
+ */
+export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
+
+/**
+ * Declarative transition for a node's animatable values. The SDK tweens whenever a
+ * RESOLVED animatable value changes, whatever caused the change (entering/leaving a
+ * state, `SetData` on a bound input, a token swap) — there is no trigger list.
+ *
+ * Animatable: `background`, `borderColor`, `color` (componentwise lerp in straight
+ * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
+ * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
+ * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
+ * `text`, `open`, `src`, `axis`, `scrollbar`, and the Overlay's `modal`/`z` — `z` is
+ * numeric but it is ordering, not a visual magnitude).
+ *
+ * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
+ * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
+ * an interruption retargets from the current interpolated value over a full duration.
+ */
+export interface Transition {
+  /** Duration in milliseconds. A `Dim` so motion is themeable (`"{motion.fast}"`); <= 0 is instant. */
+  duration: Dim;
+  /** Default: "ease-out". */
+  easing?: Easing;
+}
+
 interface NodeBase {
   id?: string;
   /** Single hiding mechanism — `display:none` semantics (leaves layout). */
@@ -129,6 +167,12 @@ interface NodeBase {
   layout?: Layout;
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
+  /**
+   * Tweens this node's own animatable values when they change (no cascade — a node
+   * never inherits its parent's transition). Read from the base node only: a
+   * per-state transition (asymmetric in/out) is a compatible future extension.
+   */
+  transition?: Transition;
   /**
    * Receives initial focus (decision 2026-08-03 §7: navigation is automatic
    * spatial — the SDK moves focus from live layout rects; focusability derives
@@ -150,22 +194,39 @@ interface NodeBase {
  * behavior is declared with `group` and implemented generically by the SDK.
  * Older SDKs ignore unknown `group` values, so composites degrade gracefully
  * (an Accordion becomes independent Collapses) instead of failing to render.
+ *
+ * - `"exclusive-open"` (Accordion): when a child `Collapse` opens, its siblings close.
+ * - `"exclusive-select"` (Tabs, decision 2026-08-11): exactly one child is shown at a
+ *   time. Positional contract, like Collapse's header — no id wiring in the JSON:
+ *   `children[0]` is the **tab bar**, whose own children are the tab buttons, and
+ *   `children[1..n]` are the **panels**, one per button in bar order. Selecting index
+ *   `i` puts `children[i + 1]` in layout (siblings leave it, `display:none`
+ *   semantics) and gives bar button `i` the `selected` state.
+ * - `"exclusive-check"` (RadioGroup, decision 2026-08-11): one descendant Toggle is
+ *   checked, identified by VALUE rather than by position — `value` on the group is
+ *   the selection, `value` on each Toggle is its option.
+ *
+ * One behavior governs one state: `open` (Collapse), `selected` (index, Tabs),
+ * `checked` (Toggle).
  */
-export type GroupBehavior =
-  /** Accordion: opening a child Collapse closes its siblings. */
-  | "exclusive-open"
-  /** RadioGroup: one descendant Toggle checked, identified by the group's `value`. */
-  | "exclusive-check";
+export type GroupBehavior = "exclusive-open" | "exclusive-select" | "exclusive-check";
 
 export interface ContainerNode extends NodeBase {
   type: "Container";
   /** Cross-child behavior the SDK enforces (e.g. Accordion = "exclusive-open"). */
   group?: GroupBehavior;
   /**
+   * Initially selected index for `group: "exclusive-select"` (default: 0), the
+   * counterpart of `CollapseNode.open` — initial state travels in the IR, the
+   * runtime state belongs to the SDK. Ignored without that group behavior.
+   */
+  selected?: number;
+  /**
    * Selected value of an `"exclusive-check"` group (RadioGroup): a descendant
    * Toggle is checked when its `value` equals this one, and tapping a Toggle
    * writes its `value` here. Meaningless on any other group — the whole point of
-   * a radio group is that the selection is ONE value, not N booleans.
+   * a radio group is that the selection is ONE value, not N booleans. (Tabs use
+   * `selected` instead: an index, because tabs are positional.)
    */
   value?: Bindable<string | number>;
   children?: ZNode[];
@@ -231,7 +292,7 @@ export interface ImageNode extends NodeBase {
 }
 
 /**
- * Two-state control (7th primitive, decision 2026-08-11): the checkbox, the
+ * Two-state control (8th primitive, decision 2026-08-11): the checkbox, the
  * switch and the radio are ONE type — they differ in styling and in the group
  * they sit in, not in behavior. The SDK owns the runtime `checked` state (keyed
  * by type, like Button's pressed and Collapse's open) and toggles it on
@@ -261,6 +322,42 @@ export interface ToggleNode extends NodeBase {
   /** Named action fired after every change, like Button's `onClick`. */
   onChange?: string;
   /** `children[0]` = checked slot; `children[1]` = unchecked slot; `children[2..]` = always shown. */
+  children?: ZNode[];
+}
+
+/**
+ * Content lifted out of the normal flow into the view's overlay layer (decision
+ * 2026-08-11, ZAB-19). Declared in place in the tree — wherever the UI that opens
+ * it lives — but it never affects its siblings' layout: the SDK collects every
+ * visible Overlay of the view into ONE layer painted above the whole tree, sorted
+ * by `(z, document order)`.
+ *
+ * The overlay's own rect IS the view rect, so `layout.justify`/`align`/`padding`
+ * position its content (centered modal, bottom-right toast) and its `style`
+ * paints the backdrop — a translucent `background` is the backdrop, with no extra
+ * field and paint still implicit from style. `layout.width`/`height` on the
+ * Overlay itself are ignored (a layer is not sized); size the child instead.
+ *
+ * `visible` behaves as everywhere else: a hidden Overlay contributes no layer, no
+ * backdrop and no input blocking.
+ */
+export interface OverlayNode extends NodeBase {
+  type: "Overlay";
+  /**
+   * Blocks input to everything below (including lower overlays) and confines
+   * focus navigation to this subtree. Default: true. `false` (toast, tooltip)
+   * paints above but leaves the layer's own rect inert to input — only its
+   * children receive events, everything else passes through.
+   */
+  modal?: boolean;
+  /** Explicit stacking inside the overlay layer; ties break by document order. Default: 0. */
+  z?: number;
+  /**
+   * Named action fired on a dismiss request (Escape / gamepad B / a tap on the
+   * backdrop). A declared hook like `onClick` — closing itself is the SDK's
+   * default behavior plus the game→SDK API, never logic in the JSON.
+   */
+  onDismiss?: string;
   children?: ZNode[];
 }
 
@@ -336,6 +433,28 @@ export function isAssetRef(value: unknown): value is AssetRef {
  */
 export function assetIdFromRef(ref: AssetRef): string {
   return ref.slice("asset:".length);
+}
+
+/**
+ * Normative reference implementation of the closed easing set: maps linear progress
+ * `t` (0..1) to eased progress. Shared by the web renderer and the CLI preview; the
+ * Unity SDK ports these exact polynomials, which is what keeps the curves identical
+ * across targets. `t` outside 0..1 clamps; an unknown curve (newer content on an
+ * older reader) falls back to linear rather than refusing to animate.
+ */
+export function easeProgress(easing: Easing, t: number): number {
+  if (!(t > 0)) return 0; // also catches NaN
+  if (t >= 1) return 1;
+  switch (easing) {
+    case "ease-in":
+      return t * t * t;
+    case "ease-out":
+      return 1 - (1 - t) ** 3;
+    case "ease-in-out":
+      return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+    default:
+      return t;
+  }
 }
 
 const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;

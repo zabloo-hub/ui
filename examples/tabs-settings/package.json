@@ -1,0 +1,20 @@
+{
+  "name": "tabs-settings-example",
+  "private": true,
+  "type": "module",
+  "description": "Tabs manual test bed: a settings screen whose panels enter/leave layout with the exclusive-select group",
+  "scripts": {
+    "dev": "zabloo dev",
+    "dev:unity": "zabloo dev --unity",
+    "export": "zabloo export",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@zabloo/react": "workspace:*",
+    "react": "^19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@zabloo/cli": "workspace:*"
+  }
+}
