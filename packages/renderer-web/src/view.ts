@@ -57,6 +57,7 @@ import { clamp, scrollbarThumb } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import { beadOpacity, DEFAULT_PERIOD } from "./spinner.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
+import { layoutText, placeLines, type TextLayoutOptions } from "./text.js";
 import { isSelected, nextChecked, slotShown } from "./toggle.js";
 import {
   clearNodeAnim,
@@ -333,6 +334,7 @@ class WebView {
       scrollOffset: { x: 0, y: 0 },
       scrollMax: { x: 0, y: 0 },
       resolved: {},
+      textBlock: null,
       // Fresh state: the first resolve pass has nothing to tween from, so this
       // node snaps into its initial values — which is also why a reload snaps.
       anim: createNodeAnim(),
@@ -1031,6 +1033,26 @@ class WebView {
     return Math.max(1, Math.round(this.dim(style?.fontSize, DEFAULT_FONT_SIZE)));
   }
 
+  /**
+   * The text-layout knobs, resolved against the font (decision 2026-08-11, ZAB-17):
+   * text wraps by default, to the width the flexbox offered the node.
+   */
+  private textOptions(
+    style: Style | undefined,
+    fontLineHeight: number,
+    maxWidth: number | null,
+  ): TextLayoutOptions {
+    const maxLines = style?.maxLines;
+    return {
+      wrap: style?.wrap ?? true,
+      maxWidth,
+      lineHeight: Math.max(0, this.dim(style?.lineHeight, fontLineHeight)),
+      // A cap below one line is not a cap: it would leave nothing to paint.
+      maxLines: typeof maxLines === "number" && maxLines >= 1 ? Math.floor(maxLines) : null,
+      overflow: style?.overflow ?? "clip",
+    };
+  }
+
   /** A declared color, or `undefined` — an undeclared endpoint has nothing to tween from. */
   private optionalColor(value: unknown, fallback: Color): Color | undefined {
     return value === undefined ? undefined : this.color(value, fallback);
@@ -1184,10 +1206,23 @@ class WebView {
     return { width: this.canvas.width / dpr, height: this.canvas.height / dpr };
   }
 
-  private measureLeaf = (ir: ZNode): { x: number; y: number } => {
+  private measureLeaf = (
+    node: LayoutNode,
+    availableWidth: number | null,
+  ): { x: number; y: number } => {
+    const ir = node.ir;
     if (ir.type === "Text") {
-      const atlas = this.fonts.get(this.fontSize((ir as AnyNode).style));
-      return atlas.measure(this.resolveText(ir));
+      // Wrapping happens HERE, once per frame: the block is kept on the node so
+      // paint reuses these very lines instead of breaking the text a second time.
+      const style = this.effectiveStyle(node);
+      const atlas = this.fonts.get(this.fontSize(style));
+      const block = layoutText(
+        this.resolveText(ir),
+        atlas,
+        this.textOptions(style, atlas.lineHeight, availableWidth),
+      );
+      node.textBlock = block;
+      return { x: block.width, y: block.height };
     }
     if (ir.type === "Image") {
       // Intrinsic size straight from the manifest — no decode needed, so the
@@ -1215,13 +1250,15 @@ class WebView {
     this.animating = false;
     this.resolve(this.root, now());
 
-    measure(this.root, this.measureLeaf);
+    // The view's own width is the offer the constraint chain starts from — that is
+    // what a Text with no explicit width wraps to.
+    measure(this.root, this.measureLeaf, width);
     arrange(this.root, viewRect);
     // Every layer entry is arranged against the view rect — that is why
     // `layout.width`/`height` on an Overlay are ignored — and its own layout
     // props place the content inside it.
     for (const overlay of this.layer) {
-      measure(overlay, this.measureLeaf);
+      measure(overlay, this.measureLeaf, width);
       arrange(overlay, viewRect);
     }
 
@@ -1273,14 +1310,23 @@ class WebView {
       );
     }
     if (node.ir.type === "Text") {
-      const atlas = this.fonts.get(this.fontSize(this.effectiveStyle(node)));
-      geometry.text(
-        node.rect.x,
-        node.rect.y,
-        this.resolveText(node.ir),
-        atlas,
-        fade(values.color ?? DEFAULT_TEXT_COLOR, opacity),
-      );
+      const block = node.textBlock;
+      if (block) {
+        const style = this.effectiveStyle(node);
+        const atlas = this.fonts.get(this.fontSize(style));
+        const color = fade(values.color ?? DEFAULT_TEXT_COLOR, opacity);
+        // Lines are placed inside the padding box: a Text's own padding already
+        // grew its measured size, so it has to keep the glyphs off the edge too.
+        const box = deflate(node.rect, values.padding ?? 0);
+        const lines = placeLines(
+          block,
+          box,
+          atlas,
+          style?.textAlign ?? "start",
+          style?.textAlignY ?? "start",
+        );
+        for (const line of lines) geometry.text(line.x, line.y, line.text, atlas, color);
+      }
     } else if (node.ir.type === "Image") {
       const asset = this.images.get((node.ir as AnyNode).src);
       if (asset) {
@@ -1375,6 +1421,17 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
+/** A rect's content box: the same inset the measure pass reserved for `padding`. */
+function deflate(rect: Rect, padding: number): Rect {
+  if (padding <= 0) return rect;
+  return {
+    x: rect.x + padding,
+    y: rect.y + padding,
+    width: Math.max(0, rect.width - padding * 2),
+    height: Math.max(0, rect.height - padding * 2),
+  };
 }
 
 function bindPath(value: unknown): string | null {

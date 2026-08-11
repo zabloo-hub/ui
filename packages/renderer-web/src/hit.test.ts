@@ -27,6 +27,7 @@ function node(ir: Partial<ZNode> & { type: string }, rect: Rect, children: Layou
     scrollMax: { x: 0, y: 0 },
     // Hit-testing reads no animatable value: an un-resolved node is enough.
     resolved: {},
+    textBlock: null,
     anim: createNodeAnim(),
   };
   for (const child of children) child.parent = built;

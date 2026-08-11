@@ -180,6 +180,15 @@ function primitive<P extends CommonProps>(type: string): FC<P> {
 }
 
 export const Container: FC<ContainerProps> = primitive<ContainerProps>("Container");
+
+/**
+ * A run of text, sized by the font (a leaf with an intrinsic size, like `<Image>`).
+ *
+ * It is multiline by default: it wraps to the width the flexbox offers it, and `\n`
+ * always breaks. Everything else is plain style, with no Text-specific props —
+ * `style.wrap`, `textAlign`, `textAlignY`, `lineHeight`, `overflow` and `maxLines`,
+ * so a `variant` themes them and `states` overrides them like any other style.
+ */
 export const Text: FC<TextProps> = primitive<TextProps>("Text");
 export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
 export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");

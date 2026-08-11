@@ -1,7 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { FontLibrary, GlyphAtlas } from "./glyphs.js";
+import { layoutText } from "./text.js";
 import { decodeBase64, loadFont, type StbFont } from "./ttf.js";
+
+/**
+ * Width of a single-line run through the real measuring path: an atlas is the
+ * `TextMetrics` the layout algorithm walks (ZAB-17), so this is what the layout
+ * pass would reserve for the run — kerning included.
+ */
+function runWidth(atlas: GlyphAtlas, text: string): number {
+  const block = layoutText(text, atlas, {
+    wrap: false,
+    maxWidth: null,
+    lineHeight: atlas.lineHeight,
+    maxLines: null,
+    overflow: "clip",
+  });
+  return block.lines[0].width;
+}
 
 /**
  * The atlas is exercised against the REAL rasterizer — the glyph boxes and the
@@ -89,8 +106,8 @@ describe("GlyphAtlas with the TTF rasterizer", () => {
     const atlas = new GlyphAtlas(16, 2, font);
     // Rasterized at 32 device px, reported at 16 logical px.
     expect(atlas.lineHeight).toBeCloseTo(font.metrics(32).lineHeight / 2, 6);
-    expect(atlas.measure("Hello").x).toBeCloseTo(
-      new GlyphAtlas(16, 1, font).measure("Hello").x,
+    expect(runWidth(atlas, "Hello")).toBeCloseTo(
+      runWidth(new GlyphAtlas(16, 1, font), "Hello"),
       // Not exact: the two rasterize at different sizes, so hinting-free
       // rounding of the ink boxes differs. Advances are what must agree.
       1,
@@ -167,7 +184,9 @@ describe("GlyphAtlas with the TTF rasterizer", () => {
 
     const a = atlas.get("A")?.advance ?? 0;
     const v = atlas.get("V")?.advance ?? 0;
-    expect(atlas.measure("AV").x).toBeCloseTo(a + v + kern, 6);
+    // Through the layout algorithm, which is what has to see it: a run measured
+    // without kerning would not be the run the tessellator paints.
+    expect(runWidth(atlas, "AV")).toBeCloseTo(a + v + kern, 6);
   });
 
   it("bumps its version as the bitmap changes, so the GL layer re-uploads", () => {
