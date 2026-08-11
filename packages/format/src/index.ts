@@ -4,7 +4,7 @@
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
- *   Collapse, ScrollView, Image, Overlay, Toggle.
+ *   Collapse, ScrollView, Image, Overlay, Toggle, Repeat.
  * - Overlay nodes leave their parent's flow and are painted in a single top layer
  *   above the whole view, ordered by `(z, document order)` (decision 2026-08-11).
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
@@ -15,6 +15,9 @@
  *   are READ/WRITE from v1 on the controls that own a value (Toggle): the SDK
  *   writes the new value into its own data store and notifies the game through
  *   one callback (decision 2026-08-11, ZAB-23).
+ * - Data drives STRUCTURE too: a `Repeat` node instantiates its template once per
+ *   element of a bound array, and named actions gained an `ActionContext` so a
+ *   press inside an item says WHICH one (decision 2026-08-11, ZAB-29).
  * - Style/layout changes may be tweened by a per-node `transition` (duration + easing
  *   from a closed curve set) — no keyframes, no timelines (decision 2026-08-11).
  * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
@@ -31,7 +34,15 @@ export type TokenRef = `{${string}}`;
 /** Token values in the envelope's flat dictionary. */
 export type TokenValue = string | number;
 
-/** A static value or a data-path binding, e.g. `{ bind: "player.gold" }`. */
+/**
+ * A static value or a data-path binding, e.g. `{ bind: "player.gold" }`.
+ *
+ * A path is a dot-separated address INTO the data, not an opaque key: a numeric
+ * segment indexes an array (`"shop.items.3.name"`), which is what array bindings
+ * need to address one element (decision 2026-08-11, ZAB-29). Inside a `Repeat`
+ * template a path may start with the item alias (`"item.name"`) and is resolved
+ * against the current element — see `resolveBinding`.
+ */
 export type Bindable<T> = T | { bind: string };
 
 /** Dimension: a number (px) or a token reference. */
@@ -87,7 +98,8 @@ export type ZNode =
   | ScrollViewNode
   | ImageNode
   | OverlayNode
-  | ToggleNode;
+  | ToggleNode
+  | RepeatNode;
 
 /**
  * Runtime states a node can be styled in. The SDK owns the state itself, keyed by
@@ -297,7 +309,9 @@ export interface ContainerNode extends NodeBase {
  *    word is appended to the current line while the total fits; otherwise the line
  *    ends and the word starts the next one, and the spaces at the break are dropped
  *    (they never count toward a line's width, though spaces that start a line do —
- *    indentation is preserved).
+ *    indentation is preserved). Every width includes the font's KERNING between
+ *    consecutive glyphs, and a break ends the chain: the pair straddling it never
+ *    applies, which is what keeps a measured line exactly as wide as the painted one.
  * 4. **Long words.** A word that does not fit on a line of its own is broken between
  *    glyphs, at the last one that fits, with a minimum of one glyph per line.
  * 5. **Truncation.** Lines past `maxLines` are dropped; then `overflow` cuts what is
@@ -481,6 +495,178 @@ export interface OverlayNode extends NodeBase {
    */
   autoCloseMs?: number;
   children?: ZNode[];
+}
+
+/** Default item alias of a `Repeat` template (`as`). */
+export const ITEM_ALIAS = "item";
+
+/** Reserved leaf segment inside an item scope: `"item.$index"` → the element's position. */
+export const INDEX_SEGMENT = "$index";
+
+/**
+ * Data-driven repetition (9th primitive, decision 2026-08-11, ZAB-29): the first
+ * node whose CHILDREN come from data instead of from the document. `items` binds an
+ * array and the SDK instantiates `children[0]` — the template — once per element.
+ *
+ * A node type and not a prop on `Container` for the reason that already sank
+ * `checkable` on Button (ZAB-23) and `overflow` on ScrollView (ZAB-5): the SDK
+ * dispatches behavior BY TYPE, never by type *and* prop. Old SDKs fall into the
+ * normative fallback for unknown types (render as a Container preserving children),
+ * so the content survives as one static, unresolved copy of the template.
+ *
+ * The Repeat IS the flex container of the instances: its own `layout` (direction,
+ * gap, padding, …) lays the items out, which is what lets `@zabloo/react`'s
+ * `<List>`/`<Grid>` be authoring sugar over it rather than IR types of their own.
+ *
+ * **Slots** (positional, like Collapse's header and Toggle's indicator):
+ * `children[0]` is the item template, `children[1..]` the EMPTY state — in layout
+ * only while the bound value is an empty array, absent, or not an array at all
+ * (`display:none` semantics, the one hiding mechanism). It exists because "show
+ * *No items yet*" would otherwise need a boolean expression over the data, and the
+ * IR has no expressions by design.
+ *
+ * **Identity.** `key` is a path RELATIVE to the item pointing at a stable field
+ * (`"id"`, `"meta.sku"`); without it identity is positional. Identity is what makes
+ * `SetData` updates stable: reordering a keyed array moves the SDK's per-item state
+ * (focus, `checked`, scroll offset, in-flight transitions) with the item instead of
+ * leaving it pinned to a position. See `itemKey`/`itemIdentity`.
+ */
+export interface RepeatNode extends NodeBase {
+  type: "Repeat";
+  /**
+   * The bound array. Always a binding — a literal array here would put DATA in the
+   * document, and the IR carries structure while the game owns the data.
+   */
+  items: { bind: string };
+  /**
+   * Alias the template binds against. Default: `"item"`. Declared rather than
+   * reserved so nested lists can reach the outer element (a category's id from
+   * inside a product row); the innermost matching alias wins, so an alias also
+   * shadows an absolute root of the same name — pick names that are not data roots.
+   */
+  as?: string;
+  /** Path relative to the item naming its stable identity. Absent = positional. */
+  key?: string;
+  /** `children[0]` = item template; `children[1..]` = empty state. */
+  children?: ZNode[];
+}
+
+/**
+ * One item scope open while the SDK instantiates a template — a stack of these
+ * grows one entry per enclosing `Repeat`.
+ */
+export interface ItemScope {
+  /** The enclosing Repeat's `as` (default `"item"`). */
+  alias: string;
+  /** Absolute data path of this element, e.g. `"shop.items.3"`. */
+  path: string;
+  /** Position in the array — what `"<alias>.$index"` resolves to. */
+  index: number;
+}
+
+/**
+ * Result of resolving a binding inside a template: either an absolute data path or
+ * the element's position, which is a number the data does not contain.
+ */
+export type ResolvedBind = { kind: "path"; path: string } | { kind: "index"; index: number };
+
+/**
+ * Context a named action carries when it fires from inside a repeated item
+ * (decision 2026-08-11, ZAB-29) — `onClick: "buy"` has to say WHICH one. The same
+ * move `onDataChanged(path, value)` made for data in ZAB-23: actions stop coming
+ * back empty. Actions outside a Repeat still fire with no context.
+ *
+ * It describes the INNERMOST item; that is enough for nested lists because `path`
+ * already embeds every enclosing index (`"shop.cats.2.items.5"`), so the game can
+ * address the whole chain from it.
+ */
+export interface ActionContext {
+  /** Absolute data path of the item, e.g. `"shop.items.3"`. */
+  path: string;
+  /** The item's raw key when the Repeat declares one; absent when identity is positional. */
+  key?: string | number;
+  /** Position in the array. */
+  index: number;
+}
+
+/**
+ * Normative reference implementation of binding resolution inside templates — like
+ * `easeProgress`, it lives here because all three targets must compute the SAME
+ * path from the same input, and every SDK ports these exact rules.
+ *
+ * Innermost scope wins (so nesting shadows). A path under no known alias is
+ * absolute and passes through untouched, which is how an item row still binds
+ * `player.gold`. Only the exact leaf `"<alias>.$index"` is reserved; anything
+ * deeper (`"item.a.$index"`) is an ordinary segment that will simply read
+ * `undefined`.
+ */
+export function resolveBinding(bind: string, scopes: readonly ItemScope[]): ResolvedBind {
+  for (let i = scopes.length - 1; i >= 0; i--) {
+    const scope = scopes[i];
+    if (scope === undefined || scope.alias.length === 0) continue;
+    if (bind === scope.alias) return { kind: "path", path: scope.path };
+    if (!bind.startsWith(`${scope.alias}.`)) continue;
+    const rest = bind.slice(scope.alias.length + 1);
+    if (rest === INDEX_SEGMENT) return { kind: "index", index: scope.index };
+    return { kind: "path", path: `${scope.path}.${rest}` };
+  }
+  return { kind: "path", path: bind };
+}
+
+/** Absolute path of element `index` of the array at `arrayPath`. */
+export function itemPath(arrayPath: string, index: number): string {
+  return `${arrayPath}.${index}`;
+}
+
+const ARRAY_INDEX = /^\d+$/;
+
+/**
+ * Read a dot-separated path out of a plain data value. Normative: a numeric segment
+ * indexes an array (nothing else does — `"length"` is not a field), anything missing
+ * or walked through a non-object yields `undefined` rather than throwing. Bound UI
+ * degrades to "no value", it never breaks the frame.
+ */
+export function readPath(root: unknown, path: string): unknown {
+  if (path.length === 0) return undefined;
+  let current: unknown = root;
+  for (const segment of path.split(".")) {
+    if (segment.length === 0) return undefined;
+    if (current === null || current === undefined) return undefined;
+    if (Array.isArray(current)) {
+      if (!ARRAY_INDEX.test(segment)) return undefined;
+      current = current[Number(segment)];
+      continue;
+    }
+    if (typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+/**
+ * The item's raw key — the one that travels to the game in `ActionContext.key`.
+ * Only a string or a finite number identifies an item; anything else (an object, a
+ * missing field, an empty string) means "this element has no key" and identity
+ * falls back to its position.
+ */
+export function itemKey(item: unknown, keyPath: string | undefined): string | number | undefined {
+  if (keyPath === undefined || keyPath.length === 0) return undefined;
+  const value = readPath(item, keyPath);
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return undefined;
+}
+
+/**
+ * Reconciliation identity: the string an SDK keys its per-item state by across a
+ * `SetData` that reorders, inserts or removes elements.
+ *
+ * Keyed identities are prefixed so the two spaces stay DISJOINT — without it a list
+ * where only some elements resolve a key would let item `{id: "0"}` collide with the
+ * unkeyed element at position 0 and inherit its state.
+ */
+export function itemIdentity(key: string | number | undefined, index: number): string {
+  return key === undefined ? String(index) : `k:${key}`;
 }
 
 /** True if this package's reader can consume content with version `v`. */

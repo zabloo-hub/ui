@@ -9,6 +9,7 @@ import { layoutText, placeLines, type TextLayoutOptions, type TextMetrics } from
  */
 const FONT: TextMetrics = {
   advance: () => 10,
+  kern: () => 0,
   lineHeight: 20,
   ascent: 16,
 };
@@ -16,6 +17,15 @@ const FONT: TextMetrics = {
 /** A font with real per-glyph variation, to catch anything that assumes uniformity. */
 const PROPORTIONAL: TextMetrics = {
   advance: (char) => (char === "i" ? 4 : 10),
+  kern: () => 0,
+  lineHeight: 20,
+  ascent: 16,
+};
+
+/** Kerns "AV" tight, like a real font does — nothing else pairs. */
+const KERNED: TextMetrics = {
+  advance: () => 10,
+  kern: (previous, char) => (previous === "A" && char === "V" ? -6 : 0),
   lineHeight: 20,
   ascent: 16,
 };
@@ -91,6 +101,23 @@ describe("layoutText — wrapping", () => {
     // A narrow "iii" (12) fits next to "aa" where an "aaa" (30) would not.
     expect(texts("aa iii aa", { maxWidth: 45 }, PROPORTIONAL)).toEqual(["aa iii", "aa"]);
     expect(texts("aa aaa aa", { maxWidth: 45 })).toEqual(["aa", "aaa", "aa"]);
+  });
+
+  it("counts the font's kerning, and drops the pair a break splits", () => {
+    // "AV" kerns to 14, so it fits in 15 where two unkerned glyphs would not.
+    expect(layoutText("AV", KERNED, options({ maxWidth: 15 })).lines).toEqual([
+      { text: "AV", width: 14 },
+    ]);
+    // Broken between the two, neither line keeps the pair: 10 each, not 4 and 10.
+    expect(layoutText("AV", KERNED, options({ maxWidth: 12 })).lines).toEqual([
+      { text: "A", width: 10 },
+      { text: "V", width: 10 },
+    ]);
+    // And the pair straddling a word break is gone with the space too.
+    expect(layoutText("xA Vx", KERNED, options({ maxWidth: 30 })).lines).toEqual([
+      { text: "xA", width: 20 },
+      { text: "Vx", width: 20 },
+    ]);
   });
 
   it("does not wrap without a usable width", () => {

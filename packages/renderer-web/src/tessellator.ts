@@ -231,10 +231,15 @@ export class GeometryBuilder {
     const batch = this.batchFor(atlas);
     let pen = originX;
     const baseline = originY + atlas.ascent;
+    let previous = "";
 
     for (const char of content) {
       const glyph = atlas.get(char);
       if (!glyph) continue;
+      // Same kerning `measure` applied — otherwise the painted run would not
+      // fit the box the layout pass reserved for it.
+      if (previous !== "") pen += atlas.kern(previous, char);
+      previous = char;
       if (glyph.hasQuad) {
         // Snap the glyph origin to the physical pixel grid: fractional layout
         // positions + LINEAR filtering would blur the glyph by half a pixel.

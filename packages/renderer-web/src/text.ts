@@ -20,6 +20,12 @@ const ELLIPSIS = "…";
 export interface TextMetrics {
   /** Horizontal advance of one character. */
   advance(char: string): number;
+  /**
+   * Kerning between two consecutive characters (0 when the font has none). Every
+   * width here includes it, exactly as the tessellator's paint loop does — a line
+   * measured without kerning would not be the line that gets painted.
+   */
+  kern(previous: string, char: string): number;
   /** The font's natural line advance (ascent + descent). */
   readonly lineHeight: number;
   /** Distance from the top of a line box to its baseline. */
@@ -72,10 +78,25 @@ function isBreakSpace(char: string): boolean {
   return char === " " || char === "\t";
 }
 
+/**
+ * Width of a run, kerning included — the pairs of a run that is painted as ONE
+ * line, which is why a break has to end the chain: the pair straddling it never
+ * applies, on either side of the measurement.
+ */
 function widthOf(text: string, metrics: TextMetrics): number {
   let width = 0;
-  for (const char of text) width += metrics.advance(char);
+  let previous = "";
+  for (const char of text) {
+    if (previous !== "") width += metrics.kern(previous, char);
+    width += metrics.advance(char);
+    previous = char;
+  }
   return width;
+}
+
+/** Last code point of a string — the left half of the kerning pair at a junction. */
+function lastChar(text: string): string {
+  return Array.from(text).at(-1) ?? "";
 }
 
 /** Trailing spaces do not paint and do not count — a line's width ends at its last word. */
@@ -150,43 +171,45 @@ function wrapParagraph(
   const start = out.length;
   let line = "";
   let lineWidth = 0;
+  let lineLast = ""; // left half of the kerning pair at the next junction
 
   let i = 0;
   while (i < chars.length) {
     // A segment is a run of spaces plus the word that follows it.
     let spaces = "";
-    let spacesWidth = 0;
     while (i < chars.length && isBreakSpace(chars[i])) {
       spaces += chars[i];
-      spacesWidth += metrics.advance(chars[i]);
       i++;
     }
     let word = "";
-    let wordWidth = 0;
     while (i < chars.length && !isBreakSpace(chars[i])) {
       word += chars[i];
-      wordWidth += metrics.advance(chars[i]);
       i++;
     }
     if (word === "") break; // trailing spaces: they neither paint nor break
 
+    const segment = spaces + word;
+    const segmentWidth = widthOf(segment, metrics);
+
     if (line === "") {
       // Spaces that START a line are indentation: they paint, so they count.
-      line = spaces + word;
-      lineWidth = spacesWidth + wordWidth;
+      line = segment;
+      lineWidth = segmentWidth;
       if (lineWidth > limit) {
         [line, lineWidth] = breakWord(line, metrics, limit, out);
       }
-    } else if (lineWidth + spacesWidth + wordWidth <= limit) {
-      line += spaces + word;
-      lineWidth += spacesWidth + wordWidth;
+    } else if (lineWidth + metrics.kern(lineLast, segment[0]) + segmentWidth <= limit) {
+      lineWidth += metrics.kern(lineLast, segment[0]) + segmentWidth;
+      line += segment;
     } else {
-      // Break here: the line ends and the spaces at the break disappear with it.
+      // Break here: the line ends, and with it go the spaces at the break and the
+      // kerning pair that straddled it.
       out.push({ text: line, width: lineWidth });
       line = word;
-      lineWidth = wordWidth;
+      lineWidth = widthOf(word, metrics);
       if (lineWidth > limit) [line, lineWidth] = breakWord(line, metrics, limit, out);
     }
+    lineLast = lastChar(line);
   }
 
   // An empty paragraph still owns a line, so a blank line takes vertical space.
@@ -209,15 +232,18 @@ function breakWord(
   while (restWidth > limit) {
     let taken = "";
     let takenWidth = 0;
+    let previous = "";
     for (const char of rest) {
-      const advance = metrics.advance(char);
-      if (taken !== "" && takenWidth + advance > limit) break;
+      const step = (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
+      if (taken !== "" && takenWidth + step > limit) break;
       taken += char;
-      takenWidth += advance;
+      takenWidth += step;
+      previous = char;
     }
     out.push({ text: taken, width: takenWidth });
     rest = rest.slice(taken.length);
-    restWidth -= takenWidth;
+    // Re-measured, not subtracted: the pair straddling the break is gone now.
+    restWidth = widthOf(rest, metrics);
   }
   return [rest, restWidth];
 }
@@ -226,11 +252,13 @@ function breakWord(
 function clipLine(text: string, metrics: TextMetrics, limit: number): TextLine {
   let kept = "";
   let width = 0;
+  let previous = "";
   for (const char of text) {
-    const advance = metrics.advance(char);
-    if (width + advance > limit) break;
+    const step = (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
+    if (width + step > limit) break;
     kept += char;
-    width += advance;
+    width += step;
+    previous = char;
   }
   return lineOf(kept, metrics);
 }
@@ -241,19 +269,24 @@ function clipLine(text: string, metrics: TextMetrics, limit: number): TextLine {
  * limit too narrow for it.
  */
 function ellipsize(text: string, metrics: TextMetrics, limit: number | null): TextLine {
-  const markWidth = widthOf(ELLIPSIS, metrics);
   if (limit === null) return lineOf(`${trimEnd(text)}${ELLIPSIS}`, metrics);
 
+  const markAdvance = metrics.advance(ELLIPSIS);
   let kept = "";
   let width = 0;
+  let previous = "";
   for (const char of text) {
-    const advance = metrics.advance(char);
-    if (width + advance + markWidth > limit) break;
+    const step = (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
+    // The mark kerns against whatever ends up in front of it, so the room it
+    // needs is measured against THIS glyph, not against the one before it.
+    if (width + step + metrics.kern(char, ELLIPSIS) + markAdvance > limit) break;
     kept += char;
-    width += advance;
+    width += step;
+    previous = char;
   }
-  kept = trimEnd(kept);
-  return { text: `${kept}${ELLIPSIS}`, width: widthOf(kept, metrics) + markWidth };
+  // Trimming can only shorten it, so the marked line still fits — and measuring the
+  // final string once is what guarantees it is exactly the run the tessellator paints.
+  return lineOf(`${trimEnd(kept)}${ELLIPSIS}`, metrics);
 }
 
 /** Offset of an inner extent inside an outer one. Never negative: overflow starts at the edge. */
