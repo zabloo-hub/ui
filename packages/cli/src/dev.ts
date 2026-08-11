@@ -7,6 +7,11 @@
  *
  * Each export runs in a child process: user code executes with a clean module
  * graph every time (no stale-module cache, single React instance per run).
+ *
+ * Watching `src/` covers `src/assets/` too, so replacing an image re-exports and
+ * reloads like any other save; the preview only re-transfers the bytes whose
+ * content hash changed (ZAB-14). The engine push still carries the whole envelope
+ * — deduping it against the editor's cache belongs to the Unity asset work.
  */
 
 import { spawn } from "node:child_process";
@@ -22,8 +27,7 @@ export async function devLoop(
 ): Promise<void> {
   const unityUrl = unity ? `http://127.0.0.1:${unity.port}/zabloo/envelope` : null;
   const pushToEngine = createPusher(unityUrl);
-  let lastEnvelope: string | null = null;
-  const preview = startPreviewServer(previewPort, () => lastEnvelope);
+  const preview = await startPreviewServer(previewPort);
 
   console.log(`zabloo dev: watching ${root}`);
   console.log(`           web preview → ${preview.url}`);
@@ -47,9 +51,10 @@ export async function devLoop(
     try {
       const outFile = await exportInChild(root);
       if (outFile) {
-        lastEnvelope = await readFile(outFile, "utf8");
+        const envelope = await readFile(outFile, "utf8");
+        preview.setEnvelope(envelope); // tree and asset bytes served apart
         preview.notify(); // browser preview reloads via SSE
-        await pushToEngine(lastEnvelope); // engine dev mode (no-op without --unity)
+        await pushToEngine(envelope); // engine dev mode (no-op without --unity)
       }
     } finally {
       running = false;

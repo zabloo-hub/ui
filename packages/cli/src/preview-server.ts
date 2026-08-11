@@ -2,21 +2,33 @@
  * The `zabloo dev` web preview: serves a page that renders the current envelope
  * with @zabloo/renderer-web (the self-renderer — the browser is just another
  * engine target) and live-reloads over SSE on every export. No Unity required.
+ *
+ * Assets travel apart from the tree (ZAB-14): `/envelope` serves the envelope
+ * without the inlined bytes and `/asset/<hash>` serves each blob once, so a save
+ * only re-transfers what actually changed. The page re-inserts the bytes before
+ * mounting — the renderer always receives a complete envelope.
  */
 
 import { readFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
+import { type AssetBlob, splitEnvelope } from "./preview-assets.js";
 
 export interface PreviewServer {
   url: string;
+  /** Publishes the envelope exported last; splits its assets out for `/asset/<hash>`. */
+  setEnvelope(json: string): void;
   /** Notifies connected browsers that a new envelope is available. */
   notify(): void;
+  /** Closes the server and drops connected browsers (tests / shutdown). */
+  close(): Promise<void>;
 }
 
-export function startPreviewServer(port: number, getEnvelope: () => string | null): PreviewServer {
+export async function startPreviewServer(port: number): Promise<PreviewServer> {
   const clients = new Set<ServerResponse>();
   const require = createRequire(import.meta.url);
+  let thin: string | null = null;
+  let blobs = new Map<string, AssetBlob>();
 
   const server = createServer(async (req, res) => {
     const url = req.url ?? "/";
@@ -28,13 +40,28 @@ export function startPreviewServer(port: number, getEnvelope: () => string | nul
       res.writeHead(200, { "content-type": "text/javascript" });
       res.end(await readFile(path));
     } else if (url === "/envelope") {
-      const envelope = getEnvelope();
-      if (envelope === null) {
+      if (thin === null) {
         res.writeHead(503);
         res.end("no envelope exported yet");
       } else {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(envelope);
+        res.end(thin);
+      }
+    } else if (url.startsWith("/asset/")) {
+      // Content-addressed: the bytes behind a hash never change, so the browser
+      // may keep them forever. The payload is the entry's `data` field verbatim
+      // (base64) — the page pastes it back in without re-encoding.
+      const blob = blobs.get(url.slice("/asset/".length));
+      if (blob === undefined) {
+        res.writeHead(404);
+        res.end("unknown asset hash");
+      } else {
+        res.writeHead(200, {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "public, max-age=31536000, immutable",
+          "x-zabloo-mime": blob.mime,
+        });
+        res.end(blob.base64);
       }
     } else if (url === "/events") {
       res.writeHead(200, {
@@ -60,12 +87,32 @@ export function startPreviewServer(port: number, getEnvelope: () => string | nul
       console.error(`zabloo dev: preview server error — ${error.message}`);
     }
   });
-  server.listen(port, "127.0.0.1");
+
+  // Wait for the socket so the announced URL carries the port actually bound
+  // (port 0 = pick a free one). A failure to listen is already reported above;
+  // dev keeps running with the preview down instead of dying.
+  await new Promise<void>((settle) => {
+    server.once("listening", settle);
+    server.once("error", () => settle());
+    server.listen(port, "127.0.0.1");
+  });
+  const address = server.address();
+  const boundPort = typeof address === "object" && address !== null ? address.port : port;
 
   return {
-    url: `http://localhost:${port}/`,
+    url: `http://localhost:${boundPort}/`,
+    setEnvelope(json) {
+      const split = splitEnvelope(json);
+      thin = split.thin;
+      blobs = split.blobs;
+    },
     notify() {
       for (const client of clients) client.write("data: reload\n\n");
+    },
+    close() {
+      for (const client of clients) client.end();
+      clients.clear();
+      return new Promise((resolve) => server.close(() => resolve()));
     },
   };
 }
@@ -170,11 +217,39 @@ const PAGE = /* html */ `<!doctype html>
     for (const [path, value] of dataValues) handle.setData(path, coerce(value));
   }
 
+  // Assets arrive apart from the tree: the page keeps the bytes it has already
+  // fetched (keyed by content hash — they never change) and pastes them back into
+  // the manifest, so the renderer always gets a complete envelope.
+  const assetData = new Map();
+
+  async function hydrateAssets(envelope) {
+    const entries = Object.values(envelope.assets ?? {});
+    await Promise.all(entries.map(async (entry) => {
+      if (typeof entry.data === "string") {
+        assetData.set(entry.hash, entry.data);
+        return;
+      }
+      let data = assetData.get(entry.hash);
+      if (data === undefined) {
+        const res = await fetch("/asset/" + entry.hash);
+        if (!res.ok) {
+          log("asset unavailable: " + entry.hash.slice(0, 8));
+          return;
+        }
+        data = await res.text();
+        assetData.set(entry.hash, data);
+      }
+      entry.data = data;
+    }));
+    return envelope;
+  }
+
   async function load(viewId) {
     const res = await fetch("/envelope");
     if (!res.ok) return;
-    const json = await res.text();
-    buildDataPanel(JSON.parse(json));
+    const envelope = await hydrateAssets(await res.json());
+    const json = JSON.stringify(envelope);
+    buildDataPanel(envelope);
     if (handle && viewId === undefined) {
       handle.reload(json);
       replayData();
