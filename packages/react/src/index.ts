@@ -28,6 +28,11 @@ export {
   type ItemTemplate,
   List,
   type ListProps,
+  Modal,
+  type ModalProps,
+  Overlay,
+  type OverlayPosition,
+  type OverlayProps,
   ProgressBar,
   type ProgressBarProps,
   Radio,
@@ -50,7 +55,11 @@ export {
   type TabsProps,
   Text,
   type TextProps,
+  Toast,
+  type ToastProps,
   type ToggleControlProps,
+  Tooltip,
+  type TooltipProps,
 } from "./components.js";
 export { renderToIR } from "./reconciler.js";
 export { ThemeProvider, type ThemeVariants, type VariantDef, type ZablooTheme } from "./theme.js";

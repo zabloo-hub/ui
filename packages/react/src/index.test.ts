@@ -1,5 +1,6 @@
 import type {
   ContainerNode,
+  OverlayNode,
   ProgressBarNode,
   RepeatNode,
   SliderNode,
@@ -19,6 +20,8 @@ import {
   Grid,
   Image,
   List,
+  Modal,
+  Overlay,
   ProgressBar,
   Radio,
   RadioGroup,
@@ -32,6 +35,8 @@ import {
   Tabs,
   Text,
   ThemeProvider,
+  Toast,
+  Tooltip,
   type ZablooTheme,
 } from "./index.js";
 
@@ -608,6 +613,112 @@ describe("renderToIR", () => {
     });
   });
 
+  it("emits the Overlay primitive 1:1 with the IR node", () => {
+    const ir = renderToIR(
+      h(
+        Overlay,
+        {
+          id: "confirm",
+          visible: { bind: "ui.confirmOpen" },
+          modal: true,
+          z: 5,
+          onDismiss: "confirm-dismissed",
+          autoCloseMs: 4000,
+          style: { background: "#00000099" },
+        },
+        h(Text, null, "¿Seguro?"),
+      ),
+    );
+    expect(ir).toEqual({
+      type: "Overlay",
+      id: "confirm",
+      visible: { bind: "ui.confirmOpen" },
+      modal: true,
+      z: 5,
+      onDismiss: "confirm-dismissed",
+      autoCloseMs: 4000,
+      style: { background: "#00000099" },
+      children: [{ type: "Text", text: "¿Seguro?" }],
+    });
+  });
+
+  it("leaves every Overlay prop out when it is not declared — the IR defaults stand", () => {
+    expect(renderToIR(h(Overlay))).toEqual({ type: "Overlay" });
+  });
+
+  it("rejects a non-positive autoCloseMs instead of silently never closing", () => {
+    expect(() => renderToIR(h(Overlay, { autoCloseMs: 0 }))).toThrow(/positive number/);
+    expect(() => renderToIR(h(Overlay, { autoCloseMs: -200 }))).toThrow(/positive number/);
+  });
+
+  it("lowers Modal to a modal Overlay: backdrop by style, content in a centered panel", () => {
+    const ir = renderToIR(
+      h(
+        Modal,
+        { visible: { bind: "ui.quit" }, onDismiss: "quit-cancelled" },
+        h(Text, null, "¿Salir?"),
+      ),
+    ) as OverlayNode;
+    expect(ir).toEqual({
+      type: "Overlay",
+      visible: { bind: "ui.quit" },
+      onDismiss: "quit-cancelled",
+      modal: true,
+      layout: { direction: "row", justify: "center", align: "center", padding: 24 },
+      style: { background: "#00000099" },
+      children: [
+        {
+          type: "Container",
+          layout: { padding: 20, gap: 12 },
+          style: {
+            background: "#181b26",
+            radius: 12,
+            borderWidth: 1,
+            borderColor: "#2f3446",
+          },
+          children: [{ type: "Text", text: "¿Salir?" }],
+        },
+      ],
+    });
+  });
+
+  it("styles the backdrop with `style` and the card with `panel`", () => {
+    const ir = renderToIR(
+      h(Modal, {
+        position: "top-right",
+        style: { background: "#000000cc" },
+        panel: { style: { radius: 4 }, layout: { padding: 8 } },
+      }),
+    ) as OverlayNode;
+    expect(ir.style).toEqual({ background: "#000000cc" });
+    expect(ir.layout).toEqual({ direction: "row", justify: "end", align: "start", padding: 24 });
+    const panel = ir.children?.[0] as ContainerNode;
+    expect(panel.layout).toEqual({ padding: 8, gap: 12 });
+    expect(panel.style?.radius).toBe(4);
+  });
+
+  it("lowers Toast to a non-modal, self-closing Overlay above the modal band", () => {
+    const ir = renderToIR(h(Toast, { visible: { bind: "ui.saved" } }, "Partida guardada"));
+    expect(ir).toEqual({
+      type: "Overlay",
+      visible: { bind: "ui.saved" },
+      modal: false,
+      z: 10,
+      autoCloseMs: 3000,
+      layout: { direction: "row", justify: "center", align: "end", padding: 24 },
+      children: [
+        {
+          type: "Container",
+          layout: { direction: "row", align: "center", gap: 8, padding: 12 },
+          style: { background: "#2f3446", radius: 8 },
+          children: [
+            { type: "Text", text: "Partida guardada", style: { color: "#e8ecf5", fontSize: 14 } },
+          ],
+        },
+      ],
+    });
+  });
+
   it("emits a List as a Repeat: template in children[0], empty state after it", () => {
     const ir = renderToIR(
       h(
@@ -648,6 +759,35 @@ describe("renderToIR", () => {
         { type: "Text", text: "Nada por aquí" },
       ],
     });
+  });
+
+  it("takes nodes instead of a bare message, and keeps its own placement", () => {
+    const ir = renderToIR(
+      h(Toast, { position: "top-right", autoCloseMs: 1500 }, h(Text, null, "Logro")),
+    ) as OverlayNode;
+    expect(ir.autoCloseMs).toBe(1500);
+    expect(ir.layout).toEqual({ direction: "row", justify: "end", align: "start", padding: 24 });
+    const pill = ir.children?.[0] as ContainerNode;
+    expect(pill.children).toEqual([{ type: "Text", text: "Logro" }]);
+  });
+
+  it("lowers Tooltip to a non-modal hint with no timer of its own", () => {
+    const ir = renderToIR(h(Tooltip, { visible: { bind: "ui.hint" } }, "Pulsa A")) as OverlayNode;
+    expect(ir.modal).toBe(false);
+    expect(ir.z).toBe(20);
+    expect(ir.autoCloseMs).toBeUndefined();
+    expect(ir.layout).toEqual({ direction: "row", justify: "center", align: "start", padding: 24 });
+    const bubble = ir.children?.[0] as ContainerNode;
+    expect(bubble.children).toEqual([
+      { type: "Text", text: "Pulsa A", style: { color: "#c8cede", fontSize: 12 } },
+    ]);
+  });
+
+  it("lets an explicit layout override the placement sugar", () => {
+    const ir = renderToIR(
+      h(Modal, { position: "bottom", layout: { align: "center", padding: 0 } }),
+    ) as OverlayNode;
+    expect(ir.layout).toEqual({ direction: "row", justify: "center", align: "center", padding: 0 });
   });
 
   it("lays a horizontal List out as a row", () => {

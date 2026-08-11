@@ -233,8 +233,10 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  *
  * A component's own behavior may drive this same machinery with endpoints it
  * computes, and then the tween is spec of that component rather than a value of the
- * animatable set: `ProgressBar` tweens its `value` (never the fill rect) and
- * `Spinner` loops on `period`, which is why neither prop appears in the set above.
+ * animatable set: `ProgressBar` tweens its `value` (never the fill rect), `Spinner`
+ * loops on `period`, and an `Overlay` fades its whole layer entry in and out as it
+ * enters and leaves the layer (decision 2026-08-11, ZAB-21) — which is why none of
+ * those props appears in the set above, `visible` included.
  */
 export interface Transition {
   /** Duration in milliseconds. A `Dim` so motion is themeable (`"{motion.fast}"`); <= 0 is instant. */
@@ -565,7 +567,17 @@ export interface SliderNode extends NodeBase {
  * Overlay itself are ignored (a layer is not sized); size the child instead.
  *
  * `visible` behaves as everywhere else: a hidden Overlay contributes no layer, no
- * backdrop and no input blocking.
+ * backdrop and no input blocking. It is also the ONLY way to open and close one —
+ * bind it and the game moves the boolean with `SetData`, which is what makes a
+ * dismiss (Escape, gamepad B, a backdrop tap, `autoCloseMs`) expressible without a
+ * mechanism of its own.
+ *
+ * A `transition` on an Overlay also fades that open/close: the SDK tweens the whole
+ * layer entry's opacity as it enters and leaves the layer, so a closing overlay
+ * stays on screen for exactly one duration after `visible` went false (decision
+ * 2026-08-11, ZAB-21). It is behavior driving the interpolation engine, like the
+ * `ProgressBar`'s fraction — `visible` itself never animates, and a fading overlay
+ * takes no input and traps no focus, being on its way out.
  */
 export interface OverlayNode extends NodeBase {
   type: "Overlay";

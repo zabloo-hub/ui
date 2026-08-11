@@ -32,10 +32,12 @@ export type AnimValue = number | Color;
  * Scalars a COMPONENT'S BEHAVIOR tweens with endpoints it computes itself, rather
  * than values of the animatable set (decision 2026-08-11 §5): `progress` is the
  * ProgressBar's fraction, which is why the bar interpolates its value and never its
- * fill rect. They ride the same tracks as the declared props — one interruption rule,
- * one clock, one set of curves — under keys the animatable set cannot collide with.
+ * fill rect, and `presence` is how far an Overlay has entered the layer, which is
+ * what fades a modal in and out without making `visible` animatable. They ride the
+ * same tracks as the declared props — one interruption rule, one clock, one set of
+ * curves — under keys the animatable set cannot collide with.
  */
-export type BehaviorKey = "progress";
+export type BehaviorKey = "progress" | "presence";
 export type TrackKey = AnimatableProp | BehaviorKey;
 
 /** Iteration order of the animatable set — the normative list, nothing else animates. */
