@@ -306,6 +306,14 @@ describe("renderToIR", () => {
     });
   });
 
+  it("serializes clip (overflow: hidden on any node)", () => {
+    expect(renderToIR(h(Container, { clip: true }, h(Text, null, "x")))).toEqual({
+      type: "Container",
+      clip: true,
+      children: [{ type: "Text", text: "x" }],
+    });
+  });
+
   it("flattens Tabs to bar + panels (positional contract, no id wiring)", () => {
     const ir = renderToIR(
       h(

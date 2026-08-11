@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clamp, resolveScrollMax } from "./scroll.js";
+import { clamp, resolveScrollMax, scrollbarThumb } from "./scroll.js";
 
 describe("clamp", () => {
   it("passes values already in range through unchanged", () => {
@@ -16,6 +16,36 @@ describe("clamp", () => {
 
   it("clamps to 0 when min === max", () => {
     expect(clamp(15, 0, 0)).toBe(0);
+  });
+});
+
+describe("scrollbarThumb", () => {
+  // 200 px track over a 200 px viewport with 200 px of overflow: content = 400,
+  // so the thumb is half the track and travels the other half.
+  it("length is the visible fraction of the content", () => {
+    expect(scrollbarThumb(200, 200, 200, 0, 16)).toEqual({ start: 0, length: 100 });
+  });
+
+  it("start is proportional to the offset, ending flush with the track", () => {
+    expect(scrollbarThumb(200, 200, 200, 100, 16)).toEqual({ start: 50, length: 100 });
+    expect(scrollbarThumb(200, 200, 200, 200, 16)).toEqual({ start: 100, length: 100 });
+  });
+
+  it("stays visible on very long content, down to the minimum length", () => {
+    expect(scrollbarThumb(200, 200, 100_000, 0, 16)).toMatchObject({ length: 16 });
+    // A track shorter than the minimum takes the whole track rather than overflow.
+    expect(scrollbarThumb(10, 200, 100_000, 0, 16)).toMatchObject({ length: 10 });
+  });
+
+  it("clamps an out-of-range offset instead of running off the track", () => {
+    expect(scrollbarThumb(200, 200, 200, 999, 16)).toEqual({ start: 100, length: 100 });
+    expect(scrollbarThumb(200, 200, 200, -50, 16)).toEqual({ start: 0, length: 100 });
+  });
+
+  it("is null when there is nothing to indicate", () => {
+    expect(scrollbarThumb(200, 200, 0, 0, 16)).toBeNull(); // content fits
+    expect(scrollbarThumb(0, 200, 200, 0, 16)).toBeNull(); // no room for the bar
+    expect(scrollbarThumb(200, 0, 200, 0, 16)).toBeNull(); // collapsed viewport
   });
 });
 

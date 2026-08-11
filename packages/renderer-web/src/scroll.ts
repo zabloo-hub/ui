@@ -15,6 +15,35 @@ export function clamp(value: number, min: number, max: number): number {
  * the flex `direction` (main axis = x for "row", y for "column"), then zeroes
  * whichever axis the ScrollView's `axis` prop doesn't enable.
  */
+/** Overlay scrollbar geometry along one axis, in track-relative px. */
+export interface ScrollbarThumb {
+  /** Distance from the track's start to the thumb. */
+  start: number;
+  length: number;
+}
+
+/**
+ * The thumb that indicates the scroll position on one axis: length proportional
+ * to the visible fraction of the content, position proportional to the offset.
+ * Null when there is nothing to indicate — no overflow, or no room to draw it.
+ *
+ * `track` is the drawable run (the viewport minus the bar's own margins), which
+ * is why it is separate from `viewport`: the proportion comes from the content,
+ * the pixels from the track.
+ */
+export function scrollbarThumb(
+  track: number,
+  viewport: number,
+  max: number,
+  offset: number,
+  minLength: number,
+): ScrollbarThumb | null {
+  if (!(max > 0) || !(track > 0) || !(viewport > 0)) return null;
+  const visibleFraction = viewport / (viewport + max);
+  const length = clamp(track * visibleFraction, Math.min(minLength, track), track);
+  return { start: clamp(offset / max, 0, 1) * (track - length), length };
+}
+
 export function resolveScrollMax(
   direction: "row" | "column",
   axis: ScrollAxis | undefined,

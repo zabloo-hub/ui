@@ -14,10 +14,12 @@ import {
   type ZNode,
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
+import { type Clip, clipContains, isEmptyClip } from "./clip.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
+import { childClip, contains, effectiveClip, hitTest } from "./hit.js";
 import { arrange, inLayout, type LayoutNode, measure, type Rect } from "./layout.js";
-import { clamp } from "./scroll.js";
+import { clamp, scrollbarThumb } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 import { isSelected, nextChecked, slotShown } from "./toggle.js";
@@ -37,6 +39,7 @@ interface AnyNode {
   text?: unknown;
   src?: unknown;
   open?: boolean;
+  scrollbar?: boolean;
   group?: string;
   selected?: unknown;
   autofocus?: boolean;
@@ -55,6 +58,14 @@ interface ScrollDrag {
 
 /** Below this many px of pointer travel, a gesture still counts as a click/tap. */
 const DRAG_THRESHOLD = 4;
+
+/**
+ * Overlay scrollbar (spec 2026-08-11): painted by the SDK inside the
+ * ScrollView's rect, on the edge of its axis. Not in layout, not hit-testable
+ * in F1 — it indicates the position, it doesn't take input. Styling it is a
+ * deferred, compatible extension (`scrollbar` boolean → object).
+ */
+const SCROLLBAR = { thickness: 4, margin: 2, minLength: 16, color: [1, 1, 1, 0.35] as Color };
 
 export interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
@@ -650,7 +661,9 @@ class WebView {
         pressed.pressed = false;
         this.pressedNode = null;
         this.render();
-        if (contains(pressed.rect, point)) this.activate(pressed);
+        // Released over the control it pressed — and still inside the clip, so
+        // scrolling the button out from under the finger cancels the tap.
+        if (this.reachableAt(pressed, point)) this.activate(pressed);
         return;
       }
       const drag = this.scrollDrag;
@@ -697,17 +710,14 @@ class WebView {
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
-  /** Deepest in-layout node under the point (later siblings win). */
-  private hitTest(
-    point: { x: number; y: number },
-    node: LayoutNode = this.root,
-  ): LayoutNode | null {
-    if (!inLayout(node) || !contains(node.rect, point)) return null;
-    for (let i = node.children.length - 1; i >= 0; i--) {
-      const hit = this.hitTest(point, node.children[i]);
-      if (hit) return hit;
-    }
-    return node;
+  /** Deepest in-layout, unclipped node under the point (later siblings win). */
+  private hitTest(point: { x: number; y: number }): LayoutNode | null {
+    return hitTest(this.root, point, this.radiusOf);
+  }
+
+  /** Is this node's own rect reachable at that point, given its ancestors' clips? */
+  private reachableAt(node: LayoutNode, point: { x: number; y: number }): boolean {
+    return contains(node.rect, point) && clipContains(effectiveClip(node, this.radiusOf), point);
   }
 
   private findUp(node: LayoutNode, predicate: (n: LayoutNode) => boolean): LayoutNode | null {
@@ -740,6 +750,9 @@ class WebView {
     const resolved = this.token(value);
     return typeof resolved === "number" ? resolved : fallback;
   };
+
+  /** The painted corner radius of a node — what its clip rounds to (paint and input share it). */
+  private radiusOf = (node: LayoutNode): number => this.dim(this.effectiveStyle(node)?.radius);
 
   private color(value: unknown, fallback: Color): Color {
     const resolved = this.token(value);
@@ -814,7 +827,18 @@ class WebView {
     this.gl.draw(geometry.batches(), width, height, this.clearColor);
   }
 
-  private paint(node: LayoutNode, geometry: GeometryBuilder, parentOpacity = 1): void {
+  /**
+   * Paints the subtree under `clip` (null = unclipped). A node's own background
+   * and border paint under the INHERITED clip, never its own: nothing paints
+   * outside a layout rect (inset borders, decision 2026-08-06), so a node can
+   * only ever clip its children.
+   */
+  private paint(
+    node: LayoutNode,
+    geometry: GeometryBuilder,
+    parentOpacity = 1,
+    clip: Clip | null = null,
+  ): void {
     if (!inLayout(node)) return;
     const style = this.effectiveStyle(node);
 
@@ -823,6 +847,7 @@ class WebView {
     const opacity = Math.min(1, Math.max(0, style?.opacity ?? 1)) * parentOpacity;
     if (opacity <= 0) return; // invisible — but still occupies layout
 
+    geometry.setClip(clip);
     if (style?.background !== undefined) {
       geometry.roundedRect(
         node.rect,
@@ -852,7 +877,60 @@ class WebView {
       const asset = this.images.get((node.ir as AnyNode).src);
       if (asset) geometry.image(node.rect, asset, opacity);
     }
-    for (const child of node.children) this.paint(child, geometry, opacity);
+
+    const inner = childClip(node, clip, this.radiusOf);
+    // Fully clipped away: the whole subtree (and the scrollbar) paints nothing.
+    if (isEmptyClip(inner)) return;
+    for (const child of node.children) this.paint(child, geometry, opacity, inner);
+    if (node.ir.type === "ScrollView") this.paintScrollbar(node, geometry, opacity, inner);
+  }
+
+  /** Overlay position indicator, inside the viewport and over the content. */
+  private paintScrollbar(
+    node: LayoutNode,
+    geometry: GeometryBuilder,
+    opacity: number,
+    clip: Clip | null,
+  ): void {
+    if ((node.ir as AnyNode).scrollbar === false) return;
+    const { thickness, margin, minLength, color } = SCROLLBAR;
+    const rect = node.rect;
+    const bars: Rect[] = [];
+
+    const vertical = scrollbarThumb(
+      rect.height - margin * 2,
+      rect.height,
+      node.scrollMax.y,
+      node.scrollOffset.y,
+      minLength,
+    );
+    if (vertical) {
+      bars.push({
+        x: rect.x + rect.width - margin - thickness,
+        y: rect.y + margin + vertical.start,
+        width: thickness,
+        height: vertical.length,
+      });
+    }
+    const horizontal = scrollbarThumb(
+      rect.width - margin * 2,
+      rect.width,
+      node.scrollMax.x,
+      node.scrollOffset.x,
+      minLength,
+    );
+    if (horizontal) {
+      bars.push({
+        x: rect.x + margin + horizontal.start,
+        y: rect.y + rect.height - margin - thickness,
+        width: horizontal.length,
+        height: thickness,
+      });
+    }
+    if (bars.length === 0) return;
+
+    geometry.setClip(clip);
+    for (const bar of bars) geometry.roundedRect(bar, thickness * 0.5, fade(color, opacity));
   }
 }
 
@@ -871,15 +949,6 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-}
-
-function contains(rect: Rect, point: { x: number; y: number }): boolean {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  );
 }
 
 function bindPath(value: unknown): string | null {

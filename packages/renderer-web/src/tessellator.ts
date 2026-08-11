@@ -2,10 +2,11 @@
  * The web tessellator — same geometry as the Unity SDK's Tessellation.cs:
  * implicit paint (style → rounded-rect fan, clockwise, y down), glyph quads from
  * the self-owned atlas and textured quads for images. Emits into batches (solids
- * + one per atlas + one per image texture).
+ * + one per atlas + one per image texture), grouped by clipping region.
  */
 
 import type { ImageAsset } from "./assets.js";
+import type { Clip } from "./clip.js";
 import type { Batch } from "./gl.js";
 import type { GlyphAtlas } from "./glyphs.js";
 import type { Rect } from "./layout.js";
@@ -17,27 +18,68 @@ const CORNER_SEGMENTS = 6;
 /** Untinted: the shader multiplies texture × vertex color, so white = the pixels as-is. */
 const UNTINTED: Color = [1, 1, 1, 1];
 
+/**
+ * Everything painted under one clipping region, in one contiguous run of the
+ * paint pass. Batching is per group rather than per frame: a clip is GL state,
+ * so geometry under different clips can't share a draw call.
+ */
+interface ClipGroup {
+  clip: Clip | null;
+  solid: Batch;
+  images: Map<ImageAsset, Batch>;
+  texts: Map<GlyphAtlas, Batch>;
+}
+
 export class GeometryBuilder {
-  private readonly solid: Batch = { texture: null, vertices: [], indices: [] };
-  private readonly imageBatches = new Map<ImageAsset, Batch>();
-  private readonly textBatches = new Map<GlyphAtlas, Batch>();
+  private readonly groups: ClipGroup[] = [];
+  private group: ClipGroup;
 
   /** `dpr` lets glyph quads snap to the physical pixel grid (crisp text). */
-  constructor(private readonly dpr: number = 1) {}
+  constructor(private readonly dpr: number = 1) {
+    this.group = this.openGroup(null);
+  }
 
   /**
-   * Solids, then images, then text — backgrounds render under images, and glyphs
-   * on top of both. Each distinct image is its own texture, hence its own draw
-   * call: the single-batch invariant only ever held for solids + glyph atlas.
+   * Enters a clipping region (null = unclipped). Consecutive calls with the same
+   * region keep filling the current group; anything else opens a new one, which
+   * is what keeps painter's order across regions: a group is drawn as a whole,
+   * so re-entering an EARLIER group would sneak geometry under what was already
+   * painted over it.
+   */
+  setClip(clip: Clip | null): void {
+    if (clip === this.group.clip) return;
+    this.group = this.openGroup(clip);
+  }
+
+  private openGroup(clip: Clip | null): ClipGroup {
+    const group: ClipGroup = {
+      clip,
+      solid: { texture: null, vertices: [], indices: [], clip },
+      images: new Map(),
+      texts: new Map(),
+    };
+    this.groups.push(group);
+    return group;
+  }
+
+  /**
+   * Groups in paint order and, inside each, solids → images → text: backgrounds
+   * render under images, and glyphs on top of both. Each distinct image is its
+   * own texture, hence its own draw call: the single-batch invariant only ever
+   * held for solids + glyph atlas.
    */
   batches(): Batch[] {
-    return [this.solid, ...this.imageBatches.values(), ...this.textBatches.values()];
+    const out: Batch[] = [];
+    for (const group of this.groups) {
+      out.push(group.solid, ...group.images.values(), ...group.texts.values());
+    }
+    return out;
   }
 
   roundedRect(rect: Rect, radius: number, color: Color): void {
     if (!(rect.width > 0) || !(rect.height > 0)) return;
     const r = Math.min(radius, rect.width * 0.5, rect.height * 0.5);
-    const batch = this.solid;
+    const batch = this.group.solid;
     const base = batch.vertices.length / 8;
 
     if (r <= 0.01) {
@@ -80,7 +122,7 @@ export class GeometryBuilder {
       width: rect.width - width * 2,
       height: rect.height - width * 2,
     };
-    const batch = this.solid;
+    const batch = this.group.solid;
     const base = batch.vertices.length / 8;
 
     // Outer then inner perimeter, same parametrization → stitch quads.
@@ -132,10 +174,10 @@ export class GeometryBuilder {
   }
 
   private imageBatchFor(asset: ImageAsset): Batch {
-    let batch = this.imageBatches.get(asset);
+    let batch = this.group.images.get(asset);
     if (!batch) {
-      batch = { texture: asset, vertices: [], indices: [] };
-      this.imageBatches.set(asset, batch);
+      batch = { texture: asset, vertices: [], indices: [], clip: this.group.clip };
+      this.group.images.set(asset, batch);
     }
     return batch;
   }
@@ -170,10 +212,10 @@ export class GeometryBuilder {
   }
 
   private batchFor(atlas: GlyphAtlas): Batch {
-    let batch = this.textBatches.get(atlas);
+    let batch = this.group.texts.get(atlas);
     if (!batch) {
-      batch = { texture: atlas, vertices: [], indices: [] };
-      this.textBatches.set(atlas, batch);
+      batch = { texture: atlas, vertices: [], indices: [], clip: this.group.clip };
+      this.group.texts.set(atlas, batch);
     }
     return batch;
   }
