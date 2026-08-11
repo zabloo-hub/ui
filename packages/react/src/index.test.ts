@@ -5,6 +5,7 @@ import type {
   RepeatNode,
   SliderNode,
   SpinnerNode,
+  TextInputNode,
   ToggleNode,
 } from "@zabloo/format";
 import { Fragment, createElement as h, useState } from "react";
@@ -34,6 +35,7 @@ import {
   Tab,
   Tabs,
   Text,
+  TextInput,
   ThemeProvider,
   Toast,
   Tooltip,
@@ -344,6 +346,44 @@ describe("renderToIR", () => {
 
   it("rejects a Slider range that cannot be dragged", () => {
     expect(() => renderToIR(h(Slider, { min: 10, max: 2 }))).toThrow(/max > min/);
+  });
+
+  it("lowers TextInput to a leaf field with its own box", () => {
+    const ir = renderToIR(
+      h(TextInput, {
+        id: "player-name",
+        value: { bind: "profile.name" },
+        placeholder: "Tu nombre",
+        maxLength: 16,
+        onChange: "name-typed",
+        onSubmit: "name-accept",
+        states: { empty: { style: { color: "{color.muted}" } } },
+      }),
+    );
+    expect(ir).toEqual({
+      type: "TextInput",
+      id: "player-name",
+      value: { bind: "profile.name" },
+      placeholder: "Tu nombre",
+      maxLength: 16,
+      onChange: "name-typed",
+      onSubmit: "name-accept",
+      // The field does not grow with what is typed, so the sugar gives it a box.
+      layout: { width: 220, padding: 8 },
+      style: { background: "#1b1f2e", radius: 6, color: "#ffffff" },
+      states: { empty: { style: { color: "{color.muted}" } } },
+    });
+  });
+
+  it("lets an explicit layout beat the field's default width", () => {
+    const ir = renderToIR(h(TextInput, { layout: { grow: 1 }, width: 300 })) as TextInputNode;
+    expect(ir.layout).toEqual({ width: 300, padding: 8, grow: 1 });
+  });
+
+  it("rejects a TextInput that cannot hold what it declares", () => {
+    expect(() => renderToIR(h(TextInput, { maxLength: 0 }))).toThrow(/positive number/);
+    // @ts-expect-error — the prop is a string by type; this pins the runtime guard too
+    expect(() => renderToIR(h(TextInput, { value: 42 }))).toThrow(/is a string/);
   });
 
   it("rejects binding a Radio value (the selection is bound on the group)", () => {

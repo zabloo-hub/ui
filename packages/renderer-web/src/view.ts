@@ -29,7 +29,7 @@ import {
   type ZNode,
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
-import { type Clip, clipContains, isEmptyClip } from "./clip.js";
+import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
 import { closedHeight, collapseTarget } from "./collapse.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
@@ -70,7 +70,27 @@ import {
 import { beadOpacity, DEFAULT_PERIOD } from "./spinner.js";
 import { effectiveStyle } from "./states.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
-import { layoutText, placeLines, type TextLayoutOptions } from "./text.js";
+import { layoutText, placeLines, type TextLayoutOptions, type TextMetrics } from "./text.js";
+import {
+  caretAt,
+  caretVisible,
+  caretX,
+  clampSelection,
+  codePointIndex,
+  type Edit,
+  hasSelection,
+  indexAtX,
+  insert,
+  length,
+  moveCaret,
+  moveToEdge,
+  remove,
+  type Selection,
+  scrollFor,
+  selectAll,
+  span,
+  utf16Offset,
+} from "./textinput.js";
 import { isSelected, nextChecked, slotOpacity } from "./toggle.js";
 import {
   clearNodeAnim,
@@ -124,6 +144,10 @@ interface AnyNode {
   /** Spinner: cycle length and ramp curve. */
   period?: Dim;
   easing?: Easing;
+  // TextInput (`value`/`onChange` are shared above, like the Slider's).
+  placeholder?: string;
+  onSubmit?: string;
+  maxLength?: number;
 }
 
 /** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
@@ -155,6 +179,16 @@ interface SliderGesture {
  */
 const SCROLLBAR = { thickness: 4, margin: 2, minLength: 16, color: [1, 1, 1, 0.35] as Color };
 
+/**
+ * The caret and the selection highlight a focused TextInput paints (ZAB-26).
+ * Both derive from the field's own `style.color` — the "color of this node's
+ * content" that already tints glyphs and images — so nothing new enters `Style`.
+ * The blink is renderer behavior, like the Spinner's loop: it is not authored,
+ * and styling either of them is a compatible extension, exactly as it is for the
+ * ScrollView's scrollbar.
+ */
+const CARET = { width: 2, blinkMs: 1060, selectionAlpha: 0.3 };
+
 export interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
   view?: string;
@@ -182,6 +216,8 @@ export interface ZablooHandle {
   setChecked(id: string, checked: boolean): boolean;
   /** Moves a Slider — exactly the gesture the player would have made, hooks included. */
   setValue(id: string, value: number): boolean;
+  /** Writes a TextInput's text — the same edit the player would have typed. */
+  setText(id: string, text: string): boolean;
   setScroll(id: string, x: number, y: number): boolean;
   dispose(): void;
 }
@@ -234,6 +270,8 @@ class WebView {
   private groupBindings = new Map<string, LayoutNode[]>();
   /** Bound `value` (Slider), by data path. */
   private sliderBindings = new Map<string, LayoutNode[]>();
+  /** Bound `value` (TextInput), by data path. */
+  private textBindings = new Map<string, LayoutNode[]>();
   private readonly data = new Map<string, unknown>();
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
@@ -243,6 +281,16 @@ class WebView {
   /** Slider being dragged with the pointer, and the one being nudged with the keyboard. */
   private sliderDrag: SliderGesture | null = null;
   private sliderKeys: SliderGesture | null = null;
+  /** TextInput whose selection the pointer is dragging out. */
+  private textDrag: LayoutNode | null = null;
+  /** TextInput with an IME composition in flight — its text is not final yet. */
+  private composing: LayoutNode | null = null;
+  /**
+   * The hidden field the browser types into while a TextInput has the focus. It is
+   * what buys real IME composition, the clipboard and the mobile keyboard — none of
+   * which a canvas can get from raw `keydown` (decision 2026-08-11, ZAB-26).
+   */
+  private editor: HTMLTextAreaElement | null = null;
   /** Overlay whose backdrop took the pointer down, pending a release on it. */
   private backdropPress: LayoutNode | null = null;
   /** Pending self-scheduled frame, while a transition is in flight. */
@@ -328,6 +376,7 @@ class WebView {
       setSelectedTab: (id, index) => this.setSelectedTab(id, index),
       setChecked: (id, checked) => this.setChecked(id, checked),
       setValue: (id, value) => this.setValue(id, value),
+      setText: (id, text) => this.setText(id, text),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
         this.disposed = true;
@@ -351,12 +400,14 @@ class WebView {
     this.checkedBindings = new Map();
     this.groupBindings = new Map();
     this.sliderBindings = new Map();
+    this.textBindings = new Map();
     this.pressedNode = null;
     this.focusedNode = null;
     this.hoveredNode = null;
     this.scrollDrag = null;
     this.sliderDrag = null;
     this.sliderKeys = null;
+    this.textDrag = null;
     this.backdropPress = null;
     // The tree is new, so every node identity the layer state referenced is gone.
     this.layer = [];
@@ -426,6 +477,15 @@ class WebView {
       node.sliderValue = quantize(toNumber(initial, range.min), range);
       node.sliderDisplay = node.sliderValue;
       if (path !== null) pushMapList(this.sliderBindings, path, node);
+    }
+    if (any.type === "TextInput") {
+      const path = bindPath(any.value);
+      // Unbound, `value` is the initial text; bound, the store decides — and an
+      // empty store leaves the field empty, showing its placeholder.
+      const initial = path !== null ? this.data.get(path) : any.value;
+      this.setNodeText(node, typeof initial === "string" ? initial : formatValue(initial));
+      node.selection = caretAt(length(node.text));
+      if (path !== null) pushMapList(this.textBindings, path, node);
     }
     if (any.type === "Toggle") {
       // Inside an exclusive-check group the state is derived from the group's
@@ -726,6 +786,228 @@ class WebView {
     return true;
   }
 
+  // --- TextInput: the buffer, the caret and the two hooks (ZAB-26) ---
+
+  /** The buffer and the state derived from it — `empty` is what styles the placeholder. */
+  private setNodeText(node: LayoutNode, text: string): void {
+    node.text = text;
+    node.empty = text.length === 0;
+  }
+
+  /** The metrics this field measures with — the caret and the paint share them. */
+  private textMetrics(node: LayoutNode): TextMetrics {
+    return this.fonts.get(this.fontSize(this.effectiveStyle(node)));
+  }
+
+  /** The box the content lives in: the node's rect minus its padding. */
+  private textBox(node: LayoutNode): Rect {
+    return deflate(node.rect, node.resolved.padding ?? 0);
+  }
+
+  /**
+   * Single state-mutation path for the text (typing, IME, paste, delete,
+   * `setText`): writes the buffer, writes the new value into the bound path — the
+   * return leg of the data channel — and fires the live `onChange`. The caret moves
+   * with it, and its blink restarts so it stays solid while the player types.
+   */
+  private applyEdit(node: LayoutNode, edit: Edit, silent = false, commit = false): void {
+    const changed = edit.text !== node.text;
+    this.setNodeText(node, edit.text);
+    node.selection = clampSelection(edit.selection, length(edit.text));
+    node.caretSince = now();
+    // `silent` is a composition in flight (the field shows it, the game is not told
+    // yet); `commit` is the end of one, where the settled text must go out even
+    // though the silent frames already put it in the buffer.
+    if ((changed || commit) && !silent) {
+      const any = node.ir as AnyNode;
+      const path = bindPath(any.value);
+      if (path !== null) this.writeData(path, edit.text);
+      if (any.onChange) this.onAction?.(any.onChange);
+    }
+    this.render();
+  }
+
+  /** Moves the caret (or the selection) without touching the text. */
+  private setSelection(node: LayoutNode, selection: Selection): void {
+    node.selection = clampSelection(selection, length(node.text));
+    node.caretSince = now();
+    this.syncEditor(node);
+    this.render();
+  }
+
+  private deleteText(node: LayoutNode, forward: boolean): void {
+    this.applyEdit(node, remove(node.text, node.selection, forward));
+    this.syncEditor(node);
+  }
+
+  /** The caret index a point selects, in the field's own content coordinates. */
+  private textIndexAt(node: LayoutNode, point: Point): number {
+    const box = this.textBox(node);
+    return indexAtX(node.text, point.x - box.x + node.textScroll, this.textMetrics(node));
+  }
+
+  /**
+   * Keeps the caret inside the box after a change — the field's own horizontal
+   * scroll, the counterpart of the ScrollView's offset (never authored). It runs
+   * after arrange, where the rect is final, and it is idempotent.
+   */
+  private syncTextScroll(node: LayoutNode): void {
+    const metrics = this.textMetrics(node);
+    const box = this.textBox(node);
+    node.textScroll = scrollFor(
+      node.textScroll,
+      caretX(node.text, node.selection.focus, metrics),
+      box.width,
+      caretX(node.text, length(node.text), metrics),
+      CARET.width,
+    );
+  }
+
+  // --- TextInput: the hidden field the browser types into ---
+  //
+  // A canvas receives keystrokes but not TEXT: IME composition, the clipboard and
+  // the mobile keyboard all belong to a real editable element. So one lives
+  // off-screen, mirroring the focused field both ways — we push our buffer into it
+  // and fold whatever the browser did back into ours. It is the same trick Figma
+  // and Docs use, and it stays entirely inside the web renderer (the Unity SDK
+  // will have its own answer).
+
+  private ensureEditor(): HTMLTextAreaElement | null {
+    if (this.editor) return this.editor;
+    if (typeof document === "undefined") return null;
+    const editor = document.createElement("textarea");
+    // Off-screen but REAL: `display:none` or `visibility:hidden` would take no
+    // focus, and without focus there is no composition and no virtual keyboard.
+    Object.assign(editor.style, {
+      position: "fixed",
+      top: "0",
+      left: "0",
+      width: "1px",
+      height: "1px",
+      padding: "0",
+      border: "0",
+      outline: "none",
+      resize: "none",
+      opacity: "0",
+      zIndex: "-1",
+      pointerEvents: "none",
+    });
+    editor.setAttribute("autocomplete", "off");
+    editor.setAttribute("autocapitalize", "off");
+    editor.setAttribute("autocorrect", "off");
+    editor.setAttribute("aria-hidden", "true");
+    editor.spellcheck = false;
+    editor.tabIndex = -1;
+
+    const input = () => {
+      const node = this.focusedNode;
+      if (node?.ir.type !== "TextInput") return;
+      // Mid-composition the field shows what is being composed but the game is not
+      // told yet: half a syllable is not a value. `compositionend` commits it.
+      this.readEditor(node, this.composing === node);
+    };
+    const compositionstart = () => {
+      const node = this.focusedNode;
+      if (node?.ir.type === "TextInput") this.composing = node;
+    };
+    const compositionend = () => {
+      const node = this.composing;
+      this.composing = null;
+      if (node) this.readEditor(node, false, true);
+    };
+    editor.addEventListener("input", input);
+    editor.addEventListener("compositionstart", compositionstart);
+    editor.addEventListener("compositionupdate", input);
+    editor.addEventListener("compositionend", compositionend);
+
+    (this.canvas.parentElement ?? document.body).appendChild(editor);
+    this.editor = editor;
+    this.disposers.push(() => {
+      editor.removeEventListener("input", input);
+      editor.removeEventListener("compositionstart", compositionstart);
+      editor.removeEventListener("compositionupdate", input);
+      editor.removeEventListener("compositionend", compositionend);
+      editor.remove();
+      this.editor = null;
+    });
+    return editor;
+  }
+
+  /** Pushes our buffer and caret into the hidden field, so the browser edits THIS. */
+  private syncEditor(node: LayoutNode): void {
+    const editor = this.editor;
+    if (!editor || this.focusedNode !== node || this.composing === node) return;
+    if (editor.value !== node.text) editor.value = node.text;
+    const { start, end } = span(node.selection, length(node.text));
+    const backward = node.selection.anchor > node.selection.focus;
+    editor.setSelectionRange(
+      utf16Offset(node.text, start),
+      utf16Offset(node.text, end),
+      backward ? "backward" : "forward",
+    );
+  }
+
+  /**
+   * Folds the hidden field back into ours. Everything the browser can do to text —
+   * typing, composing, pasting, cutting, autocorrect — arrives here as "this is the
+   * new value and this is where the caret is", so the whole value is run through the
+   * editing model as one replacement: that is what applies `maxLength` and the
+   * single-line rule here exactly as it applies them to a keystroke on a target that
+   * feeds characters in one at a time.
+   */
+  private readEditor(node: LayoutNode, silent: boolean, commit = false): void {
+    const editor = this.editor;
+    if (!editor) return;
+    const limited = insert(
+      node.text,
+      selectAll(node.text),
+      editor.value,
+      (node.ir as AnyNode).maxLength,
+    ).text;
+    // The caret is the browser's, not the model's: it knows where the edit landed.
+    const backward = editor.selectionDirection === "backward";
+    const start = codePointIndex(limited, editor.selectionStart ?? 0);
+    const end = codePointIndex(limited, editor.selectionEnd ?? 0);
+    this.applyEdit(
+      node,
+      {
+        text: limited,
+        selection: backward ? { anchor: end, focus: start } : { anchor: start, focus: end },
+      },
+      silent,
+      commit,
+    );
+    // Truncated, or a newline folded away: the browser's copy is no longer ours.
+    if (limited !== editor.value) this.syncEditor(node);
+  }
+
+  /** Hands the keyboard to the hidden field, or takes it back when focus leaves. */
+  private focusEditor(node: LayoutNode | null): void {
+    if (node?.ir.type !== "TextInput") {
+      this.composing = null;
+      this.editor?.blur();
+      return;
+    }
+    const editor = this.ensureEditor();
+    if (!editor) return;
+    this.syncEditor(node);
+    if (document.activeElement !== editor) editor.focus({ preventScroll: true });
+  }
+
+  /** The game/page channel for text fields — the `setValue` counterpart. */
+  setText(id: string, text: string): boolean {
+    const node = this.byId.get(id);
+    if (node?.ir.type !== "TextInput") {
+      console.warn(`[zabloo] setText: no TextInput with id "${id}".`);
+      return false;
+    }
+    // The whole field is replaced, so the caret goes to the end — where a player
+    // handed a prefilled value would start typing.
+    this.applyEdit(node, { text: String(text), selection: caretAt(length(String(text))) });
+    this.syncEditor(node);
+    return true;
+  }
+
   setOpen(id: string, open: boolean): boolean {
     const node = this.byId.get(id);
     if (node?.ir.type !== "Collapse") {
@@ -802,6 +1084,13 @@ class WebView {
       const range = this.rangeOf(node);
       node.sliderValue = quantize(toNumber(value, range.min), range);
     }
+    for (const node of this.textBindings.get(path) ?? []) {
+      // The game's own string, shown as it is: `maxLength` bounds what the PLAYER
+      // types, never what the data holds (decision 2026-08-11, ZAB-26).
+      this.setNodeText(node, typeof value === "string" ? value : formatValue(value));
+      node.selection = clampSelection(node.selection, length(node.text));
+      this.syncEditor(node);
+    }
   }
 
   // --- focus & directional navigation (decision 2026-08-03 §7) ---
@@ -814,6 +1103,7 @@ class WebView {
       node.ir.type === "Button" ||
       node.ir.type === "Toggle" ||
       node.ir.type === "Slider" ||
+      node.ir.type === "TextInput" ||
       isCollapseHeader(node)
     );
   }
@@ -845,7 +1135,14 @@ class WebView {
     if (this.focusedNode === node) return;
     if (this.focusedNode) this.focusedNode.focused = false;
     this.focusedNode = node;
-    if (node) node.focused = true;
+    if (node) {
+      node.focused = true;
+      // A field that gets the focus starts with a solid caret, not mid-blink.
+      if (node.ir.type === "TextInput") node.caretSince = now();
+    }
+    // The keyboard follows the focus: into the hidden field when a TextInput has
+    // it, back out to the canvas for everything else.
+    this.focusEditor(node);
   }
 
   /** Moves focus in a direction (unit axis): the console-UI spatial algorithm. */
@@ -883,13 +1180,94 @@ class WebView {
     }
   }
 
+  /**
+   * The keys a focused TextInput claims, and whether it consumed this one. `false`
+   * lets the view's ordinary handling run, which is what makes ↑/↓ — and a ←/→ that
+   * finds the caret already against an end — navigate away instead of trapping the
+   * player inside the field (decision 2026-08-11, ZAB-26).
+   *
+   * Typing never reaches here: characters, composition and paste arrive as `input`
+   * events on the hidden field. This owns only the caret, deletion and submission.
+   */
+  private editKey(event: KeyboardEvent): boolean {
+    const node = this.focusedNode;
+    if (node?.ir.type !== "TextInput" || !inLayout(node)) return false;
+    const shortcut = event.metaKey || event.ctrlKey;
+    if (shortcut) {
+      if (event.key === "a" || event.key === "A") {
+        event.preventDefault();
+        this.setSelection(node, selectAll(node.text));
+        return true;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        this.setSelection(
+          node,
+          moveToEdge(node.text, node.selection, event.key === "ArrowRight", event.shiftKey)
+            .selection,
+        );
+        return true;
+      }
+      // Copy, cut, paste, undo: the browser's own field does them and its `input`
+      // event brings the result back — intercepting them would only break them.
+      return false;
+    }
+    switch (event.key) {
+      case "ArrowLeft":
+      case "ArrowRight": {
+        const step = moveCaret(
+          node.text,
+          node.selection,
+          event.key === "ArrowLeft" ? -1 : 1,
+          event.shiftKey,
+        );
+        if (step.atBoundary) return false; // nothing left to walk: navigate out
+        event.preventDefault();
+        this.setSelection(node, step.selection);
+        return true;
+      }
+      case "Home":
+      case "End":
+        event.preventDefault();
+        this.setSelection(
+          node,
+          moveToEdge(node.text, node.selection, event.key === "End", event.shiftKey).selection,
+        );
+        return true;
+      case "Backspace":
+      case "Delete":
+        event.preventDefault();
+        this.deleteText(node, event.key === "Delete");
+        return true;
+      case "Enter": {
+        event.preventDefault();
+        const action = (node.ir as AnyNode).onSubmit;
+        if (action && !event.repeat) this.onAction?.(action);
+        return true;
+      }
+      case "Tab":
+        // Navigation here is spatial, so a Tab would only hand the keyboard to
+        // whatever the page has next and leave the field looking focused.
+        event.preventDefault();
+        return true;
+      case " ":
+        // A space is text: consumed so it does not press anything, but NOT
+        // prevented — the hidden field is the one that inserts it.
+        return true;
+      default:
+        return false;
+    }
+  }
+
   /** Press/release the focused node (Enter/Space/gamepad-A semantics). */
   pressFocused(down: boolean): void {
     const node = this.focusedNode;
     if (!node || !inLayout(node)) return;
     // A Slider has nothing to activate: it is adjusted with the axis arrows, and
-    // pressing it must not fall through to the Collapse branch below.
-    if (node.ir.type === "Slider") return;
+    // pressing it must not fall through to the Collapse branch below. A TextInput
+    // has nothing either — Enter submits it, and the on-screen keyboard a console
+    // would need is v1.x.
+    if (node.ir.type === "Slider" || node.ir.type === "TextInput") return;
     if (down) {
       node.pressed = true;
       this.render();
@@ -1047,6 +1425,18 @@ class WebView {
         this.render();
         return;
       }
+      // A text field takes the pointer for the same reason a Slider does: the press
+      // places the caret and the drag selects, and neither may become a scroll of
+      // the screen the field sits in.
+      const field = hit && this.findUp(hit, (n) => n.ir.type === "TextInput");
+      if (field) {
+        this.textDrag = field;
+        this.setFocus(field);
+        this.focusEditor(field); // the canvas press blurs the hidden field: take it back
+        this.canvas.setPointerCapture(event.pointerId);
+        this.setSelection(field, caretAt(this.textIndexAt(field, point)));
+        return;
+      }
       const pressable =
         hit && this.findUp(hit, (n) => n.ir.type === "Button" || n.ir.type === "Toggle");
       if (pressable) {
@@ -1083,6 +1473,16 @@ class WebView {
         this.setSliderValue(slider.node, this.valueAtPoint(slider.node, this.eventPoint(event)));
         return;
       }
+      const field = this.textDrag;
+      if (field) {
+        // The anchor stays where the press landed and the focus follows the
+        // pointer — the same `{anchor, focus}` a shift+arrow moves.
+        this.setSelection(field, {
+          anchor: field.selection.anchor,
+          focus: this.textIndexAt(field, this.eventPoint(event)),
+        });
+        return;
+      }
       const drag = this.scrollDrag;
       if (!drag) return;
       const point = this.eventPoint(event);
@@ -1098,6 +1498,9 @@ class WebView {
       this.setScrollOffset(drag.node, drag.node.scrollOffset.x - dx, drag.node.scrollOffset.y - dy);
     };
     const keydown = (event: KeyboardEvent) => {
+      // A focused text field owns the keys that edit it; everything it does not
+      // claim (the cross-axis arrows, Escape) falls through to the usual handling.
+      if (this.editKey(event)) return;
       const direction = KEY_DIRECTIONS[event.key];
       if (direction) {
         event.preventDefault();
@@ -1134,6 +1537,10 @@ class WebView {
     };
     const up = (event: PointerEvent) => {
       const point = this.eventPoint(event);
+      if (this.textDrag) {
+        this.textDrag = null;
+        return;
+      }
       const slider = this.sliderDrag;
       if (slider) {
         this.sliderDrag = null;
@@ -1392,6 +1799,9 @@ class WebView {
     if (node.ir.type === "ProgressBar") this.resolveProgress(node, transition, now);
     else if (node.ir.type === "Slider") this.resolveSlider(node, transition, now);
     else if (node.ir.type === "Collapse") this.resolveCollapse(node, transition, now);
+    // A focused field owns the clock while its caret blinks — the same reason a
+    // Spinner does, and it stops as soon as the focus leaves.
+    else if (node.ir.type === "TextInput" && node.focused) this.animating = true;
     for (const child of node.children) this.resolve(child, now);
     // After the children: these modulate values they have already resolved.
     if (node.ir.type === "Spinner") this.spin(node, now);
@@ -1599,8 +2009,23 @@ class WebView {
       const asset = this.images.get((ir as AnyNode).src);
       return asset ? { x: asset.width, y: asset.height } : { x: 0, y: 0 };
     }
+    if (ir.type === "TextInput") {
+      // ONE line tall, and no intrinsic width: a field must not grow and shrink
+      // with what is being typed into it, so its width comes from its own
+      // `layout` (`@zabloo/react`'s `<TextInput>` fills one in) and the content
+      // scrolls inside that box.
+      const style = this.effectiveStyle(node);
+      const atlas = this.fonts.get(this.fontSize(style));
+      return { x: 0, y: Math.max(0, this.dim(style?.lineHeight, atlas.lineHeight)) };
+    }
     return { x: 0, y: 0 };
   };
+
+  /** Every TextInput of the tree, so the caret pass does not walk it looking for them. */
+  private eachTextInput(node: LayoutNode, visit: (field: LayoutNode) => void): void {
+    if (node.ir.type === "TextInput") visit(node);
+    for (const child of node.children) this.eachTextInput(child, visit);
+  }
 
   render(): void {
     const { width, height } = this.logicalSize();
@@ -1644,6 +2069,12 @@ class WebView {
       measure(overlay, this.measureLeaf, width);
       arrange(overlay, viewRect);
     }
+    // After arrange, where the boxes are final: each field slides its content just
+    // enough to keep its caret inside. It reads rects and writes only its own
+    // scroll, so it never feeds back into the layout it just ran.
+    this.eachTextInput(this.root, (field) => {
+      if (inLayout(field)) this.syncTextScroll(field);
+    });
 
     const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);
     this.paint(this.root, geometry);
@@ -1713,6 +2144,8 @@ class WebView {
         );
         for (const line of lines) geometry.text(line.x, line.y, line.text, atlas, color);
       }
+    } else if (node.ir.type === "TextInput") {
+      this.paintField(node, geometry, opacity, clip);
     } else if (node.ir.type === "Image") {
       const asset = this.images.get((node.ir as AnyNode).src);
       if (asset) {
@@ -1733,6 +2166,74 @@ class WebView {
       if (inFlow(child)) this.paint(child, geometry, opacity, inner);
     }
     if (node.ir.type === "ScrollView") this.paintScrollbar(node, geometry, opacity, inner);
+  }
+
+  /**
+   * The field's content: the selection highlight, the text (or the placeholder,
+   * while it is empty) and the caret — all of it clipped to the padding box and
+   * shifted by the field's own horizontal scroll, so a long value runs under the
+   * edge instead of over it.
+   *
+   * The caret and the highlight are the field's `style.color`, the same "color of
+   * this node's content" that already paints its glyphs, so they follow a state
+   * override for free and `Style` gains nothing.
+   */
+  private paintField(
+    node: LayoutNode,
+    geometry: GeometryBuilder,
+    opacity: number,
+    clip: Clip | null,
+  ): void {
+    const style = this.effectiveStyle(node);
+    const atlas = this.fonts.get(this.fontSize(style));
+    const values = node.resolved;
+    const box = deflate(node.rect, values.padding ?? 0);
+    // Everything below is cut to the content box: it is the field's own paint, so
+    // it clips whether or not the author asked the node to clip its children.
+    const inner = intersectClip(clip, box, 0);
+    if (isEmptyClip(inner)) return;
+    geometry.setClip(inner);
+
+    const contentColor = values.color ?? DEFAULT_TEXT_COLOR;
+    const placeholder = (node.ir as AnyNode).placeholder;
+    const showing = node.text.length > 0 ? node.text : (placeholder ?? "");
+    // One line, centred in the box — the same half-leading a `Text` places with.
+    const lineHeight = Math.max(0, this.dim(style?.lineHeight, atlas.lineHeight));
+    const top = box.y + Math.max(0, (box.height - lineHeight) / 2);
+    const originX = box.x - node.textScroll;
+
+    if (node.focused && hasSelection(node.selection)) {
+      const { start, end } = span(node.selection, length(node.text));
+      const from = caretX(node.text, start, atlas);
+      const to = caretX(node.text, end, atlas);
+      geometry.roundedRect(
+        { x: originX + from, y: top, width: to - from, height: lineHeight },
+        0,
+        fade(contentColor, opacity * CARET.selectionAlpha),
+      );
+    }
+    if (showing.length > 0) {
+      const y = top + (lineHeight - atlas.lineHeight) / 2;
+      geometry.text(originX, y, showing, atlas, fade(contentColor, opacity));
+    }
+    // The caret hides while a range is selected (the highlight already says where
+    // the edit will land) and blinks from the last edit, so it is solid as you type.
+    if (
+      node.focused &&
+      !hasSelection(node.selection) &&
+      caretVisible(now() - (node.caretSince ?? 0), CARET.blinkMs)
+    ) {
+      geometry.roundedRect(
+        {
+          x: originX + caretX(node.text, node.selection.focus, atlas),
+          y: top,
+          width: CARET.width,
+          height: lineHeight,
+        },
+        0,
+        fade(contentColor, opacity),
+      );
+    }
   }
 
   /** Overlay position indicator, inside the viewport and over the content. */

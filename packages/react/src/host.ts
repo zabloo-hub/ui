@@ -30,6 +30,7 @@ import type {
   StateName,
   StateOverride,
   Style,
+  TextInputNode,
   TextNode,
   ToggleNode,
   Transition,
@@ -49,7 +50,8 @@ export type HostType =
   | "Image"
   | "ProgressBar"
   | "Spinner"
-  | "Repeat";
+  | "Repeat"
+  | "TextInput";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -108,6 +110,13 @@ export interface HostInstance {
     max?: number;
     step?: number;
     onCommit?: string;
+    /**
+     * TextInput: the empty-field hint, the confirm hook and the cap on what the
+     * player can type (`value`/`onChange` are shared with the other value controls).
+     */
+    placeholder?: string;
+    onSubmit?: string;
+    maxLength?: number;
     /** Image: authoring path relative to `src/assets/` — `zabloo export` rewrites it. */
     src?: string;
     fit?: ImageFit;
@@ -157,6 +166,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "ProgressBar",
   "Spinner",
   "Repeat",
+  "TextInput",
 ]);
 
 export function isHostType(type: string): type is HostType {
@@ -167,8 +177,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Overlay, Toggle, Slider, Image, ProgressBar, Spinner, Repeat ` +
-        `(Row/Column/Checkbox/Switch/Radio/Badge/Modal/Toast/Tooltip/List/Grid are sugar ` +
+        `Collapse, ScrollView, Overlay, Toggle, Slider, TextInput, Image, ProgressBar, Spinner, ` +
+        `Repeat (Row/Column/Checkbox/Switch/Radio/Badge/Modal/Toast/Tooltip/List/Grid are sugar ` +
         `from @zabloo/react).`,
     );
   }
@@ -279,6 +289,36 @@ export function toIR(instance: HostInstance): ZNode {
           "A Slider needs exactly two slots: children[0] (fill), children[1] (thumb).",
         );
       }
+      return node;
+    }
+    case "TextInput": {
+      const { value, placeholder, onChange, onSubmit, maxLength } = instance.props;
+      if (typeof value === "number") {
+        throw new Error("<TextInput value> is a string (or a binding to one).");
+      }
+      if (typeof value === "object" && value !== null && !("bind" in value)) {
+        throw new Error("<TextInput value> must be a string or a { bind } binding.");
+      }
+      // The renderer ignores a non-positive cap, which would silently turn a typo
+      // into "no limit" — say it here, at authoring time (like Overlay's autoCloseMs).
+      if (maxLength !== undefined && !(maxLength > 0)) {
+        throw new Error(
+          `<TextInput maxLength={${maxLength}}> must be a positive number of characters ` +
+            "(omit it for an unbounded field).",
+        );
+      }
+      if (instance.children.length > 0) {
+        throw new Error("<TextInput> takes no children — it is a leaf, like <Text>.");
+      }
+      const node: TextInputNode = {
+        type: "TextInput",
+        ...base,
+        ...(value !== undefined && { value: value as TextInputNode["value"] }),
+        ...(placeholder !== undefined && { placeholder }),
+        ...(onChange !== undefined && { onChange }),
+        ...(onSubmit !== undefined && { onSubmit }),
+        ...(maxLength !== undefined && { maxLength }),
+      };
       return node;
     }
     case "Image": {
