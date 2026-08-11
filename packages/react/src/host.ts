@@ -14,6 +14,8 @@ import type {
   ContainerNode,
   GroupBehavior,
   Layout,
+  ScrollAxis,
+  ScrollViewNode,
   StateName,
   StateOverride,
   Style,
@@ -21,8 +23,8 @@ import type {
   ZNode,
 } from "@zabloo/format";
 
-/** Host vocabulary — the IR primitives authorable in v1 (ScrollView + `clip`: F1, pending). */
-export type HostType = "Container" | "Text" | "Button" | "Collapse";
+/** Host vocabulary — the IR primitives authorable in v1. */
+export type HostType = "Container" | "Text" | "Button" | "Collapse" | "ScrollView";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -45,6 +47,8 @@ export interface HostInstance {
     bind?: string;
     open?: boolean;
     group?: GroupBehavior;
+    axis?: ScrollAxis;
+    scrollbar?: boolean;
   };
   children: HostNode[];
 }
@@ -61,7 +65,13 @@ export interface HostContainer {
   children: HostNode[];
 }
 
-const HOST_TYPES: ReadonlySet<string> = new Set(["Container", "Text", "Button", "Collapse"]);
+const HOST_TYPES: ReadonlySet<string> = new Set([
+  "Container",
+  "Text",
+  "Button",
+  "Collapse",
+  "ScrollView",
+]);
 
 export function isHostType(type: string): type is HostType {
   return HOST_TYPES.has(type);
@@ -71,7 +81,7 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse (Row/Column are sugar from @zabloo/react).`,
+        `Collapse, ScrollView (Row/Column are sugar from @zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -122,6 +132,16 @@ export function toIR(instance: HostInstance): ZNode {
         type: "Container",
         ...base,
         ...(instance.props.group !== undefined && { group: instance.props.group }),
+        ...childrenIR(instance),
+      };
+      return node;
+    }
+    case "ScrollView": {
+      const node: ScrollViewNode = {
+        type: "ScrollView",
+        ...base,
+        ...(instance.props.axis !== undefined && { axis: instance.props.axis }),
+        ...(instance.props.scrollbar !== undefined && { scrollbar: instance.props.scrollbar }),
         ...childrenIR(instance),
       };
       return node;
