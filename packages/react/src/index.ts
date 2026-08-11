@@ -54,6 +54,8 @@ export {
   Tabs,
   type TabsProps,
   Text,
+  TextInput,
+  type TextInputProps,
   type TextProps,
   Toast,
   type ToastProps,

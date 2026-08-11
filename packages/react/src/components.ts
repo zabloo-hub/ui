@@ -213,6 +213,30 @@ export interface SliderProps extends CommonProps {
   thumb?: Style;
 }
 
+export interface TextInputProps extends CommonProps {
+  /**
+   * Current text, or a READ/WRITE data-path binding (`{ bind: "profile.name" }`):
+   * the SDK writes every edit back and notifies the game. Default: "".
+   */
+  value?: Bindable<string>;
+  /**
+   * Hint shown while the field is empty. Style it through the `empty` state —
+   * `states={{ empty: { style: { color: "{color.muted}" } } }}` — which is the same
+   * text paint the value uses, not a second color knob.
+   */
+  placeholder?: string;
+  /** Named action fired on every edit — the live hook (a search that filters as you type). */
+  onChange?: string;
+  /** Named action fired when the player confirms the field (Enter). */
+  onSubmit?: string;
+  /** Cap on what the PLAYER can type. A longer value from the game is shown whole. */
+  maxLength?: number;
+  /** Field width along its line, in px. Default: 220. */
+  width?: number;
+  /** Space between the box and the text, in px. Default: 8. */
+  padding?: number;
+}
+
 export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
   /**
    * The selected value — usually a read/write binding (`{ bind: "settings.quality" }`).
@@ -589,6 +613,55 @@ export function Slider({
       style: { radius: thumbSize / 2, ...THUMB, ...thumb },
     }),
   );
+}
+
+/**
+ * The `TextInput` primitive. Unlike `<Toggle>` and `<Slider>` it IS exported (as
+ * `<TextInput>` below): it is a leaf with no positional slots to hide, so there is
+ * no convention the sugar has to own — only defaults.
+ */
+const TextInputPrimitive: FC<Omit<TextInputProps, "width" | "padding">> =
+  primitive<Omit<TextInputProps, "width" | "padding">>("TextInput");
+
+const FIELD_WIDTH = 220;
+const FIELD_PADDING = 8;
+const FIELD: Style = { background: "#1b1f2e", radius: 6, color: "#ffffff" };
+
+/**
+ * A line of text the player writes. The node itself is the box — `style` paints it
+ * and the SDK paints the caret, the selection and the placeholder inside — and its
+ * `value` may be a read/write binding, so a `<Text bind>` on the same path follows
+ * what is typed.
+ *
+ * `onChange` fires on every edit (filter a list as you type) and `onSubmit` when the
+ * player presses Enter (run the search, accept the name). One line in v1: the
+ * content scrolls horizontally to keep the caret in view and a pasted newline
+ * becomes a space.
+ *
+ * ```tsx
+ * <TextInput
+ *   value={{ bind: "profile.name" }}
+ *   placeholder="Tu nombre"
+ *   maxLength={16}
+ *   onSubmit="name-accept"
+ *   states={{ empty: { style: { color: "{color.muted}" } } }}
+ * />
+ * ```
+ */
+export function TextInput({
+  width = FIELD_WIDTH,
+  padding = FIELD_PADDING,
+  layout,
+  style,
+  ...rest
+}: TextInputProps): ReturnType<FC> {
+  return createElement(TextInputPrimitive, {
+    ...rest,
+    // A field does not resize with what is typed into it, so it needs a width of
+    // its own — `layout` still wins, which is how `grow: 1` fills a row.
+    layout: { width, padding, ...layout },
+    style: { ...FIELD, ...style },
+  });
 }
 
 export interface TabProps extends CommonProps {

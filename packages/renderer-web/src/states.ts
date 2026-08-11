@@ -20,19 +20,24 @@ export interface NodeStates {
   selected: boolean;
   /** A Toggle's own value (in an `"exclusive-check"` group, the group's). */
   checked: boolean;
+  /** A TextInput holding no text — what styles its placeholder (ZAB-26). */
+  empty: boolean;
 }
 
 /**
  * Least to most specific — later wins.
  *
  * Value states go first: what the control IS is the baseline, and how the
- * pointer or the focus is treating it right now paints over that. `hover` sits
- * under `focused` so a focus ring is never hidden by a mouse passing by, and
- * `pressed` wins over everything because it lasts exactly as long as the finger
- * is down. `disabled` is declared in the IR but has no runtime state yet, so it
- * never matches here.
+ * pointer or the focus is treating it right now paints over that. `empty` opens
+ * them because it is the emptiest statement a control makes about its value (a
+ * placeholder must lose to anything the author says about a selected or focused
+ * field). `hover` sits under `focused` so a focus ring is never hidden by a mouse
+ * passing by, and `pressed` wins over everything because it lasts exactly as long
+ * as the finger is down. `disabled` is declared in the IR but has no runtime state
+ * yet, so it never matches here.
  */
 export const STATE_ORDER: readonly StateName[] = [
+  "empty",
   "selected",
   "checked",
   "hover",
@@ -42,6 +47,8 @@ export const STATE_ORDER: readonly StateName[] = [
 
 function isActive(name: StateName, states: NodeStates): boolean {
   switch (name) {
+    case "empty":
+      return states.empty;
     case "selected":
       return states.selected;
     case "checked":

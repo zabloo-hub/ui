@@ -8,10 +8,12 @@ const IDLE: NodeStates = {
   focused: false,
   selected: false,
   checked: false,
+  empty: false,
 };
 
 /** One override per state, each tagged so the winner is identifiable. */
 const OVERRIDES: Partial<Record<StateName, StateOverride>> = {
+  empty: { style: { background: "#empty" } },
   selected: { style: { background: "#selected" } },
   checked: { style: { background: "#checked" } },
   hover: { style: { background: "#hover" } },
@@ -50,8 +52,23 @@ describe("effectiveStyle", () => {
   });
 
   it("gives pressed the last word, for as long as the finger is down", () => {
-    const active = { hovered: true, pressed: true, focused: true, selected: true, checked: true };
+    const active = {
+      hovered: true,
+      pressed: true,
+      focused: true,
+      selected: true,
+      checked: true,
+      empty: true,
+    };
     expect(effectiveStyle(undefined, OVERRIDES, active)?.background).toBe("#pressed");
+  });
+
+  it("lets anything the author says about a focused field beat the placeholder", () => {
+    expect(effectiveStyle(undefined, OVERRIDES, { ...IDLE, empty: true })?.background).toBe(
+      "#empty",
+    );
+    const focused = { ...IDLE, empty: true, focused: true };
+    expect(effectiveStyle(undefined, OVERRIDES, focused)?.background).toBe("#focused");
   });
 
   it("ignores states with no override declared", () => {
@@ -83,6 +100,6 @@ describe("effectiveStyle", () => {
   });
 
   it("orders every state, least to most specific", () => {
-    expect(STATE_ORDER).toEqual(["selected", "checked", "hover", "focused", "pressed"]);
+    expect(STATE_ORDER).toEqual(["empty", "selected", "checked", "hover", "focused", "pressed"]);
   });
 });

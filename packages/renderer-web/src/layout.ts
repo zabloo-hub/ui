@@ -14,6 +14,7 @@ import { fillRect } from "./progress.js";
 import { clamp, resolveScrollMax } from "./scroll.js";
 import { fractionOf, growsUpward, resolveRange, sliderGeometry } from "./slider.js";
 import type { TextBlock } from "./text.js";
+import { caretAt, type Selection } from "./textinput.js";
 import { createNodeAnim, type NodeAnim, type ResolvedValues } from "./transition.js";
 
 export interface Rect {
@@ -106,6 +107,23 @@ export interface LayoutNode {
   scrollOffset: { x: number; y: number };
   /** Content overflow bounds for `scrollOffset`, recomputed on every relayout. */
   scrollMax: { x: number; y: number };
+  /** TextInput only: the runtime text buffer (the value the player is editing). */
+  text: string;
+  /** TextInput only: true while `text` is empty — the `empty` state (ZAB-26). */
+  empty: boolean;
+  /** TextInput only: the caret, and the selection when its two ends differ. */
+  selection: Selection;
+  /**
+   * TextInput only: how far the content is scrolled left to keep the caret in the
+   * box. The field's own state, like the ScrollView's offset — it is never authored.
+   */
+  textScroll: number;
+  /**
+   * TextInput only: when the caret's blink cycle last restarted (every edit and
+   * every caret move restarts it, so the caret is solid while typing). Null while
+   * the field has never been focused.
+   */
+  caretSince: number | null;
   /**
    * This frame's animatable values, tokens resolved and transitions applied — the
    * inputs both this pass and paint read. Rewritten by the view's resolve pass.
@@ -155,6 +173,11 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
     loopStartedAt: null,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
+    text: "",
+    empty: true,
+    selection: caretAt(0),
+    textScroll: 0,
+    caretSince: null,
     resolved: {},
     textBlock: null,
     anim: createNodeAnim(),
