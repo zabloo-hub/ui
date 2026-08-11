@@ -5,6 +5,7 @@ import type {
   RepeatNode,
   SliderNode,
   SpinnerNode,
+  TextInputNode,
   ToggleNode,
 } from "@zabloo/format";
 import { Fragment, createElement as h, useState } from "react";
@@ -34,6 +35,7 @@ import {
   Tab,
   Tabs,
   Text,
+  TextInput,
   ThemeProvider,
   Toast,
   Tooltip,
@@ -346,6 +348,44 @@ describe("renderToIR", () => {
     expect(() => renderToIR(h(Slider, { min: 10, max: 2 }))).toThrow(/max > min/);
   });
 
+  it("lowers TextInput to a leaf field with its own box", () => {
+    const ir = renderToIR(
+      h(TextInput, {
+        id: "player-name",
+        value: { bind: "profile.name" },
+        placeholder: "Tu nombre",
+        maxLength: 16,
+        onChange: "name-typed",
+        onSubmit: "name-accept",
+        states: { empty: { style: { color: "{color.muted}" } } },
+      }),
+    );
+    expect(ir).toEqual({
+      type: "TextInput",
+      id: "player-name",
+      value: { bind: "profile.name" },
+      placeholder: "Tu nombre",
+      maxLength: 16,
+      onChange: "name-typed",
+      onSubmit: "name-accept",
+      // The field does not grow with what is typed, so the sugar gives it a box.
+      layout: { width: 220, padding: 8 },
+      style: { background: "#1b1f2e", radius: 6, color: "#ffffff" },
+      states: { empty: { style: { color: "{color.muted}" } } },
+    });
+  });
+
+  it("lets an explicit layout beat the field's default width", () => {
+    const ir = renderToIR(h(TextInput, { layout: { grow: 1 }, width: 300 })) as TextInputNode;
+    expect(ir.layout).toEqual({ width: 300, padding: 8, grow: 1 });
+  });
+
+  it("rejects a TextInput that cannot hold what it declares", () => {
+    expect(() => renderToIR(h(TextInput, { maxLength: 0 }))).toThrow(/positive number/);
+    // @ts-expect-error — the prop is a string by type; this pins the runtime guard too
+    expect(() => renderToIR(h(TextInput, { value: 42 }))).toThrow(/is a string/);
+  });
+
   it("rejects binding a Radio value (the selection is bound on the group)", () => {
     expect(() =>
       // @ts-expect-error — a Radio value is static by type; this pins the runtime guard too
@@ -394,6 +434,52 @@ describe("renderToIR", () => {
       states: { pressed: { style: { background: "{color.primary.hover}" } } },
       children: [{ type: "Text", text: "x" }],
     });
+  });
+
+  it("gives every node of a type the theme's motion, with or without a variant", () => {
+    const theme: ZablooTheme = {
+      transitions: { Button: { duration: "{motion.fast}" } },
+      variants: { Button: { primary: { style: { background: "{color.primary}" } } } },
+    };
+    const ir = renderToIR(
+      h(
+        ThemeProvider,
+        { theme },
+        h(
+          Column,
+          null,
+          h(Button, { onClick: "a" }),
+          h(Button, { variant: "primary", onClick: "b" }),
+        ),
+      ),
+    ) as ContainerNode;
+
+    expect(ir.children?.[0]).toEqual({
+      type: "Button",
+      onClick: "a",
+      transition: { duration: "{motion.fast}" },
+    });
+    expect(ir.children?.[1]).toEqual({
+      type: "Button",
+      onClick: "b",
+      style: { background: "{color.primary}" },
+      transition: { duration: "{motion.fast}" },
+    });
+    // Keyed by component: a type the theme says nothing about carries no motion.
+    expect(ir.transition).toBeUndefined();
+  });
+
+  it("lets the variant override the theme's motion, and the node override both", () => {
+    const theme: ZablooTheme = {
+      transitions: { Button: { duration: 200 } },
+      variants: { Button: { snappy: { transition: { duration: 80, easing: "ease-in" } } } },
+    };
+    const at = (props: Record<string, unknown>) =>
+      (renderToIR(h(ThemeProvider, { theme }, h(Button, props))) as ContainerNode).transition;
+
+    expect(at({})).toEqual({ duration: 200 });
+    expect(at({ variant: "snappy" })).toEqual({ duration: 80, easing: "ease-in" });
+    expect(at({ variant: "snappy", transition: { duration: 0 } })).toEqual({ duration: 0 });
   });
 
   it("fails loudly on unknown variants", () => {
@@ -781,6 +867,54 @@ describe("renderToIR", () => {
     expect(bubble.children).toEqual([
       { type: "Text", text: "Pulsa A", style: { color: "#c8cede", fontSize: 12 } },
     ]);
+  });
+
+  it("anchors a Tooltip to a node and shows it with that node's hover/focus", () => {
+    const ir = renderToIR(h(Tooltip, { anchor: "jump-btn" }, "Pulsa A")) as OverlayNode;
+    expect(ir.anchor).toEqual({ id: "jump-btn", at: "top", trigger: "hover" });
+    // The layer placement travels too: it is what an SDK that predates anchoring
+    // renders, and what the renderer falls back to when the id matches no node.
+    expect(ir.layout).toEqual({ direction: "row", justify: "center", align: "start", padding: 8 });
+  });
+
+  it("reads `position` as the side of the anchor, and takes the offset", () => {
+    const ir = renderToIR(
+      h(Tooltip, { anchor: "slot-3", position: "bottom-left", offset: "{space.2}" }, "Vacío"),
+    ) as OverlayNode;
+    expect(ir.anchor).toEqual({
+      id: "slot-3",
+      at: "bottom-left",
+      offset: "{space.2}",
+      trigger: "hover",
+    });
+  });
+
+  it("opts a Tooltip out of the hover trigger with `manual`", () => {
+    const ir = renderToIR(
+      h(Tooltip, { anchor: "buy-btn", trigger: "manual", visible: { bind: "ui.hint" } }, "Caro"),
+    ) as OverlayNode;
+    expect(ir.anchor).toEqual({ id: "buy-btn", at: "top", trigger: "manual" });
+  });
+
+  it("anchors a Modal too — a popover keeps its backdrop and its capture", () => {
+    const ir = renderToIR(
+      h(Modal, { anchor: "menu-btn", position: "bottom-right" }, h(Text, null, "Ajustes")),
+    ) as OverlayNode;
+    expect(ir.modal).toBe(true);
+    // No trigger: only `<Tooltip>` assumes hover, and a menu is opened, not grazed.
+    expect(ir.anchor).toEqual({ id: "menu-btn", at: "bottom-right" });
+  });
+
+  it("leaves the anchor out of an unanchored overlay, layer inset included", () => {
+    const ir = renderToIR(h(Tooltip, { visible: { bind: "ui.hint" } }, "Pulsa A")) as OverlayNode;
+    expect(ir.anchor).toBeUndefined();
+    expect(ir.layout?.padding).toBe(24);
+  });
+
+  it("emits the raw Overlay's anchor 1:1, and rejects one that anchors nothing", () => {
+    const anchor = { id: "buy-btn", at: "right", offset: 12, trigger: "hover" } as const;
+    expect((renderToIR(h(Overlay, { anchor })) as OverlayNode).anchor).toEqual(anchor);
+    expect(() => renderToIR(h(Overlay, { anchor: { id: "" } }))).toThrow(/needs the `id`/);
   });
 
   it("lets an explicit layout override the placement sugar", () => {

@@ -19,6 +19,7 @@ import type {
   ImageFit,
   ImageNode,
   Layout,
+  OverlayAnchor,
   OverlayNode,
   ProgressBarNode,
   RepeatNode,
@@ -30,6 +31,7 @@ import type {
   StateName,
   StateOverride,
   Style,
+  TextInputNode,
   TextNode,
   ToggleNode,
   Transition,
@@ -49,7 +51,8 @@ export type HostType =
   | "Image"
   | "ProgressBar"
   | "Spinner"
-  | "Repeat";
+  | "Repeat"
+  | "TextInput";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -108,6 +111,13 @@ export interface HostInstance {
     max?: number;
     step?: number;
     onCommit?: string;
+    /**
+     * TextInput: the empty-field hint, the confirm hook and the cap on what the
+     * player can type (`value`/`onChange` are shared with the other value controls).
+     */
+    placeholder?: string;
+    onSubmit?: string;
+    maxLength?: number;
     /** Image: authoring path relative to `src/assets/` — `zabloo export` rewrites it. */
     src?: string;
     fit?: ImageFit;
@@ -119,6 +129,8 @@ export interface HostInstance {
     z?: number;
     onDismiss?: string;
     autoCloseMs?: number;
+    /** Overlay: the node this one is placed against, and what puts it in the layer. */
+    anchor?: OverlayAnchor;
     /**
      * Repeat: the bound array's path (always a binding — the data never travels in
      * the document), the item alias the template binds against, and the path
@@ -157,6 +169,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "ProgressBar",
   "Spinner",
   "Repeat",
+  "TextInput",
 ]);
 
 export function isHostType(type: string): type is HostType {
@@ -167,8 +180,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Overlay, Toggle, Slider, Image, ProgressBar, Spinner, Repeat ` +
-        `(Row/Column/Checkbox/Switch/Radio/Badge/Modal/Toast/Tooltip/List/Grid are sugar ` +
+        `Collapse, ScrollView, Overlay, Toggle, Slider, TextInput, Image, ProgressBar, Spinner, ` +
+        `Repeat (Row/Column/Checkbox/Switch/Radio/Badge/Modal/Toast/Tooltip/List/Grid are sugar ` +
         `from @zabloo/react).`,
     );
   }
@@ -281,6 +294,36 @@ export function toIR(instance: HostInstance): ZNode {
       }
       return node;
     }
+    case "TextInput": {
+      const { value, placeholder, onChange, onSubmit, maxLength } = instance.props;
+      if (typeof value === "number") {
+        throw new Error("<TextInput value> is a string (or a binding to one).");
+      }
+      if (typeof value === "object" && value !== null && !("bind" in value)) {
+        throw new Error("<TextInput value> must be a string or a { bind } binding.");
+      }
+      // The renderer ignores a non-positive cap, which would silently turn a typo
+      // into "no limit" — say it here, at authoring time (like Overlay's autoCloseMs).
+      if (maxLength !== undefined && !(maxLength > 0)) {
+        throw new Error(
+          `<TextInput maxLength={${maxLength}}> must be a positive number of characters ` +
+            "(omit it for an unbounded field).",
+        );
+      }
+      if (instance.children.length > 0) {
+        throw new Error("<TextInput> takes no children — it is a leaf, like <Text>.");
+      }
+      const node: TextInputNode = {
+        type: "TextInput",
+        ...base,
+        ...(value !== undefined && { value: value as TextInputNode["value"] }),
+        ...(placeholder !== undefined && { placeholder }),
+        ...(onChange !== undefined && { onChange }),
+        ...(onSubmit !== undefined && { onSubmit }),
+        ...(maxLength !== undefined && { maxLength }),
+      };
+      return node;
+    }
     case "Image": {
       const src = instance.props.src;
       if (typeof src !== "string" || src.length === 0) {
@@ -336,13 +379,21 @@ export function toIR(instance: HostInstance): ZNode {
       return node;
     }
     case "Overlay": {
-      const { modal, z, onDismiss, autoCloseMs } = instance.props;
+      const { modal, z, onDismiss, autoCloseMs, anchor } = instance.props;
       // The renderer ignores a non-positive timeout, which would silently turn a
       // typo into "never closes on its own" — say it here, at authoring time.
       if (autoCloseMs !== undefined && !(autoCloseMs > 0)) {
         throw new Error(
           `<Overlay autoCloseMs={${autoCloseMs}}> must be a positive number of milliseconds ` +
             "(omit it to keep the overlay up until something closes it).",
+        );
+      }
+      // An anchor with no target anchors nothing: the renderer would fall back to
+      // the layer placement, which is not what an `anchor` prop reads as.
+      if (anchor !== undefined && (typeof anchor.id !== "string" || anchor.id.length === 0)) {
+        throw new Error(
+          "An anchored overlay needs the `id` of the node it hangs from, e.g. " +
+            'anchor="jump-btn" (and that node needs that same `id`).',
         );
       }
       const node: OverlayNode = {
@@ -352,6 +403,7 @@ export function toIR(instance: HostInstance): ZNode {
         ...(z !== undefined && { z }),
         ...(onDismiss !== undefined && { onDismiss }),
         ...(autoCloseMs !== undefined && { autoCloseMs }),
+        ...(anchor !== undefined && { anchor }),
         ...childrenIR(instance),
       };
       return node;

@@ -15,6 +15,8 @@ import type {
   GroupBehavior,
   ImageFit,
   Layout,
+  OverlayAnchor,
+  OverlayTrigger,
   ScrollAxis,
   SliderAxis,
   Style,
@@ -93,6 +95,12 @@ export interface OverlayProps extends CommonProps {
   onDismiss?: string;
   /** Self-dismiss delay in ms, counted from the moment it enters the layer. */
   autoCloseMs?: number;
+  /**
+   * Places this overlay against another node's rect, and optionally ties it to
+   * that node's hover/focus. The raw primitive takes the IR object as it is; the
+   * three composites below spread it over flat props.
+   */
+  anchor?: OverlayAnchor;
   children?: ReactNode;
 }
 
@@ -109,9 +117,22 @@ export type OverlayPosition =
   | "bottom-right";
 
 /** Props shared by the three overlay composites — a modal is always modal, hence the Omit. */
-interface OverlaySugarProps extends Omit<OverlayProps, "modal"> {
-  /** Placement of the content on the layer. */
+interface OverlaySugarProps extends Omit<OverlayProps, "modal" | "anchor"> {
+  /**
+   * Placement of the content. On the layer by default; AROUND the anchor when
+   * there is one, where `top-left` reads as "above, flush with its left edge".
+   */
   position?: OverlayPosition;
+  /**
+   * `id` of the node this overlay hangs from. The layer placement is still
+   * emitted, so an SDK that predates anchoring shows the same overlay where
+   * `position` says on the layer.
+   */
+  anchor?: string;
+  /** Distance from the anchor's edge. Default: 8. Ignored without an anchor. */
+  offset?: Dim;
+  /** What puts it in the layer: `visible` alone, or the anchor's hover/focus. */
+  trigger?: OverlayTrigger;
 }
 
 export interface ModalProps extends OverlaySugarProps {
@@ -213,6 +234,30 @@ export interface SliderProps extends CommonProps {
   thumb?: Style;
 }
 
+export interface TextInputProps extends CommonProps {
+  /**
+   * Current text, or a READ/WRITE data-path binding (`{ bind: "profile.name" }`):
+   * the SDK writes every edit back and notifies the game. Default: "".
+   */
+  value?: Bindable<string>;
+  /**
+   * Hint shown while the field is empty. Style it through the `empty` state —
+   * `states={{ empty: { style: { color: "{color.muted}" } } }}` — which is the same
+   * text paint the value uses, not a second color knob.
+   */
+  placeholder?: string;
+  /** Named action fired on every edit — the live hook (a search that filters as you type). */
+  onChange?: string;
+  /** Named action fired when the player confirms the field (Enter). */
+  onSubmit?: string;
+  /** Cap on what the PLAYER can type. A longer value from the game is shown whole. */
+  maxLength?: number;
+  /** Field width along its line, in px. Default: 220. */
+  width?: number;
+  /** Space between the box and the text, in px. Default: 8. */
+  padding?: number;
+}
+
 export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
   /**
    * The selected value — usually a read/write binding (`{ bind: "settings.quality" }`).
@@ -264,12 +309,21 @@ export interface BadgeProps extends CommonProps {
   children?: ReactNode;
 }
 
-/** Wraps a host primitive with variant resolution (variant never reaches the IR). */
+/**
+ * Wraps a host primitive with variant resolution (variant never reaches the IR).
+ * The theme's motion defaults are resolved here too: a node's own `transition`
+ * always wins, so authoring stays explicit while the theme sets the baseline.
+ */
 function primitive<P extends CommonProps>(type: string): FC<P> {
   const Component = (props: P) => {
-    const { variant, style, states, ...rest } = props;
-    const resolved = useVariant(type, variant, { style, states });
-    return createElement(type, { ...rest, style: resolved.style, states: resolved.states });
+    const { variant, style, states, transition, ...rest } = props;
+    const resolved = useVariant(type, variant, { style, states, transition });
+    return createElement(type, {
+      ...rest,
+      style: resolved.style,
+      states: resolved.states,
+      transition: resolved.transition,
+    });
   };
   Component.displayName = type;
   return Component as FC<P>;
@@ -582,6 +636,55 @@ export function Slider({
   );
 }
 
+/**
+ * The `TextInput` primitive. Unlike `<Toggle>` and `<Slider>` it IS exported (as
+ * `<TextInput>` below): it is a leaf with no positional slots to hide, so there is
+ * no convention the sugar has to own — only defaults.
+ */
+const TextInputPrimitive: FC<Omit<TextInputProps, "width" | "padding">> =
+  primitive<Omit<TextInputProps, "width" | "padding">>("TextInput");
+
+const FIELD_WIDTH = 220;
+const FIELD_PADDING = 8;
+const FIELD: Style = { background: "#1b1f2e", radius: 6, color: "#ffffff" };
+
+/**
+ * A line of text the player writes. The node itself is the box — `style` paints it
+ * and the SDK paints the caret, the selection and the placeholder inside — and its
+ * `value` may be a read/write binding, so a `<Text bind>` on the same path follows
+ * what is typed.
+ *
+ * `onChange` fires on every edit (filter a list as you type) and `onSubmit` when the
+ * player presses Enter (run the search, accept the name). One line in v1: the
+ * content scrolls horizontally to keep the caret in view and a pasted newline
+ * becomes a space.
+ *
+ * ```tsx
+ * <TextInput
+ *   value={{ bind: "profile.name" }}
+ *   placeholder="Tu nombre"
+ *   maxLength={16}
+ *   onSubmit="name-accept"
+ *   states={{ empty: { style: { color: "{color.muted}" } } }}
+ * />
+ * ```
+ */
+export function TextInput({
+  width = FIELD_WIDTH,
+  padding = FIELD_PADDING,
+  layout,
+  style,
+  ...rest
+}: TextInputProps): ReturnType<FC> {
+  return createElement(TextInputPrimitive, {
+    ...rest,
+    // A field does not resize with what is typed into it, so it needs a width of
+    // its own — `layout` still wins, which is how `grow: 1` fills a row.
+    layout: { width, padding, ...layout },
+    style: { ...FIELD, ...style },
+  });
+}
+
 export interface TabProps extends CommonProps {
   /**
    * Tab label. A bare string/number is wrapped in `<Text>`; pass a node (e.g. a
@@ -831,9 +934,48 @@ const PLACEMENT: Record<OverlayPosition, { justify: Layout["justify"]; align: La
   "bottom-right": { justify: "end", align: "end" },
 };
 
-/** The layer's layout for a placement, with the author's `layout` overriding it. */
-function layerLayout(position: OverlayPosition, layout: Layout | undefined): Layout {
-  return { direction: "row", ...PLACEMENT[position], padding: LAYER_INSET, ...layout };
+/**
+ * Margin an anchored overlay keeps from the view's edges: the content is placed
+ * against its anchor, so the inset is only what keeps a clamped bubble from
+ * touching the screen — not the frame an unanchored layer needs.
+ */
+const ANCHORED_INSET = 8;
+
+/**
+ * The layer's layout for a placement, with the author's `layout` overriding it.
+ * The placement travels even when anchored: it is what an SDK that ignores
+ * `anchor` falls back to, and what the renderer itself uses when the `id`
+ * matches no node.
+ */
+function layerLayout(
+  position: OverlayPosition,
+  layout: Layout | undefined,
+  anchored: boolean,
+): Layout {
+  return {
+    direction: "row",
+    ...PLACEMENT[position],
+    padding: anchored ? ANCHORED_INSET : LAYER_INSET,
+    ...layout,
+  };
+}
+
+/** The anchor object the IR carries, or nothing at all when there is no `id`. */
+function anchorOf(
+  anchor: string | undefined,
+  position: OverlayPosition,
+  offset: Dim | undefined,
+  trigger: OverlayTrigger | undefined,
+): { anchor: OverlayAnchor } | undefined {
+  if (anchor === undefined) return undefined;
+  return {
+    anchor: {
+      id: anchor,
+      at: position,
+      ...(offset !== undefined && { offset }),
+      ...(trigger !== undefined && { trigger }),
+    },
+  };
 }
 
 /** A bare string/number message becomes a `<Text>`; a node is used as it is. */
@@ -867,6 +1009,9 @@ export function Modal({
   panel,
   layout,
   style,
+  anchor,
+  offset,
+  trigger,
   children,
   ...rest
 }: ModalProps): ReturnType<FC> {
@@ -875,8 +1020,9 @@ export function Modal({
     {
       ...rest,
       modal: true,
-      layout: layerLayout(position, layout),
+      layout: layerLayout(position, layout, anchor !== undefined),
       style: { ...BACKDROP, ...style },
+      ...anchorOf(anchor, position, offset, trigger),
     },
     createElement(
       Container,
@@ -1044,12 +1190,22 @@ export function Toast({
   autoCloseMs = 3000,
   z = TOAST_Z,
   layout,
+  anchor,
+  offset,
+  trigger,
   children,
   ...rest
 }: ToastProps): ReturnType<FC> {
   return createElement(
     Overlay,
-    { ...rest, modal: false, z, autoCloseMs, layout: layerLayout(position, layout) },
+    {
+      ...rest,
+      modal: false,
+      z,
+      autoCloseMs,
+      layout: layerLayout(position, layout, anchor !== undefined),
+      ...anchorOf(anchor, position, offset, trigger),
+    },
     createElement(
       Container,
       {
@@ -1066,10 +1222,20 @@ export function Toast({
  * A hint bubble over the UI: the same non-modal layer as a `<Toast>`, smaller and
  * without a timer.
  *
- * v1 has no anchoring to another node's rect and no hover/focus trigger — both are
- * capabilities the IR does not have yet — so a tooltip is placed on the layer like
- * any other overlay and shown by its `visible` binding, which the game moves with
- * `SetData` when it decides the hint applies.
+ * With an `anchor` it hangs from that node's rect — flipping to the other side
+ * when it does not fit and sliding to stay on screen — and it shows itself while
+ * the anchor is hovered or focused, which is the same hint for a mouse and for a
+ * gamepad (decision 2026-08-11, ZAB-46):
+ *
+ * ```tsx
+ * <Button id="jump-btn" onClick="jump"><Text>Saltar</Text></Button>
+ * <Tooltip anchor="jump-btn" position="top">Pulsa A para saltar</Tooltip>
+ * ```
+ *
+ * Without one it is placed on the layer and shown by its `visible` binding, which
+ * the game moves with `SetData` when it decides the hint applies — the v1 tooltip,
+ * unchanged. `trigger="manual"` is the same thing with an anchor: a bubble the game
+ * opens, hanging from a control.
  *
  * ```tsx
  * <Tooltip visible={{ bind: "ui.hint" }} position="top">Pulsa A para saltar</Tooltip>
@@ -1081,12 +1247,24 @@ export function Tooltip({
   label,
   z = TOOLTIP_Z,
   layout,
+  anchor,
+  offset,
+  // A tooltip hanging from a control is a hint about that control: showing it
+  // while the player is on it is the whole point, and `visible` is still there
+  // for the game to gate it. `trigger="manual"` opts out.
+  trigger = anchor === undefined ? undefined : "hover",
   children,
   ...rest
 }: TooltipProps): ReturnType<FC> {
   return createElement(
     Overlay,
-    { ...rest, modal: false, z, layout: layerLayout(position, layout) },
+    {
+      ...rest,
+      modal: false,
+      z,
+      layout: layerLayout(position, layout, anchor !== undefined),
+      ...anchorOf(anchor, position, offset, trigger),
+    },
     createElement(
       Container,
       {

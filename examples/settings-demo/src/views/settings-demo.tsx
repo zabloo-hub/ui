@@ -1,9 +1,10 @@
 // View "settings-demo" (file-based convention: the filename is the view ID).
 // Manual test bed for the F5 form controls: Checkbox/Switch (independent
-// booleans, ZAB-23), RadioGroup (one value, exclusive selection, ZAB-23) and
-// Slider (a continuous value, ZAB-24). Every control is bound, so the preview's
-// data panel shows both directions: type a value and the control moves; drag or
-// tap the control and the field updates (the game's onDataChanged).
+// booleans, ZAB-23), RadioGroup (one value, exclusive selection, ZAB-23),
+// Slider (a continuous value, ZAB-24) and TextInput (text with a caret and a
+// selection, ZAB-26). Every control is bound, so the preview's data panel shows
+// both directions: type a value and the control moves; drag, tap or type into
+// the control and the field updates (the game's onDataChanged).
 import {
   Checkbox,
   Column,
@@ -14,6 +15,7 @@ import {
   Slider,
   Switch,
   Text,
+  TextInput,
 } from "@zabloo/react";
 
 const LABEL = { color: "{color.text}", fontSize: 16 } as const;
@@ -33,6 +35,28 @@ export default function SettingsDemo() {
           borderColor: "{color.border}",
         }}
       >
+        {/* Texto: el nodo ES la caja, y el SDK pinta dentro el caret, la
+            selección y el placeholder. `onChange` sigue cada pulsación (el
+            nombre de al lado se actualiza al teclear) y `onSubmit` salta con
+            Enter. ←/→ mueven el caret y, en el extremo, dejan navegar. */}
+        <Row layout={{ ...ROW, justify: "space-between", align: "center", gap: 12 }}>
+          <Text style={LABEL}>Nombre</Text>
+          <Text bind="profile.name" style={{ color: "{color.muted}", fontSize: 14 }} />
+        </Row>
+        <TextInput
+          id="player-name"
+          value={{ bind: "profile.name" }}
+          placeholder="Tu nombre"
+          maxLength={16}
+          onSubmit="name-accept"
+          width={320}
+          style={{ borderWidth: 1, borderColor: "{color.border}" }}
+          states={{
+            empty: { style: { color: "{color.muted}" } },
+            focused: { style: { borderColor: "{color.on}" } },
+          }}
+        />
+
         <Checkbox
           id="subtitles"
           variant="row"

@@ -15,7 +15,8 @@ import type { ItemSpan } from "./repeat.js";
 import { clamp, resolveScrollMax } from "./scroll.js";
 import { fractionOf, growsUpward, resolveRange, sliderGeometry } from "./slider.js";
 import type { TextBlock } from "./text.js";
-import type { NodeAnim, ResolvedValues } from "./transition.js";
+import { caretAt, type Selection } from "./textinput.js";
+import { createNodeAnim, type NodeAnim, type ResolvedValues } from "./transition.js";
 
 export interface Rect {
   x: number;
@@ -54,10 +55,19 @@ export interface LayoutNode {
   children: LayoutNode[];
   /** Preferred size from the measure pass. */
   measured: { x: number; y: number };
+  /**
+   * The size the measure pass computed from the CONTENT, before a declared
+   * `width`/`height` (or a behavior's override) replaced it. The Collapse's
+   * motion reads it: it is the only honest source for "how tall is this with the
+   * content in", and it costs nothing to keep — measure computes it anyway.
+   */
+  natural: { x: number; y: number };
   /** Final rect in view space from the arrange pass. */
   rect: Rect;
   // Runtime state owned by the renderer (same split as the Unity SDK).
   pressed: boolean;
+  /** Under the pointer — mouse-only, so it never gates anything a gamepad needs. */
+  hovered: boolean;
   focused: boolean;
   open: boolean;
   /** True while this node is the chosen button of an "exclusive-select" group (a tab). */
@@ -66,8 +76,20 @@ export interface LayoutNode {
   selectedIndex: number;
   /** Toggle only: the control's value. In a group it mirrors the group's selection. */
   checked: boolean;
+  /**
+   * Toggle only: this frame's crossfade between the indicator slots (0 unchecked,
+   * 1 checked), tweened by the view. The slots share a box, so this is what tells
+   * them apart.
+   */
+  checkedProgress: number;
   /** Slider only: the runtime value, already clamped and quantized to its range. */
   sliderValue: number;
+  /**
+   * Slider only: the value this frame PAINTS, which trails `sliderValue` while a
+   * bound change glides into place. The gesture writes both at once — a thumb
+   * under the finger is never interpolated.
+   */
+  sliderDisplay: number;
   /** `"exclusive-check"` group only: the selected value its options compare against. */
   groupValue: unknown;
   /** `visible` value (bound or static) — display:none semantics. */
@@ -84,6 +106,22 @@ export interface LayoutNode {
    */
   progress: number;
   /**
+   * Collapse only: true while the height tween runs. The content stays in layout
+   * (and the box clips) for exactly that long — that is what the open/close
+   * motion is made of.
+   */
+  collapseAnimating: boolean;
+  /**
+   * Collapse only: set when the content has just entered layout and its height
+   * has not been measured yet. The frame it is true, the box holds shut.
+   */
+  collapsePending: boolean;
+  /**
+   * Clipping a behavior turns on for this frame, on top of the node's declared
+   * `clip` — the Collapse cutting its content down to a box that is closing.
+   */
+  forcedClip: boolean;
+  /**
    * Spinner only: when its loop started, or `null` while it has never been in
    * layout. Leaving layout clears it, so a spinner that comes back starts its wave
    * from the trough instead of jumping into the middle of a cycle.
@@ -93,6 +131,23 @@ export interface LayoutNode {
   scrollOffset: { x: number; y: number };
   /** Content overflow bounds for `scrollOffset`, recomputed on every relayout. */
   scrollMax: { x: number; y: number };
+  /** TextInput only: the runtime text buffer (the value the player is editing). */
+  text: string;
+  /** TextInput only: true while `text` is empty — the `empty` state (ZAB-26). */
+  empty: boolean;
+  /** TextInput only: the caret, and the selection when its two ends differ. */
+  selection: Selection;
+  /**
+   * TextInput only: how far the content is scrolled left to keep the caret in the
+   * box. The field's own state, like the ScrollView's offset — it is never authored.
+   */
+  textScroll: number;
+  /**
+   * TextInput only: when the caret's blink cycle last restarted (every edit and
+   * every caret move restarts it, so the caret is solid while typing). Null while
+   * the field has never been focused.
+   */
+  caretSince: number | null;
   /**
    * This frame's animatable values, tokens resolved and transitions applied — the
    * inputs both this pass and paint read. Rewritten by the view's resolve pass.
@@ -122,6 +177,57 @@ export interface LayoutNode {
   virtual: ItemSpan | null;
 }
 
+/**
+ * A fresh node in the state a mount starts from: nothing measured, no state on,
+ * no tween in flight (which is why a mount — and a reload — snaps). The shape
+ * lives with the type it belongs to, so the view and the tests build it the same
+ * way and adding runtime state is one edit, not four.
+ */
+export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): LayoutNode {
+  return {
+    ir,
+    parent,
+    children: [],
+    measured: { x: 0, y: 0 },
+    natural: { x: 0, y: 0 },
+    rect: { x: 0, y: 0, width: 0, height: 0 },
+    pressed: false,
+    hovered: false,
+    focused: false,
+    open: true,
+    selected: false,
+    selectedIndex: 0,
+    checked: false,
+    checkedProgress: 0,
+    sliderValue: 0,
+    sliderDisplay: 0,
+    groupValue: undefined,
+    visibleFlag: true,
+    sectionShown: true,
+    progress: 0,
+    collapseAnimating: false,
+    collapsePending: false,
+    forcedClip: false,
+    loopStartedAt: null,
+    scrollOffset: { x: 0, y: 0 },
+    scrollMax: { x: 0, y: 0 },
+    text: "",
+    empty: true,
+    selection: caretAt(0),
+    textScroll: 0,
+    caretSince: null,
+    resolved: {},
+    textBlock: null,
+    anim: createNodeAnim(),
+    scopes: NO_SCOPES,
+    repeat: null,
+    virtual: null,
+  };
+}
+
+/** The scopes of a node outside every template — shared, and never written to. */
+const NO_SCOPES: readonly ItemScope[] = [];
+
 export function inLayout(node: LayoutNode): boolean {
   return node.visibleFlag && node.sectionShown;
 }
@@ -136,6 +242,31 @@ export function inLayout(node: LayoutNode): boolean {
  */
 export function inFlow(node: LayoutNode): boolean {
   return inLayout(node) && node.ir.type !== "Overlay";
+}
+
+/**
+ * The boxes a node lays its children into: one per in-flow child, EXCEPT a
+ * Toggle's two indicator slots, which share one (decision 2026-08-11, ZAB-36).
+ *
+ * They are alternatives of the same thing — the checked and unchecked look of
+ * one indicator — so laying them on top of each other instead of one after the
+ * other is what turns the swap into a crossfade the transition engine can drive.
+ * The shared box is as big as the larger slot, so the control does not resize
+ * when it flips, and everything after them (the label) flows on as usual.
+ */
+export function flowItems(node: LayoutNode): LayoutNode[][] {
+  const items: LayoutNode[][] = [];
+  for (let i = 0; i < node.children.length; i++) {
+    const child = node.children[i];
+    if (!inFlow(child)) continue; // display:none, or lifted to the overlay layer
+    const previous = items[items.length - 1];
+    if (node.ir.type === "Toggle" && i === 1 && previous?.[0] === node.children[0]) {
+      previous.push(child);
+      continue;
+    }
+    items.push([child]);
+  }
+  return items;
 }
 
 export function contains(rect: Rect, point: { x: number; y: number }): boolean {
@@ -289,13 +420,20 @@ export function measure(
     const row = layoutOf(node)?.direction === "row";
     const gap = node.resolved.gap ?? 0;
     const offer = childWidth(node, inner);
+    const items = flowItems(node);
     const mains: number[] = [];
     const crosses: number[] = [];
-    for (const child of node.children) {
-      if (!inFlow(child)) continue; // display:none, or lifted to the overlay layer
-      const cs = measure(child, measureLeaf, offer);
-      mains.push(row ? cs.x : cs.y);
-      crosses.push(row ? cs.y : cs.x);
+    for (const item of items) {
+      // Every member is measured; a shared box takes the largest of them.
+      let itemMain = 0;
+      let itemCross = 0;
+      for (const child of item) {
+        const cs = measure(child, measureLeaf, offer);
+        itemMain = Math.max(itemMain, row ? cs.x : cs.y);
+        itemCross = Math.max(itemCross, row ? cs.y : cs.x);
+      }
+      mains.push(itemMain);
+      crosses.push(itemCross);
     }
     const flow = flowSize(node, breakLines(node, mains, inner, gap), mains, crosses, gap);
     size = row
@@ -303,6 +441,9 @@ export function measure(
       : { x: flow.cross + padding * 2, y: flow.main + padding * 2 };
   }
 
+  // What the content asks for, kept before any override replaces it: the
+  // Collapse's motion needs "how tall is this with the content in".
+  node.natural = { x: size.x, y: size.y };
   // Absent = auto: the measured size stands (that is also what an unresolvable token gives).
   if (node.resolved.width !== undefined) size.x = node.resolved.width;
   if (node.resolved.height !== undefined) size.y = node.resolved.height;
@@ -317,8 +458,8 @@ export function arrange(node: LayoutNode, rect: Rect): void {
     arrangeSlider(node, rect);
     return;
   }
-  const children = node.children.filter(inFlow);
-  const count = children.length;
+  const items = flowItems(node);
+  const count = items.length;
   if (count === 0) return;
 
   const l = layoutOf(node);
@@ -337,7 +478,7 @@ export function arrange(node: LayoutNode, rect: Rect): void {
   // that axis by construction, and `justify` still anchors the bar (decision
   // 2026-08-11, ZAB-35). Children beyond the fill are out of layout already.
   if (node.ir.type === "ProgressBar") {
-    const fill = children[0];
+    const fill = items[0][0];
     if (fill) arrange(fill, fillRect(content, row, node.progress, l?.justify));
     return;
   }
@@ -345,11 +486,12 @@ export function arrange(node: LayoutNode, rect: Rect): void {
   const contentMain = row ? content.width : content.height;
   const contentCross = row ? content.height : content.width;
 
+  // Sizes per ITEM: a shared box takes the largest of the nodes in it.
   const measuredMains = new Array<number>(count);
   const measuredCrosses = new Array<number>(count);
   for (let i = 0; i < count; i++) {
-    measuredMains[i] = row ? children[i].measured.x : children[i].measured.y;
-    measuredCrosses[i] = row ? children[i].measured.y : children[i].measured.x;
+    measuredMains[i] = itemSize(items[i], row);
+    measuredCrosses[i] = itemSize(items[i], !row);
   }
   const lines = breakLines(node, measuredMains, contentMain, gap);
 
@@ -378,19 +520,21 @@ export function arrange(node: LayoutNode, rect: Rect): void {
 
   for (const line of lines) {
     // Main sizes: measured + grow share of the space left ON THIS LINE (`grow` is
-    // per line — the leftovers of a line are shared between the children on it).
+    // per line — the leftovers of a line are shared between the items on it), and
+    // a shared box grows by its FIRST member's `grow`: the slots of a Toggle are
+    // one item, so they can only ever grow as one.
     const mains = new Array<number>(line.length);
     let totalMain = gap * (line.length - 1);
     let totalGrow = 0;
     for (let i = 0; i < line.length; i++) {
       mains[i] = measuredMains[line[i]];
       totalMain += mains[i];
-      totalGrow += children[line[i]].ir.layout?.grow ?? 0;
+      totalGrow += items[line[i]][0].ir.layout?.grow ?? 0;
     }
     let remaining = contentMain - totalMain;
     if (remaining > 0 && totalGrow > 0) {
       for (let i = 0; i < line.length; i++) {
-        const grow = children[line[i]].ir.layout?.grow ?? 0;
+        const grow = items[line[i]][0].ir.layout?.grow ?? 0;
         mains[i] += remaining * (grow / totalGrow);
       }
       remaining = 0;
@@ -413,7 +557,7 @@ export function arrange(node: LayoutNode, rect: Rect): void {
     }
 
     // A single line owns the whole cross axis (`align: stretch` fills the node);
-    // wrapped lines own only what their tallest child takes, and stack from the
+    // wrapped lines own only what their tallest item takes, and stack from the
     // start — how the lines themselves distribute is out of the subset (ZAB-32).
     let lineCross = contentCross;
     if (wrapping) {
@@ -423,7 +567,7 @@ export function arrange(node: LayoutNode, rect: Rect): void {
 
     let cursor = mainLead + lead;
     for (let i = 0; i < line.length; i++) {
-      const child = children[line[i]];
+      const item = items[line[i]];
       let crossSize = measuredCrosses[line[i]];
       let crossOffset = 0;
       switch (l?.align) {
@@ -446,11 +590,19 @@ export function arrange(node: LayoutNode, rect: Rect): void {
         childRect.x -= node.scrollOffset.x;
         childRect.y -= node.scrollOffset.y;
       }
-      arrange(child, childRect);
+      // Every member of the item gets the SAME rect: that is what "shared box" means.
+      for (const child of item) arrange(child, childRect);
       cursor += mains[i] + between;
     }
     crossCursor += lineCross + gap;
   }
+}
+
+/** An item's size along an axis: the largest of the nodes sharing its box. */
+function itemSize(item: LayoutNode[], row: boolean): number {
+  let size = 0;
+  for (const child of item) size = Math.max(size, row ? child.measured.x : child.measured.y);
+  return size;
 }
 
 /**
@@ -477,7 +629,9 @@ function arrangeSlider(node: LayoutNode, rect: Rect): void {
   const across = horizontal ? content.height : content.width;
 
   const ir = node.ir as { min?: number; max?: number; step?: number };
-  const fraction = fractionOf(node.sliderValue, resolveRange(ir.min, ir.max, ir.step));
+  // The PAINTED value, which trails the logical one while a bound change glides
+  // in — the same rule as the ProgressBar: the value is tweened, never the rect.
+  const fraction = fractionOf(node.sliderDisplay, resolveRange(ir.min, ir.max, ir.step));
 
   const [fill, thumb] = node.children;
   const thumbSize = thumb ? Math.min(mainSize(thumb, horizontal), length) : 0;

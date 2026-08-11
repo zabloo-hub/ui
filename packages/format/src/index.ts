@@ -5,7 +5,7 @@
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
  *   Collapse, ScrollView, Image, Overlay, Toggle, Repeat, ProgressBar, Spinner,
- *   Slider.
+ *   Slider, TextInput.
  * - Overlay nodes leave their parent's flow and are painted in a single top layer
  *   above the whole view, ordered by `(z, document order)` (decision 2026-08-11).
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
@@ -103,17 +103,38 @@ export type ZNode =
   | RepeatNode
   | ProgressBarNode
   | SpinnerNode
-  | SliderNode;
+  | SliderNode
+  | TextInputNode;
 
 /**
  * Runtime states a node can be styled in. The SDK owns the state itself, keyed by
  * component type — `selected` is the state a member of an `"exclusive-select"`
- * group carries while it is the chosen one (decision 2026-08-11, Tabs), and
- * `checked` the one a `Toggle` carries while it is on (decision 2026-08-11,
- * ZAB-23). Both are *value* states, not transient interactions; they merge before
- * the interaction ones: base → selected/checked → focused → pressed.
+ * group carries while it is the chosen one (decision 2026-08-11, Tabs), `checked`
+ * the one a `Toggle` carries while it is on (decision 2026-08-11, ZAB-23), and
+ * `empty` the one a `TextInput` carries while it holds no text, which is what
+ * styles its placeholder (decision 2026-08-11, ZAB-26).
+ *
+ * The merge order is NORMATIVE (decision 2026-08-11, ZAB-36 — see the reference
+ * implementation in the web renderer's `states.ts`):
+ *
+ * ```
+ * base → empty → selected → checked → hover → focused → pressed
+ * ```
+ *
+ * The *value* states go first — what the control IS is the baseline — and the
+ * transient interaction ones paint over them: `hover` under `focused` so a mouse
+ * passing by never hides a focus ring, and `pressed` last because it lasts exactly
+ * as long as the finger is down. `disabled` is declared from v1 but no component
+ * carries it yet.
  */
-export type StateName = "hover" | "pressed" | "disabled" | "focused" | "selected" | "checked";
+export type StateName =
+  | "hover"
+  | "pressed"
+  | "disabled"
+  | "focused"
+  | "selected"
+  | "checked"
+  | "empty";
 
 /** Per-state style overrides. The SDK owns runtime state, keyed by component type. */
 export interface StateOverride {
@@ -223,9 +244,10 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * `lineHeight`, `overflow`, `maxLines` — a re-wrap has no intermediate value),
  * `grow`, the layout enums, and every structural prop (`visible`, `clip`,
  * `text`, `open`, `src`, `fit`, `axis`, `scrollbar`, the Slider's `value`/`min`/
- * `max`/`step` — a control's value is state the player is dragging, not a visual
- * magnitude to catch up with — and the Overlay's `modal`/`z`/`autoCloseMs`, the
- * last two numeric but ordering and timing).
+ * `max`/`step` and the TextInput's `value`/`placeholder`/`maxLength` — a control's
+ * value is state the player is dragging or typing, not a visual magnitude to catch
+ * up with — and the Overlay's `modal`/`z`/`autoCloseMs`, the last two numeric but
+ * ordering and timing).
  *
  * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
  * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
@@ -554,6 +576,65 @@ export interface SliderNode extends NodeBase {
 }
 
 /**
+ * Editable line of text (13th primitive, decision 2026-08-11, ZAB-26). The
+ * capacity it forces is the one no primitive had: a **caret** — an insertion
+ * point and a selection the player moves through content they are writing. Every
+ * control before it produced a value by pointing at geometry (a boolean, a
+ * number, an index); this one has an interior position, and that is what makes it
+ * a type rather than a `Text` with a flag.
+ *
+ * A content-bearing LEAF, like `Text` and `Image`: it takes no children and paints
+ * its own value through the ordinary text path. The SDK owns the runtime state
+ * (the text, the caret, the selection and the horizontal scroll of the content,
+ * keyed by type like `Toggle.checked` and `Slider.value`) and drives it from the
+ * keyboard, the pointer and the game's own API.
+ *
+ * **Value.** `value` may be a static initial string or a READ/WRITE binding: the
+ * SDK writes every change into its data store and notifies the game, exactly like
+ * `Toggle.checked` (decision 2026-08-11, ZAB-23). `onChange` fires on every edit
+ * (the live hook, symmetric with `Slider.onChange`) and `onSubmit` when the player
+ * confirms the field — they are the two questions a form asks, and neither one is
+ * "the field lost focus", which v1 does not model.
+ *
+ * **Single line in v1.** The node measures as ONE line of text and scrolls its
+ * content horizontally to keep the caret visible; a newline is never inserted. The
+ * multiline field is a compatible extension over the wrap algorithm of ZAB-17 (a
+ * caret with a row as well as a column, selection across lines) and is deferred.
+ *
+ * **Placeholder.** `placeholder` is painted in the field's own text style while
+ * the value is empty, and the `empty` state is what styles it
+ * (`states.empty.style.color`) — no second color field, no slot: the node already
+ * owns the text paint, so the placeholder is the same paint with another string.
+ *
+ * The caret and the selection highlight are painted by the SDK from the field's
+ * own `style.color` (the "color of this node's content" that also tints glyphs and
+ * images). Their blink and their styling are behavior, not IR — the same split
+ * that keeps the ScrollView's scrollbar out of the format.
+ */
+export interface TextInputNode extends NodeBase {
+  type: "TextInput";
+  /** Current text, or a read/write data-path binding. Default: "". */
+  value?: Bindable<string>;
+  /** Shown while the value is empty; styled through the `empty` state. */
+  placeholder?: string;
+  /** Named action fired after every edit, however it was caused — the live hook. */
+  onChange?: string;
+  /**
+   * Named action fired when the player confirms the field (Enter). The search that
+   * runs, the name that is accepted: what a game hangs off a form, instead of
+   * debouncing `onChange` on its side.
+   */
+  onSubmit?: string;
+  /**
+   * Maximum number of characters the PLAYER can type into it. It bounds input, not
+   * data: a longer string pushed by the game through a binding is shown as it is,
+   * because silently truncating the game's own data would be a lie about what it
+   * holds. Absent (or <= 0) means unbounded.
+   */
+  maxLength?: number;
+}
+
+/**
  * Content lifted out of the normal flow into the view's overlay layer (decision
  * 2026-08-11, ZAB-19). Declared in place in the tree — wherever the UI that opens
  * it lives — but it never affects its siblings' layout: the SDK collects every
@@ -565,6 +646,10 @@ export interface SliderNode extends NodeBase {
  * paints the backdrop — a translucent `background` is the backdrop, with no extra
  * field and paint still implicit from style. `layout.width`/`height` on the
  * Overlay itself are ignored (a layer is not sized); size the child instead.
+ *
+ * With an `anchor`, the content is placed against ANOTHER node's rect instead of
+ * against the layer (decision 2026-08-11, ZAB-46) — the rect of the overlay itself
+ * is still the view's, so a modal popover keeps dimming and capturing everything.
  *
  * `visible` behaves as everywhere else: a hidden Overlay contributes no layer, no
  * backdrop and no input blocking. It is also the ONLY way to open and close one —
@@ -581,6 +666,19 @@ export interface SliderNode extends NodeBase {
  */
 export interface OverlayNode extends NodeBase {
   type: "Overlay";
+  /**
+   * Places this overlay's content against ANOTHER node's rect instead of the layer,
+   * and optionally ties it to that node's hover/focus (decision 2026-08-11, ZAB-46).
+   *
+   * One object and not four sibling fields because the two capabilities are one
+   * relation: a trigger without an anchor has no node whose hover to read, and the
+   * placement is meaningless without the rect it is placed against.
+   *
+   * The layer placement (`layout.justify`/`align`) is still emitted alongside it, so
+   * an SDK that does not know this field renders the pre-ZAB-46 overlay — a bubble on
+   * the layer shown by its binding — instead of nothing.
+   */
+  anchor?: OverlayAnchor;
   /**
    * Blocks input to everything below (including lower overlays) and confines
    * focus navigation to this subtree. Default: true. `false` (toast, tooltip)
@@ -608,6 +706,82 @@ export interface OverlayNode extends NodeBase {
    */
   autoCloseMs?: number;
   children?: ZNode[];
+}
+
+/**
+ * Where an anchored overlay's content sits AROUND the anchor's rect — the same nine
+ * names the layer placement uses, read as "which side, aligned how":
+ *
+ * - `top`/`bottom`: above/below, centered on the anchor's width. `top-left` and
+ *   `top-right` are the same side, flush with the anchor's left/right edge (and so
+ *   for `bottom-*`) — the alignment a wide anchor wants, not a diagonal corner.
+ * - `left`/`right`: beside the anchor, centered on its height.
+ * - `center`: centered ON the anchor, ignoring `offset` — a badge over an icon.
+ */
+export type AnchorAt =
+  | "center"
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
+/**
+ * What puts an anchored overlay in the layer.
+ *
+ * - `manual` (default): `visible` and nothing else — the pre-ZAB-46 behavior, which
+ *   is what an anchored popover opened by the game (or by a button) wants.
+ * - `hover`: the SDK shows it while the anchor is hovered OR focused. One value for
+ *   both because they are the same thing through different devices — the pointer
+ *   equivalent of focus is hover, and focus IS the gamepad's answer, so a hint
+ *   reaches a controller without a second mechanism. `visible` still gates it (a
+ *   bound `false` turns the hints off), the SDK never writes it back, and
+ *   `autoCloseMs` is ignored: what dismisses it is leaving the anchor.
+ *
+ * A hover trigger needs an anchor that takes input (a `Button`, a `Toggle`, a
+ * `Slider`, a `Collapse` header): hover lights up exactly the focusable set
+ * (decision 2026-08-11, ZAB-36), so anything else is never hovered NOR focused —
+ * which is also what keeps the pointer and the gamepad seeing the same hints.
+ */
+export type OverlayTrigger = "hover" | "manual";
+
+/**
+ * An overlay's relation to another node: the rect it is placed against, and
+ * optionally that node's hover/focus as its trigger (decision 2026-08-11, ZAB-46).
+ *
+ * **Placement is the SDK's, not flex.** The content is laid out at its measured size
+ * and put at `at` relative to the anchor's CURRENT rect, `offset` px away. This is
+ * the one piece of layout in v1 that is relative to a rect the node does not
+ * contain — that is why it is a field and not a `justify`/`align` reading, which can
+ * only align a child INSIDE its parent.
+ *
+ * **Fit is deterministic, with no field of its own:** if the content does not fit on
+ * the preferred side and the opposite one has room, it **flips**; then it is
+ * **clamped** into the view. The overlay's own `layout.padding` is the margin it
+ * keeps from the view's edges while clamping.
+ *
+ * **A tooltip never points at nothing.** If the anchor is out of layout (its
+ * `visible` went false, its tab panel closed) or entirely clipped away (scrolled out
+ * of a `ScrollView`), the overlay leaves the layer — with its exit fade, like any
+ * other close. An `id` that resolves to no node is authoring error, not runtime
+ * state: the SDK warns and falls back to the layer placement, so a typo degrades to
+ * a visible v1 tooltip rather than to silence.
+ */
+export interface OverlayAnchor {
+  /** `id` of the node in this view whose layout rect the content is placed against. */
+  id: string;
+  /** Preferred placement around the anchor. Default: `"top"`. */
+  at?: AnchorAt;
+  /**
+   * Distance between the anchor's edge and the content, in px. Default: 8.
+   * A `Dim` (so `{space.2}` themes it), like every other gap in the format.
+   */
+  offset?: Dim;
+  /** What puts it in the layer. Default: `"manual"`. */
+  trigger?: OverlayTrigger;
 }
 
 /** Default item alias of a `Repeat` template (`as`). */

@@ -1,4 +1,4 @@
-import type { ThemeVariants } from "@zabloo/react";
+import type { ThemeTransitions, ThemeVariants } from "@zabloo/react";
 
 // Design tokens — exported into the IR envelope's flat token dictionary.
 export const tokens = {
@@ -11,6 +11,17 @@ export const tokens = {
   "radius.md": 8,
   "space.2": 8,
   "space.4": 16,
+  // Motion, themeable like color: set these to 0 for a "reduce motion" theme.
+  "motion.fast": 120,
+  "motion.slow": 240,
+};
+
+// Default motion per component (ZAB-36). The Toggle crossfades between its two
+// indicators — the switch's knob included — and the Slider glides when the value
+// arrives from the game, never while the player is dragging it.
+export const transitions: ThemeTransitions = {
+  Toggle: { duration: "{motion.fast}" },
+  Slider: { duration: "{motion.slow}", easing: "ease-out" },
 };
 
 // Variants are keyed by PRIMITIVE, so the controls key off `Toggle` — the type
@@ -22,6 +33,7 @@ export const variants: ThemeVariants = {
       style: { radius: "{radius.md}" },
       states: {
         checked: { style: { background: "#232a3d" } },
+        hover: { style: { background: "#262d40" } },
         focused: { style: { borderWidth: 2, borderColor: "#ffffff" } },
         pressed: { style: { background: "#2f3446" } },
       },

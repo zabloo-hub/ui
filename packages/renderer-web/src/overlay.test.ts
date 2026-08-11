@@ -1,10 +1,13 @@
 import type { OverlayNode, ZNode } from "@zabloo/format";
 import { describe, expect, it } from "vitest";
-import { inLayout, type LayoutNode, type Rect } from "./layout.js";
+import { createLayoutNode, inLayout, type LayoutNode, type Rect } from "./layout.js";
 import {
+  anchorBox,
+  anchorSpec,
   autofocusIn,
   collectLayer,
   focusScope,
+  isOnScreen,
   isWithin,
   overlaySpec,
   resolveHit,
@@ -18,34 +21,11 @@ const VIEW: Rect = { x: 0, y: 0, width: 100, height: 100 };
 
 /** A layout node in the state a fresh build + arrange leaves it in. */
 function node(ir: ZNode, rect: Rect, children: LayoutNode[] = []): LayoutNode {
-  const built: LayoutNode = {
-    ir,
-    parent: null,
-    children,
-    measured: { x: rect.width, y: rect.height },
-    rect,
-    pressed: false,
-    focused: false,
-    open: true,
-    selected: false,
-    selectedIndex: 0,
-    checked: false,
-    sliderValue: 0,
-    groupValue: undefined,
-    visibleFlag: true,
-    sectionShown: true,
-    progress: 0,
-    loopStartedAt: null,
-    scrollOffset: { x: 0, y: 0 },
-    scrollMax: { x: 0, y: 0 },
-    // The layer rules read no animatable value: an un-resolved node is enough.
-    resolved: {},
-    textBlock: null,
-    anim: createNodeAnim(),
-    scopes: [],
-    repeat: null,
-    virtual: null,
-  };
+  // The layer rules read no animatable value: an un-resolved node is enough.
+  const built = createLayoutNode(ir);
+  built.children = children;
+  built.measured = { x: rect.width, y: rect.height };
+  built.rect = rect;
   for (const child of children) child.parent = built;
   return built;
 }
@@ -317,5 +297,141 @@ describe("resolveHit", () => {
     const small = { x: 0, y: 0, width: 10, height: 10 };
     const root = node({ type: "Container" }, small, [overlay({ id: "confirm" }, [], small)]);
     expect(resolve(root)).toEqual({ kind: "miss" });
+  });
+
+  it("skips a hover-triggered overlay: a hint must not take the pointer from its anchor", () => {
+    const buy = button("buy", VIEW);
+    // Its own child covers the point, and it still gets nothing: taking the event
+    // here would end the hover holding the bubble up, and the two would flicker.
+    const hint = overlay({ id: "hint", modal: false, anchor: { id: "buy", trigger: "hover" } }, [
+      box([], VIEW),
+    ]);
+    expect(resolve(box([buy, hint]))).toEqual({ kind: "node", node: buy });
+  });
+
+  it("still gives a manually triggered anchored overlay its events (a popover)", () => {
+    const pick = button("pick", VIEW);
+    const buy = button("buy", VIEW);
+    const menu = overlay({ id: "menu", modal: false, anchor: { id: "buy" } }, [pick]);
+    expect(resolve(box([buy, menu]))).toEqual({ kind: "node", node: pick });
+  });
+});
+
+describe("anchorSpec", () => {
+  it("applies the IR defaults: above the anchor, shown by `visible`", () => {
+    expect(anchorSpec(overlay({ anchor: { id: "buy" } }))).toEqual({
+      id: "buy",
+      at: "top",
+      offset: undefined,
+      trigger: "manual",
+    });
+  });
+
+  it("reads the placement, the offset and the trigger", () => {
+    expect(
+      anchorSpec(
+        overlay({
+          anchor: { id: "buy", at: "bottom-left", offset: "{space.2}", trigger: "hover" },
+        }),
+      ),
+    ).toEqual({ id: "buy", at: "bottom-left", offset: "{space.2}", trigger: "hover" });
+  });
+
+  it("falls back to the default placement for a name this build does not know", () => {
+    const unknown = { id: "buy", at: "over-there" } as unknown as OverlayNode["anchor"];
+    expect(anchorSpec(overlay({ anchor: unknown }))?.at).toBe("top");
+  });
+
+  it("is null without an id, and for anything that is not an Overlay", () => {
+    const idless = { at: "top" } as unknown as OverlayNode["anchor"];
+    expect(anchorSpec(overlay({ anchor: idless }))).toBeNull();
+    expect(anchorSpec(overlay({}))).toBeNull();
+    expect(anchorSpec(button("b", VIEW))).toBeNull();
+  });
+});
+
+describe("anchorBox", () => {
+  /** An anchor in the middle of the view, with room on every side. */
+  const anchor: Rect = { x: 40, y: 50, width: 20, height: 20 };
+  const size = { x: 10, y: 6 };
+  const place = (at: Parameters<typeof anchorBox>[2], target = anchor, bounds = VIEW) =>
+    anchorBox(target, size, at, 4, bounds);
+
+  it("puts the content on the named side, centered on the anchor's span", () => {
+    expect(place("top")).toEqual({ x: 45, y: 40, width: 10, height: 6 });
+    expect(place("bottom")).toEqual({ x: 45, y: 74, width: 10, height: 6 });
+    expect(place("left")).toEqual({ x: 26, y: 57, width: 10, height: 6 });
+    expect(place("right")).toEqual({ x: 64, y: 57, width: 10, height: 6 });
+  });
+
+  it("reads a corner as the same side, flush with that edge of the anchor", () => {
+    expect(place("top-left")).toMatchObject({ x: 40, y: 40 });
+    expect(place("top-right")).toMatchObject({ x: 50, y: 40 });
+    expect(place("bottom-left")).toMatchObject({ x: 40, y: 74 });
+    expect(place("bottom-right")).toMatchObject({ x: 50, y: 74 });
+  });
+
+  it("centers ON the anchor for `center`, ignoring the offset", () => {
+    expect(place("center")).toMatchObject({ x: 45, y: 57 });
+  });
+
+  it("flips to the opposite side when the preferred one does not fit", () => {
+    const top: Rect = { x: 40, y: 0, width: 20, height: 20 };
+    expect(place("top", top)).toMatchObject({ y: 24 });
+    // And the alignment survives the flip: a corner keeps its edge.
+    expect(place("top-right", top)).toMatchObject({ x: 50, y: 24 });
+  });
+
+  it("keeps the preferred side when neither fits, and clamps it in", () => {
+    const tall: Rect = { x: 40, y: 0, width: 20, height: 100 };
+    expect(place("top", tall)).toMatchObject({ y: 0 });
+  });
+
+  it("slides along the other axis instead of flipping: a bubble follows its word", () => {
+    const edge: Rect = { x: 95, y: 50, width: 20, height: 20 };
+    // Centered on the anchor it would start at 100, half of it off screen.
+    expect(place("top", edge)).toMatchObject({ x: 90, y: 40 });
+  });
+
+  it("clamps against the bounds it is given — the overlay's padding is that margin", () => {
+    const inset: Rect = { x: 8, y: 8, width: 84, height: 84 };
+    const edge: Rect = { x: 95, y: 50, width: 20, height: 20 };
+    expect(place("top", edge, inset)).toMatchObject({ x: 82 });
+    // Neither side fits this one, so it clamps — to the inset, not to the view:
+    // against the raw view rect it would sit at y = 0, flush with the screen.
+    expect(place("top", { x: 40, y: 9, width: 20, height: 88 }, inset)).toMatchObject({ y: 8 });
+  });
+
+  it("puts content wider than the bounds at their edge instead of off both", () => {
+    const huge = anchorBox(anchor, { x: 200, y: 6 }, "top", 4, VIEW);
+    expect(huge).toMatchObject({ x: 0, width: 200 });
+  });
+});
+
+describe("isOnScreen", () => {
+  const radius = () => 0;
+
+  it("holds for a node in layout with nothing clipping it", () => {
+    const buy = button("buy", { x: 10, y: 10, width: 20, height: 10 });
+    box([buy]);
+    expect(isOnScreen(buy, radius)).toBe(true);
+  });
+
+  it("fails when an ancestor is out of layout: the anchor is not on screen either", () => {
+    const buy = button("buy", { x: 10, y: 10, width: 20, height: 10 });
+    box([hidden(box([buy]))]);
+    expect(isOnScreen(buy, radius)).toBe(false);
+  });
+
+  it("fails for an anchor scrolled out of its ScrollView — a tooltip pointing at nothing", () => {
+    const inside = button("inside", { x: 0, y: 5, width: 20, height: 10 });
+    const scrolledAway = button("gone", { x: 0, y: 40, width: 20, height: 10 });
+    const list = node({ type: "ScrollView" }, { x: 0, y: 0, width: 100, height: 20 }, [
+      inside,
+      scrolledAway,
+    ]);
+    box([list]);
+    expect(isOnScreen(inside, radius)).toBe(true);
+    expect(isOnScreen(scrolledAway, radius)).toBe(false);
   });
 });

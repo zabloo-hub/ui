@@ -54,6 +54,8 @@ export {
   Tabs,
   type TabsProps,
   Text,
+  TextInput,
+  type TextInputProps,
   type TextProps,
   Toast,
   type ToastProps,
@@ -62,4 +64,10 @@ export {
   type TooltipProps,
 } from "./components.js";
 export { renderToIR } from "./reconciler.js";
-export { ThemeProvider, type ThemeVariants, type VariantDef, type ZablooTheme } from "./theme.js";
+export {
+  ThemeProvider,
+  type ThemeTransitions,
+  type ThemeVariants,
+  type VariantDef,
+  type ZablooTheme,
+} from "./theme.js";
