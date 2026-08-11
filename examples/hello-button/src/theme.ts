@@ -12,6 +12,8 @@ export const tokens = {
   // the whole UI stops animating without re-emitting the tree.
   "motion.fast": 120,
   "motion.slow": 240,
+  // The Spinner's cycle is motion too: 0 here and the loop freezes.
+  "motion.loop": 900,
 };
 
 // Variants — an authoring-time concept (decision 2026-08-03 §6): resolved at

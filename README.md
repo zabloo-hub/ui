@@ -45,10 +45,15 @@ self-render pipeline: own Flexbox layout pass, own tessellator, own glyph atlase
 What works today:
 
 - **4 primitives on both targets** — `Container`, `Text`, `Button`, `Collapse` — plus
-  `ScrollView`, `Toggle` and `Image` (assets travel inside the envelope) in the web
-  renderer while the engine SDKs catch up, and authoring-time composites
-  (`Row`/`Column`, `Accordion`, `Tabs`, `Checkbox`/`Switch`/`RadioGroup`) that flatten
-  to primitives.
+  `ScrollView`, `Toggle`, `Image` (assets travel inside the envelope), `ProgressBar` and
+  `Spinner` in the web renderer while the engine SDKs catch up, and authoring-time
+  composites (`Row`/`Column`, `Accordion`, `Tabs`, `Checkbox`/`Switch`/`RadioGroup`,
+  `Badge`) that flatten to primitives.
+- **Motion**: a per-node `transition` (duration + easing from a closed, closed-form
+  curve set) tweens whatever animatable value changes — no trigger list, no keyframes —
+  and component behavior drives the same engine where the endpoints are its own (the
+  `ProgressBar`'s fraction, the `Spinner`'s loop). Durations are tokens, so a
+  "reduce motion" theme stops the UI dead without re-emitting the tree.
 - **Styling**: design tokens (flat dictionary, theme hot-update without re-emitting the
   tree), per-state overrides (`pressed` / `focused` / `selected`), variants resolved at export time,
   and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset

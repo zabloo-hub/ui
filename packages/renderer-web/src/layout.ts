@@ -10,6 +10,7 @@
  */
 
 import type { Layout, ScrollAxis, ZNode } from "@zabloo/format";
+import { fillRect } from "./progress.js";
 import { clamp, resolveScrollMax } from "./scroll.js";
 import type { NodeAnim, ResolvedValues } from "./transition.js";
 
@@ -48,6 +49,18 @@ export interface LayoutNode {
    * unselected tab panel, or the Toggle indicator slot that is off.
    */
   sectionShown: boolean;
+  /**
+   * ProgressBar only: this frame's fraction (0..1), already clamped and tweened by
+   * the view. The fill's main size derives from it — the bar interpolates its value,
+   * never its rect.
+   */
+  progress: number;
+  /**
+   * Spinner only: when its loop started, or `null` while it has never been in
+   * layout. Leaving layout clears it, so a spinner that comes back starts its wave
+   * from the trough instead of jumping into the middle of a cycle.
+   */
+  loopStartedAt: number | null;
   /** Runtime scroll position (ScrollView only) — re-clamped on every relayout. */
   scrollOffset: { x: number; y: number };
   /** Content overflow bounds for `scrollOffset`, recomputed on every relayout. */
@@ -142,6 +155,16 @@ export function arrange(node: LayoutNode, rect: Rect): void {
     width: Math.max(0, rect.width - padding * 2),
     height: Math.max(0, rect.height - padding * 2),
   };
+
+  // The ProgressBar owns its child's main size (the fraction), so it never goes
+  // through the flex distribution: its fill's own width/height/grow are ignored on
+  // that axis by construction, and `justify` still anchors the bar (decision
+  // 2026-08-11, ZAB-35). Children beyond the fill are out of layout already.
+  if (node.ir.type === "ProgressBar") {
+    const fill = children[0];
+    if (fill) arrange(fill, fillRect(content, row, node.progress, l?.justify));
+    return;
+  }
 
   const contentMain = row ? content.width : content.height;
   const contentCross = row ? content.height : content.width;

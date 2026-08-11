@@ -8,7 +8,15 @@
  * variants never reach the IR.
  */
 
-import type { Bindable, GroupBehavior, ImageFit, ScrollAxis, Style } from "@zabloo/format";
+import type {
+  Bindable,
+  Dim,
+  Easing,
+  GroupBehavior,
+  ImageFit,
+  ScrollAxis,
+  Style,
+} from "@zabloo/format";
 import {
   Children,
   createElement,
@@ -115,6 +123,49 @@ export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
    * A `<Radio>` is checked while its `value` equals this one.
    */
   value?: Bindable<string | number>;
+}
+
+export interface ProgressBarProps extends CommonProps {
+  /**
+   * Progress in 0..1 (clamped), usually a read binding (`{ bind: "player.hp" }`):
+   * `SetData` moves the bar. Give the node a `transition` and it glides there
+   * instead of jumping — the tween is on the value, so the fill is never behind.
+   */
+  value?: Bindable<number>;
+  /** Style of the fill, merged over the default bar. */
+  fill?: Style;
+  /** Bar thickness in px — height for a row bar, width for a column one. Default: 8. */
+  size?: number;
+}
+
+export interface SpinnerProps extends CommonProps {
+  /** How many beads to build when you pass no children of your own. Default: 3. */
+  dots?: number;
+  /** Bead diameter in px (generated beads only). Default: 8. */
+  size?: number;
+  /** Full cycle in ms — themeable (`"{motion.loop}"`); 0 freezes it. Default: 900. */
+  period?: Dim;
+  /** Opacity multiplier at the wave's dimmest, 0..1. Default: 0.25. */
+  min?: number;
+  /** Curve of the ramp up and back down. Default: "ease-in-out". */
+  easing?: Easing;
+  /** Style of each generated bead, merged over the default dot. */
+  dot?: Style;
+  /** Your own beads, in wave order — replaces the generated dots entirely. */
+  children?: ReactNode;
+}
+
+export interface BadgeProps extends CommonProps {
+  /**
+   * The counter: a literal or a read binding (`{ bind: "inbox.unread" }`). There is
+   * no "hide at zero" — the IR has no expressions; bind `visible` to a flag the game
+   * owns if the badge should disappear.
+   */
+  count?: Bindable<string | number>;
+  /** Style of the label, merged over the default. */
+  label?: Style;
+  /** Custom content instead of the counter (an icon, a `<Row>`). */
+  children?: ReactNode;
 }
 
 /** Wraps a host primitive with variant resolution (variant never reaches the IR). */
@@ -381,6 +432,141 @@ export function Tabs({ bar, layout, selected, children, ...rest }: TabsProps): R
 /** A `<Tab>`'s own props style its bar button; `label`/`panel`/`children` do not. */
 function tabButtonProps({ label: _label, panel: _panel, children: _children, ...rest }: TabProps) {
   return rest;
+}
+
+/**
+ * The `ProgressBar` primitive. NOT exported: its fill is a positional slot
+ * (`children[0]`), and `<ProgressBar>` below is the supported way to build it —
+ * one place to get the convention right, like the Toggle's indicators.
+ */
+interface ProgressBarPrimitiveProps extends CommonProps {
+  value?: Bindable<number>;
+  children?: ReactNode;
+}
+const ProgressBarPrimitive: FC<ProgressBarPrimitiveProps> =
+  primitive<ProgressBarPrimitiveProps>("ProgressBar");
+
+/** The `Spinner` primitive — see `<Spinner>`, which builds the beads for you. */
+interface SpinnerPrimitiveProps extends CommonProps {
+  period?: Dim;
+  min?: number;
+  easing?: Easing;
+  children?: ReactNode;
+}
+const SpinnerPrimitive: FC<SpinnerPrimitiveProps> = primitive<SpinnerPrimitiveProps>("Spinner");
+
+const BAR_SIZE = 8;
+const BAR_TRACK: Style = { background: "#2f3446" };
+const BAR_FILL: Style = { background: "#4f46e5" };
+const DOT_SIZE = 8;
+const DOT: Style = { background: "#c8cede" };
+const BADGE: Style = { background: "#ef4444" };
+const BADGE_LABEL: Style = { color: "#ffffff", fontSize: 12 };
+
+/**
+ * A track that fills to a fraction. The node itself is the track — its `style`
+ * paints the groove and its `layout` sizes it — and this sugar adds the fill child
+ * the primitive expects; `fill` styles it.
+ *
+ * The bar is horizontal unless `layout.direction` says `"column"`, and it clips by
+ * default so a square fill stays inside a rounded track. `layout.justify: "end"`
+ * makes it drain from the other side.
+ */
+export function ProgressBar({
+  value,
+  fill,
+  size = BAR_SIZE,
+  layout,
+  style,
+  clip,
+  ...rest
+}: ProgressBarProps): ReturnType<FC> {
+  const vertical = layout?.direction === "column";
+  const radius = size / 2;
+  return createElement(
+    ProgressBarPrimitive,
+    {
+      ...rest,
+      ...(value !== undefined && { value }),
+      clip: clip ?? true,
+      layout: {
+        direction: "row",
+        ...(vertical ? { width: size } : { height: size }),
+        ...layout,
+      },
+      style: { ...BAR_TRACK, radius, ...style },
+    },
+    createElement(Container, { style: { ...BAR_FILL, radius, ...fill } }),
+  );
+}
+
+/**
+ * Activity indicator: beads that pulse in a travelling wave, driven by the SDK's
+ * loop. It does not spin — v1 has no transform — so the motion is opacity, which
+ * every target computes to the same number.
+ *
+ * With no children it builds `dots` round beads; pass your own (bars of different
+ * heights, icons) and they become the beads, in wave order.
+ */
+export function Spinner({
+  dots = 3,
+  size = DOT_SIZE,
+  dot,
+  layout,
+  children,
+  ...rest
+}: SpinnerProps): ReturnType<FC> {
+  const beads =
+    children ??
+    Array.from({ length: Math.max(1, dots) }, (_unused, index) =>
+      createElement(Container, {
+        key: index,
+        layout: { width: size, height: size },
+        style: { radius: size / 2, ...DOT, ...dot },
+      }),
+    );
+  return createElement(
+    SpinnerPrimitive,
+    {
+      ...rest,
+      layout: { direction: "row", align: "center", gap: Math.round(size * 0.75), ...layout },
+    },
+    beads,
+  );
+}
+
+/**
+ * Badge — a flattened composite, like `<Accordion>`: a pill `Container` with the
+ * counter inside. NOT an IR type; nothing about it needs one, since `<Text>` has
+ * been bindable since v1.
+ */
+export function Badge({
+  count,
+  label,
+  layout,
+  style,
+  children,
+  ...rest
+}: BadgeProps): ReturnType<FC> {
+  const text =
+    typeof count === "object"
+      ? createElement(Text, { bind: count.bind, style: { ...BADGE_LABEL, ...label } })
+      : createElement(Text, { style: { ...BADGE_LABEL, ...label } }, count ?? "");
+  return createElement(
+    Container,
+    {
+      ...rest,
+      layout: {
+        direction: "row",
+        justify: "center",
+        align: "center",
+        padding: 4,
+        ...layout,
+      },
+      style: { radius: 999, ...BADGE, ...style },
+    },
+    children ?? text,
+  );
 }
 
 /** Re-exported prop aliases for user components. */

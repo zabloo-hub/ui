@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assetIdFromRef,
   type ContainerNode,
+  clampProgress,
   decodeAssetData,
   type Easing,
   type Envelope,
@@ -9,8 +10,11 @@ import {
   IR_VERSION,
   isAssetRef,
   type OverlayNode,
+  type ProgressBarNode,
   parseEnvelope,
   type ScrollViewNode,
+  type SpinnerNode,
+  spinnerPulse,
   supportsVersion,
   type ToggleNode,
   type Transition,
@@ -649,5 +653,138 @@ describe("Toggle & exclusive-check (ZAB-23)", () => {
       states: { checked: { style: { background: "#22c55e" } } },
     };
     expect(node.states?.checked?.style?.background).toBe("#22c55e");
+  });
+});
+
+describe("ProgressBar (ZAB-35)", () => {
+  // Typed without casts: this file failing `tsc --noEmit` IS the type test.
+  const bar: ProgressBarNode = {
+    type: "ProgressBar",
+    value: { bind: "player.hp" },
+    transition: { duration: "{motion.fast}" },
+    layout: { direction: "row", width: 200, height: 12, padding: 2 },
+    style: { background: "#2f3446", radius: 6 },
+    children: [{ type: "Container", style: { background: "#4f46e5", radius: 4 } }],
+  };
+
+  it("parses a bar whose value is a binding and whose child is the fill", () => {
+    const env = parseEnvelope({ v: IR_VERSION, tokens: {}, views: { hud: bar } });
+    const node = env.views.hud as ProgressBarNode;
+    expect(node.type).toBe("ProgressBar");
+    expect(node.value).toEqual({ bind: "player.hp" });
+    expect(node.children?.[0]?.style?.background).toBe("#4f46e5");
+  });
+
+  it("accepts a static value and no children at all", () => {
+    const node: ProgressBarNode = { type: "ProgressBar", value: 0.5 };
+    expect(node.value).toBe(0.5);
+  });
+
+  it("rejects a non-numeric value at type-check time", () => {
+    const node: ProgressBarNode = {
+      type: "ProgressBar",
+      // @ts-expect-error — the fraction is a number (or a binding to one), not a string
+      value: "50%",
+    };
+    expect(node).toBeDefined();
+  });
+});
+
+describe("Spinner (ZAB-35)", () => {
+  const spinner: SpinnerNode = {
+    type: "Spinner",
+    period: "{motion.loop}",
+    min: 0.2,
+    easing: "ease-in-out",
+    layout: { direction: "row", gap: 6 },
+    children: [
+      { type: "Container", layout: { width: 8, height: 8 }, style: { background: "#ffffff" } },
+      { type: "Container", layout: { width: 8, height: 8 }, style: { background: "#ffffff" } },
+    ],
+  };
+
+  it("parses a spinner with a tokenized period", () => {
+    const env = parseEnvelope({
+      v: IR_VERSION,
+      tokens: { "motion.loop": 900 },
+      views: { s: spinner },
+    });
+    const node = env.views.s as SpinnerNode;
+    expect(node.period).toBe("{motion.loop}");
+    expect(node.children).toHaveLength(2);
+  });
+
+  it("takes every knob as optional (the defaults live in the SDK)", () => {
+    const bare: SpinnerNode = { type: "Spinner" };
+    expect(bare.period).toBeUndefined();
+    expect(bare.min).toBeUndefined();
+    expect(bare.easing).toBeUndefined();
+  });
+
+  it("rejects an easing outside the closed set at type-check time", () => {
+    const node: SpinnerNode = {
+      type: "Spinner",
+      // @ts-expect-error — same closed curve set as `transition`
+      easing: "bounce",
+    };
+    expect(node).toBeDefined();
+  });
+});
+
+describe("spinnerPulse", () => {
+  it("pins the trough at the ends of the cycle and the crest at its middle", () => {
+    expect(spinnerPulse(0)).toBe(0);
+    expect(spinnerPulse(0.5)).toBe(1);
+    // The loop is seamless: the phase completing behaves like it starting over.
+    expect(spinnerPulse(0.999)).toBeLessThan(0.01);
+    expect(spinnerPulse(1)).toBe(0);
+  });
+
+  it("is symmetric around the crest", () => {
+    for (const easing of ["linear", "ease-in", "ease-out", "ease-in-out"] as Easing[]) {
+      for (let i = 1; i < 10; i++) {
+        const p = i / 20;
+        expect(spinnerPulse(p, easing)).toBeCloseTo(spinnerPulse(1 - p, easing), 10);
+      }
+    }
+  });
+
+  it("wraps phases outside 0..1, negative offsets included", () => {
+    // A bead's phase arrives as `elapsed/period - i/n`, which is negative early on.
+    expect(spinnerPulse(-0.25)).toBeCloseTo(spinnerPulse(0.75), 10);
+    expect(spinnerPulse(2.5)).toBeCloseTo(spinnerPulse(0.5), 10);
+    expect(spinnerPulse(Number.NaN)).toBe(0);
+    expect(spinnerPulse(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it("stays within 0..1 and matches the closed-form ramp (the cross-target contract)", () => {
+    for (let i = 0; i <= 40; i++) {
+      const value = spinnerPulse(i / 40);
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(1);
+    }
+    // Up ramp: the first half is `easeProgress(easing, 2p)` exactly.
+    expect(spinnerPulse(0.25, "linear")).toBeCloseTo(0.5, 10);
+    expect(spinnerPulse(0.25, "ease-in")).toBeCloseTo(0.125, 10);
+    expect(spinnerPulse(0.75, "ease-in")).toBeCloseTo(0.125, 10);
+  });
+});
+
+describe("clampProgress", () => {
+  it("clamps to 0..1", () => {
+    expect(clampProgress(0.42)).toBe(0.42);
+    expect(clampProgress(-3)).toBe(0);
+    expect(clampProgress(7)).toBe(1);
+    expect(clampProgress(0)).toBe(0);
+    expect(clampProgress(1)).toBe(1);
+  });
+
+  it("reads anything that is not a finite number as an empty bar", () => {
+    // A broken binding shows 0%, never 100% and never a crash.
+    expect(clampProgress(undefined)).toBe(0);
+    expect(clampProgress(null)).toBe(0);
+    expect(clampProgress("0.5")).toBe(0);
+    expect(clampProgress(Number.NaN)).toBe(0);
+    expect(clampProgress(Number.POSITIVE_INFINITY)).toBe(0);
   });
 });
