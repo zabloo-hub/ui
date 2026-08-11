@@ -51,6 +51,11 @@ export class GlyphAtlas {
     return this._version;
   }
 
+  /** The `TextureSource` side of the atlas — what the GL layer uploads. */
+  get bitmap(): TexImageSource {
+    return this.canvas;
+  }
+
   constructor(
     readonly pointSize: number,
     scale: number,
