@@ -17,6 +17,7 @@ import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type Envelope, IR_VERSION, type TokenValue, type ZNode } from "@zabloo/format";
 import { createJiti, type Jiti } from "jiti";
+import { collectAssets } from "./assets.js";
 
 interface ZablooConfig {
   outDir?: string;
@@ -34,6 +35,12 @@ interface ProjectZablooReact {
 export interface ExportResult {
   outFile: string;
   viewIds: string[];
+  /** Per-asset breakdown for the CLI summary (decision: el resumen imprime el desglose). */
+  assets: Array<{ id: string; bytes: number }>;
+  /** Decoded bytes across the asset manifest. */
+  assetBytes: number;
+  /** Size warnings from the asset pass, for the CLI summary. */
+  warnings: string[];
 }
 
 export async function exportProject(rootDir: string): Promise<ExportResult> {
@@ -87,12 +94,22 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
     views[id] = zablooReact.renderToIR(element);
   }
 
+  const collected = await collectAssets(views, join(root, "src", "assets"));
   const envelope: Envelope = { v: IR_VERSION, tokens, views };
+  if (Object.keys(collected.assets).length > 0) {
+    envelope.assets = collected.assets;
+  }
   const outDir = resolve(root, config.outDir ?? "dist");
   await mkdir(outDir, { recursive: true });
   const outFile = join(outDir, "zabloo.ir.json");
   await writeFile(outFile, `${JSON.stringify(envelope, null, 2)}\n`);
-  return { outFile, viewIds: Object.keys(views) };
+  return {
+    outFile,
+    viewIds: Object.keys(views),
+    assets: Object.entries(collected.assets).map(([id, entry]) => ({ id, bytes: entry.size })),
+    assetBytes: collected.totalBytes,
+    warnings: collected.warnings,
+  };
 }
 
 async function tryImport(jiti: Jiti, path: string): Promise<unknown> {

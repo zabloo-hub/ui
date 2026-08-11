@@ -17,12 +17,22 @@ program
   .action(async (options: { cwd: string; porcelain?: boolean }) => {
     const { exportProject } = await import("./export.js");
     try {
-      const { outFile, viewIds } = await exportProject(options.cwd);
+      const { outFile, viewIds, assets, assetBytes, warnings } = await exportProject(options.cwd);
       if (options.porcelain) {
         console.log(outFile);
       } else {
         console.log(`zabloo export: wrote ${viewIds.length} view(s) [${viewIds.join(", ")}]`);
+        if (assets.length > 0) {
+          const total = (assetBytes / (1024 * 1024)).toFixed(1);
+          console.log(`  assets: ${assets.length} (${total} MB total)`);
+          for (const asset of assets) {
+            console.log(`    ${asset.id} (${(asset.bytes / 1024).toFixed(0)} KB)`);
+          }
+        }
         console.log(`  → ${outFile}`);
+      }
+      for (const warning of warnings) {
+        console.warn(`zabloo export: ⚠ ${warning}`);
       }
     } catch (error) {
       console.error(`zabloo export: ${error instanceof Error ? error.message : error}`);
