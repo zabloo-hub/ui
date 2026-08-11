@@ -4,7 +4,9 @@
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
- *   Collapse, ScrollView, Image.
+ *   Collapse, ScrollView, Image, Overlay.
+ * - Overlay nodes leave their parent's flow and are painted in a single top layer
+ *   above the whole view, ordered by `(z, document order)` (decision 2026-08-11).
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
  * - Styles are resolved per node and reference a flat token dictionary in the envelope.
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
@@ -80,7 +82,8 @@ export type ZNode =
   | ButtonNode
   | CollapseNode
   | ScrollViewNode
-  | ImageNode;
+  | ImageNode
+  | OverlayNode;
 
 export type StateName = "hover" | "pressed" | "disabled" | "focused";
 
@@ -131,7 +134,8 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
  * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
  * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
- * `text`, `open`, `src`, `axis`, `scrollbar`).
+ * `text`, `open`, `src`, `axis`, `scrollbar`, and the Overlay's `modal`/`z` — `z` is
+ * numeric but it is ordering, not a visual magnitude).
  *
  * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
  * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
@@ -245,6 +249,42 @@ export interface ScrollViewNode extends NodeBase {
 export interface ImageNode extends NodeBase {
   type: "Image";
   src: AssetRef;
+}
+
+/**
+ * Content lifted out of the normal flow into the view's overlay layer (decision
+ * 2026-08-11, ZAB-19). Declared in place in the tree — wherever the UI that opens
+ * it lives — but it never affects its siblings' layout: the SDK collects every
+ * visible Overlay of the view into ONE layer painted above the whole tree, sorted
+ * by `(z, document order)`.
+ *
+ * The overlay's own rect IS the view rect, so `layout.justify`/`align`/`padding`
+ * position its content (centered modal, bottom-right toast) and its `style`
+ * paints the backdrop — a translucent `background` is the backdrop, with no extra
+ * field and paint still implicit from style. `layout.width`/`height` on the
+ * Overlay itself are ignored (a layer is not sized); size the child instead.
+ *
+ * `visible` behaves as everywhere else: a hidden Overlay contributes no layer, no
+ * backdrop and no input blocking.
+ */
+export interface OverlayNode extends NodeBase {
+  type: "Overlay";
+  /**
+   * Blocks input to everything below (including lower overlays) and confines
+   * focus navigation to this subtree. Default: true. `false` (toast, tooltip)
+   * paints above but leaves the layer's own rect inert to input — only its
+   * children receive events, everything else passes through.
+   */
+  modal?: boolean;
+  /** Explicit stacking inside the overlay layer; ties break by document order. Default: 0. */
+  z?: number;
+  /**
+   * Named action fired on a dismiss request (Escape / gamepad B / a tap on the
+   * backdrop). A declared hook like `onClick` — closing itself is the SDK's
+   * default behavior plus the game→SDK API, never logic in the JSON.
+   */
+  onDismiss?: string;
+  children?: ZNode[];
 }
 
 /** True if this package's reader can consume content with version `v`. */
