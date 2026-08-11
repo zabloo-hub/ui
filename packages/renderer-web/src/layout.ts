@@ -3,10 +3,15 @@
  * align, gap, padding, width/height, grow), same semantics as the Unity SDK's
  * FlexLayout (runtime layout in the renderer; the browser's layout engine is
  * never used — golden rule: the core owns layout).
+ *
+ * It resolves no tokens: the view runs its resolve pass first and leaves the
+ * final numbers in `node.resolved`, which is also where a running transition
+ * writes its interpolated dims. Layout is pure geometry over resolved inputs.
  */
 
 import type { Layout, ScrollAxis, ZNode } from "@zabloo/format";
 import { clamp, resolveScrollMax } from "./scroll.js";
+import type { NodeAnim, ResolvedValues } from "./transition.js";
 
 export interface Rect {
   x: number;
@@ -47,13 +52,19 @@ export interface LayoutNode {
   scrollOffset: { x: number; y: number };
   /** Content overflow bounds for `scrollOffset`, recomputed on every relayout. */
   scrollMax: { x: number; y: number };
+  /**
+   * This frame's animatable values, tokens resolved and transitions applied — the
+   * inputs both this pass and paint read. Rewritten by the view's resolve pass.
+   */
+  resolved: ResolvedValues;
+  /** Tweens in flight for this node. Rebuilding the tree drops them, so a reload snaps. */
+  anim: NodeAnim;
 }
 
 export function inLayout(node: LayoutNode): boolean {
   return node.visibleFlag && node.sectionShown;
 }
 
-export type TokenDim = (value: unknown, fallback?: number) => number;
 export type MeasureLeaf = (ir: ZNode) => { x: number; y: number };
 
 function layoutOf(node: LayoutNode): Layout | undefined {
@@ -61,27 +72,22 @@ function layoutOf(node: LayoutNode): Layout | undefined {
 }
 
 /** Bottom-up measure. `measureLeaf` sizes childless nodes (Text). */
-export function measure(
-  node: LayoutNode,
-  dim: TokenDim,
-  measureLeaf: MeasureLeaf,
-): { x: number; y: number } {
-  const l = layoutOf(node);
-  const padding = dim(l?.padding);
+export function measure(node: LayoutNode, measureLeaf: MeasureLeaf): { x: number; y: number } {
+  const padding = node.resolved.padding ?? 0;
   let size: { x: number; y: number };
 
   if (node.children.length === 0) {
     const leaf = measureLeaf(node.ir);
     size = { x: leaf.x + padding * 2, y: leaf.y + padding * 2 };
   } else {
-    const row = l?.direction === "row";
-    const gap = dim(l?.gap);
+    const row = layoutOf(node)?.direction === "row";
+    const gap = node.resolved.gap ?? 0;
     let main = 0;
     let cross = 0;
     let active = 0;
     for (const child of node.children) {
       if (!inLayout(child)) continue; // display:none — out of layout
-      const cs = measure(child, dim, measureLeaf);
+      const cs = measure(child, measureLeaf);
       main += row ? cs.x : cs.y;
       cross = Math.max(cross, row ? cs.y : cs.x);
       active++;
@@ -91,14 +97,15 @@ export function measure(
     size = row ? { x: main, y: cross } : { x: cross, y: main };
   }
 
-  if (l?.width !== undefined) size.x = dim(l.width, size.x);
-  if (l?.height !== undefined) size.y = dim(l.height, size.y);
+  // Absent = auto: the measured size stands (that is also what an unresolvable token gives).
+  if (node.resolved.width !== undefined) size.x = node.resolved.width;
+  if (node.resolved.height !== undefined) size.y = node.resolved.height;
   node.measured = size;
   return size;
 }
 
 /** Top-down arrange into `rect` (view space). */
-export function arrange(node: LayoutNode, rect: Rect, dim: TokenDim): void {
+export function arrange(node: LayoutNode, rect: Rect): void {
   node.rect = rect;
   const children = node.children.filter(inLayout);
   const count = children.length;
@@ -106,8 +113,8 @@ export function arrange(node: LayoutNode, rect: Rect, dim: TokenDim): void {
 
   const l = layoutOf(node);
   const row = l?.direction === "row";
-  const padding = dim(l?.padding);
-  const gap = dim(l?.gap);
+  const padding = node.resolved.padding ?? 0;
+  const gap = node.resolved.gap ?? 0;
   const content: Rect = {
     x: rect.x + padding,
     y: rect.y + padding,
@@ -195,7 +202,7 @@ export function arrange(node: LayoutNode, rect: Rect, dim: TokenDim): void {
       childRect.x -= node.scrollOffset.x;
       childRect.y -= node.scrollOffset.y;
     }
-    arrange(child, childRect, dim);
+    arrange(child, childRect);
     cursor += mains[i] + between;
   }
 }

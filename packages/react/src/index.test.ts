@@ -306,6 +306,30 @@ describe("renderToIR", () => {
     });
   });
 
+  it("serializes transition, tokenized duration included", () => {
+    expect(
+      renderToIR(
+        h(
+          Button,
+          { transition: { duration: "{motion.fast}", easing: "ease-out" }, onClick: "a" },
+          h(Text, null, "x"),
+        ),
+      ),
+    ).toEqual({
+      type: "Button",
+      transition: { duration: "{motion.fast}", easing: "ease-out" },
+      onClick: "a",
+      children: [{ type: "Text", text: "x" }],
+    });
+  });
+
+  it("omits transition when the node declares none — pre-F7 output is unchanged", () => {
+    expect(renderToIR(h(Container, { style: { opacity: 0.5 } }))).toEqual({
+      type: "Container",
+      style: { opacity: 0.5 },
+    });
+  });
+
   it("flattens Tabs to bar + panels (positional contract, no id wiring)", () => {
     const ir = renderToIR(
       h(

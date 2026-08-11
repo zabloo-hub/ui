@@ -21,6 +21,7 @@ import type {
   Style,
   TextNode,
   ToggleNode,
+  Transition,
   ZNode,
 } from "@zabloo/format";
 
@@ -34,6 +35,11 @@ export interface CommonProps {
   layout?: Layout;
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
+  /**
+   * Tweens this node's animatable values when they change (F7). One object per
+   * node, read from the base node only — no cascade, no per-state override.
+   */
+  transition?: Transition;
   /** Named style set from the theme — resolved at authoring time, never in the IR. */
   variant?: string;
   /** Receives initial focus (directional navigation — decision 2026-08-03 §7). */
@@ -98,13 +104,14 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
 /** Serializes a mounted host instance into an IR node. */
 export function toIR(instance: HostInstance): ZNode {
   // `variant` is intentionally NOT serialized — resolved at authoring time.
-  const { id, visible, layout, style, states, autofocus } = instance.props;
+  const { id, visible, layout, style, states, transition, autofocus } = instance.props;
   const base = {
     ...(id !== undefined && { id }),
     ...(visible !== undefined && { visible }),
     ...(layout !== undefined && { layout }),
     ...(style !== undefined && { style }),
     ...(states !== undefined && { states }),
+    ...(transition !== undefined && { transition }),
     ...(autofocus !== undefined && { autofocus }),
   };
 
