@@ -8,11 +8,14 @@
  */
 
 import type {
+  AssetRef,
   Bindable,
   ButtonNode,
   CollapseNode,
   ContainerNode,
   GroupBehavior,
+  ImageFit,
+  ImageNode,
   Layout,
   ScrollAxis,
   ScrollViewNode,
@@ -25,7 +28,14 @@ import type {
 } from "@zabloo/format";
 
 /** Host vocabulary — the IR primitives authorable in v1. */
-export type HostType = "Container" | "Text" | "Button" | "Collapse" | "ScrollView" | "Toggle";
+export type HostType =
+  | "Container"
+  | "Text"
+  | "Button"
+  | "Collapse"
+  | "ScrollView"
+  | "Toggle"
+  | "Image";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -55,6 +65,9 @@ export interface HostInstance {
     onChange?: string;
     /** Toggle: this option's value in a group. Container: the group's selected value. */
     value?: Bindable<string | number>;
+    /** Image: authoring path relative to `src/assets/` — `zabloo export` rewrites it. */
+    src?: string;
+    fit?: ImageFit;
   };
   children: HostNode[];
 }
@@ -78,6 +91,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "Collapse",
   "ScrollView",
   "Toggle",
+  "Image",
 ]);
 
 export function isHostType(type: string): type is HostType {
@@ -88,8 +102,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Toggle (Row/Column/Checkbox/Switch/Radio are sugar from ` +
-        `@zabloo/react).`,
+        `Collapse, ScrollView, Toggle, Image (Row/Column/Checkbox/Switch/Radio are sugar ` +
+        `from @zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -168,6 +182,26 @@ export function toIR(instance: HostInstance): ZNode {
           "A Toggle needs both indicator slots: children[0] (checked) and children[1] (unchecked).",
         );
       }
+      return node;
+    }
+    case "Image": {
+      const src = instance.props.src;
+      if (typeof src !== "string" || src.length === 0) {
+        throw new Error(
+          '<Image> needs a `src` path relative to src/assets/, e.g. "icons/coin.png".',
+        );
+      }
+      if (instance.children.length > 0) {
+        throw new Error("<Image> takes no children — it is a leaf, like <Text>.");
+      }
+      const node: ImageNode = {
+        type: "Image",
+        ...base,
+        // Authoring path, not an `asset:` ref yet: the export's collection pass
+        // hashes the file and rewrites this prop (decision 2026-08-11, assets).
+        src: src as AssetRef,
+        ...(instance.props.fit !== undefined && { fit: instance.props.fit }),
+      };
       return node;
     }
     case "ScrollView": {
