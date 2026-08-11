@@ -17,6 +17,8 @@ export {
   Container,
   type ContainerProps,
   Row,
+  ScrollView,
+  type ScrollViewProps,
   Text,
   type TextProps,
 } from "./components.js";

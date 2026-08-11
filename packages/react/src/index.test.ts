@@ -8,6 +8,7 @@ import {
   Container,
   Row,
   renderToIR,
+  ScrollView,
   Text,
   ThemeProvider,
   type ZablooTheme,
@@ -129,6 +130,28 @@ describe("renderToIR", () => {
             { type: "Text", text: "b1" },
           ],
         },
+      ],
+    });
+  });
+
+  it("serializes ScrollView (axis, scrollbar, children)", () => {
+    const ir = renderToIR(
+      h(
+        ScrollView,
+        { id: "inventory", axis: "vertical", scrollbar: false, layout: { height: 200 } },
+        h(Text, null, "Item 1"),
+        h(Text, null, "Item 2"),
+      ),
+    );
+    expect(ir).toEqual({
+      type: "ScrollView",
+      id: "inventory",
+      axis: "vertical",
+      scrollbar: false,
+      layout: { height: 200 },
+      children: [
+        { type: "Text", text: "Item 1" },
+        { type: "Text", text: "Item 2" },
       ],
     });
   });

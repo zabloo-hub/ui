@@ -8,7 +8,7 @@
  * variants never reach the IR.
  */
 
-import type { GroupBehavior } from "@zabloo/format";
+import type { GroupBehavior, ScrollAxis } from "@zabloo/format";
 import { createElement, type FC, type ReactNode } from "react";
 import type { CommonProps } from "./host.js";
 import { useVariant } from "./theme.js";
@@ -39,6 +39,14 @@ export interface CollapseProps extends CommonProps {
   children?: ReactNode;
 }
 
+export interface ScrollViewProps extends CommonProps {
+  /** Scrollable axis. Default: "vertical". */
+  axis?: ScrollAxis;
+  /** Overlay position indicator painted by the SDK. Default: true. */
+  scrollbar?: boolean;
+  children?: ReactNode;
+}
+
 /** Wraps a host primitive with variant resolution (variant never reaches the IR). */
 function primitive<P extends CommonProps>(type: string): FC<P> {
   const Component = (props: P) => {
@@ -54,6 +62,7 @@ export const Container: FC<ContainerProps> = primitive<ContainerProps>("Containe
 export const Text: FC<TextProps> = primitive<TextProps>("Text");
 export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
 export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
+export const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("ScrollView");
 
 /** `<Container>` with `direction: "row"` (authoring sugar, not a primitive). */
 export function Row({ layout, ...rest }: ContainerProps): ReturnType<FC> {
