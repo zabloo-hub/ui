@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  type ActionContext,
   assetIdFromRef,
   type ContainerNode,
   clampProgress,
@@ -8,10 +9,17 @@ import {
   type Envelope,
   easeProgress,
   IR_VERSION,
+  type ItemScope,
   isAssetRef,
+  itemIdentity,
+  itemKey,
+  itemPath,
   type OverlayNode,
   type ProgressBarNode,
   parseEnvelope,
+  type RepeatNode,
+  readPath,
+  resolveBinding,
   type ScrollViewNode,
   type SpinnerNode,
   spinnerPulse,
@@ -653,6 +661,279 @@ describe("Toggle & exclusive-check (ZAB-23)", () => {
       states: { checked: { style: { background: "#22c55e" } } },
     };
     expect(node.states?.checked?.style?.background).toBe("#22c55e");
+  });
+});
+
+describe("array bindings: Repeat (ZAB-29)", () => {
+  // Typed without casts: this file failing `tsc --noEmit` IS the type test.
+  const shop: Envelope = {
+    v: IR_VERSION,
+    tokens: {},
+    views: {
+      shop: {
+        type: "Repeat",
+        items: { bind: "shop.items" },
+        key: "sku",
+        layout: { direction: "column", gap: 8 },
+        children: [
+          {
+            // [0] item template: relative bindings + an action that must say WHICH.
+            type: "Container",
+            layout: { direction: "row" },
+            children: [
+              { type: "Text", text: { bind: "item.name" } },
+              { type: "Text", text: { bind: "item.price" } },
+              // An absolute path still works inside a template — the game's gold
+              // is not part of the item.
+              { type: "Text", text: { bind: "player.gold" } },
+              {
+                type: "Button",
+                onClick: "buy",
+                visible: { bind: "item.inStock" },
+                children: [{ type: "Text", text: "Comprar" }],
+              },
+            ],
+          },
+          // [1..] empty state.
+          { type: "Text", text: "La tienda está vacía" },
+        ],
+      },
+    },
+  };
+
+  it("accepts a repeated list with a template and an empty state", () => {
+    const env = parseEnvelope(shop);
+    const node = env.views.shop as RepeatNode;
+    expect(node.type).toBe("Repeat");
+    expect(node.children).toHaveLength(2);
+  });
+
+  it("only `items` is required (alias, key and slots default in the SDK)", () => {
+    const bare: RepeatNode = { type: "Repeat", items: { bind: "shop.items" } };
+    const env = parseEnvelope({ v: IR_VERSION, tokens: {}, views: { r: bare } });
+    expect(env.views.r?.type).toBe("Repeat");
+  });
+
+  it("takes NodeBase props like any other node", () => {
+    const node: RepeatNode = {
+      type: "Repeat",
+      id: "inventory",
+      items: { bind: "player.bag" },
+      visible: { bind: "ui.bagOpen" },
+      clip: true,
+      transition: { duration: 120 },
+      style: { background: "#111827" },
+    };
+    expect(node.clip).toBe(true);
+  });
+
+  it("nests, with one alias per level", () => {
+    const nested: RepeatNode = {
+      type: "Repeat",
+      items: { bind: "shop.cats" },
+      as: "cat",
+      children: [
+        {
+          type: "Repeat",
+          items: { bind: "cat.items" },
+          as: "it",
+          children: [{ type: "Text", text: { bind: "it.name" } }],
+        },
+      ],
+    };
+    const env = parseEnvelope({ v: IR_VERSION, tokens: {}, views: { n: nested } });
+    expect(env.views.n?.type).toBe("Repeat");
+  });
+
+  it("rejects a literal array of items at type-check time (data lives in the game)", () => {
+    const node: RepeatNode = {
+      type: "Repeat",
+      // @ts-expect-error — items is always a binding, never inline data
+      items: [{ name: "Poción" }],
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("rejects a non-string key at type-check time", () => {
+    const node: RepeatNode = {
+      type: "Repeat",
+      items: { bind: "shop.items" },
+      // @ts-expect-error — key is a path relative to the item, not a boolean
+      key: true,
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("degrades on an old SDK: the type is unknown but the subtree survives", () => {
+    // The normative fallback (unknown type → Container preserving children) turns
+    // a pre-F6 render into one static, unresolved copy of the template.
+    const env = parseEnvelope(shop);
+    const node = env.views.shop as unknown as { children: Array<{ type: string }> };
+    expect(node.children[0]?.type).toBe("Container");
+  });
+});
+
+describe("resolveBinding (ZAB-29)", () => {
+  const item: ItemScope = { alias: "item", path: "shop.items.3", index: 3 };
+
+  it("rebases a relative path onto the item's absolute path", () => {
+    expect(resolveBinding("item.name", [item])).toEqual({
+      kind: "path",
+      path: "shop.items.3.name",
+    });
+  });
+
+  it("resolves the bare alias to the item itself", () => {
+    expect(resolveBinding("item", [item])).toEqual({ kind: "path", path: "shop.items.3" });
+  });
+
+  it("resolves the reserved $index leaf to the position, not to a path", () => {
+    expect(resolveBinding("item.$index", [item])).toEqual({ kind: "index", index: 3 });
+  });
+
+  it("treats $index deeper in the path as an ordinary segment", () => {
+    expect(resolveBinding("item.a.$index", [item])).toEqual({
+      kind: "path",
+      path: "shop.items.3.a.$index",
+    });
+  });
+
+  it("leaves absolute paths untouched inside a template", () => {
+    expect(resolveBinding("player.gold", [item])).toEqual({ kind: "path", path: "player.gold" });
+  });
+
+  it("passes paths through unchanged with no scopes at all", () => {
+    expect(resolveBinding("item.name", [])).toEqual({ kind: "path", path: "item.name" });
+  });
+
+  it("lets an inner template reach the outer item (the point of `as`)", () => {
+    const scopes: ItemScope[] = [
+      { alias: "cat", path: "shop.cats.2", index: 2 },
+      { alias: "it", path: "shop.cats.2.items.5", index: 5 },
+    ];
+    expect(resolveBinding("it.name", scopes)).toEqual({
+      kind: "path",
+      path: "shop.cats.2.items.5.name",
+    });
+    expect(resolveBinding("cat.id", scopes)).toEqual({ kind: "path", path: "shop.cats.2.id" });
+    expect(resolveBinding("cat.$index", scopes)).toEqual({ kind: "index", index: 2 });
+  });
+
+  it("innermost scope wins when two levels share an alias", () => {
+    const scopes: ItemScope[] = [
+      { alias: "item", path: "a.0", index: 0 },
+      { alias: "item", path: "a.0.kids.1", index: 1 },
+    ];
+    expect(resolveBinding("item.name", scopes)).toEqual({ kind: "path", path: "a.0.kids.1.name" });
+  });
+
+  it("an alias shadows an absolute root of the same name (documented hazard)", () => {
+    const shadowing: ItemScope = { alias: "player", path: "party.1", index: 1 };
+    expect(resolveBinding("player.gold", [shadowing])).toEqual({
+      kind: "path",
+      path: "party.1.gold",
+    });
+  });
+
+  it("ignores an empty alias instead of matching every path", () => {
+    const broken: ItemScope = { alias: "", path: "a.0", index: 0 };
+    expect(resolveBinding("player.gold", [broken])).toEqual({ kind: "path", path: "player.gold" });
+  });
+});
+
+describe("itemPath & readPath (ZAB-29)", () => {
+  const data = {
+    shop: {
+      items: [{ sku: "potion", name: "Poción", price: 10, meta: { tier: 1 } }, { name: "Sin sku" }],
+    },
+  };
+
+  it("addresses one element of an array", () => {
+    expect(itemPath("shop.items", 3)).toBe("shop.items.3");
+  });
+
+  it("walks objects and arrays with the same dot syntax", () => {
+    expect(readPath(data, "shop.items.0.name")).toBe("Poción");
+    expect(readPath(data, "shop.items.0.meta.tier")).toBe(1);
+    expect(readPath(data, "shop.items")).toHaveLength(2);
+  });
+
+  it("yields undefined for anything missing instead of throwing", () => {
+    expect(readPath(data, "shop.items.9.name")).toBeUndefined();
+    expect(readPath(data, "shop.nope.deep")).toBeUndefined();
+    expect(readPath(data, "shop.items.1.price")).toBeUndefined();
+    expect(readPath(undefined, "shop")).toBeUndefined();
+    expect(readPath(data, "")).toBeUndefined();
+    expect(readPath(data, "shop..items")).toBeUndefined();
+  });
+
+  it("indexes arrays only with numeric segments — `length` is not a field", () => {
+    expect(readPath(data, "shop.items.length")).toBeUndefined();
+    expect(readPath(data, "shop.items.-1")).toBeUndefined();
+  });
+
+  it("does not walk through primitives", () => {
+    expect(readPath(data, "shop.items.0.name.length")).toBeUndefined();
+  });
+});
+
+describe("item identity (ZAB-29)", () => {
+  const keyed = { sku: "potion", id: 7, tags: ["a"], blank: "" };
+
+  it("reads the key from a path relative to the item", () => {
+    expect(itemKey(keyed, "sku")).toBe("potion");
+    expect(itemKey({ meta: { sku: "elixir" } }, "meta.sku")).toBe("elixir");
+  });
+
+  it("accepts a finite number as a key", () => {
+    expect(itemKey(keyed, "id")).toBe(7);
+  });
+
+  it("has no key without a key path (identity is positional)", () => {
+    expect(itemKey(keyed, undefined)).toBeUndefined();
+    expect(itemKey(keyed, "")).toBeUndefined();
+  });
+
+  it("refuses anything that does not identify: missing, empty, object", () => {
+    expect(itemKey(keyed, "missing")).toBeUndefined();
+    expect(itemKey(keyed, "blank")).toBeUndefined();
+    expect(itemKey(keyed, "tags")).toBeUndefined();
+  });
+
+  it("keeps keyed and positional identities in disjoint spaces", () => {
+    // Without the prefix, `{id: "0"}` and the unkeyed element at position 0 would
+    // share an identity and inherit each other's per-item SDK state.
+    expect(itemIdentity("0", 1)).not.toBe(itemIdentity(undefined, 0));
+    expect(itemIdentity(undefined, 3)).toBe("3");
+    expect(itemIdentity("potion", 3)).toBe("k:potion");
+    expect(itemIdentity(7, 3)).toBe("k:7");
+  });
+
+  it("gives a keyed item the same identity after a reorder (why keys exist)", () => {
+    const before = ["a", "b", "c"].map((sku, i) => itemIdentity(itemKey({ sku }, "sku"), i));
+    const after = ["c", "a", "b"].map((sku, i) => itemIdentity(itemKey({ sku }, "sku"), i));
+    expect(after).toEqual([before[2], before[0], before[1]]);
+  });
+
+  it("falls back to the position for an element whose key does not resolve", () => {
+    expect(itemIdentity(itemKey({ name: "sin sku" }, "sku"), 2)).toBe("2");
+  });
+});
+
+describe("ActionContext (ZAB-29)", () => {
+  it("carries the absolute path, the raw key and the position", () => {
+    const ctx: ActionContext = { path: "shop.items.3", key: "potion", index: 3 };
+    expect(ctx.path).toBe(itemPath("shop.items", 3));
+  });
+
+  it("omits the key when the list is positional", () => {
+    const ctx: ActionContext = { path: "shop.items.3", index: 3 };
+    expect(ctx.key).toBeUndefined();
+  });
+
+  it("describes the innermost item, with the outer indices inside the path", () => {
+    const ctx: ActionContext = { path: itemPath("shop.cats.2.items", 5), key: 42, index: 5 };
+    expect(ctx.path).toBe("shop.cats.2.items.5");
   });
 });
 
