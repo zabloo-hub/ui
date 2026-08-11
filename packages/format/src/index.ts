@@ -120,7 +120,10 @@ export interface StateOverride {
   style?: Style;
 }
 
-/** Yoga subset decided for v1: direction, justify, align, gap, padding, width/height, grow. */
+/**
+ * Yoga subset decided for v1: direction, justify, align, gap, padding,
+ * width/height, grow — plus `wrap` (2026-08-11, ZAB-32).
+ */
 export interface Layout {
   direction?: "row" | "column";
   justify?: "start" | "center" | "end" | "space-between";
@@ -130,6 +133,23 @@ export interface Layout {
   width?: Dim;
   height?: Dim;
   grow?: number;
+  /**
+   * Break the main axis into several lines when the children do not fit
+   * (decision 2026-08-11, ZAB-32 — the subset extension ZAB-29 left pending for
+   * `<Grid>`). Default: false, one single line, which is what every node emitted
+   * so far assumes.
+   *
+   * A grid is this and nothing else: a wrapping row whose items have a width, so
+   * N of them fit per line. `justify`/`align` keep meaning what they mean **within
+   * a line**, and how the lines themselves are distributed on the cross axis
+   * (Yoga's `align-content`) stays OUT of the subset — lines stack from the start,
+   * which is the only behavior a grid of equal rows can tell apart anyway.
+   *
+   * `grow` is per line: the leftovers of a line are shared between the children on
+   * it. An SDK that predates this flag lays the children out on one single line —
+   * the row overflows (and clips, if the node clips) but no content is lost.
+   */
+  wrap?: boolean;
 }
 
 /** Alignment of a text block inside its rect, on either axis. */
