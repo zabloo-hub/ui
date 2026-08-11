@@ -13,11 +13,12 @@ import {
   type TokenValue,
   type ZNode,
 } from "@zabloo/format";
+import { ImageLibrary } from "./assets.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
 import { arrange, inLayout, type LayoutNode, measure, type Rect } from "./layout.js";
 import { clamp } from "./scroll.js";
-import { type Color, GeometryBuilder } from "./tessellator.js";
+import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 
 const DEFAULT_FONT_SIZE = 16;
 
@@ -32,6 +33,7 @@ interface AnyNode {
   children?: ZNode[];
   onClick?: string;
   text?: unknown;
+  src?: unknown;
   open?: boolean;
   group?: string;
   autofocus?: boolean;
@@ -86,6 +88,7 @@ class WebView {
   private viewId: string;
   private readonly gl: GLRenderer;
   private readonly fonts: FontLibrary;
+  private readonly images: ImageLibrary;
   private readonly clearColor: Color;
   private readonly onAction?: (action: string) => void;
 
@@ -110,6 +113,11 @@ class WebView {
     this.clearColor = parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
     this.gl = new GLRenderer(canvas);
     this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1);
+    this.images = new ImageLibrary(envelope.assets ?? {}, {
+      // Decoding is async: repaint when a bitmap lands.
+      onReady: () => this.render(),
+      onEvict: (asset) => this.gl.evict(asset),
+    });
 
     this.build();
     this.listen();
@@ -124,6 +132,9 @@ class WebView {
         if (!this.envelope.views[this.viewId]) {
           this.viewId = Object.keys(this.envelope.views)[0];
         }
+        // Assets the new envelope still references keep their texture; the rest
+        // are evicted (content-addressed, so a re-export of the same image is free).
+        this.images.swap(this.envelope.assets ?? {});
         this.build();
         this.render();
       },
@@ -132,6 +143,8 @@ class WebView {
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
         for (const dispose of this.disposers) dispose();
+        this.images.dispose();
+        this.gl.dispose();
       },
     };
   }
@@ -552,9 +565,17 @@ class WebView {
     if (!(width > 0) || !(height > 0)) return;
 
     measure(this.root, this.dim, (ir) => {
-      if (ir.type !== "Text") return { x: 0, y: 0 };
-      const atlas = this.fonts.get(this.fontSize((ir as AnyNode).style));
-      return atlas.measure(this.resolveText(ir));
+      if (ir.type === "Text") {
+        const atlas = this.fonts.get(this.fontSize((ir as AnyNode).style));
+        return atlas.measure(this.resolveText(ir));
+      }
+      if (ir.type === "Image") {
+        // Intrinsic size straight from the manifest — no decode needed, so the
+        // image occupies its space from the very first frame.
+        const asset = this.images.get((ir as AnyNode).src);
+        return asset ? { x: asset.width, y: asset.height } : { x: 0, y: 0 };
+      }
+      return { x: 0, y: 0 };
     });
     arrange(this.root, { x: 0, y: 0, width, height }, this.dim);
 
@@ -597,6 +618,9 @@ class WebView {
         atlas,
         fade(this.color(style?.color, [1, 1, 1, 1]), opacity),
       );
+    } else if (node.ir.type === "Image") {
+      const asset = this.images.get((node.ir as AnyNode).src);
+      if (asset) geometry.image(node.rect, asset, opacity);
     }
     for (const child of node.children) this.paint(child, geometry, opacity);
   }
@@ -614,10 +638,6 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
 };
-
-function fade(color: Color, opacity: number): Color {
-  return opacity >= 1 ? color : [color[0], color[1], color[2], color[3] * opacity];
-}
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };

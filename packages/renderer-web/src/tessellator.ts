@@ -1,9 +1,11 @@
 /**
  * The web tessellator — same geometry as the Unity SDK's Tessellation.cs:
- * implicit paint (style → rounded-rect fan, clockwise, y down) and glyph quads
- * from the self-owned atlas. Emits into batches (solids + one per atlas).
+ * implicit paint (style → rounded-rect fan, clockwise, y down), glyph quads from
+ * the self-owned atlas and textured quads for images. Emits into batches (solids
+ * + one per atlas + one per image texture).
  */
 
+import type { ImageAsset } from "./assets.js";
 import type { Batch } from "./gl.js";
 import type { GlyphAtlas } from "./glyphs.js";
 import type { Rect } from "./layout.js";
@@ -12,16 +14,24 @@ export type Color = [number, number, number, number];
 
 const CORNER_SEGMENTS = 6;
 
+/** Untinted: the shader multiplies texture × vertex color, so white = the pixels as-is. */
+const UNTINTED: Color = [1, 1, 1, 1];
+
 export class GeometryBuilder {
-  private readonly solid: Batch = { atlas: null, vertices: [], indices: [] };
+  private readonly solid: Batch = { texture: null, vertices: [], indices: [] };
+  private readonly imageBatches = new Map<ImageAsset, Batch>();
   private readonly textBatches = new Map<GlyphAtlas, Batch>();
 
   /** `dpr` lets glyph quads snap to the physical pixel grid (crisp text). */
   constructor(private readonly dpr: number = 1) {}
 
-  /** Solids first, then text — backgrounds render under glyphs. */
+  /**
+   * Solids, then images, then text — backgrounds render under images, and glyphs
+   * on top of both. Each distinct image is its own texture, hence its own draw
+   * call: the single-batch invariant only ever held for solids + glyph atlas.
+   */
   batches(): Batch[] {
-    return [this.solid, ...this.textBatches.values()];
+    return [this.solid, ...this.imageBatches.values(), ...this.textBatches.values()];
   }
 
   roundedRect(rect: Rect, radius: number, color: Color): void {
@@ -94,6 +104,42 @@ export class GeometryBuilder {
     }
   }
 
+  /**
+   * Textured quad for an Image node, aspect-fitted and centered inside the
+   * layout rect. Fitting (rather than stretching) keeps the picture undistorted,
+   * and staying inside the rect preserves the invariant that nothing paints
+   * outside it — the same reason borders are inset.
+   *
+   * Paints nothing while the decode is in flight; layout already reserved the
+   * space from the manifest's dimensions.
+   */
+  image(rect: Rect, asset: ImageAsset, opacity: number): void {
+    if (asset.bitmap === null) return;
+    const fitted = aspectFit(rect, asset.width, asset.height);
+    if (fitted === null) return;
+
+    const batch = this.imageBatchFor(asset);
+    const base = batch.vertices.length / 8;
+    const color = fade(UNTINTED, opacity);
+    const x1 = fitted.x + fitted.width;
+    const y1 = fitted.y + fitted.height;
+    // v grows downward, like the atlas: texImage2D uploads rows top-first.
+    pushVertex(batch, fitted.x, fitted.y, 0, 0, color);
+    pushVertex(batch, x1, fitted.y, 1, 0, color);
+    pushVertex(batch, x1, y1, 1, 1, color);
+    pushVertex(batch, fitted.x, y1, 0, 1, color);
+    batch.indices.push(base, base + 1, base + 2, base + 2, base + 3, base);
+  }
+
+  private imageBatchFor(asset: ImageAsset): Batch {
+    let batch = this.imageBatches.get(asset);
+    if (!batch) {
+      batch = { texture: asset, vertices: [], indices: [] };
+      this.imageBatches.set(asset, batch);
+    }
+    return batch;
+  }
+
   /** Single-line text run starting at (originX, originY) — top-left of the run. */
   text(originX: number, originY: number, content: string, atlas: GlyphAtlas, color: Color): void {
     const batch = this.batchFor(atlas);
@@ -126,11 +172,34 @@ export class GeometryBuilder {
   private batchFor(atlas: GlyphAtlas): Batch {
     let batch = this.textBatches.get(atlas);
     if (!batch) {
-      batch = { atlas, vertices: [], indices: [] };
+      batch = { texture: atlas, vertices: [], indices: [] };
       this.textBatches.set(atlas, batch);
     }
     return batch;
   }
+}
+
+/**
+ * Largest rect with the source's aspect ratio that fits inside `rect`, centered
+ * (CSS `object-fit: contain`). Null when either side has no usable size — a
+ * manifest without dimensions and a decode still in flight, or a collapsed rect.
+ */
+export function aspectFit(rect: Rect, width: number, height: number): Rect | null {
+  if (!(rect.width > 0) || !(rect.height > 0) || !(width > 0) || !(height > 0)) return null;
+  const scale = Math.min(rect.width / width, rect.height / height);
+  const fittedWidth = width * scale;
+  const fittedHeight = height * scale;
+  return {
+    x: rect.x + (rect.width - fittedWidth) / 2,
+    y: rect.y + (rect.height - fittedHeight) / 2,
+    width: fittedWidth,
+    height: fittedHeight,
+  };
+}
+
+/** Applies an inherited opacity to a color (per-vertex alpha, decision 2026-08-06). */
+export function fade(color: Color, opacity: number): Color {
+  return opacity >= 1 ? color : [color[0], color[1], color[2], color[3] * opacity];
 }
 
 function pushVertex(batch: Batch, x: number, y: number, u: number, v: number, color: Color): void {
