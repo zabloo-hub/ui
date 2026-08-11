@@ -730,6 +730,11 @@ class WebView {
     this.render();
   }
 
+  /**
+   * The game/page channel for scrolling — the `setOpen` counterpart. Host API,
+   * not IR: the offset has no prop to author (decision 2026-08-11, ZAB-9), and
+   * whatever lands here is clamped to the last relayout's bounds.
+   */
   setScroll(id: string, x: number, y: number): boolean {
     const node = this.byId.get(id);
     if (node?.ir.type !== "ScrollView") {

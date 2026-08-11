@@ -81,6 +81,11 @@ export interface HostInstance {
     open?: boolean;
     group?: GroupBehavior;
     selected?: number;
+    /**
+     * ScrollView: the axis children are measured unconstrained on, and whether
+     * the SDK paints its overlay indicator. The scroll offset is NOT here — it
+     * is runtime state the SDK owns, never authored (like Button's `pressed`).
+     */
     axis?: ScrollAxis;
     scrollbar?: boolean;
     checked?: Bindable<boolean>;

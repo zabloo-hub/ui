@@ -62,9 +62,18 @@ export interface CollapseProps extends CommonProps {
 }
 
 export interface ScrollViewProps extends CommonProps {
-  /** Scrollable axis. Default: "vertical". */
+  /**
+   * Scrollable axis — the one children are measured unconstrained on. Default:
+   * "vertical". `"both"` frees both axes, which is what a map or a big grid
+   * needs; it does not turn a column into a row (that is `layout.direction`).
+   */
   axis?: ScrollAxis;
-  /** Overlay position indicator painted by the SDK. Default: true. */
+  /**
+   * Overlay position indicator painted by the SDK, visible only while there is
+   * something to scroll. Default: true. Turn it off where the content itself
+   * says there is more (a strip of chips cut by the edge). Styling it is a
+   * deferred, compatible extension — the boolean becomes a union.
+   */
   scrollbar?: boolean;
   children?: ReactNode;
 }
@@ -224,6 +233,39 @@ export const Container: FC<ContainerProps> = primitive<ContainerProps>("Containe
 export const Text: FC<TextProps> = primitive<TextProps>("Text");
 export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
 export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
+
+/**
+ * A window onto content bigger than itself. It is a normal flex container on
+ * both sides — its own size comes from `layout`, and `direction`/`justify`/
+ * `align`/`gap`/`padding` lay its children out — with one difference: on the
+ * scrollable `axis` the children are measured UNCONSTRAINED, so they take their
+ * natural size and that is what the player scrolls through. Size the viewport
+ * yourself (`layout.width`/`height`/`grow`); giving it neither a size nor a
+ * growing parent leaves it hugging its content, with nothing to scroll.
+ *
+ * It always clips, paint AND hit-testing, so a row past the edge is neither
+ * drawn nor tappable — a `clip: false` on it is ignored. Wheel and drag are
+ * handled by the SDK, which owns the scroll position: the offset is runtime
+ * state like a Button's `pressed`, never authored and never serialized, and it
+ * is re-clamped on every relayout (close a `<Collapse>` inside and the list
+ * settles at the new end instead of hanging past it).
+ *
+ * The node itself has no states and no events: it is not focusable, it has no
+ * hover/pressed, and there is no `onScroll` — `states.*` on it would never
+ * fire, while the Buttons inside keep theirs (dragging to scroll does not
+ * become a click on them). Programmatic ScrollTo, a bindable offset and
+ * auto-scrolling to the focused node arrive with gamepad input; inertia,
+ * a styleable scrollbar and snapping come after.
+ *
+ * ```tsx
+ * <ScrollView layout={{ width: 460, height: 340, align: "stretch", gap: 4 }}>
+ *   {items.map((item) => <ItemRow key={item.id} item={item} />)}
+ * </ScrollView>
+ * <ScrollView axis="horizontal" scrollbar={false} layout={{ direction: "row", width: 460, gap: 8 }}>
+ *   {categories.map((name) => <Chip key={name} name={name} />)}
+ * </ScrollView>
+ * ```
+ */
 export const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("ScrollView");
 
 /**
