@@ -375,7 +375,19 @@ export type ScrollAxis = "vertical" | "horizontal" | "both";
  * the runtime scroll offset (clamped to `max(0, contentSize - viewport)` on
  * every relayout) plus the wheel/drag input and the overlay scrollbar.
  * Padding counts as content (pads the children, expands scrollable bounds).
- * Always clips; an explicit `clip: false` is ignored.
+ * Always clips, paint AND hit-testing; an explicit `clip: false` is ignored.
+ *
+ * **No states, no events (decision 2026-08-11, ZAB-9).** The offset is runtime
+ * state, not a *style* state: a ScrollView is not focusable and carries no
+ * `hover`/`pressed`/`selected`/`checked`, so `states.*` on this node never
+ * applies (its children keep theirs — scrolling by drag does not become a click
+ * on the Button under the finger). It emits no action either: there is no
+ * `onScroll` in v1. A game moves it through the SDK's host channel
+ * (`SetScroll(id, x, y)` — the `SetOpen` counterpart), which is API, not IR.
+ *
+ * Deferred, all compatible extensions: an authored/bindable offset and
+ * auto-scrolling to the focused node land with gamepad input; inertia, a
+ * styleable scrollbar (`scrollbar` boolean → object) and snapping come after.
  */
 export interface ScrollViewNode extends NodeBase {
   type: "ScrollView";
