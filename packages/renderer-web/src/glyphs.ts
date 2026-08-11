@@ -96,14 +96,12 @@ export class GlyphAtlas {
     return glyph;
   }
 
-  /** Single-line measure in logical px — what the layout pass calls for Text. */
-  measure(text: string): { x: number; y: number } {
-    let width = 0;
-    for (const char of text) {
-      const glyph = this.get(char);
-      if (glyph) width += glyph.advance;
-    }
-    return { x: width, y: this.lineHeight };
+  /**
+   * Horizontal advance of one character in logical px — the `TextMetrics` port
+   * `text.ts` measures and wraps with (an atlas IS the font, metrics included).
+   */
+  advance(char: string): number {
+    return this.get(char)?.advance ?? 0;
   }
 
   private rasterize(char: string): GlyphInfo {

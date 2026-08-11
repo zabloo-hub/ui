@@ -52,7 +52,11 @@ What works today:
 - **Styling**: design tokens (flat dictionary, theme hot-update without re-emitting the
   tree), per-state overrides (`pressed` / `focused` / `selected`), variants resolved at export time,
   and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset
-  border), `color`, `fontSize`, `opacity` (inherits multiplicatively).
+  border), `color`, `fontSize`, `opacity` (inherits multiplicatively), plus the text
+  set — `wrap`, `textAlign`, `textAlignY`, `lineHeight`, `overflow`, `maxLines`.
+- **Multiline text** in the web renderer: word wrap to the width the layout pass
+  offers, hard breaks, alignment on both axes, and `clip`/`ellipsis` truncation — one
+  normative algorithm, so both targets break in the same places (Unity porting it).
 - **Interactivity**: SDK-owned behavior keyed by component type, named actions surfaced
   as C# events, data-path bindings (`SetData("player.gold", …)` re-lays out live),
   automatic spatial focus/navigation (arrows/Enter today, gamepad-ready).
