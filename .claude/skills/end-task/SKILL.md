@@ -44,6 +44,25 @@ Close out a finished task: Linear to Done + summary, docs reminder, cleanup.
 
 ## 5. Cleanup
 
+Check where you are first: `git worktree list`.
+
+### In a Superset worktree (the normal case)
+
+The cwd is under `~/.superset/worktrees/`. Here `main` is checked out by the
+primary worktree, so `git checkout main` fails, and git will not let you delete
+the branch you are standing on. **The user deletes the workspace themselves —
+always. Do not ask, and do not work around it** (no detaching HEAD, no `-D`, no
+deleting the branch from the primary worktree while this one holds it).
+
+- Update main where it actually lives:
+  `git -C <primary worktree> pull --ff-only` — find the path with
+  `git worktree list` (the entry marked `[main]`).
+- Then state, as a fact and not a question: the workspace is ready to delete
+  from Superset. Its `teardown.sh` frees the port and removes the worktree, and
+  the branch checkout goes with it.
+
+### In a normal clone
+
 - `git checkout main && git pull`.
 - Delete the local branch: `git branch -d <branch>` (only `-d`, never `-D` —
   if git refuses, the branch isn't fully merged; surface that instead of
