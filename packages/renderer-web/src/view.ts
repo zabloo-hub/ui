@@ -26,6 +26,7 @@ import {
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
 import { type Clip, clipContains, isEmptyClip } from "./clip.js";
+import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
 import { childClip, effectiveClip } from "./hit.js";
@@ -60,6 +61,7 @@ import {
   type ResolvedValues,
   stepNode,
 } from "./transition.js";
+import { decodeBase64, loadFont, type StbFont } from "./ttf.js";
 
 const DEFAULT_FONT_SIZE = 16;
 /** Paint fallbacks for a declared color whose token does not resolve (author error). */
@@ -186,6 +188,10 @@ class WebView {
   private frame: number | null = null;
   /** Set by the resolve pass when any node still has a tween running. */
   private animating = false;
+  /** Our TTF rasterizer, once its WASM has loaded (see `loadRasterizer`). */
+  private font: StbFont | null = null;
+  /** Disposed views must not touch GL from work that was already in flight. */
+  private disposed = false;
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -209,6 +215,37 @@ class WebView {
     this.build();
     this.listen();
     this.resize();
+    this.loadRasterizer();
+  }
+
+  /**
+   * Brings up our own rasterizer (stb_truetype in WASM over the TTF we ship) and
+   * swaps it in for the Canvas2D fallback the first frames rendered with.
+   *
+   * It cannot be done in the constructor: browsers refuse to compile a WASM
+   * module this size synchronously on the main thread. So `mount` stays
+   * synchronous — text paints immediately with the browser's rasterizer — and
+   * this re-renders once the real one is ready. The atlases built meanwhile are
+   * thrown away, textures included.
+   */
+  private loadRasterizer(): void {
+    loadFont(decodeBase64(DEFAULT_FONT_BASE64)).then(
+      (font) => {
+        if (this.disposed) {
+          font.dispose();
+          return;
+        }
+        this.font = font;
+        for (const replaced of this.fonts.adopt(font)) this.gl.evict(replaced);
+        this.render();
+      },
+      (error: unknown) => {
+        // Not fatal: text keeps rendering through Canvas2D, it just will not be
+        // pixel-identical to the other targets.
+        const detail = error instanceof Error ? error.message : String(error);
+        console.warn(`[zabloo] Text rasterizer unavailable, using the browser's — ${detail}`);
+      },
+    );
   }
 
   handle(): ZablooHandle {
@@ -231,10 +268,12 @@ class WebView {
       setChecked: (id, checked) => this.setChecked(id, checked),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
+        this.disposed = true;
         this.cancelFrame();
         for (const dispose of this.disposers) dispose();
         this.clearAutoClose();
         this.images.dispose();
+        this.font?.dispose();
         this.gl.dispose();
       },
     };
