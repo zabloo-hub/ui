@@ -120,7 +120,10 @@ export interface StateOverride {
   style?: Style;
 }
 
-/** Yoga subset decided for v1: direction, justify, align, gap, padding, width/height, grow. */
+/**
+ * Yoga subset decided for v1: direction, justify, align, gap, padding,
+ * width/height, grow — plus `wrap` (2026-08-11, ZAB-32).
+ */
 export interface Layout {
   direction?: "row" | "column";
   justify?: "start" | "center" | "end" | "space-between";
@@ -130,6 +133,23 @@ export interface Layout {
   width?: Dim;
   height?: Dim;
   grow?: number;
+  /**
+   * Break the main axis into several lines when the children do not fit
+   * (decision 2026-08-11, ZAB-32 — the subset extension ZAB-29 left pending for
+   * `<Grid>`). Default: false, one single line, which is what every node emitted
+   * so far assumes.
+   *
+   * A grid is this and nothing else: a wrapping row whose items have a width, so
+   * N of them fit per line. `justify`/`align` keep meaning what they mean **within
+   * a line**, and how the lines themselves are distributed on the cross axis
+   * (Yoga's `align-content`) stays OUT of the subset — lines stack from the start,
+   * which is the only behavior a grid of equal rows can tell apart anyway.
+   *
+   * `grow` is per line: the leftovers of a line are shared between the children on
+   * it. An SDK that predates this flag lays the children out on one single line —
+   * the row overflows (and clips, if the node clips) but no content is lost.
+   */
+  wrap?: boolean;
 }
 
 /** Alignment of a text block inside its rect, on either axis. */
@@ -213,8 +233,10 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  *
  * A component's own behavior may drive this same machinery with endpoints it
  * computes, and then the tween is spec of that component rather than a value of the
- * animatable set: `ProgressBar` tweens its `value` (never the fill rect) and
- * `Spinner` loops on `period`, which is why neither prop appears in the set above.
+ * animatable set: `ProgressBar` tweens its `value` (never the fill rect), `Spinner`
+ * loops on `period`, and an `Overlay` fades its whole layer entry in and out as it
+ * enters and leaves the layer (decision 2026-08-11, ZAB-21) — which is why none of
+ * those props appears in the set above, `visible` included.
  */
 export interface Transition {
   /** Duration in milliseconds. A `Dim` so motion is themeable (`"{motion.fast}"`); <= 0 is instant. */
@@ -375,7 +397,19 @@ export type ScrollAxis = "vertical" | "horizontal" | "both";
  * the runtime scroll offset (clamped to `max(0, contentSize - viewport)` on
  * every relayout) plus the wheel/drag input and the overlay scrollbar.
  * Padding counts as content (pads the children, expands scrollable bounds).
- * Always clips; an explicit `clip: false` is ignored.
+ * Always clips, paint AND hit-testing; an explicit `clip: false` is ignored.
+ *
+ * **No states, no events (decision 2026-08-11, ZAB-9).** The offset is runtime
+ * state, not a *style* state: a ScrollView is not focusable and carries no
+ * `hover`/`pressed`/`selected`/`checked`, so `states.*` on this node never
+ * applies (its children keep theirs — scrolling by drag does not become a click
+ * on the Button under the finger). It emits no action either: there is no
+ * `onScroll` in v1. A game moves it through the SDK's host channel
+ * (`SetScroll(id, x, y)` — the `SetOpen` counterpart), which is API, not IR.
+ *
+ * Deferred, all compatible extensions: an authored/bindable offset and
+ * auto-scrolling to the focused node land with gamepad input; inertia, a
+ * styleable scrollbar (`scrollbar` boolean → object) and snapping come after.
  */
 export interface ScrollViewNode extends NodeBase {
   type: "ScrollView";
@@ -533,7 +567,17 @@ export interface SliderNode extends NodeBase {
  * Overlay itself are ignored (a layer is not sized); size the child instead.
  *
  * `visible` behaves as everywhere else: a hidden Overlay contributes no layer, no
- * backdrop and no input blocking.
+ * backdrop and no input blocking. It is also the ONLY way to open and close one —
+ * bind it and the game moves the boolean with `SetData`, which is what makes a
+ * dismiss (Escape, gamepad B, a backdrop tap, `autoCloseMs`) expressible without a
+ * mechanism of its own.
+ *
+ * A `transition` on an Overlay also fades that open/close: the SDK tweens the whole
+ * layer entry's opacity as it enters and leaves the layer, so a closing overlay
+ * stays on screen for exactly one duration after `visible` went false (decision
+ * 2026-08-11, ZAB-21). It is behavior driving the interpolation engine, like the
+ * `ProgressBar`'s fraction — `visible` itself never animates, and a fading overlay
+ * takes no input and traps no focus, being on its way out.
  */
 export interface OverlayNode extends NodeBase {
   type: "Overlay";

@@ -1,11 +1,13 @@
 import type {
   ContainerNode,
+  OverlayNode,
   ProgressBarNode,
+  RepeatNode,
   SliderNode,
   SpinnerNode,
   ToggleNode,
 } from "@zabloo/format";
-import { createElement as h, useState } from "react";
+import { Fragment, createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
 import {
   Accordion,
@@ -15,7 +17,11 @@ import {
   Collapse,
   Column,
   Container,
+  Grid,
   Image,
+  List,
+  Modal,
+  Overlay,
   ProgressBar,
   Radio,
   RadioGroup,
@@ -29,6 +35,8 @@ import {
   Tabs,
   Text,
   ThemeProvider,
+  Toast,
+  Tooltip,
   type ZablooTheme,
 } from "./index.js";
 
@@ -649,6 +657,316 @@ describe("renderToIR", () => {
       text: "9",
       style: { color: "#ffffff", fontSize: 16 },
     });
+  });
+
+  it("emits the Overlay primitive 1:1 with the IR node", () => {
+    const ir = renderToIR(
+      h(
+        Overlay,
+        {
+          id: "confirm",
+          visible: { bind: "ui.confirmOpen" },
+          modal: true,
+          z: 5,
+          onDismiss: "confirm-dismissed",
+          autoCloseMs: 4000,
+          style: { background: "#00000099" },
+        },
+        h(Text, null, "¿Seguro?"),
+      ),
+    );
+    expect(ir).toEqual({
+      type: "Overlay",
+      id: "confirm",
+      visible: { bind: "ui.confirmOpen" },
+      modal: true,
+      z: 5,
+      onDismiss: "confirm-dismissed",
+      autoCloseMs: 4000,
+      style: { background: "#00000099" },
+      children: [{ type: "Text", text: "¿Seguro?" }],
+    });
+  });
+
+  it("leaves every Overlay prop out when it is not declared — the IR defaults stand", () => {
+    expect(renderToIR(h(Overlay))).toEqual({ type: "Overlay" });
+  });
+
+  it("rejects a non-positive autoCloseMs instead of silently never closing", () => {
+    expect(() => renderToIR(h(Overlay, { autoCloseMs: 0 }))).toThrow(/positive number/);
+    expect(() => renderToIR(h(Overlay, { autoCloseMs: -200 }))).toThrow(/positive number/);
+  });
+
+  it("lowers Modal to a modal Overlay: backdrop by style, content in a centered panel", () => {
+    const ir = renderToIR(
+      h(
+        Modal,
+        { visible: { bind: "ui.quit" }, onDismiss: "quit-cancelled" },
+        h(Text, null, "¿Salir?"),
+      ),
+    ) as OverlayNode;
+    expect(ir).toEqual({
+      type: "Overlay",
+      visible: { bind: "ui.quit" },
+      onDismiss: "quit-cancelled",
+      modal: true,
+      layout: { direction: "row", justify: "center", align: "center", padding: 24 },
+      style: { background: "#00000099" },
+      children: [
+        {
+          type: "Container",
+          layout: { padding: 20, gap: 12 },
+          style: {
+            background: "#181b26",
+            radius: 12,
+            borderWidth: 1,
+            borderColor: "#2f3446",
+          },
+          children: [{ type: "Text", text: "¿Salir?" }],
+        },
+      ],
+    });
+  });
+
+  it("styles the backdrop with `style` and the card with `panel`", () => {
+    const ir = renderToIR(
+      h(Modal, {
+        position: "top-right",
+        style: { background: "#000000cc" },
+        panel: { style: { radius: 4 }, layout: { padding: 8 } },
+      }),
+    ) as OverlayNode;
+    expect(ir.style).toEqual({ background: "#000000cc" });
+    expect(ir.layout).toEqual({ direction: "row", justify: "end", align: "start", padding: 24 });
+    const panel = ir.children?.[0] as ContainerNode;
+    expect(panel.layout).toEqual({ padding: 8, gap: 12 });
+    expect(panel.style?.radius).toBe(4);
+  });
+
+  it("lowers Toast to a non-modal, self-closing Overlay above the modal band", () => {
+    const ir = renderToIR(h(Toast, { visible: { bind: "ui.saved" } }, "Partida guardada"));
+    expect(ir).toEqual({
+      type: "Overlay",
+      visible: { bind: "ui.saved" },
+      modal: false,
+      z: 10,
+      autoCloseMs: 3000,
+      layout: { direction: "row", justify: "center", align: "end", padding: 24 },
+      children: [
+        {
+          type: "Container",
+          layout: { direction: "row", align: "center", gap: 8, padding: 12 },
+          style: { background: "#2f3446", radius: 8 },
+          children: [
+            { type: "Text", text: "Partida guardada", style: { color: "#e8ecf5", fontSize: 14 } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("emits a List as a Repeat: template in children[0], empty state after it", () => {
+    const ir = renderToIR(
+      h(
+        List,
+        {
+          items: "shop.items",
+          as: "it",
+          keyPath: "id",
+          layout: { gap: 8 },
+          empty: h(Text, null, "Nada por aquí"),
+        },
+        h(
+          Row,
+          { layout: { gap: 12, align: "center" } },
+          h(Text, { key: "name", bind: "it.name" }),
+          h(Text, { key: "price", bind: "it.price.amount" }),
+          h(Button, { key: "buy", onClick: "buy" }, h(Text, null, "Comprar")),
+        ),
+      ),
+    );
+
+    expect(ir).toEqual({
+      type: "Repeat",
+      items: { bind: "shop.items" },
+      as: "it",
+      key: "id",
+      layout: { direction: "column", gap: 8 },
+      children: [
+        {
+          type: "Container",
+          layout: { direction: "row", gap: 12, align: "center" },
+          children: [
+            { type: "Text", text: { bind: "it.name" } },
+            { type: "Text", text: { bind: "it.price.amount" } },
+            { type: "Button", onClick: "buy", children: [{ type: "Text", text: "Comprar" }] },
+          ],
+        },
+        { type: "Text", text: "Nada por aquí" },
+      ],
+    });
+  });
+
+  it("takes nodes instead of a bare message, and keeps its own placement", () => {
+    const ir = renderToIR(
+      h(Toast, { position: "top-right", autoCloseMs: 1500 }, h(Text, null, "Logro")),
+    ) as OverlayNode;
+    expect(ir.autoCloseMs).toBe(1500);
+    expect(ir.layout).toEqual({ direction: "row", justify: "end", align: "start", padding: 24 });
+    const pill = ir.children?.[0] as ContainerNode;
+    expect(pill.children).toEqual([{ type: "Text", text: "Logro" }]);
+  });
+
+  it("lowers Tooltip to a non-modal hint with no timer of its own", () => {
+    const ir = renderToIR(h(Tooltip, { visible: { bind: "ui.hint" } }, "Pulsa A")) as OverlayNode;
+    expect(ir.modal).toBe(false);
+    expect(ir.z).toBe(20);
+    expect(ir.autoCloseMs).toBeUndefined();
+    expect(ir.layout).toEqual({ direction: "row", justify: "center", align: "start", padding: 24 });
+    const bubble = ir.children?.[0] as ContainerNode;
+    expect(bubble.children).toEqual([
+      { type: "Text", text: "Pulsa A", style: { color: "#c8cede", fontSize: 12 } },
+    ]);
+  });
+
+  it("lets an explicit layout override the placement sugar", () => {
+    const ir = renderToIR(
+      h(Modal, { position: "bottom", layout: { align: "center", padding: 0 } }),
+    ) as OverlayNode;
+    expect(ir.layout).toEqual({ direction: "row", justify: "center", align: "center", padding: 0 });
+  });
+
+  it("lays a horizontal List out as a row", () => {
+    const ir = renderToIR(
+      h(List, { items: "shop.items", axis: "horizontal" }, h(Text, { bind: "item.name" })),
+    ) as RepeatNode;
+    expect(ir.layout).toEqual({ direction: "row" });
+  });
+
+  it("flattens user components inside the template, like everywhere else", () => {
+    function Price({ path }: { path: string }) {
+      return h(Text, { style: { color: "#22c55e" }, bind: path });
+    }
+    const ir = renderToIR(
+      h(List, { items: "shop.items" }, h(Price, { path: "item.price" })),
+    ) as RepeatNode;
+    expect(ir.children).toEqual([
+      { type: "Text", style: { color: "#22c55e" }, text: { bind: "item.price" } },
+    ]);
+  });
+
+  it("takes several nodes as the empty state — children[1..] is the whole slot", () => {
+    const ir = renderToIR(
+      h(
+        List,
+        {
+          items: "inbox.messages",
+          empty: [h(Text, { key: "t" }, "Bandeja vacía"), h(Text, { key: "s" }, "Vuelve luego")],
+        },
+        h(Text, { bind: "item.subject" }),
+      ),
+    ) as RepeatNode;
+    expect(ir.children?.slice(1)).toEqual([
+      { type: "Text", text: "Bandeja vacía" },
+      { type: "Text", text: "Vuelve luego" },
+    ]);
+  });
+
+  it("omits `as` and `key` when the list takes the defaults", () => {
+    const ir = renderToIR(h(List, { items: "a.b" }, h(Text, { bind: "item.c" }))) as RepeatNode;
+    expect(ir.as).toBeUndefined();
+    expect(ir.key).toBeUndefined();
+  });
+
+  it("solves the cell width from layout.width, discounting gaps and padding", () => {
+    const ir = renderToIR(
+      h(
+        Grid,
+        {
+          items: "inventory.slots",
+          columns: 3,
+          cell: { style: { background: "#1f2430" } },
+          layout: { width: 300, gap: 10, padding: 5 },
+        },
+        h(Text, { bind: "item.name" }),
+      ),
+    ) as RepeatNode;
+
+    expect(ir.layout).toEqual({ direction: "row", wrap: true, width: 300, gap: 10, padding: 5 });
+    // (300 - 2*10 - 2*5) / 3
+    expect(ir.children?.[0]).toEqual({
+      type: "Container",
+      layout: { width: 90 },
+      style: { background: "#1f2430" },
+      children: [{ type: "Text", text: { bind: "item.name" } }],
+    });
+  });
+
+  it("floors an inexact cell width so the cells never overflow their line", () => {
+    const ir = renderToIR(
+      h(Grid, { items: "a", columns: 3, layout: { width: 100 } }, h(Text, { bind: "item.b" })),
+    ) as RepeatNode;
+    const cell = ir.children?.[0] as ContainerNode;
+    expect(cell.layout?.width).toBe(33);
+  });
+
+  it("keeps several template nodes inside the Grid's own cell", () => {
+    const ir = renderToIR(
+      h(
+        Grid,
+        { items: "a", columns: 2, itemWidth: 50 },
+        h(Text, { key: "n", bind: "item.name" }),
+        h(Text, { key: "p", bind: "item.price" }),
+      ),
+    ) as RepeatNode;
+    expect(ir.children).toHaveLength(1);
+    const cell = ir.children?.[0] as ContainerNode | undefined;
+    expect(cell?.children).toHaveLength(2);
+  });
+
+  it("rejects a Grid it cannot resolve the geometry of", () => {
+    expect(() =>
+      renderToIR(h(Grid, { items: "a", columns: 3 }, h(Text, { bind: "item.b" }))),
+    ).toThrow(/pass `itemWidth`, or a numeric `layout.width`/);
+    expect(() =>
+      renderToIR(h(Grid, { items: "a", columns: 0, itemWidth: 10 }, h(Text, { bind: "item.b" }))),
+    ).toThrow(/integer >= 1/);
+    expect(() =>
+      renderToIR(
+        h(Grid, { items: "a", columns: 5, layout: { width: 20, gap: 10 } }, h(Text, { bind: "b" })),
+      ),
+    ).toThrow(/does not fit/);
+  });
+
+  it("rejects a tokenized gap on a Grid — the cell width is arithmetic, done here", () => {
+    expect(() =>
+      renderToIR(
+        h(
+          Grid,
+          { items: "a", columns: 3, itemWidth: 40, layout: { gap: "{space.2}" } },
+          h(Text, { bind: "item.b" }),
+        ),
+      ),
+    ).toThrow(/layout.gap must be a number of px/);
+  });
+
+  it("rejects a list template that is not a single node", () => {
+    expect(() => renderToIR(h(List, { items: "a" }))).toThrow(/needs an item template/);
+    expect(() =>
+      renderToIR(
+        h(List, { items: "a" }, h(Text, { key: "a", bind: "item.a" }), h(Text, { key: "b" }, "b")),
+      ),
+    ).toThrow(/single node/);
+    expect(() =>
+      renderToIR(h(List, { items: "a" }, h(Fragment, null, h(Text, { key: "a", bind: "item.a" })))),
+    ).toThrow(/single node/);
+  });
+
+  it("rejects a hand-built Repeat without an items path or without a template", () => {
+    expect(() => renderToIR(h("Repeat", null, h(Text, { bind: "item.a" })))).toThrow(
+      /need an `items` data path/,
+    );
+    expect(() => renderToIR(h("Repeat", { items: "a" }))).toThrow(/need an item template/);
   });
 
   it("rejects raw text outside <Text>", () => {

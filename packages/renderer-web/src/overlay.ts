@@ -14,10 +14,15 @@
  *   A non-modal one is inert: only its children take events.
  * - **Focus:** the trap derives from `modal` — while a modal is up, only its
  *   subtree offers navigation candidates.
+ *
+ * Plus the one thing an overlay does that no other node does: it **fades in and
+ * out** of the layer (`stepPresence`), which is why a closing modal outlives the
+ * `visible` that closed it by exactly one transition.
  */
 
 import { childClip, hitTest, type NodeRadius } from "./hit.js";
 import { contains, inLayout, type LayoutNode } from "./layout.js";
+import { type NodeAnim, type ResolvedTransition, stepValue } from "./transition.js";
 
 export interface Point {
   x: number;
@@ -54,25 +59,59 @@ export function isModal(node: LayoutNode): boolean {
 }
 
 /**
- * Every Overlay of the view that is in layout, flattened into one layer ordered
+ * Whether a node still counts for the layer. The default is `inLayout` — the live
+ * layer that owns input, focus and the auto-close timers. The paint pass widens it
+ * to the overlays that are still fading out (`stepPresence`), which is the ONLY
+ * difference between the two: an overlay on its way out is pixels, never input.
+ */
+export type Present = (node: LayoutNode) => boolean;
+
+/**
+ * Every Overlay of the view that is present, flattened into one layer ordered
  * by `(z, document order)`. Hidden overlays contribute nothing — no layer, no
  * backdrop, no input blocking — and neither does anything under them.
  */
-export function collectLayer(root: LayoutNode): LayoutNode[] {
+export function collectLayer(root: LayoutNode, present: Present = inLayout): LayoutNode[] {
   const found: LayoutNode[] = [];
-  collect(root, found);
+  collect(root, found, present);
   return found
     .map((node, index) => ({ node, index, z: overlaySpec(node)?.z ?? 0 }))
     .sort((a, b) => a.z - b.z || a.index - b.index)
     .map((entry) => entry.node);
 }
 
-function collect(node: LayoutNode, out: LayoutNode[]): void {
-  if (!inLayout(node)) return;
+function collect(node: LayoutNode, out: LayoutNode[], present: Present): void {
+  if (!present(node)) return;
   // Keep descending through an overlay: a nested one is legal and joins the
   // same layer, ordered like any other entry.
   if (node.ir.type === "Overlay") out.push(node);
-  for (const child of node.children) collect(child, out);
+  for (const child of node.children) collect(child, out, present);
+}
+
+/**
+ * How present an overlay is this frame, 0 (gone) to 1 (fully up) — the enter/exit
+ * fade, multiplied onto the whole layer entry when it paints.
+ *
+ * It is behavior driving the interpolation engine with endpoints it computes
+ * (decision 2026-08-11 §5), exactly like the ProgressBar's fraction: the node's own
+ * `transition` decides the duration and curve, so an overlay without one appears
+ * and disappears instantly — the pre-F7 behavior, unchanged. `visible` itself never
+ * animates; what animates is the overlay's presence in the layer, which is why the
+ * `visible` binding stays the single mechanism and the IR gains nothing.
+ *
+ * The first step of a track snaps (`stepValue`), so a modal that is already open
+ * when the view loads does not fade in — mounting snaps, like everywhere else.
+ * Its state must therefore live outside the node's own `NodeAnim`, which the
+ * resolve pass drops whenever a node leaves layout: there would be no exit to
+ * animate if the exit erased its own starting point.
+ */
+export function stepPresence(
+  anim: NodeAnim,
+  live: boolean,
+  transition: ResolvedTransition | null,
+  now: number,
+): { value: number; animating: boolean } {
+  return stepValue(anim, "presence", live ? 1 : 0, transition, now);
 }
 
 /** The modal that owns input and focus right now: the highest one in the layer. */

@@ -4,8 +4,8 @@
  * Each primitive is a function component that resolves its `variant` (an
  * authoring-time concept — decision 2026-08-03 §6) against the project theme
  * and emits the host primitive with fully resolved style/states. `Row`/`Column`
- * and `Accordion` are authoring sugar that emit a `Container` — composites and
- * variants never reach the IR.
+ * and `Accordion` are authoring sugar that emit a `Container`, and `List`/`Grid`
+ * sugar over the `Repeat` — composites and variants never reach the IR.
  */
 
 import type {
@@ -14,14 +14,17 @@ import type {
   Easing,
   GroupBehavior,
   ImageFit,
+  Layout,
   ScrollAxis,
   SliderAxis,
   Style,
 } from "@zabloo/format";
+import { INDEX_SEGMENT, ITEM_ALIAS } from "@zabloo/format";
 import {
   Children,
   createElement,
   type FC,
+  Fragment,
   isValidElement,
   type ReactElement,
   type ReactNode,
@@ -60,11 +63,74 @@ export interface CollapseProps extends CommonProps {
 }
 
 export interface ScrollViewProps extends CommonProps {
-  /** Scrollable axis. Default: "vertical". */
+  /**
+   * Scrollable axis — the one children are measured unconstrained on. Default:
+   * "vertical". `"both"` frees both axes, which is what a map or a big grid
+   * needs; it does not turn a column into a row (that is `layout.direction`).
+   */
   axis?: ScrollAxis;
-  /** Overlay position indicator painted by the SDK. Default: true. */
+  /**
+   * Overlay position indicator painted by the SDK, visible only while there is
+   * something to scroll. Default: true. Turn it off where the content itself
+   * says there is more (a strip of chips cut by the edge). Styling it is a
+   * deferred, compatible extension — the boolean becomes a union.
+   */
   scrollbar?: boolean;
   children?: ReactNode;
+}
+
+export interface OverlayProps extends CommonProps {
+  /**
+   * Blocks input to everything below (lower overlays included) and confines focus
+   * navigation to this subtree. Default: true. `false` — a toast, a tooltip —
+   * paints above but leaves the layer's own rect inert: only its children take
+   * events and everything else passes through to the tree.
+   */
+  modal?: boolean;
+  /** Explicit stacking inside the layer; ties break by document order. Default: 0. */
+  z?: number;
+  /** Named action fired on a dismiss request (Escape / gamepad B / backdrop tap). */
+  onDismiss?: string;
+  /** Self-dismiss delay in ms, counted from the moment it enters the layer. */
+  autoCloseMs?: number;
+  children?: ReactNode;
+}
+
+/** Where an overlay's content sits on the layer — sugar over `justify`/`align`. */
+export type OverlayPosition =
+  | "center"
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
+/** Props shared by the three overlay composites — a modal is always modal, hence the Omit. */
+interface OverlaySugarProps extends Omit<OverlayProps, "modal"> {
+  /** Placement of the content on the layer. */
+  position?: OverlayPosition;
+}
+
+export interface ModalProps extends OverlaySugarProps {
+  /** The panel that holds the content. Its `style` is the card; `style` is the backdrop. */
+  panel?: Omit<ContainerProps, "children">;
+}
+
+export interface ToastProps extends OverlaySugarProps {
+  /** The pill that holds the message. */
+  panel?: Omit<ContainerProps, "children">;
+  /** Style of the auto-wrapped message, when `children` is a bare string. */
+  label?: Style;
+}
+
+export interface TooltipProps extends OverlaySugarProps {
+  /** The bubble that holds the hint. */
+  panel?: Omit<ContainerProps, "children">;
+  /** Style of the auto-wrapped hint, when `children` is a bare string. */
+  label?: Style;
 }
 
 export interface ImageProps extends CommonProps {
@@ -231,7 +297,59 @@ export const Container: FC<ContainerProps> = primitive<ContainerProps>("Containe
 export const Text: FC<TextProps> = primitive<TextProps>("Text");
 export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
 export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
+
+/**
+ * A window onto content bigger than itself. It is a normal flex container on
+ * both sides — its own size comes from `layout`, and `direction`/`justify`/
+ * `align`/`gap`/`padding` lay its children out — with one difference: on the
+ * scrollable `axis` the children are measured UNCONSTRAINED, so they take their
+ * natural size and that is what the player scrolls through. Size the viewport
+ * yourself (`layout.width`/`height`/`grow`); giving it neither a size nor a
+ * growing parent leaves it hugging its content, with nothing to scroll.
+ *
+ * It always clips, paint AND hit-testing, so a row past the edge is neither
+ * drawn nor tappable — a `clip: false` on it is ignored. Wheel and drag are
+ * handled by the SDK, which owns the scroll position: the offset is runtime
+ * state like a Button's `pressed`, never authored and never serialized, and it
+ * is re-clamped on every relayout (close a `<Collapse>` inside and the list
+ * settles at the new end instead of hanging past it).
+ *
+ * The node itself has no states and no events: it is not focusable, it has no
+ * hover/pressed, and there is no `onScroll` — `states.*` on it would never
+ * fire, while the Buttons inside keep theirs (dragging to scroll does not
+ * become a click on them). Programmatic ScrollTo, a bindable offset and
+ * auto-scrolling to the focused node arrive with gamepad input; inertia,
+ * a styleable scrollbar and snapping come after.
+ *
+ * ```tsx
+ * <ScrollView layout={{ width: 460, height: 340, align: "stretch", gap: 4 }}>
+ *   {items.map((item) => <ItemRow key={item.id} item={item} />)}
+ * </ScrollView>
+ * <ScrollView axis="horizontal" scrollbar={false} layout={{ direction: "row", width: 460, gap: 8 }}>
+ *   {categories.map((name) => <Chip key={name} name={name} />)}
+ * </ScrollView>
+ * ```
+ */
 export const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("ScrollView");
+
+/**
+ * A layer above the whole view, declared where the UI that opens it lives but
+ * painted apart (decision 2026-08-11): it leaves its parent's flow, so it neither
+ * takes space nor pushes its siblings, and the SDK collects every visible overlay
+ * of the view into ONE layer ordered by `(z, document order)`.
+ *
+ * Its rect IS the view's, so `layout.width`/`height` are ignored (size the child
+ * instead) and `layout.justify`/`align`/`padding` place the content; its own
+ * `style.background` — with alpha — IS the backdrop, and no background at all
+ * makes a transparent layer. Opening and closing is `visible` and nothing else:
+ * bind it (`visible={{ bind: "ui.confirmOpen" }}`) and the game moves that boolean
+ * with `SetData`, while Escape, a backdrop tap and `autoCloseMs` write `false`
+ * back through the same binding and fire `onDismiss`.
+ *
+ * Unlike `<Toggle>` and `<Slider>` it has no positional slots, so it is exported
+ * raw; `<Modal>`, `<Toast>` and `<Tooltip>` below are the ready-made shapes.
+ */
+export const Overlay: FC<OverlayProps> = primitive<OverlayProps>("Overlay");
 
 /**
  * A textured rectangle, sized by default to the source's own pixels (it is a leaf
@@ -691,6 +809,398 @@ export function Badge({
     },
     children ?? text,
   );
+}
+
+const BACKDROP: Style = { background: "#00000099" };
+const PANEL: Style = { background: "#181b26", radius: 12, borderWidth: 1, borderColor: "#2f3446" };
+const TOAST: Style = { background: "#2f3446", radius: 8 };
+const TOOLTIP: Style = { background: "#101218", radius: 6, borderWidth: 1, borderColor: "#2f3446" };
+const MESSAGE: Style = { color: "#e8ecf5", fontSize: 14 };
+const HINT: Style = { color: "#c8cede", fontSize: 12 };
+/** Keeps the content off the screen edges — the layer spans the whole view. */
+const LAYER_INSET = 24;
+/** Stacking bands by convention (the IR imposes no taxonomy): the last one opened wins. */
+const TOAST_Z = 10;
+const TOOLTIP_Z = 20;
+
+/**
+ * The nine placements, as the flex the layer already has. The layer is emitted as
+ * a row so `justify` is always the horizontal axis and `align` the vertical one,
+ * whatever the content is — the author never has to think about main vs cross.
+ */
+const PLACEMENT: Record<OverlayPosition, { justify: Layout["justify"]; align: Layout["align"] }> = {
+  center: { justify: "center", align: "center" },
+  top: { justify: "center", align: "start" },
+  bottom: { justify: "center", align: "end" },
+  left: { justify: "start", align: "center" },
+  right: { justify: "end", align: "center" },
+  "top-left": { justify: "start", align: "start" },
+  "top-right": { justify: "end", align: "start" },
+  "bottom-left": { justify: "start", align: "end" },
+  "bottom-right": { justify: "end", align: "end" },
+};
+
+/** The layer's layout for a placement, with the author's `layout` overriding it. */
+function layerLayout(position: OverlayPosition, layout: Layout | undefined): Layout {
+  return { direction: "row", ...PLACEMENT[position], padding: LAYER_INSET, ...layout };
+}
+
+/** A bare string/number message becomes a `<Text>`; a node is used as it is. */
+function message(children: ReactNode, style: Style): ReactNode {
+  return typeof children === "string" || typeof children === "number"
+    ? createElement(Text, { style }, children)
+    : children;
+}
+
+/**
+ * A modal dialog: a full-view layer that dims what it covers, captures input and
+ * traps focus, with the content in a centered panel.
+ *
+ * The component IS the backdrop — `style` paints it (dim by default), which is why
+ * there is no `backdrop` prop — and `panel` styles the card inside it. Give a child
+ * `autofocus` and it takes the focus when the modal opens; the SDK gives it back
+ * when it closes.
+ *
+ * ```tsx
+ * <Modal visible={{ bind: "ui.confirmQuit" }} onDismiss="quit-cancelled" transition={{ duration: 150 }}>
+ *   <Text>¿Salir de la partida?</Text>
+ *   <Row layout={{ gap: 8 }}>
+ *     <Button onClick="quit-confirm" autofocus><Text>Salir</Text></Button>
+ *     <Button onClick="quit-cancelled"><Text>Cancelar</Text></Button>
+ *   </Row>
+ * </Modal>
+ * ```
+ */
+export function Modal({
+  position = "center",
+  panel,
+  layout,
+  style,
+  children,
+  ...rest
+}: ModalProps): ReturnType<FC> {
+  return createElement(
+    Overlay,
+    {
+      ...rest,
+      modal: true,
+      layout: layerLayout(position, layout),
+      style: { ...BACKDROP, ...style },
+    },
+    createElement(
+      Container,
+      {
+        ...panel,
+        layout: { padding: 20, gap: 12, ...panel?.layout },
+        style: { ...PANEL, ...panel?.style },
+      },
+      children,
+    ),
+  );
+}
+
+/**
+ * The `Repeat` primitive. NOT exported, for the same reason `Toggle` and `Slider`
+ * are not: its slots are positional (`children[0]` template, `children[1..]` empty
+ * state) and `<List>`/`<Grid>` are the one place that convention is written down.
+ */
+interface RepeatPrimitiveProps extends CommonProps {
+  items?: string;
+  as?: string;
+  keyPath?: string;
+  children?: ReactNode;
+}
+const Repeat: FC<RepeatPrimitiveProps> = primitive<RepeatPrimitiveProps>("Repeat");
+
+/**
+ * Builds the binding paths of the current element inside a template. Call it for a
+ * field (`item("price.amount")` → `"item.price.amount"`) or bare for the whole
+ * element (`item()` → `"item"`), and read `$index` for its position.
+ *
+ * It exists so the alias lives in ONE place: rename `as` and every binding in the
+ * template follows, which is what makes nested lists (each with its own alias)
+ * readable.
+ */
+export interface ItemRef {
+  (path?: string): string;
+  /** The element's position in the array — a number the data does not contain. */
+  readonly $index: string;
+}
+
+/** An item template: nodes that bind by hand, or a function given the item's paths. */
+export type ItemTemplate = ReactNode | ((item: ItemRef) => ReactNode);
+
+/** Props shared by the two ways of laying repeated items out. */
+export interface RepeatProps extends CommonProps {
+  /**
+   * Data path of the array to repeat, e.g. `"shop.items"`. Always a binding: the
+   * game owns the data and the document carries only structure.
+   */
+  items: string;
+  /**
+   * Alias the template binds against (`"it"` → `bind="it.name"`). Default: `"item"`.
+   * Declared rather than reserved so a nested list can still reach the outer
+   * element — pick a name that is not a root of your data, which it would shadow.
+   */
+  as?: string;
+  /**
+   * Path RELATIVE to the item naming its stable identity (`"id"`, `"meta.sku"`).
+   * Absent = identity is positional. It is what keeps per-item state (focus, a
+   * checked Toggle, a scroll offset) with the item across a `SetData` that
+   * reorders, and what lets the renderer recycle instances. Named `keyPath`
+   * because React owns `key`.
+   */
+  keyPath?: string;
+  /** Shown while the array is empty, absent or not an array at all. */
+  empty?: ReactNode;
+}
+
+export interface ListProps extends RepeatProps {
+  /** Item flow. Default: "vertical". */
+  axis?: "vertical" | "horizontal";
+  /** The item template — a single node, or a function that receives its paths. */
+  children?: ItemTemplate;
+}
+
+export interface GridProps extends RepeatProps {
+  /** Items per line. The grid's geometry is resolved from it at authoring time. */
+  columns: number;
+  /**
+   * Width of one cell in px. Give this OR `layout.width` — the grid solves the
+   * other one so exactly `columns` cells fit per line.
+   */
+  itemWidth?: number;
+  /** Props for the cell container that sizes each column. */
+  cell?: Omit<ContainerProps, "children">;
+  /** The item template — any number of nodes; the cell holds them. */
+  children?: ItemTemplate;
+}
+
+function itemRef(alias: string): ItemRef {
+  const ref = (path?: string): string =>
+    path === undefined || path.length === 0 ? alias : `${alias}.${path}`;
+  return Object.assign(ref, { $index: `${alias}.${INDEX_SEGMENT}` });
+}
+
+/** Resolves the template to its root nodes — running the render-prop, if it is one. */
+function templateNodes(children: ItemTemplate | undefined, alias: string): ReactNode[] {
+  const rendered = typeof children === "function" ? children(itemRef(alias)) : children;
+  return Children.toArray(rendered);
+}
+
+/**
+ * A data-driven list: the template is emitted ONCE and the SDK instantiates it per
+ * element of the bound array (the `Repeat` primitive — decision 2026-08-11, ZAB-29).
+ * The list node IS the flex container of the items, so `layout` (gap, padding,
+ * justify, align) lays them out like any other container.
+ *
+ * ```tsx
+ * <List items="shop.items" as="it" keyPath="id" layout={{ gap: 8 }}
+ *       empty={<Text>Nothing here yet</Text>}>
+ *   {(it) => (
+ *     <Row layout={{ gap: 12, align: "center" }}>
+ *       <Text bind={it("name")} />
+ *       <Text bind={it("price")} />
+ *       <Button onClick="buy"><Text>Buy</Text></Button>
+ *     </Row>
+ *   )}
+ * </List>
+ * ```
+ *
+ * The template is a single node because `children[0]` IS the template and
+ * `children[1..]` are the empty state — the positional convention of the primitive.
+ */
+export function List({ axis, empty, as, layout, children, ...rest }: ListProps): ReturnType<FC> {
+  const nodes = templateNodes(children, as ?? ITEM_ALIAS);
+  if (nodes.length === 0) throw new Error("<List> needs an item template as its children.");
+  if (nodes.length > 1 || isFragment(nodes[0])) {
+    throw new Error(
+      "A <List> template is a single node — wrap the items' contents in a <Row> or <Column>.",
+    );
+  }
+  return createElement(
+    Repeat,
+    {
+      ...rest,
+      ...(as !== undefined && { as }),
+      layout: { direction: axis === "horizontal" ? "row" : "column", ...layout },
+    },
+    nodes[0],
+    empty,
+  );
+}
+
+/**
+ * A transient message that floats over the UI without stealing it: non-modal, so
+ * the layer is inert to input and the player keeps using what is underneath, and
+ * self-closing after `autoCloseMs` (the SDK clears the bound `visible` and fires
+ * `onDismiss`, exactly like Escape does on a modal).
+ *
+ * A bare string is wrapped in a `<Text>`; pass nodes for an icon plus a label. Its
+ * `z` puts it above modals by convention, so a confirmation still shows while a
+ * dialog is up.
+ *
+ * ```tsx
+ * <Toast visible={{ bind: "ui.saved" }} onDismiss="toast-closed" transition={{ duration: 200 }}>
+ *   Partida guardada
+ * </Toast>
+ * ```
+ */
+export function Toast({
+  position = "bottom",
+  panel,
+  label,
+  autoCloseMs = 3000,
+  z = TOAST_Z,
+  layout,
+  children,
+  ...rest
+}: ToastProps): ReturnType<FC> {
+  return createElement(
+    Overlay,
+    { ...rest, modal: false, z, autoCloseMs, layout: layerLayout(position, layout) },
+    createElement(
+      Container,
+      {
+        ...panel,
+        layout: { direction: "row", align: "center", gap: 8, padding: 12, ...panel?.layout },
+        style: { ...TOAST, ...panel?.style },
+      },
+      message(children, { ...MESSAGE, ...label }),
+    ),
+  );
+}
+
+/**
+ * A hint bubble over the UI: the same non-modal layer as a `<Toast>`, smaller and
+ * without a timer.
+ *
+ * v1 has no anchoring to another node's rect and no hover/focus trigger — both are
+ * capabilities the IR does not have yet — so a tooltip is placed on the layer like
+ * any other overlay and shown by its `visible` binding, which the game moves with
+ * `SetData` when it decides the hint applies.
+ *
+ * ```tsx
+ * <Tooltip visible={{ bind: "ui.hint" }} position="top">Pulsa A para saltar</Tooltip>
+ * ```
+ */
+export function Tooltip({
+  position = "top",
+  panel,
+  label,
+  z = TOOLTIP_Z,
+  layout,
+  children,
+  ...rest
+}: TooltipProps): ReturnType<FC> {
+  return createElement(
+    Overlay,
+    { ...rest, modal: false, z, layout: layerLayout(position, layout) },
+    createElement(
+      Container,
+      {
+        ...panel,
+        layout: { direction: "row", align: "center", gap: 6, padding: 8, ...panel?.layout },
+        style: { ...TOOLTIP, ...panel?.style },
+      },
+      message(children, { ...HINT, ...label }),
+    ),
+  );
+}
+
+/**
+ * A list that wraps into lines of `columns` cells — the same `Repeat`, laid out as a
+ * wrapping row (decision 2026-08-11, ZAB-32: `wrap` joins the layout subset).
+ *
+ * ```tsx
+ * <Grid items="inventory.slots" columns={4} itemWidth={72} layout={{ gap: 8 }}>
+ *   {(slot) => <Text bind={slot("name")} />}
+ * </Grid>
+ * ```
+ *
+ * The geometry is arithmetic, not a percentage: v1 has no fractional dims, so the
+ * grid solves `itemWidth` from `layout.width` (or the other way round) at authoring
+ * time and each cell carries the resulting px. That is also why `gap`/`padding` must
+ * be numbers here — a token only resolves inside the SDK, too late for this sum.
+ */
+export function Grid({
+  columns,
+  itemWidth,
+  cell,
+  empty,
+  as,
+  layout,
+  children,
+  ...rest
+}: GridProps): ReturnType<FC> {
+  const nodes = templateNodes(children, as ?? ITEM_ALIAS);
+  if (nodes.length === 0) throw new Error("<Grid> needs an item template as its children.");
+  const { width, cellWidth } = gridGeometry(columns, itemWidth, layout);
+  return createElement(
+    Repeat,
+    {
+      ...rest,
+      ...(as !== undefined && { as }),
+      // direction/wrap are the grid itself, not defaults: the geometry above is
+      // solved for a wrapping row, so they are not the author's to override.
+      layout: { ...layout, direction: "row", wrap: true, width },
+    },
+    createElement(Container, { ...cell, layout: { ...cell?.layout, width: cellWidth } }, ...nodes),
+    empty,
+  );
+}
+
+/** The px a `<Grid>` needs so exactly `columns` cells fit on a line. */
+function gridGeometry(
+  columns: number,
+  itemWidth: number | undefined,
+  layout: GridProps["layout"],
+): { width: number; cellWidth: number } {
+  if (!Number.isInteger(columns) || columns < 1) {
+    throw new Error(`<Grid columns={${columns}}> must be an integer >= 1.`);
+  }
+  const gap = numericDim(layout?.gap, "gap");
+  const padding = numericDim(layout?.padding, "padding");
+  const around = gap * (columns - 1) + padding * 2;
+  if (itemWidth !== undefined) {
+    if (!Number.isFinite(itemWidth) || itemWidth <= 0) {
+      throw new Error(`<Grid itemWidth={${itemWidth}}> must be a positive number of px.`);
+    }
+    // Rounded UP so the line always has room for the last cell: summing the cells
+    // one by one and summing them as `columns * itemWidth` need not land on the
+    // same float, and a hair too little would push a cell to the next line.
+    return { width: Math.ceil(columns * itemWidth + around), cellWidth: itemWidth };
+  }
+  const width = numericDim(layout?.width, "width");
+  if (width <= 0) {
+    throw new Error(
+      "<Grid> needs its geometry: pass `itemWidth`, or a numeric `layout.width` to divide.",
+    );
+  }
+  // Floored for the mirror-image reason: an inexact division would otherwise make
+  // the cells add up to slightly MORE than the line. The leftover px stay as slack.
+  const cellWidth = Math.floor((width - around) / columns);
+  if (cellWidth <= 0) {
+    throw new Error(
+      `<Grid columns={${columns}}> does not fit in ${width}px with gap ${gap} and padding ${padding}.`,
+    );
+  }
+  return { width, cellWidth };
+}
+
+function numericDim(value: Dim | undefined, name: string): number {
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(
+      `<Grid> resolves its cell width at authoring time, so layout.${name} must be a ` +
+        `number of px here (got ${JSON.stringify(value)}).`,
+    );
+  }
+  return value;
+}
+
+function isFragment(node: ReactNode): boolean {
+  return isValidElement(node) && node.type === Fragment;
 }
 
 /** Re-exported prop aliases for user components. */

@@ -36,13 +36,15 @@ export type AnimValue = number | Color;
  *
  * - `progress`: the ProgressBar's fraction, which is why the bar interpolates its
  *   value and never its fill rect.
+ * - `presence`: how far an Overlay has entered the layer, which is what fades a
+ *   modal in and out without making `visible` animatable.
  * - `value`: the Slider's value, for changes that do NOT come from the gesture in
  *   the player's hand (a binding, `setValue`) — a dragged thumb follows the finger.
  * - `collapse`: the Collapse's own height, between its header's box and the height
  *   measured with the content in (`collapse.ts`).
  * - `checked`: the Toggle's 0..1 crossfade between its two indicator slots.
  */
-export type BehaviorKey = "progress" | "value" | "collapse" | "checked";
+export type BehaviorKey = "progress" | "presence" | "value" | "collapse" | "checked";
 export type TrackKey = AnimatableProp | BehaviorKey;
 
 /** Iteration order of the animatable set — the normative list, nothing else animates. */
