@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assetIdFromRef,
+  type ContainerNode,
   decodeAssetData,
   type Envelope,
   IR_VERSION,
@@ -271,5 +272,77 @@ describe("scroll & clipping (ZAB-5)", () => {
       },
     };
     expect(withClip.views.button?.type).toBe("Button");
+  });
+});
+
+describe("exclusive-select groups (ZAB-22)", () => {
+  // Typed without casts: this file failing `tsc --noEmit` IS the type test.
+  // Positional contract — children[0] = tab bar, children[1..n] = panels.
+  const tabsEnvelope: Envelope = {
+    v: IR_VERSION,
+    tokens: {},
+    views: {
+      settings: {
+        type: "Container",
+        group: "exclusive-select",
+        selected: 1,
+        children: [
+          {
+            type: "Container",
+            layout: { direction: "row" },
+            children: [
+              {
+                type: "Button",
+                states: { selected: { style: { background: "#4f46e5" } } },
+                children: [{ type: "Text", text: "Video" }],
+              },
+              { type: "Button", children: [{ type: "Text", text: "Audio" }] },
+            ],
+          },
+          { type: "Container", children: [{ type: "Text", text: "video panel" }] },
+          { type: "Container", children: [{ type: "Text", text: "audio panel" }] },
+        ],
+      },
+    },
+  };
+
+  it("accepts a tabs container with a selected index and a selected state", () => {
+    const env = parseEnvelope(tabsEnvelope);
+    const view = env.views.settings as ContainerNode;
+    expect(view.group).toBe("exclusive-select");
+    expect(view.selected).toBe(1);
+  });
+
+  it("selected is optional (the SDK defaults to the first tab)", () => {
+    const bare: ContainerNode = { type: "Container", group: "exclusive-select" };
+    const env = parseEnvelope({ v: IR_VERSION, tokens: {}, views: { s: bare } });
+    expect((env.views.s as ContainerNode).selected).toBeUndefined();
+  });
+
+  it("rejects unknown group behaviors at authoring time", () => {
+    const node: ContainerNode = {
+      type: "Container",
+      // @ts-expect-error — "exclusive-everything" is not a GroupBehavior
+      group: "exclusive-everything",
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("keeps unknown group behaviors readable over the wire (graceful degradation)", () => {
+    // An SDK older than this vocabulary must still parse and render the subtree;
+    // it just ignores the behavior it does not know (decision 2026-08-03).
+    const env = parseEnvelope({
+      v: IR_VERSION,
+      tokens: {},
+      views: {
+        s: {
+          type: "Container",
+          group: "exclusive-select",
+          children: [{ type: "Container" }, { type: "Text", text: "panel" }],
+        },
+      },
+    });
+    const node = env.views.s as ContainerNode;
+    expect(node.children).toHaveLength(2);
   });
 });

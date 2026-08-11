@@ -18,6 +18,7 @@ import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
 import { arrange, inLayout, type LayoutNode, measure, type Rect } from "./layout.js";
 import { clamp } from "./scroll.js";
+import { clampSelected, resolveTabsGroup } from "./select.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 
 const DEFAULT_FONT_SIZE = 16;
@@ -36,6 +37,7 @@ interface AnyNode {
   src?: unknown;
   open?: boolean;
   group?: string;
+  selected?: unknown;
   autofocus?: boolean;
 }
 
@@ -66,6 +68,8 @@ export interface ZablooHandle {
   /** The game/page data channel — bound Text/visible react (cached + replayed). */
   setData(path: string, value: unknown): void;
   setOpen(id: string, open: boolean): boolean;
+  /** Selects a tab of an `"exclusive-select"` group by its container id. */
+  setSelectedTab(id: string, index: number): boolean;
   setScroll(id: string, x: number, y: number): boolean;
   dispose(): void;
 }
@@ -140,6 +144,7 @@ class WebView {
       },
       setData: (path, value) => this.setData(path, value),
       setOpen: (id, open) => this.setOpen(id, open),
+      setSelectedTab: (id, index) => this.setSelectedTab(id, index),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
         for (const dispose of this.disposers) dispose();
@@ -174,6 +179,8 @@ class WebView {
       pressed: false,
       focused: false,
       open: true,
+      selected: false,
+      selectedIndex: 0,
       visibleFlag: true,
       sectionShown: true,
       scrollOffset: { x: 0, y: 0 },
@@ -202,6 +209,11 @@ class WebView {
       node.open = any.open ?? true;
       this.applyOpen(node);
     }
+    if (any.group === "exclusive-select") {
+      const { buttons } = this.tabsOf(node, true);
+      node.selectedIndex = clampSelected(any.selected, buttons.length);
+      this.applySelection(node);
+    }
     return node;
   }
 
@@ -222,9 +234,66 @@ class WebView {
     this.render();
   }
 
+  /**
+   * The tab bar's buttons and their panels (decision 2026-08-11): `children[0]`
+   * is the bar, `children[1..n]` the panels. `report` logs a structural
+   * complaint once per build instead of on every tap.
+   */
+  private tabsOf(
+    group: LayoutNode,
+    report = false,
+  ): { buttons: LayoutNode[]; panels: LayoutNode[] } {
+    const { buttons, panels, warning } = resolveTabsGroup(
+      group.children,
+      (node) => node.ir.type,
+      (node) => node.children,
+    );
+    if (warning && report) console.warn(`[zabloo] exclusive-select group: ${warning}.`);
+    return { buttons, panels };
+  }
+
+  /** Only the selected panel stays in layout; its button carries `states.selected`. */
+  private applySelection(group: LayoutNode): void {
+    const { buttons, panels } = this.tabsOf(group);
+    for (let i = 0; i < panels.length; i++) {
+      panels[i].sectionShown = i === group.selectedIndex;
+      buttons[i].selected = i === group.selectedIndex;
+    }
+  }
+
+  /** Single state-mutation path for tabs (tap, Enter/gamepad, `setSelected`). */
+  private setSelected(group: LayoutNode, index: number): void {
+    const { buttons } = this.tabsOf(group);
+    const next = clampSelected(index, buttons.length);
+    if (next === group.selectedIndex) return;
+    group.selectedIndex = next;
+    this.applySelection(group);
+    this.render();
+  }
+
+  /** The index this button occupies in its `"exclusive-select"` group, if it is a tab. */
+  private tabIndexOf(button: LayoutNode): { group: LayoutNode; index: number } | null {
+    const group = button.parent?.parent;
+    if (!group || (group.ir as AnyNode).group !== "exclusive-select") return null;
+    if (button.parent !== group.children[0]) return null; // in the panels, not the bar
+    const index = this.tabsOf(group).buttons.indexOf(button);
+    return index < 0 ? null : { group, index };
+  }
+
+  /**
+   * Activating a Button — the one path shared by pointer taps and Enter/gamepad:
+   * it fires the named action and, for a tab button, moves the selection.
+   */
+  private activateButton(button: LayoutNode): void {
+    const action = (button.ir as AnyNode).onClick;
+    if (action) this.onAction?.(action);
+    const tab = this.tabIndexOf(button);
+    if (tab) this.setSelected(tab.group, tab.index);
+  }
+
   private enforceGroup(opened: LayoutNode): void {
     const group = (opened.parent?.ir as AnyNode | undefined)?.group;
-    if (group === undefined) return;
+    if (group === undefined || group === "exclusive-select") return; // not an open-driven behavior
     if (group !== "exclusive-open") {
       console.warn(`[zabloo] Unknown group behavior "${group}" — ignoring.`);
       return;
@@ -244,6 +313,17 @@ class WebView {
       return false;
     }
     this.setCollapseOpen(node, open);
+    return true;
+  }
+
+  /** The game/page channel for tabs — the `SetOpen` counterpart for `"exclusive-select"`. */
+  setSelectedTab(id: string, index: number): boolean {
+    const node = this.byId.get(id);
+    if (!node || (node.ir as AnyNode).group !== "exclusive-select") {
+      console.warn(`[zabloo] setSelectedTab: no exclusive-select group with id "${id}".`);
+      return false;
+    }
+    this.setSelected(node, index);
     return true;
   }
 
@@ -352,8 +432,7 @@ class WebView {
     node.pressed = false;
     this.render();
     if (node.ir.type === "Button") {
-      const action = (node.ir as AnyNode).onClick;
-      if (action) this.onAction?.(action);
+      this.activateButton(node);
     } else if (node.parent) {
       this.setCollapseOpen(node.parent, !node.parent.open);
     }
@@ -422,10 +501,7 @@ class WebView {
         pressed.pressed = false;
         this.pressedNode = null;
         this.render();
-        if (contains(pressed.rect, point)) {
-          const action = (pressed.ir as AnyNode).onClick;
-          if (action) this.onAction?.(action);
-        }
+        if (contains(pressed.rect, point)) this.activateButton(pressed);
         return;
       }
       const drag = this.scrollDrag;
@@ -524,7 +600,9 @@ class WebView {
   private effectiveStyle(node: LayoutNode): Style | undefined {
     const any = node.ir as AnyNode;
     let style = any.style;
-    // Merge order: base → focused → pressed (pressed wins while held).
+    // Merge order: base → selected → focused → pressed (pressed wins while held).
+    if (node.selected && any.states?.selected?.style)
+      style = { ...style, ...any.states.selected.style };
     if (node.focused && any.states?.focused?.style)
       style = { ...style, ...any.states.focused.style };
     if (node.pressed && any.states?.pressed?.style)

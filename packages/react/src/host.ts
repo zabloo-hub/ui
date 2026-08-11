@@ -47,6 +47,7 @@ export interface HostInstance {
     bind?: string;
     open?: boolean;
     group?: GroupBehavior;
+    selected?: number;
     axis?: ScrollAxis;
     scrollbar?: boolean;
   };
@@ -132,6 +133,7 @@ export function toIR(instance: HostInstance): ZNode {
         type: "Container",
         ...base,
         ...(instance.props.group !== undefined && { group: instance.props.group }),
+        ...(instance.props.selected !== undefined && { selected: instance.props.selected }),
         ...childrenIR(instance),
       };
       return node;

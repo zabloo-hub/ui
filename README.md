@@ -45,9 +45,9 @@ self-render pipeline: own Flexbox layout pass, own tessellator, own glyph atlase
 What works today:
 
 - **4 primitives** — `Container`, `Text`, `Button`, `Collapse` — plus authoring-time
-  composites (`Row`/`Column`, `Accordion`) that flatten to primitives.
+  composites (`Row`/`Column`, `Accordion`, `Tabs`) that flatten to primitives.
 - **Styling**: design tokens (flat dictionary, theme hot-update without re-emitting the
-  tree), per-state overrides (`pressed` / `focused`), variants resolved at export time,
+  tree), per-state overrides (`pressed` / `focused` / `selected`), variants resolved at export time,
   and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset
   border), `color`, `fontSize`, `opacity` (inherits multiplicatively).
 - **Interactivity**: SDK-owned behavior keyed by component type, named actions surfaced

@@ -19,6 +19,10 @@ export {
   Row,
   ScrollView,
   type ScrollViewProps,
+  Tab,
+  type TabProps,
+  Tabs,
+  type TabsProps,
   Text,
   type TextProps,
 } from "./components.js";

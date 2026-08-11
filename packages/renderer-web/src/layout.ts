@@ -28,9 +28,13 @@ export interface LayoutNode {
   pressed: boolean;
   focused: boolean;
   open: boolean;
+  /** True while this node is the chosen button of an "exclusive-select" group (a tab). */
+  selected: boolean;
+  /** Chosen tab index — on the group container of an "exclusive-select" group (Tabs). */
+  selectedIndex: number;
   /** `visible` value (bound or static) — display:none semantics. */
   visibleFlag: boolean;
-  /** False while hidden as content of a closed Collapse. */
+  /** False while hidden as content of a closed Collapse, or as an unselected tab panel. */
   sectionShown: boolean;
   /** Runtime scroll position (ScrollView only) — re-clamped on every relayout. */
   scrollOffset: { x: number; y: number };
