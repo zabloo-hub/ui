@@ -146,8 +146,9 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
  * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
  * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
- * `text`, `open`, `src`, `axis`, `scrollbar`, and the Overlay's `modal`/`z` — `z` is
- * numeric but it is ordering, not a visual magnitude).
+ * `text`, `open`, `src`, `axis`, `scrollbar`, and the Overlay's `modal`/`z`/
+ * `autoCloseMs` — the last two are numeric but they are ordering and timing, not
+ * visual magnitudes).
  *
  * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
  * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
@@ -358,6 +359,17 @@ export interface OverlayNode extends NodeBase {
    * default behavior plus the game→SDK API, never logic in the JSON.
    */
   onDismiss?: string;
+  /**
+   * Milliseconds this overlay stays up before the SDK requests its own dismissal
+   * (a Toast that fades on its own). Same dismiss path as Escape or a backdrop
+   * tap — the SDK clears the bound `visible` and fires `onDismiss`. The clock
+   * starts when the overlay enters the layer and resets if it leaves and returns.
+   * Omitted (the default) means it stays until something closes it.
+   *
+   * A plain number, not a `Dim`: it is a behavior timeout, not motion — nothing
+   * about it is themeable the way `transition.duration` is.
+   */
+  autoCloseMs?: number;
   children?: ZNode[];
 }
 
