@@ -15,13 +15,17 @@
  * - **Focus:** the trap derives from `modal` — while a modal is up, only its
  *   subtree offers navigation candidates.
  *
- * Plus the one thing an overlay does that no other node does: it **fades in and
+ * Plus the two things an overlay does that no other node does: it **fades in and
  * out** of the layer (`stepPresence`), which is why a closing modal outlives the
- * `visible` that closed it by exactly one transition.
+ * `visible` that closed it by exactly one transition, and it can be **anchored**
+ * to another node's rect (`anchorBox`, decision 2026-08-11, ZAB-46) — the one
+ * placement in v1 that is relative to a rect the node does not contain.
  */
 
-import { childClip, hitTest, type NodeRadius } from "./hit.js";
-import { contains, inLayout, type LayoutNode } from "./layout.js";
+import type { AnchorAt, Dim, OverlayAnchor, OverlayTrigger } from "@zabloo/format";
+import { intersectClip, isEmptyClip } from "./clip.js";
+import { childClip, effectiveClip, hitTest, type NodeRadius } from "./hit.js";
+import { contains, inLayout, type LayoutNode, type Rect } from "./layout.js";
 import { type NodeAnim, type ResolvedTransition, stepValue } from "./transition.js";
 
 export interface Point {
@@ -56,6 +60,196 @@ export function overlaySpec(node: LayoutNode): OverlaySpec | null {
 
 export function isModal(node: LayoutNode): boolean {
   return overlaySpec(node)?.modal === true;
+}
+
+/** Distance kept from the anchor's edge when the node declares none. */
+export const ANCHOR_OFFSET = 8;
+
+const ANCHOR_AT: readonly AnchorAt[] = [
+  "center",
+  "top",
+  "bottom",
+  "left",
+  "right",
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+];
+
+/** An Overlay's anchor with the IR defaults applied. `offset` is still a `Dim`. */
+export interface AnchorSpec {
+  id: string;
+  at: AnchorAt;
+  offset: Dim | undefined;
+  trigger: OverlayTrigger;
+}
+
+/**
+ * The anchor of an Overlay node, or null for anything else — including an
+ * `anchor` with no `id`, which anchors nothing.
+ *
+ * Read loosely, like the rest of the IR: an `at` this build does not know falls
+ * back to the default instead of failing, so a newer placement degrades to a
+ * tooltip in the wrong-ish place rather than to no tooltip.
+ */
+export function anchorSpec(node: LayoutNode): AnchorSpec | null {
+  if (node.ir.type !== "Overlay") return null;
+  const anchor = (node.ir as { anchor?: OverlayAnchor }).anchor;
+  if (!anchor || typeof anchor.id !== "string" || anchor.id === "") return null;
+  return {
+    id: anchor.id,
+    at: anchor.at !== undefined && ANCHOR_AT.includes(anchor.at) ? anchor.at : "top",
+    offset: anchor.offset,
+    trigger: anchor.trigger === "hover" ? "hover" : "manual",
+  };
+}
+
+/**
+ * Whether this overlay rides its anchor's hover/focus. Such an overlay is also
+ * INERT to input (see `resolveHit`): a bubble that took the pointer would steal
+ * the hover from the very anchor holding it up, and the two would flicker against
+ * each other for as long as the pointer sat between them.
+ */
+export function isHoverTriggered(node: LayoutNode): boolean {
+  return anchorSpec(node)?.trigger === "hover";
+}
+
+/**
+ * Whether a node is actually on screen right now: in layout with every ancestor in
+ * layout, and not entirely clipped away by one of them (scrolled out of a
+ * `ScrollView`). It is what decides whether an anchored overlay still has something
+ * to point at — a tooltip hanging over the edge of a list whose row has scrolled
+ * past is pointing at nothing.
+ *
+ * It reads the rects of the frame that has already been laid out, so a scroll takes
+ * the tooltip away one frame later — invisible at 60fps, and the alternative would
+ * be laying the tree out twice per frame to answer a question about a bubble.
+ */
+export function isOnScreen(node: LayoutNode, radiusOf: NodeRadius): boolean {
+  for (let current: LayoutNode | null = node; current; current = current.parent) {
+    if (!inLayout(current)) return false;
+  }
+  const clip = effectiveClip(node, radiusOf);
+  return clip === null || !isEmptyClip(intersectClip(clip, node.rect, 0));
+}
+
+/** Which side of the anchor the content takes, and how it aligns along that side. */
+function placement(at: AnchorAt): {
+  side: "top" | "bottom" | "left" | "right" | "on";
+  align: number;
+} {
+  switch (at) {
+    case "center":
+      return { side: "on", align: 0.5 };
+    case "top":
+      return { side: "top", align: 0.5 };
+    case "bottom":
+      return { side: "bottom", align: 0.5 };
+    case "left":
+      return { side: "left", align: 0.5 };
+    case "right":
+      return { side: "right", align: 0.5 };
+    case "top-left":
+      return { side: "top", align: 0 };
+    case "top-right":
+      return { side: "top", align: 1 };
+    case "bottom-left":
+      return { side: "bottom", align: 0 };
+    default:
+      return { side: "bottom", align: 1 };
+  }
+}
+
+const OPPOSITE = { top: "bottom", bottom: "top", left: "right", right: "left" } as const;
+
+/**
+ * Where an anchored overlay's content goes: `at` around `anchor`, `offset` px away,
+ * flipped to the opposite side when the preferred one does not fit and the other
+ * does, and finally clamped into `bounds` (the view, inset by the overlay's own
+ * padding). Pure rect math, and therefore the literal reference for the Unity
+ * ticket, like `stepPresence`.
+ *
+ * Flip before clamp, and never both on the same axis for the same reason: a bubble
+ * that does not fit above belongs below, whereas one that runs off the side of the
+ * screen only needs sliding — flipping it there would move it away from the word it
+ * points at. `center` neither flips nor offsets: it is placed ON the anchor.
+ */
+export function anchorBox(
+  anchor: Rect,
+  size: { x: number; y: number },
+  at: AnchorAt,
+  offset: number,
+  bounds: Rect,
+): Rect {
+  const { side: preferred, align } = placement(at);
+  const box = { x: 0, y: 0, width: size.x, height: size.y };
+  if (preferred === "on") {
+    box.x = anchor.x + (anchor.width - size.x) * 0.5;
+    box.y = anchor.y + (anchor.height - size.y) * 0.5;
+  } else {
+    const side =
+      fits(preferred, anchor, size, offset, bounds) ||
+      !fits(OPPOSITE[preferred], anchor, size, offset, bounds)
+        ? preferred
+        : OPPOSITE[preferred];
+    if (side === "top" || side === "bottom") {
+      box.y = sideStart(side, anchor, size, offset);
+      box.x = anchor.x + (anchor.width - size.x) * align;
+    } else {
+      box.x = sideStart(side, anchor, size, offset);
+      box.y = anchor.y + (anchor.height - size.y) * align;
+    }
+  }
+  box.x = clampAxis(box.x, size.x, bounds.x, bounds.width);
+  box.y = clampAxis(box.y, size.y, bounds.y, bounds.height);
+  return box;
+}
+
+/** The content's near edge on the side's own axis. */
+function sideStart(
+  side: "top" | "bottom" | "left" | "right",
+  anchor: Rect,
+  size: { x: number; y: number },
+  offset: number,
+): number {
+  switch (side) {
+    case "top":
+      return anchor.y - offset - size.y;
+    case "bottom":
+      return anchor.y + anchor.height + offset;
+    case "left":
+      return anchor.x - offset - size.x;
+    default:
+      return anchor.x + anchor.width + offset;
+  }
+}
+
+/** Whether that side has room inside `bounds` — what decides the flip. */
+function fits(
+  side: "top" | "bottom" | "left" | "right",
+  anchor: Rect,
+  size: { x: number; y: number },
+  offset: number,
+  bounds: Rect,
+): boolean {
+  const start = sideStart(side, anchor, size, offset);
+  switch (side) {
+    case "top":
+      return start >= bounds.y;
+    case "bottom":
+      return start + size.y <= bounds.y + bounds.height;
+    case "left":
+      return start >= bounds.x;
+    default:
+      return start + size.x <= bounds.x + bounds.width;
+  }
+}
+
+/** Slides a span inside the bounds; content wider than them starts at their edge. */
+function clampAxis(start: number, size: number, boundsStart: number, boundsSize: number): number {
+  if (size >= boundsSize) return boundsStart;
+  return Math.min(Math.max(start, boundsStart), boundsStart + boundsSize - size);
 }
 
 /**
@@ -170,6 +364,10 @@ export type LayerHit =
  * A modal stops the walk: either one of its children took the event, or the
  * point is a backdrop tap — which never falls through to what it covers.
  *
+ * A hover-triggered overlay is skipped entirely: it is a hint held up by its
+ * anchor's hover, so taking the pointer would end it (decision 2026-08-11,
+ * ZAB-46).
+ *
  * Both walks go through `hitTest`, so clipping cuts input here too (`radiusOf`
  * resolves each clipping node's corner radius).
  */
@@ -182,7 +380,7 @@ export function resolveHit(
   for (let i = layer.length - 1; i >= 0; i--) {
     const overlay = layer[i];
     const spec = overlaySpec(overlay);
-    if (spec === null || !inLayout(overlay)) continue;
+    if (spec === null || !inLayout(overlay) || isHoverTriggered(overlay)) continue;
     const hit = hitChildren(overlay, point, radiusOf);
     if (hit) return { kind: "node", node: hit };
     if (spec.modal && contains(overlay.rect, point)) return { kind: "backdrop", overlay };

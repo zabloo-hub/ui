@@ -8,6 +8,10 @@
 // the read/write binding loop standing in for the game's SetData. That is why a
 // dismiss shows up as the switch turning itself off: Escape, a tap on the
 // backdrop and the toast's timer all write `false` back through the binding.
+//
+// The exception is an ANCHORED tooltip (ZAB-46): it hangs from another node's
+// rect and rides that node's hover/focus, so the two at the bottom show
+// themselves with no flag and no game behind them.
 import { Button, Column, Modal, Row, Switch, Text, Toast, Tooltip } from "@zabloo/react";
 
 const TITLE = { color: "{color.text}", fontSize: 20 } as const;
@@ -92,10 +96,31 @@ export default function OverlaysDemo() {
         Partida guardada
       </Toast>
 
-      {/* Tooltip: sin anclaje a un nodo ni disparo por hover/focus en v1 — se
-          coloca en la capa como cualquier overlay y se muestra por binding. */}
+      {/* Tooltip sin ancla: se coloca en la capa como cualquier overlay y se
+          muestra por binding — el tooltip de mando, que el juego enciende. */}
       <Tooltip visible={{ bind: "ui.hint" }} transition={{ duration: "{motion.fast}" }}>
         Pulsa A para saltar
+      </Tooltip>
+
+      {/* Anclaje + disparo por hover/focus (ZAB-46). Ninguno de los dos lleva
+          `visible`: se muestran solos mientras el ratón o el foco están sobre su
+          ancla, así que la misma pista llega al mando sin nada más. Fíjate en que
+          el de arriba se voltea abajo cuando no cabe, y en que ambos se van si su
+          ancla se va. */}
+      <Row layout={{ gap: "{space.2}", align: "center" }}>
+        <Button id="jump-btn" variant="action" layout={BTN} onClick="jump">
+          <Text style={LABEL}>Saltar</Text>
+        </Button>
+        <Button id="load-btn" variant="quiet" layout={BTN} onClick="load">
+          <Text style={LABEL}>Cargar partida</Text>
+        </Button>
+      </Row>
+
+      <Tooltip anchor="jump-btn" transition={{ duration: "{motion.fast}" }}>
+        Pulsa A para saltar
+      </Tooltip>
+      <Tooltip anchor="load-btn" position="right" transition={{ duration: "{motion.fast}" }}>
+        Vuelve al último punto de control
       </Tooltip>
     </Column>
   );

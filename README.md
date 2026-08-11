@@ -54,7 +54,10 @@ What works today:
   one layer above the whole view — backdrop from its own style, input captured, focus
   trapped and given back on close. `visible` is the only way to open or close one, so a
   dismiss (Escape, gamepad B, a tap on the backdrop, a toast's timer) is just the SDK
-  writing `false` back through the binding.
+  writing `false` back through the binding. An overlay may also be **anchored** to
+  another node — placed against its rect, flipping and sliding to stay on screen — and
+  ride that node's hover/focus, which is what makes a `<Tooltip anchor="jump-btn">`
+  show itself for a mouse and for a gamepad without a line of game code.
 - **Motion**: a per-node `transition` (duration + easing from a closed, closed-form
   curve set) tweens whatever animatable value changes — no trigger list, no keyframes —
   and component behavior drives the same engine where the endpoints are its own: the

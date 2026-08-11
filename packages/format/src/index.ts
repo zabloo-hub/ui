@@ -647,6 +647,10 @@ export interface TextInputNode extends NodeBase {
  * field and paint still implicit from style. `layout.width`/`height` on the
  * Overlay itself are ignored (a layer is not sized); size the child instead.
  *
+ * With an `anchor`, the content is placed against ANOTHER node's rect instead of
+ * against the layer (decision 2026-08-11, ZAB-46) — the rect of the overlay itself
+ * is still the view's, so a modal popover keeps dimming and capturing everything.
+ *
  * `visible` behaves as everywhere else: a hidden Overlay contributes no layer, no
  * backdrop and no input blocking. It is also the ONLY way to open and close one —
  * bind it and the game moves the boolean with `SetData`, which is what makes a
@@ -662,6 +666,19 @@ export interface TextInputNode extends NodeBase {
  */
 export interface OverlayNode extends NodeBase {
   type: "Overlay";
+  /**
+   * Places this overlay's content against ANOTHER node's rect instead of the layer,
+   * and optionally ties it to that node's hover/focus (decision 2026-08-11, ZAB-46).
+   *
+   * One object and not four sibling fields because the two capabilities are one
+   * relation: a trigger without an anchor has no node whose hover to read, and the
+   * placement is meaningless without the rect it is placed against.
+   *
+   * The layer placement (`layout.justify`/`align`) is still emitted alongside it, so
+   * an SDK that does not know this field renders the pre-ZAB-46 overlay — a bubble on
+   * the layer shown by its binding — instead of nothing.
+   */
+  anchor?: OverlayAnchor;
   /**
    * Blocks input to everything below (including lower overlays) and confines
    * focus navigation to this subtree. Default: true. `false` (toast, tooltip)
@@ -689,6 +706,82 @@ export interface OverlayNode extends NodeBase {
    */
   autoCloseMs?: number;
   children?: ZNode[];
+}
+
+/**
+ * Where an anchored overlay's content sits AROUND the anchor's rect — the same nine
+ * names the layer placement uses, read as "which side, aligned how":
+ *
+ * - `top`/`bottom`: above/below, centered on the anchor's width. `top-left` and
+ *   `top-right` are the same side, flush with the anchor's left/right edge (and so
+ *   for `bottom-*`) — the alignment a wide anchor wants, not a diagonal corner.
+ * - `left`/`right`: beside the anchor, centered on its height.
+ * - `center`: centered ON the anchor, ignoring `offset` — a badge over an icon.
+ */
+export type AnchorAt =
+  | "center"
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
+/**
+ * What puts an anchored overlay in the layer.
+ *
+ * - `manual` (default): `visible` and nothing else — the pre-ZAB-46 behavior, which
+ *   is what an anchored popover opened by the game (or by a button) wants.
+ * - `hover`: the SDK shows it while the anchor is hovered OR focused. One value for
+ *   both because they are the same thing through different devices — the pointer
+ *   equivalent of focus is hover, and focus IS the gamepad's answer, so a hint
+ *   reaches a controller without a second mechanism. `visible` still gates it (a
+ *   bound `false` turns the hints off), the SDK never writes it back, and
+ *   `autoCloseMs` is ignored: what dismisses it is leaving the anchor.
+ *
+ * A hover trigger needs an anchor that takes input (a `Button`, a `Toggle`, a
+ * `Slider`, a `Collapse` header): hover lights up exactly the focusable set
+ * (decision 2026-08-11, ZAB-36), so anything else is never hovered NOR focused —
+ * which is also what keeps the pointer and the gamepad seeing the same hints.
+ */
+export type OverlayTrigger = "hover" | "manual";
+
+/**
+ * An overlay's relation to another node: the rect it is placed against, and
+ * optionally that node's hover/focus as its trigger (decision 2026-08-11, ZAB-46).
+ *
+ * **Placement is the SDK's, not flex.** The content is laid out at its measured size
+ * and put at `at` relative to the anchor's CURRENT rect, `offset` px away. This is
+ * the one piece of layout in v1 that is relative to a rect the node does not
+ * contain — that is why it is a field and not a `justify`/`align` reading, which can
+ * only align a child INSIDE its parent.
+ *
+ * **Fit is deterministic, with no field of its own:** if the content does not fit on
+ * the preferred side and the opposite one has room, it **flips**; then it is
+ * **clamped** into the view. The overlay's own `layout.padding` is the margin it
+ * keeps from the view's edges while clamping.
+ *
+ * **A tooltip never points at nothing.** If the anchor is out of layout (its
+ * `visible` went false, its tab panel closed) or entirely clipped away (scrolled out
+ * of a `ScrollView`), the overlay leaves the layer — with its exit fade, like any
+ * other close. An `id` that resolves to no node is authoring error, not runtime
+ * state: the SDK warns and falls back to the layer placement, so a typo degrades to
+ * a visible v1 tooltip rather than to silence.
+ */
+export interface OverlayAnchor {
+  /** `id` of the node in this view whose layout rect the content is placed against. */
+  id: string;
+  /** Preferred placement around the anchor. Default: `"top"`. */
+  at?: AnchorAt;
+  /**
+   * Distance between the anchor's edge and the content, in px. Default: 8.
+   * A `Dim` (so `{space.2}` themes it), like every other gap in the format.
+   */
+  offset?: Dim;
+  /** What puts it in the layer. Default: `"manual"`. */
+  trigger?: OverlayTrigger;
 }
 
 /** Default item alias of a `Repeat` template (`as`). */
