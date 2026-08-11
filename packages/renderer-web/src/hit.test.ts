@@ -1,36 +1,15 @@
 import type { ZNode } from "@zabloo/format";
 import { describe, expect, it } from "vitest";
 import { effectiveClip, hitTest } from "./hit.js";
-import type { LayoutNode, Rect } from "./layout.js";
-import { createNodeAnim } from "./transition.js";
+import { createLayoutNode, type LayoutNode, type Rect } from "./layout.js";
 
 /** A laid-out node: the arrange pass' output, hand-built (no canvas needed). */
 function node(ir: Partial<ZNode> & { type: string }, rect: Rect, children: LayoutNode[] = []) {
-  const built: LayoutNode = {
-    ir: ir as ZNode,
-    parent: null,
-    children,
-    measured: { x: rect.width, y: rect.height },
-    rect,
-    pressed: false,
-    focused: false,
-    open: true,
-    selected: false,
-    selectedIndex: 0,
-    checked: false,
-    sliderValue: 0,
-    groupValue: undefined,
-    visibleFlag: true,
-    sectionShown: true,
-    progress: 0,
-    loopStartedAt: null,
-    scrollOffset: { x: 0, y: 0 },
-    scrollMax: { x: 0, y: 0 },
-    // Hit-testing reads no animatable value: an un-resolved node is enough.
-    resolved: {},
-    textBlock: null,
-    anim: createNodeAnim(),
-  };
+  // Hit-testing reads no animatable value: an un-resolved node is enough.
+  const built = createLayoutNode(ir as ZNode);
+  built.children = children;
+  built.measured = { x: rect.width, y: rect.height };
+  built.rect = rect;
   for (const child of children) child.parent = built;
   return built;
 }

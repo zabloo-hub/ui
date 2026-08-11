@@ -1,4 +1,4 @@
-import type { ThemeVariants } from "@zabloo/react";
+import type { ThemeTransitions, ThemeVariants } from "@zabloo/react";
 
 // Design tokens — exported into the IR envelope's flat token dictionary.
 export const tokens = {
@@ -16,6 +16,13 @@ export const tokens = {
   "motion.loop": 900,
 };
 
+// Default motion per component (ZAB-36), keyed like `variants`: the Collapses
+// below animate their open/close without a prop on every one of them. A node's
+// own `transition` still wins — see the buttons in the view, which set theirs.
+export const transitions: ThemeTransitions = {
+  Collapse: { duration: "{motion.slow}", easing: "ease-in-out" },
+};
+
 // Variants — an authoring-time concept (decision 2026-08-03 §6): resolved at
 // export time by @zabloo/react; they never reach the IR.
 export const variants: ThemeVariants = {
@@ -23,7 +30,8 @@ export const variants: ThemeVariants = {
     primary: {
       style: { background: "{color.primary}", radius: "{radius.md}" },
       states: {
-        pressed: { style: { background: "{color.primary.hover}" } },
+        hover: { style: { background: "{color.primary.hover}" } },
+        pressed: { style: { background: "#4338ca" } },
         // Focus ring: inset border (paints inside the layout rect).
         focused: { style: { borderWidth: 2, borderColor: "#ffffff" } },
       },
@@ -31,7 +39,8 @@ export const variants: ThemeVariants = {
     secondary: {
       style: { background: "#2f3446", radius: "{radius.md}" },
       states: {
-        pressed: { style: { background: "#3b4160" } },
+        hover: { style: { background: "#3b4160" } },
+        pressed: { style: { background: "#454c70" } },
         focused: { style: { borderWidth: 2, borderColor: "#8b93a8" } },
       },
     },

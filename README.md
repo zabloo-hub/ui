@@ -51,11 +51,14 @@ What works today:
   `Badge`) that flatten to primitives.
 - **Motion**: a per-node `transition` (duration + easing from a closed, closed-form
   curve set) tweens whatever animatable value changes — no trigger list, no keyframes —
-  and component behavior drives the same engine where the endpoints are its own (the
-  `ProgressBar`'s fraction, the `Spinner`'s loop). Durations are tokens, so a
-  "reduce motion" theme stops the UI dead without re-emitting the tree.
+  and component behavior drives the same engine where the endpoints are its own: the
+  `ProgressBar`'s fraction, the `Spinner`'s loop, the `Collapse` animating its own
+  height open and shut, the `Toggle` crossfading its two indicators, the `Slider`
+  gliding to a value the game pushed (never to the one under the finger). Motion is
+  themeable per component and durations are tokens, so a "reduce motion" theme stops
+  the UI dead without re-emitting the tree.
 - **Styling**: design tokens (flat dictionary, theme hot-update without re-emitting the
-  tree), per-state overrides (`pressed` / `focused` / `selected`), variants resolved at export time,
+  tree), per-state overrides (`hover` / `pressed` / `focused` / `selected`), variants resolved at export time,
   and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset
   border), `color`, `fontSize`, `opacity` (inherits multiplicatively), plus the text
   set — `wrap`, `textAlign`, `textAlignY`, `lineHeight`, `overflow`, `maxLines`.

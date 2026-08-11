@@ -1,4 +1,4 @@
-import type { ThemeVariants } from "@zabloo/react";
+import type { ThemeTransitions, ThemeVariants } from "@zabloo/react";
 
 // Design tokens — exported into the IR envelope's flat token dictionary.
 export const tokens = {
@@ -12,6 +12,14 @@ export const tokens = {
   "radius.md": 8,
   "space.2": 8,
   "space.4": 16,
+  "motion.fast": 120,
+};
+
+// Default motion per component (ZAB-36): the bar's buttons fade between tabs
+// instead of snapping. The PANELS still snap — a panel entering or leaving the
+// layout is an enter/exit animation, which stays deferred (ZAB-33 §5).
+export const transitions: ThemeTransitions = {
+  Button: { duration: "{motion.fast}" },
 };
 
 // Variants — an authoring-time concept (decision 2026-08-03 §6): resolved at
@@ -24,6 +32,7 @@ export const variants: ThemeVariants = {
       style: { background: "{color.bg.tab}", radius: "{radius.md}" },
       states: {
         selected: { style: { background: "{color.bg.tab.active}" } },
+        hover: { style: { background: "#303751" } },
         pressed: { style: { background: "{color.bg.tab.pressed}" } },
         // Focus ring: inset border (paints inside the layout rect).
         focused: { style: { borderWidth: 2, borderColor: "#ffffff" } },

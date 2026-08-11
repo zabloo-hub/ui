@@ -53,7 +53,7 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
 
   const config = ((await tryImport(jiti, join(root, "zabloo.config.ts"))) ?? {}) as ZablooConfig;
   const theme = (await tryImport(jiti, join(root, "src", "theme.ts"))) as
-    | { tokens?: Record<string, TokenValue>; variants?: unknown }
+    | { tokens?: Record<string, TokenValue>; variants?: unknown; transitions?: unknown }
     | undefined;
   const tokens = theme?.tokens ?? {};
 
@@ -85,10 +85,12 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
     if (id in views) {
       throw new Error(`Duplicate view id "${id}" (from ${file})`);
     }
-    // Views render inside the project theme so variants resolve at emit time.
+    // Views render inside the project theme so variants — and the motion
+    // defaults, which are the same kind of authoring-time answer — resolve at
+    // emit time. What reaches the IR is the resolved node, never the theme.
     const element = react.createElement(
       zablooReact.ThemeProvider,
-      { theme: { variants: theme?.variants } },
+      { theme: { variants: theme?.variants, transitions: theme?.transitions } },
       react.createElement(mod.default),
     );
     views[id] = zablooReact.renderToIR(element);

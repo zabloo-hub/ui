@@ -30,12 +30,19 @@ export type AnimValue = number | Color;
 
 /**
  * Scalars a COMPONENT'S BEHAVIOR tweens with endpoints it computes itself, rather
- * than values of the animatable set (decision 2026-08-11 §5): `progress` is the
- * ProgressBar's fraction, which is why the bar interpolates its value and never its
- * fill rect. They ride the same tracks as the declared props — one interruption rule,
- * one clock, one set of curves — under keys the animatable set cannot collide with.
+ * than values of the animatable set (decision 2026-08-11 §5). They ride the same
+ * tracks as the declared props — one interruption rule, one clock, one set of
+ * curves — under keys the animatable set cannot collide with:
+ *
+ * - `progress`: the ProgressBar's fraction, which is why the bar interpolates its
+ *   value and never its fill rect.
+ * - `value`: the Slider's value, for changes that do NOT come from the gesture in
+ *   the player's hand (a binding, `setValue`) — a dragged thumb follows the finger.
+ * - `collapse`: the Collapse's own height, between its header's box and the height
+ *   measured with the content in (`collapse.ts`).
+ * - `checked`: the Toggle's 0..1 crossfade between its two indicator slots.
  */
-export type BehaviorKey = "progress";
+export type BehaviorKey = "progress" | "value" | "collapse" | "checked";
 export type TrackKey = AnimatableProp | BehaviorKey;
 
 /** Iteration order of the animatable set — the normative list, nothing else animates. */
