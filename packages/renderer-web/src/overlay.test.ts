@@ -11,6 +11,7 @@ import {
   resolveHit,
   topModal,
 } from "./overlay.js";
+import { createNodeAnim } from "./transition.js";
 
 /** The view rect every overlay is arranged against. */
 const VIEW: Rect = { x: 0, y: 0, width: 100, height: 100 };
@@ -34,6 +35,9 @@ function node(ir: ZNode, rect: Rect, children: LayoutNode[] = []): LayoutNode {
     sectionShown: true,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
+    // The layer rules read no animatable value: an un-resolved node is enough.
+    resolved: {},
+    anim: createNodeAnim(),
   };
   for (const child of children) child.parent = built;
   return built;

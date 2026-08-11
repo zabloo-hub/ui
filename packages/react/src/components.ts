@@ -8,7 +8,7 @@
  * variants never reach the IR.
  */
 
-import type { Bindable, GroupBehavior, ScrollAxis, Style } from "@zabloo/format";
+import type { Bindable, GroupBehavior, ImageFit, ScrollAxis, Style } from "@zabloo/format";
 import {
   Children,
   createElement,
@@ -56,6 +56,19 @@ export interface ScrollViewProps extends CommonProps {
   /** Overlay position indicator painted by the SDK. Default: true. */
   scrollbar?: boolean;
   children?: ReactNode;
+}
+
+export interface ImageProps extends CommonProps {
+  /**
+   * Path to the image, relative to the project's `src/assets/` (Flutter-style
+   * convention): `"logo.png"`, `"icons/coin.png"`. `zabloo export` reads the file,
+   * inlines it in the envelope's asset manifest and rewrites this prop to its
+   * `asset:<id>` ref — so the path is authoring input, never a runtime lookup, and
+   * it cannot be a data binding.
+   */
+  src: string;
+  /** How the source fills the layout rect. Default: "contain". */
+  fit?: ImageFit;
 }
 
 /** Props shared by the two-state controls that lower to the `Toggle` primitive. */
@@ -120,6 +133,17 @@ export const Text: FC<TextProps> = primitive<TextProps>("Text");
 export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
 export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
 export const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("ScrollView");
+
+/**
+ * A textured rectangle, sized by default to the source's own pixels (it is a leaf
+ * with an intrinsic size, like `<Text>`) — give it `layout.width`/`height` to size
+ * it yourself and `fit` to choose how the picture fills that box.
+ *
+ * Everything else is plain style, with no Image-specific props: `style.color` tints
+ * it, `style.radius` rounds it, and `style.background` shows through while the bytes
+ * are still being decoded — that background IS the loading placeholder.
+ */
+export const Image: FC<ImageProps> = primitive<ImageProps>("Image");
 
 /** `<Container>` with `direction: "row"` (authoring sugar, not a primitive). */
 export function Row({ layout, ...rest }: ContainerProps): ReturnType<FC> {

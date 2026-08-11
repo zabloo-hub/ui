@@ -6,15 +6,22 @@
  * the renderer's own layout pass and re-tessellates on change. The browser
  * provides a GPU canvas and pointer events — nothing else.
  *
- * Rendering happens in two passes: the tree, then the overlay layer above it
- * (`overlay.ts` owns the layering, input-capture and focus-scope rules).
+ * Every frame starts with the resolve pass: tokens and states collapse into each
+ * node's animatable values, the transition engine tweens the ones that moved, and
+ * measure/arrange/paint run on that result. While anything is animating the view
+ * schedules the next frame itself; otherwise it repaints only on change.
+ *
+ * Layout and paint then run in two passes: the tree, and above it the overlay
+ * layer (`overlay.ts` owns the layering, input-capture and focus-scope rules).
  */
 
 import {
   type Envelope,
+  type ImageFit,
   parseEnvelope,
   type Style,
   type TokenValue,
+  type Transition,
   type ZNode,
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
@@ -44,8 +51,20 @@ import { clamp } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 import { isSelected, nextChecked, slotShown } from "./toggle.js";
+import {
+  clearNodeAnim,
+  createNodeAnim,
+  type ResolvedTransition,
+  type ResolvedValues,
+  stepNode,
+} from "./transition.js";
 
 const DEFAULT_FONT_SIZE = 16;
+/** Paint fallbacks for a declared color whose token does not resolve (author error). */
+const MISSING_COLOR: Color = [1, 0, 1, 1];
+const DEFAULT_TEXT_COLOR: Color = [1, 1, 1, 1];
+/** No tint: an Image with no `color` shows its own pixels (decision 2026-08-11, ZAB-13). */
+const UNTINTED: Color = [1, 1, 1, 1];
 
 /** Loose view of a node — the union fields the renderer reads. */
 interface AnyNode {
@@ -59,6 +78,7 @@ interface AnyNode {
   onClick?: string;
   text?: unknown;
   src?: unknown;
+  fit?: ImageFit;
   open?: boolean;
   group?: string;
   selected?: unknown;
@@ -66,6 +86,7 @@ interface AnyNode {
   checked?: unknown;
   onChange?: string;
   value?: unknown;
+  transition?: Transition;
 }
 
 /** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
@@ -150,6 +171,10 @@ class WebView {
   private scrollDrag: ScrollDrag | null = null;
   /** Overlay whose backdrop took the pointer down, pending a release on it. */
   private backdropPress: LayoutNode | null = null;
+  /** Pending self-scheduled frame, while a transition is in flight. */
+  private frame: number | null = null;
+  /** Set by the resolve pass when any node still has a tween running. */
+  private animating = false;
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -195,6 +220,7 @@ class WebView {
       setChecked: (id, checked) => this.setChecked(id, checked),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
+        this.cancelFrame();
         for (const dispose of this.disposers) dispose();
         this.clearAutoClose();
         this.images.dispose();
@@ -243,6 +269,10 @@ class WebView {
       sectionShown: true,
       scrollOffset: { x: 0, y: 0 },
       scrollMax: { x: 0, y: 0 },
+      resolved: {},
+      // Fresh state: the first resolve pass has nothing to tween from, so this
+      // node snaps into its initial values — which is also why a reload snaps.
+      anim: createNodeAnim(),
     };
     const any = ir as AnyNode;
 
@@ -920,6 +950,84 @@ class WebView {
     return Math.max(1, Math.round(this.dim(style?.fontSize, DEFAULT_FONT_SIZE)));
   }
 
+  /** A declared color, or `undefined` — an undeclared endpoint has nothing to tween from. */
+  private optionalColor(value: unknown, fallback: Color): Color | undefined {
+    return value === undefined ? undefined : this.color(value, fallback);
+  }
+
+  /** A declared dim, or `undefined` for auto — including a token that does not resolve. */
+  private optionalDim(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    const resolved = this.token(value);
+    return typeof resolved === "number" ? resolved : undefined;
+  }
+
+  private transitionOf(node: LayoutNode): ResolvedTransition | null {
+    // Read from the base node only: no cascade, and no per-state transition (both
+    // are compatible future extensions, not v1 surface).
+    const transition = (node.ir as AnyNode).transition;
+    if (!transition) return null;
+    return { duration: this.dim(transition.duration), easing: transition.easing ?? "ease-out" };
+  }
+
+  // --- resolve pass (tokens + states + transitions → this frame's values) ---
+
+  /**
+   * Collapses each node's declared inputs into numbers and colors and lets the
+   * engine tween the ones that moved. It runs BEFORE measure, so layout sees an
+   * ordinary tree of resolved values: one layout pass per frame, and the computed
+   * rects never feed back into their own input (decision 2026-08-11 §4).
+   */
+  private resolve(node: LayoutNode, now: number): void {
+    if (!inLayout(node)) {
+      // Out of layout: nothing to paint, and no honest previous value for the day
+      // it comes back — dropping the state makes that return snap, like a mount.
+      this.forgetAnim(node);
+      return;
+    }
+    const style = this.effectiveStyle(node);
+    const layout = node.ir.layout;
+    const targets: ResolvedValues = {
+      background: this.optionalColor(style?.background, MISSING_COLOR),
+      borderColor: this.optionalColor(style?.borderColor, MISSING_COLOR),
+      color: this.optionalColor(style?.color, DEFAULT_TEXT_COLOR),
+      // These have renderer defaults, so both endpoints always resolve and a state
+      // that introduces one still animates (only auto sizes and colors can snap).
+      opacity: Math.min(1, Math.max(0, style?.opacity ?? 1)),
+      radius: this.dim(style?.radius),
+      borderWidth: this.dim(style?.borderWidth),
+      gap: this.dim(layout?.gap),
+      padding: this.dim(layout?.padding),
+      width: this.optionalDim(layout?.width),
+      height: this.optionalDim(layout?.height),
+    };
+    const { values, animating } = stepNode(node.anim, targets, this.transitionOf(node), now);
+    node.resolved = values;
+    if (animating) this.animating = true;
+    for (const child of node.children) this.resolve(child, now);
+  }
+
+  private forgetAnim(node: LayoutNode): void {
+    clearNodeAnim(node.anim);
+    for (const child of node.children) this.forgetAnim(child);
+  }
+
+  // --- frame loop ---
+
+  private scheduleFrame(): void {
+    if (this.frame !== null || typeof globalThis.requestAnimationFrame !== "function") return;
+    this.frame = globalThis.requestAnimationFrame(() => {
+      this.frame = null;
+      this.render();
+    });
+  }
+
+  private cancelFrame(): void {
+    if (this.frame === null) return;
+    globalThis.cancelAnimationFrame(this.frame);
+    this.frame = null;
+  }
+
   private resolveText(ir: ZNode): string {
     const raw = (ir as AnyNode).text;
     if (typeof raw === "string") return raw;
@@ -963,19 +1071,27 @@ class WebView {
     if (!(width > 0) || !(height > 0)) return;
     const viewRect: Rect = { x: 0, y: 0, width, height };
 
-    measure(this.root, this.dim, this.measureLeaf);
-    arrange(this.root, viewRect, this.dim);
-
-    // The overlay layer, laid out after the tree: every entry gets the view rect
-    // (that is why `layout.width`/`height` on an Overlay are ignored) and its own
-    // layout props place the content inside it.
+    // The layer settles first: it reads no rects (only `visible` and section
+    // state), and the focus an opening modal moves has to reach THIS frame's
+    // resolve pass — otherwise `states.focused` would land one frame late.
     this.layer = collectLayer(this.root);
-    for (const overlay of this.layer) {
-      measure(overlay, this.dim, this.measureLeaf);
-      arrange(overlay, viewRect, this.dim);
-    }
     this.syncModalFocus();
     this.syncAutoClose();
+
+    // The resolve pass walks the whole tree, overlay subtrees included: a node in
+    // the layer tweens like any other, it just gets laid out and painted apart.
+    this.animating = false;
+    this.resolve(this.root, now());
+
+    measure(this.root, this.measureLeaf);
+    arrange(this.root, viewRect);
+    // Every layer entry is arranged against the view rect — that is why
+    // `layout.width`/`height` on an Overlay are ignored — and its own layout
+    // props place the content inside it.
+    for (const overlay of this.layer) {
+      measure(overlay, this.measureLeaf);
+      arrange(overlay, viewRect);
+    }
 
     const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);
     this.paint(this.root, geometry);
@@ -983,45 +1099,54 @@ class WebView {
     // it does not inherit the opacity of wherever it was declared.
     for (const overlay of this.layer) this.paint(overlay, geometry);
     this.gl.draw(geometry.batches(), width, height, this.clearColor);
+
+    // A tween in flight owns the clock: keep painting until everything settles.
+    if (this.animating) this.scheduleFrame();
   }
 
+  /** Paints from `node.resolved` — the resolve pass already applied tokens and tweens. */
   private paint(node: LayoutNode, geometry: GeometryBuilder, parentOpacity = 1): void {
     if (!inLayout(node)) return;
-    const style = this.effectiveStyle(node);
+    const values = node.resolved;
 
     // Opacity inherits multiplicatively down the subtree (per-vertex alpha;
     // not render-to-texture group opacity — decision 2026-08-06).
-    const opacity = Math.min(1, Math.max(0, style?.opacity ?? 1)) * parentOpacity;
+    const opacity = (values.opacity ?? 1) * parentOpacity;
     if (opacity <= 0) return; // invisible — but still occupies layout
 
-    if (style?.background !== undefined) {
-      geometry.roundedRect(
-        node.rect,
-        this.dim(style.radius),
-        fade(this.color(style.background, [1, 0, 1, 1]), opacity),
-      );
+    const radius = values.radius ?? 0;
+    if (values.background !== undefined) {
+      geometry.roundedRect(node.rect, radius, fade(values.background, opacity));
     }
-    const borderWidth = this.dim(style?.borderWidth);
+    const borderWidth = values.borderWidth ?? 0;
     if (borderWidth > 0) {
       geometry.roundedRectBorder(
         node.rect,
-        this.dim(style?.radius),
+        radius,
         borderWidth,
-        fade(this.color(style?.borderColor, [1, 0, 1, 1]), opacity),
+        fade(values.borderColor ?? MISSING_COLOR, opacity),
       );
     }
     if (node.ir.type === "Text") {
-      const atlas = this.fonts.get(this.fontSize(style));
+      const atlas = this.fonts.get(this.fontSize(this.effectiveStyle(node)));
       geometry.text(
         node.rect.x,
         node.rect.y,
         this.resolveText(node.ir),
         atlas,
-        fade(this.color(style?.color, [1, 1, 1, 1]), opacity),
+        fade(values.color ?? DEFAULT_TEXT_COLOR, opacity),
       );
     } else if (node.ir.type === "Image") {
       const asset = this.images.get((node.ir as AnyNode).src);
-      if (asset) geometry.image(node.rect, asset, opacity);
+      if (asset) {
+        // `color` tints the pixels, exactly as it colors a Text's glyphs — absent
+        // means white, i.e. the image as it is (decision 2026-08-11, ZAB-13).
+        geometry.image(node.rect, asset, {
+          fit: (node.ir as AnyNode).fit,
+          color: fade(values.color ?? UNTINTED, opacity),
+          radius,
+        });
+      }
     }
     // Overlay children are skipped here: they paint in the layer pass, above.
     for (const child of node.children) {
@@ -1031,6 +1156,14 @@ class WebView {
 }
 
 // --- helpers ---
+
+/**
+ * The frame clock. One monotonic source for the whole view, sampled once per
+ * render so every node on a frame interpolates against the same instant.
+ */
+function now(): number {
+  return performance.now();
+}
 
 function isCollapseHeader(node: LayoutNode): boolean {
   return node.parent?.ir.type === "Collapse" && node.parent.children[0] === node;

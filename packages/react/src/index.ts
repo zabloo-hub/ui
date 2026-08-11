@@ -18,6 +18,8 @@ export {
   type CommonProps,
   Container,
   type ContainerProps,
+  Image,
+  type ImageProps,
   Radio,
   RadioGroup,
   type RadioGroupProps,
