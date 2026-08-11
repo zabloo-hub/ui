@@ -28,6 +28,16 @@ export type ScalarProp =
 export type AnimatableProp = ColorProp | ScalarProp;
 export type AnimValue = number | Color;
 
+/**
+ * Scalars a COMPONENT'S BEHAVIOR tweens with endpoints it computes itself, rather
+ * than values of the animatable set (decision 2026-08-11 §5): `progress` is the
+ * ProgressBar's fraction, which is why the bar interpolates its value and never its
+ * fill rect. They ride the same tracks as the declared props — one interruption rule,
+ * one clock, one set of curves — under keys the animatable set cannot collide with.
+ */
+export type BehaviorKey = "progress";
+export type TrackKey = AnimatableProp | BehaviorKey;
+
 /** Iteration order of the animatable set — the normative list, nothing else animates. */
 export const ANIMATABLE_PROPS: readonly AnimatableProp[] = [
   "background",
@@ -81,9 +91,9 @@ interface Track {
  * transitions live INSIDE the life of one loaded document.
  */
 export interface NodeAnim {
-  tracks: Map<AnimatableProp, Track>;
-  /** Last value handed to the renderer, per property — what an interruption tweens from. */
-  current: Map<AnimatableProp, AnimValue>;
+  tracks: Map<TrackKey, Track>;
+  /** Last value handed to the renderer, per key — what an interruption tweens from. */
+  current: Map<TrackKey, AnimValue>;
 }
 
 /** A node's `transition` with its `Dim` duration already resolved to milliseconds. */
@@ -122,51 +132,85 @@ export function stepNode(
   let animating = false;
 
   for (const prop of ANIMATABLE_PROPS) {
-    // Sample the tween in flight FIRST, so `current` is the value on screen right
-    // now — that is the point a retarget below has to leave from.
-    const track = anim.tracks.get(prop);
-    if (track) {
-      const progress = (now - track.startedAt) / track.duration;
-      anim.current.set(prop, lerp(track.from, track.to, easeProgress(track.easing, progress)));
-      if (progress >= 1) anim.tracks.delete(prop);
-    }
-
-    const target = targets[prop];
-    if (target === undefined) {
-      // Not declared (or auto): no endpoint to tween towards, and nothing to paint.
-      anim.tracks.delete(prop);
-      anim.current.delete(prop);
-      continue;
-    }
-
-    const live = anim.tracks.get(prop);
-    const current = anim.current.get(prop);
-    let value: AnimValue;
-
-    if (current === undefined) {
-      value = target; // mount, or a node coming back into layout
-    } else if (live) {
-      if (sameValue(live.to, target)) {
-        value = current; // already heading there
-        animating = true;
-      } else {
-        value = retarget(anim, prop, current, target, transition, now);
-        animating ||= anim.tracks.has(prop);
-      }
-    } else if (sameValue(current, target)) {
-      value = current; // settled
-    } else {
-      value = retarget(anim, prop, current, target, transition, now);
-      animating ||= anim.tracks.has(prop);
-    }
-
-    anim.current.set(prop, value);
+    const stepped = stepTrack(anim, prop, targets[prop], transition, now);
+    if (stepped.value === undefined) continue;
+    animating ||= stepped.animating;
     // One cast for the whole loop: the prop union and the value union are correlated
     // by construction (a ColorProp only ever carries a Color), but TS cannot see it.
-    (values as Record<AnimatableProp, AnimValue>)[prop] = value;
+    (values as Record<AnimatableProp, AnimValue>)[prop] = stepped.value;
   }
 
   return { values, animating };
+}
+
+/**
+ * The same step for a scalar a component's behavior owns (the ProgressBar's
+ * fraction). It takes the endpoints already computed, so the behavior decides WHAT
+ * moves while this file keeps deciding HOW — one interruption rule and one curve set
+ * for declared props and behavior-driven ones alike.
+ */
+export function stepValue(
+  anim: NodeAnim,
+  key: BehaviorKey,
+  target: number,
+  transition: ResolvedTransition | null,
+  now: number,
+): { value: number; animating: boolean } {
+  const stepped = stepTrack(anim, key, target, transition, now);
+  return {
+    value: typeof stepped.value === "number" ? stepped.value : target,
+    animating: stepped.animating,
+  };
+}
+
+/** Advances one track by one frame. `undefined` in ⇒ the key snaps and is forgotten. */
+function stepTrack(
+  anim: NodeAnim,
+  key: TrackKey,
+  target: AnimValue | undefined,
+  transition: ResolvedTransition | null,
+  now: number,
+): { value: AnimValue | undefined; animating: boolean } {
+  // Sample the tween in flight FIRST, so `current` is the value on screen right
+  // now — that is the point a retarget below has to leave from.
+  const track = anim.tracks.get(key);
+  if (track) {
+    const progress = (now - track.startedAt) / track.duration;
+    anim.current.set(key, lerp(track.from, track.to, easeProgress(track.easing, progress)));
+    if (progress >= 1) anim.tracks.delete(key);
+  }
+
+  if (target === undefined) {
+    // Not declared (or auto): no endpoint to tween towards, and nothing to paint.
+    anim.tracks.delete(key);
+    anim.current.delete(key);
+    return { value: undefined, animating: false };
+  }
+
+  const live = anim.tracks.get(key);
+  const current = anim.current.get(key);
+  let value: AnimValue;
+  let animating = false;
+
+  if (current === undefined) {
+    value = target; // mount, or a node coming back into layout
+  } else if (live) {
+    if (sameValue(live.to, target)) {
+      value = current; // already heading there
+      animating = true;
+    } else {
+      value = retarget(anim, key, current, target, transition, now);
+      animating = anim.tracks.has(key);
+    }
+  } else if (sameValue(current, target)) {
+    value = current; // settled
+  } else {
+    value = retarget(anim, key, current, target, transition, now);
+    animating = anim.tracks.has(key);
+  }
+
+  anim.current.set(key, value);
+  return { value, animating };
 }
 
 /**
@@ -176,17 +220,17 @@ export function stepNode(
  */
 function retarget(
   anim: NodeAnim,
-  prop: AnimatableProp,
+  key: TrackKey,
   current: AnimValue,
   target: AnimValue,
   transition: ResolvedTransition | null,
   now: number,
 ): AnimValue {
   if (!transition || !(transition.duration > 0) || !Number.isFinite(transition.duration)) {
-    anim.tracks.delete(prop);
+    anim.tracks.delete(key);
     return target;
   }
-  anim.tracks.set(prop, {
+  anim.tracks.set(key, {
     from: current,
     to: target,
     startedAt: now,

@@ -13,14 +13,18 @@ import type {
   ButtonNode,
   CollapseNode,
   ContainerNode,
+  Dim,
+  Easing,
   GroupBehavior,
   ImageFit,
   ImageNode,
   Layout,
+  ProgressBarNode,
   ScrollAxis,
   ScrollViewNode,
   SliderAxis,
   SliderNode,
+  SpinnerNode,
   StateName,
   StateOverride,
   Style,
@@ -39,7 +43,9 @@ export type HostType =
   | "ScrollView"
   | "Toggle"
   | "Slider"
-  | "Image";
+  | "Image"
+  | "ProgressBar"
+  | "Spinner";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -79,10 +85,16 @@ export interface HostInstance {
     onChange?: string;
     /**
      * Toggle: this option's value in a group. Container: the group's selected
-     * value. Slider: the current number (usually a read/write binding).
+     * value. ProgressBar: the 0..1 fraction. Slider: the current number
+     * (usually a read/write binding).
      */
     value?: Bindable<string | number>;
-    /** Slider: range, quantization and the settle hook (`axis` is shared with ScrollView). */
+    /**
+     * Slider: the range ends and the settle hook (`axis` is shared with
+     * ScrollView). `min` is shared with the Spinner, where it is the wave's
+     * floor — this bag is the union of every primitive's props, and the two
+     * meanings never meet on one node.
+     */
     min?: number;
     max?: number;
     step?: number;
@@ -90,6 +102,9 @@ export interface HostInstance {
     /** Image: authoring path relative to `src/assets/` — `zabloo export` rewrites it. */
     src?: string;
     fit?: ImageFit;
+    /** Spinner: cycle length and ramp curve (its wave floor is `min`, above). */
+    period?: Dim;
+    easing?: Easing;
   };
   children: HostNode[];
 }
@@ -115,6 +130,8 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "Toggle",
   "Slider",
   "Image",
+  "ProgressBar",
+  "Spinner",
 ]);
 
 export function isHostType(type: string): type is HostType {
@@ -125,8 +142,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Toggle, Slider, Image (Row/Column/Checkbox/Switch/Radio are ` +
-        `sugar from @zabloo/react).`,
+        `Collapse, ScrollView, Toggle, Slider, Image, ProgressBar, Spinner ` +
+        `(Row/Column/Checkbox/Switch/Radio/Badge are sugar from @zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -255,6 +272,40 @@ export function toIR(instance: HostInstance): ZNode {
         // hashes the file and rewrites this prop (decision 2026-08-11, assets).
         src: src as AssetRef,
         ...(instance.props.fit !== undefined && { fit: instance.props.fit }),
+      };
+      return node;
+    }
+    case "ProgressBar": {
+      const value = instance.props.value;
+      if (typeof value === "string") {
+        throw new Error("<ProgressBar value> is a number in 0..1 (or a binding to one).");
+      }
+      const { children } = childrenIR(instance);
+      // The fill is a positional slot, like Collapse's header: a bar without it
+      // would paint a track that never fills, which is never what was meant.
+      if (children?.length !== 1) {
+        throw new Error("<ProgressBar> takes exactly one child: the fill.");
+      }
+      const node: ProgressBarNode = {
+        type: "ProgressBar",
+        ...base,
+        ...(value !== undefined && { value }),
+        children,
+      };
+      return node;
+    }
+    case "Spinner": {
+      const { children } = childrenIR(instance);
+      if (!children || children.length === 0) {
+        throw new Error("<Spinner> needs at least one child: the beads that pulse.");
+      }
+      const node: SpinnerNode = {
+        type: "Spinner",
+        ...base,
+        ...(instance.props.period !== undefined && { period: instance.props.period }),
+        ...(instance.props.min !== undefined && { min: instance.props.min }),
+        ...(instance.props.easing !== undefined && { easing: instance.props.easing }),
+        children,
       };
       return node;
     }

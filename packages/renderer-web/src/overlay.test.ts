@@ -33,6 +33,8 @@ function node(ir: ZNode, rect: Rect, children: LayoutNode[] = []): LayoutNode {
     groupValue: undefined,
     visibleFlag: true,
     sectionShown: true,
+    progress: 0,
+    loopStartedAt: null,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
     // The layer rules read no animatable value: an un-resolved node is enough.

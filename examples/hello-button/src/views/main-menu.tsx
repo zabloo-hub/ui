@@ -1,7 +1,17 @@
 // View "main-menu" (file-based convention: the filename is the view ID).
 // Slice targets: pressable Button, Collapse (runtime relayout) and Accordion
 // (flattened composite: Container + group "exclusive-open").
-import { Accordion, Button, Collapse, Column, Row, Text } from "@zabloo/react";
+import {
+  Accordion,
+  Badge,
+  Button,
+  Collapse,
+  Column,
+  ProgressBar,
+  Row,
+  Spinner,
+  Text,
+} from "@zabloo/react";
 
 export default function MainMenu() {
   return (
@@ -9,6 +19,27 @@ export default function MainMenu() {
       <Row layout={{ gap: 8 }}>
         <Text style={{ color: "#facc15", fontSize: 20 }}>Oro:</Text>
         <Text bind="player.gold" style={{ color: "#facc15", fontSize: 20 }} />
+      </Row>
+
+      {/* The bar tweens its VALUE, not its rect: push player.hp from the preview
+          panel and the fill glides there — and retargets mid-glide if you push
+          again. The track clips, so the fill keeps its rounded ends. */}
+      <Row layout={{ gap: 8, align: "center" }}>
+        <Text style={{ color: "#9aa4b2" }}>Vida</Text>
+        <ProgressBar
+          id="hp"
+          value={{ bind: "player.hp" }}
+          transition={{ duration: "{motion.slow}", easing: "ease-out" }}
+          layout={{ width: 200 }}
+          fill={{ background: "#22c55e" }}
+        />
+      </Row>
+
+      {/* The loop is SDK behavior: no transform in v1, so the beads pulse in a
+          travelling wave instead of spinning. `motion.loop` themes its speed. */}
+      <Row layout={{ gap: 8, align: "center" }}>
+        <Spinner period="{motion.loop}" />
+        <Text style={{ color: "#9aa4b2" }}>Cargando partida</Text>
       </Row>
 
       <Row layout={{ gap: 12 }}>
@@ -99,12 +130,15 @@ export default function MainMenu() {
           layout={{ padding: "{space.2}", gap: 8 }}
           style={{ background: "#1f2430", radius: "{radius.md}" }}
         >
-          <Text
-            states={{ focused: { style: { color: "#a5b4fc" } } }}
-            style={{ color: "#ffffff", fontSize: 18 }}
+          {/* Header row: the Badge is a flattened composite (Container + bound
+              Text), so the counter follows inbox.unread with no IR of its own. */}
+          <Row
+            layout={{ gap: 8, align: "center" }}
+            states={{ focused: { style: { borderWidth: 1, borderColor: "#a5b4fc", radius: 4 } } }}
           >
-            Social
-          </Text>
+            <Text style={{ color: "#ffffff", fontSize: 18 }}>Social</Text>
+            <Badge count={{ bind: "inbox.unread" }} />
+          </Row>
           <Text style={{ color: "#9aa4b2" }}>3 amigos conectados</Text>
         </Collapse>
       </Accordion>

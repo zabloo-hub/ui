@@ -1,20 +1,29 @@
-import type { ContainerNode, SliderNode, ToggleNode } from "@zabloo/format";
+import type {
+  ContainerNode,
+  ProgressBarNode,
+  SliderNode,
+  SpinnerNode,
+  ToggleNode,
+} from "@zabloo/format";
 import { createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
 import {
   Accordion,
+  Badge,
   Button,
   Checkbox,
   Collapse,
   Column,
   Container,
   Image,
+  ProgressBar,
   Radio,
   RadioGroup,
   Row,
   renderToIR,
   ScrollView,
   Slider,
+  Spinner,
   Switch,
   Tab,
   Tabs,
@@ -493,6 +502,107 @@ describe("renderToIR", () => {
     expect(() => renderToIR(h(Tab, { label: "A" }, h(Text, null, "a")))).toThrow(
       /direct child of <Tabs>/,
     );
+  });
+
+  it("builds a ProgressBar: the node is the track, children[0] is the fill", () => {
+    expect(
+      renderToIR(
+        h(ProgressBar, {
+          value: { bind: "player.hp" },
+          transition: { duration: "{motion.fast}" },
+          layout: { width: 200 },
+          style: { background: "#1f2430" },
+          fill: { background: "#22c55e" },
+        }),
+      ),
+    ).toEqual({
+      type: "ProgressBar",
+      value: { bind: "player.hp" },
+      transition: { duration: "{motion.fast}" },
+      // Clips by default so a square fill stays inside the rounded track.
+      clip: true,
+      layout: { direction: "row", height: 8, width: 200 },
+      style: { background: "#1f2430", radius: 4 },
+      children: [{ type: "Container", style: { background: "#22c55e", radius: 4 } }],
+    });
+  });
+
+  it("sizes a column ProgressBar across instead of down", () => {
+    const ir = renderToIR(
+      h(ProgressBar, { value: 0.5, size: 12, layout: { direction: "column", height: 80 } }),
+    ) as ProgressBarNode;
+    expect(ir.layout).toEqual({ direction: "column", width: 12, height: 80 });
+    expect(ir.value).toBe(0.5);
+  });
+
+  it("rejects a hand-built ProgressBar without exactly one fill", () => {
+    // The primitive's slot is positional, so a bare track is an authoring error.
+    expect(() => renderToIR(h("ProgressBar", { value: 0.5 }))).toThrow(/exactly one child/);
+    expect(() =>
+      renderToIR(
+        h("ProgressBar", { value: 0.5 }, h(Container, { key: "a" }), h(Container, { key: "b" })),
+      ),
+    ).toThrow(/exactly one child/);
+  });
+
+  it("builds a Spinner with its beads and passes the loop knobs through", () => {
+    expect(
+      renderToIR(h(Spinner, { dots: 2, size: 10, period: "{motion.loop}", min: 0.2 })),
+    ).toEqual({
+      type: "Spinner",
+      period: "{motion.loop}",
+      min: 0.2,
+      layout: { direction: "row", align: "center", gap: 8 },
+      children: [
+        {
+          type: "Container",
+          layout: { width: 10, height: 10 },
+          style: { radius: 5, background: "#c8cede" },
+        },
+        {
+          type: "Container",
+          layout: { width: 10, height: 10 },
+          style: { radius: 5, background: "#c8cede" },
+        },
+      ],
+    });
+  });
+
+  it("takes custom beads instead of the generated dots", () => {
+    const ir = renderToIR(
+      h(Spinner, null, h(Text, { key: "a" }, "."), h(Text, { key: "b" }, ".")),
+    ) as SpinnerNode;
+    expect(ir.children).toEqual([
+      { type: "Text", text: "." },
+      { type: "Text", text: "." },
+    ]);
+  });
+
+  it("rejects a Spinner with no beads to pulse", () => {
+    expect(() => renderToIR(h("Spinner", { period: 900 }))).toThrow(/at least one child/);
+  });
+
+  it("flattens Badge to a pill Container plus a bound Text — no IR of its own", () => {
+    expect(renderToIR(h(Badge, { count: { bind: "inbox.unread" } }))).toEqual({
+      type: "Container",
+      layout: { direction: "row", justify: "center", align: "center", padding: 4 },
+      style: { radius: 999, background: "#ef4444" },
+      children: [
+        { type: "Text", text: { bind: "inbox.unread" }, style: { color: "#ffffff", fontSize: 12 } },
+      ],
+    });
+  });
+
+  it("takes a static count and custom label styling", () => {
+    const ir = renderToIR(
+      h(Badge, { count: 9, label: { fontSize: 16 }, style: { background: "#4f46e5" } }),
+    ) as ContainerNode;
+    expect(ir.style).toEqual({ radius: 999, background: "#4f46e5" });
+    expect(ir.children?.[0]).toEqual({
+      type: "Text",
+      text: "9",
+      style: { color: "#ffffff", fontSize: 16 },
+    });
   });
 
   it("rejects raw text outside <Text>", () => {
