@@ -5,7 +5,6 @@ import {
   autofocusIn,
   collectLayer,
   focusScope,
-  hitTree,
   isWithin,
   overlaySpec,
   resolveHit,
@@ -195,30 +194,9 @@ describe("autofocusIn", () => {
   });
 });
 
-describe("hitTree", () => {
-  const point = { x: 50, y: 50 };
-
-  it("returns the deepest node under the point, later siblings winning", () => {
-    const first = button("first", VIEW);
-    const second = button("second", VIEW);
-    const root = box([first, second]);
-    expect(hitTree(root, point)).toBe(second);
-  });
-
-  it("misses outside the rect", () => {
-    expect(hitTree(box([], { x: 0, y: 0, width: 10, height: 10 }), point)).toBeNull();
-  });
-
-  it("never returns a node of an overlay subtree: that belongs to the layer", () => {
-    const inModal = button("ok", VIEW);
-    const root = box([overlay({ id: "confirm" }, [inModal])]);
-    expect(hitTree(root, point)).toBe(root);
-  });
-});
-
 describe("resolveHit", () => {
   const point = { x: 50, y: 50 };
-  const resolve = (root: LayoutNode) => resolveHit(root, collectLayer(root), point);
+  const resolve = (root: LayoutNode) => resolveHit(root, collectLayer(root), point, () => 0);
 
   it("goes to the tree while the layer is empty", () => {
     const buy = button("buy", VIEW);

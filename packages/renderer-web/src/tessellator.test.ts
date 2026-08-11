@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageAsset } from "./assets.js";
+import type { Clip } from "./clip.js";
 import type { GlyphAtlas } from "./glyphs.js";
 import type { Rect } from "./layout.js";
 import { aspectFit, fitImage, GeometryBuilder } from "./tessellator.js";
@@ -204,5 +205,45 @@ describe("GeometryBuilder.image", () => {
     geometry.roundedRect(RECT, 0, [1, 0, 0, 1]);
 
     expect(geometry.batches().map((b) => b.texture)).toEqual([null, image, atlas]);
+  });
+});
+
+describe("GeometryBuilder.setClip", () => {
+  const CLIP: Clip = { x: 0, y: 0, width: 100, height: 100, radius: 8 };
+
+  it("tags every batch of a group with its clipping region", () => {
+    const geometry = new GeometryBuilder();
+    const image = asset(100, 100);
+    geometry.setClip(CLIP);
+    geometry.roundedRect(RECT, 0, [1, 0, 0, 1]);
+    geometry.image(RECT, image);
+
+    const drawn = geometry.batches().filter((b) => b.indices.length > 0);
+    expect(drawn.map((b) => b.clip)).toEqual([CLIP, CLIP]);
+  });
+
+  it("keeps filling the current group while the region does not change", () => {
+    const geometry = new GeometryBuilder();
+    geometry.setClip(CLIP);
+    geometry.roundedRect(RECT, 0, [1, 0, 0, 1]);
+    geometry.setClip(CLIP);
+    geometry.roundedRect(RECT, 0, [0, 1, 0, 1]);
+
+    expect(geometry.batches().filter((b) => b.indices.length > 0)).toHaveLength(1);
+  });
+
+  it("opens a new group per region change — painter's order across regions", () => {
+    const geometry = new GeometryBuilder();
+    // Unclipped background, clipped content, then the unclipped node that comes
+    // after it: the last one must draw OVER the clipped content, not with it.
+    geometry.roundedRect(RECT, 0, [1, 0, 0, 1]);
+    geometry.setClip(CLIP);
+    geometry.roundedRect(RECT, 0, [0, 1, 0, 1]);
+    geometry.setClip(null);
+    geometry.roundedRect(RECT, 0, [0, 0, 1, 1]);
+
+    const drawn = geometry.batches().filter((b) => b.indices.length > 0);
+    expect(drawn.map((b) => b.clip)).toEqual([null, CLIP, null]);
+    expect(drawn.map((b) => b.vertices[4])).toEqual([1, 0, 0]); // red, green, blue
   });
 });

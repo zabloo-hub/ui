@@ -16,7 +16,8 @@
  *   subtree offers navigation candidates.
  */
 
-import { contains, inFlow, inLayout, type LayoutNode } from "./layout.js";
+import { childClip, hitTest, type NodeRadius } from "./hit.js";
+import { contains, inLayout, type LayoutNode } from "./layout.js";
 
 export interface Point {
   x: number;
@@ -119,16 +120,6 @@ export function autofocusIn(
   return null;
 }
 
-/** Deepest in-flow node under the point (later siblings win); overlay subtrees are skipped. */
-export function hitTree(node: LayoutNode, point: Point): LayoutNode | null {
-  if (!inFlow(node) || !contains(node.rect, point)) return null;
-  for (let i = node.children.length - 1; i >= 0; i--) {
-    const hit = hitTree(node.children[i], point);
-    if (hit) return hit;
-  }
-  return node;
-}
-
 /** What a pointer landed on, once the layer has had its say. */
 export type LayerHit =
   | { kind: "node"; node: LayoutNode }
@@ -139,24 +130,38 @@ export type LayerHit =
  * Resolves a point against the layer first (top-down) and only then the tree.
  * A modal stops the walk: either one of its children took the event, or the
  * point is a backdrop tap — which never falls through to what it covers.
+ *
+ * Both walks go through `hitTest`, so clipping cuts input here too (`radiusOf`
+ * resolves each clipping node's corner radius).
  */
-export function resolveHit(root: LayoutNode, layer: readonly LayoutNode[], point: Point): LayerHit {
+export function resolveHit(
+  root: LayoutNode,
+  layer: readonly LayoutNode[],
+  point: Point,
+  radiusOf: NodeRadius,
+): LayerHit {
   for (let i = layer.length - 1; i >= 0; i--) {
     const overlay = layer[i];
     const spec = overlaySpec(overlay);
     if (spec === null || !inLayout(overlay)) continue;
-    const hit = hitChildren(overlay, point);
+    const hit = hitChildren(overlay, point, radiusOf);
     if (hit) return { kind: "node", node: hit };
     if (spec.modal && contains(overlay.rect, point)) return { kind: "backdrop", overlay };
   }
-  const hit = hitTree(root, point);
+  const hit = hitTest(root, point, radiusOf);
   return hit ? { kind: "node", node: hit } : { kind: "miss" };
 }
 
-/** The overlay's own rect is backdrop, never a target: only its children can be hit. */
-function hitChildren(overlay: LayoutNode, point: Point): LayoutNode | null {
+/**
+ * The overlay's own rect is backdrop, never a target: only its children can be
+ * hit. The layer starts a fresh clipping scope — an Overlay is arranged against
+ * the view rect, so the clips where it was declared don't apply — but its OWN
+ * clip does.
+ */
+function hitChildren(overlay: LayoutNode, point: Point, radiusOf: NodeRadius): LayoutNode | null {
+  const clip = childClip(overlay, null, radiusOf);
   for (let i = overlay.children.length - 1; i >= 0; i--) {
-    const hit = hitTree(overlay.children[i], point);
+    const hit = hitTest(overlay.children[i], point, radiusOf, clip);
     if (hit) return hit;
   }
   return null;

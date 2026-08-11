@@ -1,7 +1,9 @@
 // View "scroll-demo" (file-based convention: the filename is the view ID).
-// Manual test bed for ZAB-8: wheel + drag scroll input, clamped at both
-// ends. Item 7 is a Button, to confirm drag-to-scroll doesn't eat clicks on
-// interactive content nested inside the ScrollView.
+// Manual test bed for ZAB-8 (wheel + drag scroll input, clamped at both ends)
+// and ZAB-7 (clipping): the rows must not paint outside the rounded viewport,
+// nor react to taps there. Item 7 is a Button, to confirm drag-to-scroll
+// doesn't eat clicks on interactive content nested inside the ScrollView, and
+// the card below covers `clip` on a plain Container — no scrolling involved.
 import { Button, Column, Container, Row, ScrollView, Text } from "@zabloo/react";
 
 const ITEMS = Array.from({ length: 20 }, (_, i) => `Item ${i + 1}`);
@@ -46,6 +48,25 @@ export default function ScrollDemo() {
           ),
         )}
       </ScrollView>
+
+      <Container
+        clip
+        layout={{ width: 320, height: 44, align: "stretch" }}
+        style={{
+          background: "#141822",
+          radius: "{radius.md}",
+          borderWidth: 1,
+          borderColor: "{color.border}",
+        }}
+      >
+        {/* Twice as tall as the card: everything below 44 px is clipped away. */}
+        <Container
+          layout={{ height: 88, padding: "{space.2}" }}
+          style={{ background: "{color.row.odd}" }}
+        >
+          <Text style={{ color: "#ffffff", fontSize: 16 }}>clip: true — the rest is cut</Text>
+        </Container>
+      </Container>
     </Column>
   );
 }

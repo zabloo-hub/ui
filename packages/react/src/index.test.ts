@@ -345,6 +345,14 @@ describe("renderToIR", () => {
     });
   });
 
+  it("serializes clip (overflow: hidden on any node)", () => {
+    expect(renderToIR(h(Container, { clip: true }, h(Text, null, "x")))).toEqual({
+      type: "Container",
+      clip: true,
+      children: [{ type: "Text", text: "x" }],
+    });
+  });
+
   it("serializes transition, tokenized duration included", () => {
     expect(
       renderToIR(

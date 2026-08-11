@@ -25,8 +25,10 @@ import {
   type ZNode,
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
+import { type Clip, clipContains, isEmptyClip } from "./clip.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
+import { childClip, effectiveClip } from "./hit.js";
 import {
   arrange,
   contains,
@@ -47,7 +49,7 @@ import {
   resolveHit,
   topModal,
 } from "./overlay.js";
-import { clamp } from "./scroll.js";
+import { clamp, scrollbarThumb } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 import { isSelected, nextChecked, slotShown } from "./toggle.js";
@@ -80,6 +82,7 @@ interface AnyNode {
   src?: unknown;
   fit?: ImageFit;
   open?: boolean;
+  scrollbar?: boolean;
   group?: string;
   selected?: unknown;
   autofocus?: boolean;
@@ -99,6 +102,14 @@ interface ScrollDrag {
 
 /** Below this many px of pointer travel, a gesture still counts as a click/tap. */
 const DRAG_THRESHOLD = 4;
+
+/**
+ * Overlay scrollbar (spec 2026-08-11): painted by the SDK inside the
+ * ScrollView's rect, on the edge of its axis. Not in layout, not hit-testable
+ * in F1 — it indicates the position, it doesn't take input. Styling it is a
+ * deferred, compatible extension (`scrollbar` boolean → object).
+ */
+const SCROLLBAR = { thickness: 4, margin: 2, minLength: 16, color: [1, 1, 1, 0.35] as Color };
 
 export interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
@@ -821,7 +832,9 @@ class WebView {
         pressed.pressed = false;
         this.pressedNode = null;
         this.render();
-        if (contains(pressed.rect, point)) this.activate(pressed);
+        // Released over the control it pressed — and still inside the clip, so
+        // scrolling the button out from under the finger cancels the tap.
+        if (this.reachableAt(pressed, point)) this.activate(pressed);
         return;
       }
       const backdrop = this.backdropPress;
@@ -883,9 +896,14 @@ class WebView {
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
-  /** The overlay layer first (top-down, a modal captures), then the tree. */
+  /** The overlay layer first (top-down, a modal captures), then the tree — clipped subtrees excluded. */
   private hitTest(point: Point) {
-    return resolveHit(this.root, this.layer, point);
+    return resolveHit(this.root, this.layer, point, this.radiusOf);
+  }
+
+  /** Is this node's own rect reachable at that point, given its ancestors' clips? */
+  private reachableAt(node: LayoutNode, point: Point): boolean {
+    return contains(node.rect, point) && clipContains(effectiveClip(node, this.radiusOf), point);
   }
 
   /**
@@ -924,6 +942,12 @@ class WebView {
     const resolved = this.token(value);
     return typeof resolved === "number" ? resolved : fallback;
   };
+
+  /**
+   * The painted corner radius of a node — what its clip rounds to. Read from the
+   * resolve pass, so paint and input share it even mid-tween.
+   */
+  private radiusOf = (node: LayoutNode): number => node.resolved.radius ?? 0;
 
   private color(value: unknown, fallback: Color): Color {
     const resolved = this.token(value);
@@ -1104,8 +1128,20 @@ class WebView {
     if (this.animating) this.scheduleFrame();
   }
 
-  /** Paints from `node.resolved` — the resolve pass already applied tokens and tweens. */
-  private paint(node: LayoutNode, geometry: GeometryBuilder, parentOpacity = 1): void {
+  /**
+   * Paints from `node.resolved` — the resolve pass already applied tokens and
+   * tweens — under `clip` (null = unclipped). A node's own background and border
+   * paint under the INHERITED clip, never its own: nothing paints outside a
+   * layout rect (inset borders, decision 2026-08-06), so a node can only ever
+   * clip its children. Each layer entry is a paint root, so an Overlay declared
+   * inside a ScrollView is not cut by it.
+   */
+  private paint(
+    node: LayoutNode,
+    geometry: GeometryBuilder,
+    parentOpacity = 1,
+    clip: Clip | null = null,
+  ): void {
     if (!inLayout(node)) return;
     const values = node.resolved;
 
@@ -1114,6 +1150,7 @@ class WebView {
     const opacity = (values.opacity ?? 1) * parentOpacity;
     if (opacity <= 0) return; // invisible — but still occupies layout
 
+    geometry.setClip(clip);
     const radius = values.radius ?? 0;
     if (values.background !== undefined) {
       geometry.roundedRect(node.rect, radius, fade(values.background, opacity));
@@ -1148,10 +1185,62 @@ class WebView {
         });
       }
     }
+    const inner = childClip(node, clip, this.radiusOf);
+    // Fully clipped away: the whole subtree (and the scrollbar) paints nothing.
+    if (isEmptyClip(inner)) return;
     // Overlay children are skipped here: they paint in the layer pass, above.
     for (const child of node.children) {
-      if (inFlow(child)) this.paint(child, geometry, opacity);
+      if (inFlow(child)) this.paint(child, geometry, opacity, inner);
     }
+    if (node.ir.type === "ScrollView") this.paintScrollbar(node, geometry, opacity, inner);
+  }
+
+  /** Overlay position indicator, inside the viewport and over the content. */
+  private paintScrollbar(
+    node: LayoutNode,
+    geometry: GeometryBuilder,
+    opacity: number,
+    clip: Clip | null,
+  ): void {
+    if ((node.ir as AnyNode).scrollbar === false) return;
+    const { thickness, margin, minLength, color } = SCROLLBAR;
+    const rect = node.rect;
+    const bars: Rect[] = [];
+
+    const vertical = scrollbarThumb(
+      rect.height - margin * 2,
+      rect.height,
+      node.scrollMax.y,
+      node.scrollOffset.y,
+      minLength,
+    );
+    if (vertical) {
+      bars.push({
+        x: rect.x + rect.width - margin - thickness,
+        y: rect.y + margin + vertical.start,
+        width: thickness,
+        height: vertical.length,
+      });
+    }
+    const horizontal = scrollbarThumb(
+      rect.width - margin * 2,
+      rect.width,
+      node.scrollMax.x,
+      node.scrollOffset.x,
+      minLength,
+    );
+    if (horizontal) {
+      bars.push({
+        x: rect.x + margin + horizontal.start,
+        y: rect.y + rect.height - margin - thickness,
+        width: horizontal.length,
+        height: thickness,
+      });
+    }
+    if (bars.length === 0) return;
+
+    geometry.setClip(clip);
+    for (const bar of bars) geometry.roundedRect(bar, thickness * 0.5, fade(color, opacity));
   }
 }
 

@@ -54,6 +54,11 @@ export interface CommonProps {
   variant?: string;
   /** Receives initial focus (directional navigation — decision 2026-08-03 §7). */
   autofocus?: boolean;
+  /**
+   * Clips children's paint AND hit-testing to this node's rect (overflow:
+   * hidden). Implied by `<ScrollView>`, which always clips.
+   */
+  clip?: boolean;
 }
 
 export interface HostInstance {
@@ -118,7 +123,7 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
 /** Serializes a mounted host instance into an IR node. */
 export function toIR(instance: HostInstance): ZNode {
   // `variant` is intentionally NOT serialized — resolved at authoring time.
-  const { id, visible, layout, style, states, transition, autofocus } = instance.props;
+  const { id, visible, layout, style, states, transition, autofocus, clip } = instance.props;
   const base = {
     ...(id !== undefined && { id }),
     ...(visible !== undefined && { visible }),
@@ -127,6 +132,7 @@ export function toIR(instance: HostInstance): ZNode {
     ...(states !== undefined && { states }),
     ...(transition !== undefined && { transition }),
     ...(autofocus !== undefined && { autofocus }),
+    ...(clip !== undefined && { clip }),
   };
 
   switch (instance.type) {
