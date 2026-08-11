@@ -49,5 +49,6 @@ Close out a finished task: Linear to Done + summary, docs reminder, cleanup.
   if git refuses, the branch isn't fully merged; surface that instead of
   forcing).
 - If you started from `main` (no task branch checked out), find the branch to
-  delete via `git branch --list '*<zab-xx>*'` (case-insensitive match on the
-  issue ID); if nothing matches, there is nothing to clean up.
+  delete via `git branch --list '*zab-<number>*'` — use the issue ID
+  lowercased, since branch names are lowercase (e.g. `'*zab-12*'`). If
+  nothing matches, there is nothing to clean up.
