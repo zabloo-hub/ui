@@ -9,7 +9,7 @@
  */
 
 import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
-import { inLayout, type LayoutNode, type Rect } from "./layout.js";
+import { contains, inFlow, type LayoutNode } from "./layout.js";
 
 /** Resolves a node's painted corner radius (effective style + tokens live in the view). */
 export type NodeRadius = (node: LayoutNode) => number;
@@ -29,7 +29,9 @@ export function childClip(
 }
 
 /**
- * Deepest in-layout node under the point (later siblings win — they paint last).
+ * Deepest in-flow node under the point (later siblings win — they paint last).
+ * Overlay subtrees are skipped: they belong to the layer, which `resolveHit`
+ * walks first and against the view rect, not against this tree's clips.
  *
  * Children are searched even where they overflow their parent's rect: only a
  * clip cuts input, exactly as only a clip cuts paint. Bailing out on the
@@ -43,7 +45,7 @@ export function hitTest(
   radiusOf: NodeRadius,
   inherited: Clip | null = null,
 ): LayoutNode | null {
-  if (!inLayout(root) || !clipContains(inherited, point)) return null;
+  if (!inFlow(root) || !clipContains(inherited, point)) return null;
 
   const clip = childClip(root, inherited, radiusOf);
   // Outside this node's own clip: it prunes the subtree (`clip === inherited`
@@ -62,23 +64,21 @@ export function hitTest(
  * clipping ancestor. Used to re-check a press on release, where the tree walk of
  * `hitTest` would answer a different question (which node is under the pointer
  * NOW, possibly a child of the pressed one).
+ *
+ * The walk stops at an `Overlay`: a layer entry is laid out against the view
+ * rect, so the clips of wherever it was DECLARED never apply to it — the same
+ * boundary `findUp` and the paint pass draw.
  */
 export function effectiveClip(node: LayoutNode, radiusOf: NodeRadius): Clip | null {
   const ancestors: LayoutNode[] = [];
-  for (let current = node.parent; current; current = current.parent) ancestors.push(current);
+  for (let current = node.parent; current; current = current.parent) {
+    ancestors.push(current); // the Overlay's own clip still applies to its children
+    if (current.ir.type === "Overlay") break;
+  }
 
   let clip: Clip | null = null;
   for (let i = ancestors.length - 1; i >= 0; i--) {
     clip = childClip(ancestors[i], clip, radiusOf);
   }
   return clip;
-}
-
-export function contains(rect: Rect, point: { x: number; y: number }): boolean {
-  return (
-    point.x >= rect.x &&
-    point.x <= rect.x + rect.width &&
-    point.y >= rect.y &&
-    point.y <= rect.y + rect.height
-  );
 }

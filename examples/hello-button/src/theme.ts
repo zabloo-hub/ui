@@ -8,6 +8,10 @@ export const tokens = {
   "radius.md": 8,
   "space.2": 8,
   "space.4": 16,
+  // Motion is themeable like color: a "reduce motion" theme sets these to 0 and
+  // the whole UI stops animating without re-emitting the tree.
+  "motion.fast": 120,
+  "motion.slow": 240,
 };
 
 // Variants — an authoring-time concept (decision 2026-08-03 §6): resolved at

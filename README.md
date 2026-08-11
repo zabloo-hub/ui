@@ -44,8 +44,11 @@ self-render pipeline: own Flexbox layout pass, own tessellator, own glyph atlase
 
 What works today:
 
-- **4 primitives** — `Container`, `Text`, `Button`, `Collapse` — plus authoring-time
-  composites (`Row`/`Column`, `Accordion`, `Tabs`) that flatten to primitives.
+- **4 primitives on both targets** — `Container`, `Text`, `Button`, `Collapse` — plus
+  `ScrollView`, `Toggle` and `Image` (assets travel inside the envelope) in the web
+  renderer while the engine SDKs catch up, and authoring-time composites
+  (`Row`/`Column`, `Accordion`, `Tabs`, `Checkbox`/`Switch`/`RadioGroup`) that flatten
+  to primitives.
 - **Styling**: design tokens (flat dictionary, theme hot-update without re-emitting the
   tree), per-state overrides (`pressed` / `focused` / `selected`), variants resolved at export time,
   and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset

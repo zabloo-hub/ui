@@ -8,6 +8,7 @@ import {
   Collapse,
   Column,
   Container,
+  Image,
   Radio,
   RadioGroup,
   Row,
@@ -163,6 +164,44 @@ describe("renderToIR", () => {
     });
   });
 
+  it("serializes Image with the authoring path — the export rewrites it to asset:", () => {
+    const ir = renderToIR(
+      h(Image, {
+        id: "hero",
+        src: "art/hero.png",
+        fit: "cover",
+        // Tint and placeholder are plain style: no Image-specific props.
+        style: { color: "{color.gold}", background: "{color.surface}", radius: 12 },
+        layout: { width: 240, height: 120 },
+      }),
+    );
+    expect(ir).toEqual({
+      type: "Image",
+      id: "hero",
+      src: "art/hero.png",
+      fit: "cover",
+      style: { color: "{color.gold}", background: "{color.surface}", radius: 12 },
+      layout: { width: 240, height: 120 },
+    });
+  });
+
+  it("omits fit when the default (contain) is good enough", () => {
+    expect(renderToIR(h(Image, { src: "logo.png" }))).toEqual({
+      type: "Image",
+      src: "logo.png",
+    });
+  });
+
+  it("rejects an Image without a src", () => {
+    expect(() => renderToIR(h(Image, { src: "" }))).toThrow(/needs a `src` path/);
+  });
+
+  it("rejects an Image with children — it is a leaf", () => {
+    expect(() => renderToIR(h(Image, { src: "logo.png" }, h(Text, null, "x")))).toThrow(
+      /takes no children/,
+    );
+  });
+
   it("lowers Checkbox to a Toggle with both indicator slots", () => {
     const ir = renderToIR(
       h(
@@ -311,6 +350,30 @@ describe("renderToIR", () => {
       type: "Container",
       clip: true,
       children: [{ type: "Text", text: "x" }],
+    });
+  });
+
+  it("serializes transition, tokenized duration included", () => {
+    expect(
+      renderToIR(
+        h(
+          Button,
+          { transition: { duration: "{motion.fast}", easing: "ease-out" }, onClick: "a" },
+          h(Text, null, "x"),
+        ),
+      ),
+    ).toEqual({
+      type: "Button",
+      transition: { duration: "{motion.fast}", easing: "ease-out" },
+      onClick: "a",
+      children: [{ type: "Text", text: "x" }],
+    });
+  });
+
+  it("omits transition when the node declares none — pre-F7 output is unchanged", () => {
+    expect(renderToIR(h(Container, { style: { opacity: 0.5 } }))).toEqual({
+      type: "Container",
+      style: { opacity: 0.5 },
     });
   });
 

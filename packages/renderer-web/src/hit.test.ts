@@ -2,6 +2,7 @@ import type { ZNode } from "@zabloo/format";
 import { describe, expect, it } from "vitest";
 import { effectiveClip, hitTest } from "./hit.js";
 import type { LayoutNode, Rect } from "./layout.js";
+import { createNodeAnim } from "./transition.js";
 
 /** A laid-out node: the arrange pass' output, hand-built (no canvas needed). */
 function node(ir: Partial<ZNode> & { type: string }, rect: Rect, children: LayoutNode[] = []) {
@@ -22,6 +23,9 @@ function node(ir: Partial<ZNode> & { type: string }, rect: Rect, children: Layou
     sectionShown: true,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
+    // Hit-testing reads no animatable value: an un-resolved node is enough.
+    resolved: {},
+    anim: createNodeAnim(),
   };
   for (const child of children) child.parent = built;
   return built;
@@ -93,6 +97,17 @@ describe("hitTest", () => {
     expect(hitTest(root, { x: 50, y: 50 }, noRadius)?.ir.id).toBe("second");
   });
 
+  it("never returns a node of an overlay subtree: that belongs to the layer", () => {
+    const inModal = node({ type: "Button", id: "ok" }, { x: 0, y: 0, width: 200, height: 200 });
+    const modal = node(
+      { type: "Overlay", id: "confirm" },
+      { x: 0, y: 0, width: 200, height: 200 },
+      [inModal],
+    );
+    const root = node({ type: "Container" }, { x: 0, y: 0, width: 400, height: 400 }, [modal]);
+    expect(hitTest(root, { x: 50, y: 50 }, noRadius)).toBe(root);
+  });
+
   it("skips nodes out of layout (display:none semantics)", () => {
     const { root } = scrollTree();
     root.children[0].children[0].visibleFlag = false;
@@ -155,6 +170,29 @@ describe("effectiveClip", () => {
       width: 120,
       height: 200,
       radius: 8,
+    });
+  });
+
+  it("stops at an Overlay: the clips where it was declared never apply to it", () => {
+    const inModal = node({ type: "Button", id: "ok" }, { x: 0, y: 0, width: 100, height: 100 });
+    const modal = node(
+      { type: "Overlay", id: "confirm" },
+      { x: 0, y: 0, width: 400, height: 400 },
+      [inModal],
+    );
+    // Declared inside a ScrollView, but arranged against the view rect.
+    node({ type: "ScrollView" }, { x: 0, y: 0, width: 50, height: 50 }, [modal]);
+
+    expect(effectiveClip(inModal, noRadius)).toBeNull();
+
+    // Its OWN clip still applies to its children.
+    modal.ir = { ...modal.ir, clip: true } as ZNode;
+    expect(effectiveClip(inModal, noRadius)).toEqual({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      radius: 0,
     });
   });
 });
