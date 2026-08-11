@@ -12,6 +12,7 @@ import {
   parseEnvelope,
   type ScrollViewNode,
   supportsVersion,
+  type ToggleNode,
   type Transition,
 } from "./index.js";
 
@@ -550,5 +551,87 @@ describe("exclusive-select groups (ZAB-22)", () => {
     });
     const node = env.views.s as ContainerNode;
     expect(node.children).toHaveLength(2);
+  });
+});
+
+describe("Toggle & exclusive-check (ZAB-23)", () => {
+  // Typed without casts: this file failing `tsc --noEmit` IS the type test.
+  const settings: Envelope = {
+    v: IR_VERSION,
+    tokens: {},
+    views: {
+      settings: {
+        type: "Container",
+        children: [
+          {
+            // Standalone switch: read/write binding + action, both slots.
+            type: "Toggle",
+            id: "sfx",
+            checked: { bind: "settings.sfx" },
+            onChange: "sfx-changed",
+            states: { checked: { style: { background: "#22c55e" } } },
+            children: [
+              { type: "Container", layout: { justify: "end" } },
+              { type: "Container", layout: { justify: "start" } },
+              { type: "Text", text: "Efectos" },
+            ],
+          },
+          {
+            // RadioGroup: ONE value for the whole group, one `value` per option.
+            type: "Container",
+            group: "exclusive-check",
+            value: { bind: "settings.quality" },
+            children: [
+              { type: "Toggle", value: "low", children: [{ type: "Text", text: "Baja" }] },
+              { type: "Toggle", value: "high", children: [{ type: "Text", text: "Alta" }] },
+            ],
+          },
+        ],
+      },
+    },
+  };
+
+  it("accepts a settings view with a switch and a radio group", () => {
+    const env = parseEnvelope(settings);
+    expect(env.views.settings?.type).toBe("Container");
+  });
+
+  it("every Toggle field is optional (defaults live in the SDK)", () => {
+    const bare: ToggleNode = { type: "Toggle" };
+    const env = parseEnvelope({ v: IR_VERSION, tokens: {}, views: { t: bare } });
+    expect(env.views.t?.type).toBe("Toggle");
+  });
+
+  it("checked is bindable, and the binding is read/write", () => {
+    const node: ToggleNode = { type: "Toggle", checked: { bind: "settings.sfx" } };
+    const staticInitial: ToggleNode = { type: "Toggle", checked: true };
+    expect(node.checked).toEqual({ bind: "settings.sfx" });
+    expect(staticInitial.checked).toBe(true);
+  });
+
+  it("rejects invalid group behaviors at type-check time", () => {
+    const node: ContainerNode = {
+      type: "Container",
+      // @ts-expect-error — "exclusive-everything" is not a GroupBehavior
+      group: "exclusive-everything",
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("rejects a non-boolean checked at type-check time", () => {
+    const node: ToggleNode = {
+      type: "Toggle",
+      // @ts-expect-error — checked is a boolean (or a binding), not a string
+      checked: "yes",
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("accepts `checked` as a state override name", () => {
+    const node: ToggleNode = {
+      type: "Toggle",
+      states: { checked: { style: { background: "#22c55e" } } },
+    };
+    expect(node.states?.checked?.style?.background).toBe("#22c55e");
   });
 });

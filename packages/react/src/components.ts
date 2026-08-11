@@ -8,8 +8,15 @@
  * variants never reach the IR.
  */
 
-import type { GroupBehavior, ScrollAxis } from "@zabloo/format";
-import { Children, createElement, type FC, isValidElement, type ReactNode } from "react";
+import type { Bindable, GroupBehavior, ScrollAxis, Style } from "@zabloo/format";
+import {
+  Children,
+  createElement,
+  type FC,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import type { CommonProps } from "./host.js";
 import { useVariant } from "./theme.js";
 
@@ -18,6 +25,8 @@ export interface ContainerProps extends CommonProps {
   group?: GroupBehavior;
   /** Initially selected index of an `"exclusive-select"` group (default: 0). */
   selected?: number;
+  /** Selected value of an `"exclusive-check"` group — see `<RadioGroup>`. */
+  value?: Bindable<string | number>;
   children?: ReactNode;
 }
 
@@ -47,6 +56,52 @@ export interface ScrollViewProps extends CommonProps {
   /** Overlay position indicator painted by the SDK. Default: true. */
   scrollbar?: boolean;
   children?: ReactNode;
+}
+
+/** Props shared by the two-state controls that lower to the `Toggle` primitive. */
+export interface ToggleControlProps extends CommonProps {
+  /**
+   * Initial state, or a READ/WRITE data-path binding (`{ bind: "settings.sfx" }`):
+   * the SDK writes the new value back and notifies the game.
+   */
+  checked?: Bindable<boolean>;
+  /** Named action fired after every change (like `<Button onClick>`). */
+  onChange?: string;
+  /** Indicator size in px — the box side / the switch track height. Default: 22. */
+  size?: number;
+  /** Label: rendered next to the indicator, and tapping it toggles too. */
+  children?: ReactNode;
+}
+
+export interface CheckboxProps extends ToggleControlProps {
+  /** Box style in both states. */
+  box?: Style;
+  /** Box style while checked, merged over `box`. */
+  checkedBox?: Style;
+  /** The mark drawn inside a checked box. */
+  mark?: Style;
+}
+
+export interface SwitchProps extends ToggleControlProps {
+  /** Track style in both states. */
+  track?: Style;
+  /** Track style while checked, merged over `track`. */
+  checkedTrack?: Style;
+  /** The knob that sits at the start (off) or the end (on) of the track. */
+  knob?: Style;
+}
+
+export interface RadioProps extends Omit<CheckboxProps, "checked"> {
+  /** This option's value. Checked while it equals the `<RadioGroup>` value. */
+  value: string | number;
+}
+
+export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
+  /**
+   * The selected value — usually a read/write binding (`{ bind: "settings.quality" }`).
+   * A `<Radio>` is checked while its `value` equals this one.
+   */
+  value?: Bindable<string | number>;
 }
 
 /** Wraps a host primitive with variant resolution (variant never reaches the IR). */
@@ -86,6 +141,135 @@ export function Accordion({ layout, ...rest }: Omit<ContainerProps, "group">): R
   return createElement(Container, {
     ...rest,
     group: "exclusive-open",
+    layout: { direction: "column", ...layout },
+  });
+}
+
+/**
+ * The `Toggle` primitive. NOT exported: its indicator slots are positional
+ * (`children[0]` checked, `children[1]` unchecked, rest always shown), and the
+ * controls below are the supported way to build them — one place to get the
+ * convention right.
+ */
+interface TogglePrimitiveProps extends CommonProps {
+  checked?: Bindable<boolean>;
+  value?: string | number;
+  onChange?: string;
+  children?: ReactNode;
+}
+const Toggle: FC<TogglePrimitiveProps> = primitive<TogglePrimitiveProps>("Toggle");
+
+const TOGGLE_SIZE = 22;
+const BOX: Style = { borderWidth: 2, borderColor: "#8b93a8" };
+const CHECKED_BOX: Style = { background: "#4f46e5", borderColor: "#4f46e5" };
+const MARK: Style = { background: "#ffffff" };
+const TRACK: Style = { background: "#2f3446" };
+const CHECKED_TRACK: Style = { background: "#4f46e5" };
+const KNOB: Style = { background: "#ffffff" };
+
+/** One indicator slot: the WHOLE indicator as it looks in that state. */
+function slot(size: number, style: Style, inner?: { size: number; style: Style }): ReactElement {
+  return createElement(
+    Container,
+    { layout: { width: size, height: size, justify: "center", align: "center" }, style },
+    inner &&
+      createElement(Container, {
+        layout: { width: inner.size, height: inner.size },
+        style: inner.style,
+      }),
+  );
+}
+
+/**
+ * A box that fills with a mark when checked — square for `<Checkbox>`, round for
+ * `<Radio>`. Both slots paint the full box, so the checked look is a style of its
+ * own slot: no cascade, no per-state styling of descendants.
+ */
+function boxControl(
+  round: boolean,
+  { size = TOGGLE_SIZE, box, checkedBox, mark, layout, children, ...rest }: CheckboxProps,
+): ReturnType<FC> {
+  const markSize = Math.round(size * 0.45);
+  const base: Style = { ...BOX, radius: round ? size / 2 : 4, ...box };
+  return createElement(
+    Toggle,
+    { ...rest, layout: { direction: "row", align: "center", gap: 10, ...layout } },
+    slot(
+      size,
+      { ...base, ...CHECKED_BOX, ...checkedBox },
+      {
+        size: markSize,
+        style: { ...MARK, radius: round ? markSize / 2 : 2, ...mark },
+      },
+    ),
+    slot(size, base),
+    children,
+  );
+}
+
+/**
+ * Checkbox: an independent boolean. `checked` may be a read/write binding, and
+ * `onChange` fires the named action — the two ways the game hears about it.
+ */
+export function Checkbox(props: CheckboxProps): ReturnType<FC> {
+  return boxControl(false, props);
+}
+
+/**
+ * Switch: the same primitive as `<Checkbox>` with a knob that swaps ends. The
+ * knob "moves" because each slot justifies it to a different side — layout, not
+ * animation (the transition lands in F7).
+ */
+export function Switch({
+  size = TOGGLE_SIZE,
+  track,
+  checkedTrack,
+  knob,
+  layout,
+  children,
+  ...rest
+}: SwitchProps): ReturnType<FC> {
+  const width = Math.round(size * 1.8);
+  const padding = 3;
+  const knobSize = size - padding * 2;
+  const base: Style = { radius: size / 2, ...TRACK, ...track };
+  const knobStyle: Style = { radius: knobSize / 2, ...KNOB, ...knob };
+  const rail = (justify: "start" | "end", style: Style): ReactElement =>
+    createElement(
+      Container,
+      {
+        layout: { direction: "row", width, height: size, padding, justify, align: "center" },
+        style,
+      },
+      createElement(Container, {
+        layout: { width: knobSize, height: knobSize },
+        style: knobStyle,
+      }),
+    );
+  return createElement(
+    Toggle,
+    { ...rest, layout: { direction: "row", align: "center", gap: 10, ...layout } },
+    rail("end", { ...base, ...CHECKED_TRACK, ...checkedTrack }),
+    rail("start", base),
+    children,
+  );
+}
+
+/** One option of a `<RadioGroup>`: same control as `<Checkbox>`, round, with a value. */
+export function Radio(props: RadioProps): ReturnType<FC> {
+  return boxControl(true, props);
+}
+
+/**
+ * RadioGroup — a flattened composite, like `<Accordion>`: a column `Container`
+ * with `group: "exclusive-check"` and the selected `value`. The SDK enforces
+ * "only one checked" generically; older SDKs ignore the group and degrade to
+ * independent checkboxes.
+ */
+export function RadioGroup({ layout, ...rest }: RadioGroupProps): ReturnType<FC> {
+  return createElement(Container, {
+    ...rest,
+    group: "exclusive-check",
     layout: { direction: "column", ...layout },
   });
 }

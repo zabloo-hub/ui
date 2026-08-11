@@ -32,9 +32,16 @@ export interface LayoutNode {
   selected: boolean;
   /** Chosen tab index — on the group container of an "exclusive-select" group (Tabs). */
   selectedIndex: number;
+  /** Toggle only: the control's value. In a group it mirrors the group's selection. */
+  checked: boolean;
+  /** `"exclusive-check"` group only: the selected value its options compare against. */
+  groupValue: unknown;
   /** `visible` value (bound or static) — display:none semantics. */
   visibleFlag: boolean;
-  /** False while hidden as content of a closed Collapse, or as an unselected tab panel. */
+  /**
+   * False while hidden by the parent's state: content of a closed Collapse, an
+   * unselected tab panel, or the Toggle indicator slot that is off.
+   */
   sectionShown: boolean;
   /** Runtime scroll position (ScrollView only) — re-clamped on every relayout. */
   scrollOffset: { x: number; y: number };

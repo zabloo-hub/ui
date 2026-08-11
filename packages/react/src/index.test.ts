@@ -1,14 +1,19 @@
+import type { ContainerNode, ToggleNode } from "@zabloo/format";
 import { createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
 import {
   Accordion,
   Button,
+  Checkbox,
   Collapse,
   Column,
   Container,
+  Radio,
+  RadioGroup,
   Row,
   renderToIR,
   ScrollView,
+  Switch,
   Tab,
   Tabs,
   Text,
@@ -156,6 +161,90 @@ describe("renderToIR", () => {
         { type: "Text", text: "Item 2" },
       ],
     });
+  });
+
+  it("lowers Checkbox to a Toggle with both indicator slots", () => {
+    const ir = renderToIR(
+      h(
+        Checkbox,
+        { id: "sfx", checked: { bind: "settings.sfx" }, onChange: "sfx-changed", size: 20 },
+        h(Text, null, "Efectos"),
+      ),
+    );
+    expect(ir).toEqual({
+      type: "Toggle",
+      id: "sfx",
+      checked: { bind: "settings.sfx" },
+      onChange: "sfx-changed",
+      layout: { direction: "row", align: "center", gap: 10 },
+      children: [
+        // children[0] — the whole indicator as it looks CHECKED (box + mark).
+        {
+          type: "Container",
+          layout: { width: 20, height: 20, justify: "center", align: "center" },
+          style: {
+            borderWidth: 2,
+            borderColor: "#4f46e5",
+            radius: 4,
+            background: "#4f46e5",
+          },
+          children: [
+            {
+              type: "Container",
+              layout: { width: 9, height: 9 },
+              style: { background: "#ffffff", radius: 2 },
+            },
+          ],
+        },
+        // children[1] — UNCHECKED: the empty box.
+        {
+          type: "Container",
+          layout: { width: 20, height: 20, justify: "center", align: "center" },
+          style: { borderWidth: 2, borderColor: "#8b93a8", radius: 4 },
+        },
+        // children[2..] — always shown.
+        { type: "Text", text: "Efectos" },
+      ],
+    });
+  });
+
+  it("moves the Switch knob by justifying each slot to a different end", () => {
+    const ir = renderToIR(h(Switch, { checked: true })) as ToggleNode;
+    const [on, off] = (ir.children ?? []) as ContainerNode[];
+    expect(ir.checked).toBe(true);
+    expect(on.layout?.justify).toBe("end");
+    expect(off.layout?.justify).toBe("start");
+    // Same knob, different rail — only the track color tells the states apart.
+    expect(on.children?.[0]).toEqual(off.children?.[0]);
+    expect(on.style?.background).toBe("#4f46e5");
+    expect(off.style?.background).toBe("#2f3446");
+  });
+
+  it("flattens RadioGroup to Container + exclusive-check + one value per option", () => {
+    const ir = renderToIR(
+      h(
+        RadioGroup,
+        { value: { bind: "settings.quality" }, layout: { gap: 6 } },
+        h(Radio, { value: "low" }, h(Text, null, "Baja")),
+        h(Radio, { value: "high" }, h(Text, null, "Alta")),
+      ),
+    ) as ContainerNode;
+    expect(ir.type).toBe("Container");
+    expect(ir.group).toBe("exclusive-check");
+    expect(ir.value).toEqual({ bind: "settings.quality" });
+    expect(ir.layout).toEqual({ direction: "column", gap: 6 });
+    const options = (ir.children ?? []) as ToggleNode[];
+    expect(options.map((o) => o.value)).toEqual(["low", "high"]);
+    // Round box: radius = half the size, on both slots.
+    const [checkedSlot] = (options[0].children ?? []) as ContainerNode[];
+    expect(checkedSlot.style?.radius).toBe(11);
+  });
+
+  it("rejects binding a Radio value (the selection is bound on the group)", () => {
+    expect(() =>
+      // @ts-expect-error — a Radio value is static by type; this pins the runtime guard too
+      renderToIR(h(RadioGroup, null, h(Radio, { value: { bind: "settings.quality" } }))),
+    ).toThrow(/value is static/);
   });
 
   it("serializes Text bindings", () => {

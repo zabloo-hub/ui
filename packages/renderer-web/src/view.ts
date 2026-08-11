@@ -1,9 +1,9 @@
 /**
  * The web view — the browser sibling of the Unity SDK's ZablooView + Document:
  * builds the node tree from an envelope, owns runtime state keyed by type
- * (Button pressed, Collapse open, exclusive-open groups), resolves tokens and
- * bindings, runs the renderer's own layout pass and re-tessellates on change.
- * The browser provides a GPU canvas and pointer events — nothing else.
+ * (Button pressed, Collapse open, Toggle checked, group behaviors), resolves
+ * tokens and bindings, runs the renderer's own layout pass and re-tessellates on
+ * change. The browser provides a GPU canvas and pointer events — nothing else.
  */
 
 import {
@@ -20,6 +20,7 @@ import { arrange, inLayout, type LayoutNode, measure, type Rect } from "./layout
 import { clamp } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
+import { isSelected, nextChecked, slotShown } from "./toggle.js";
 
 const DEFAULT_FONT_SIZE = 16;
 
@@ -39,6 +40,9 @@ interface AnyNode {
   group?: string;
   selected?: unknown;
   autofocus?: boolean;
+  checked?: unknown;
+  onChange?: string;
+  value?: unknown;
 }
 
 /** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
@@ -57,6 +61,12 @@ export interface MountOptions {
   view?: string;
   /** Named actions declared in the IR (e.g. onClick: "buy") fire here. */
   onAction?: (action: string) => void;
+  /**
+   * The return leg of the data channel (decision 2026-08-11): fires whenever a
+   * control writes its value into a bound path, so the game learns the new value
+   * without polling. Never fires for `setData` — that value came from the game.
+   */
+  onDataChanged?: (path: string, value: unknown) => void;
   /** Canvas clear color (CSS hex). */
   background?: string;
 }
@@ -65,11 +75,12 @@ export interface ZablooHandle {
   readonly viewIds: string[];
   /** Same loading path as the SDK: any versioned payload (dev push, hot-update). */
   reload(envelope: string | object): void;
-  /** The game/page data channel — bound Text/visible react (cached + replayed). */
+  /** The game/page data channel — bound Text/visible/checked react (cached + replayed). */
   setData(path: string, value: unknown): void;
   setOpen(id: string, open: boolean): boolean;
   /** Selects a tab of an `"exclusive-select"` group by its container id. */
   setSelectedTab(id: string, index: number): boolean;
+  setChecked(id: string, checked: boolean): boolean;
   setScroll(id: string, x: number, y: number): boolean;
   dispose(): void;
 }
@@ -95,10 +106,14 @@ class WebView {
   private readonly images: ImageLibrary;
   private readonly clearColor: Color;
   private readonly onAction?: (action: string) => void;
+  private readonly onDataChanged?: (path: string, value: unknown) => void;
 
   private root!: LayoutNode;
   private byId = new Map<string, LayoutNode>();
   private visibleBindings = new Map<string, LayoutNode[]>();
+  /** Bound `checked` (Toggle) and bound group `value` (exclusive-check), by data path. */
+  private checkedBindings = new Map<string, LayoutNode[]>();
+  private groupBindings = new Map<string, LayoutNode[]>();
   private readonly data = new Map<string, unknown>();
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
@@ -114,6 +129,7 @@ class WebView {
     this.envelope = envelope;
     this.viewId = options.view ?? Object.keys(envelope.views)[0];
     this.onAction = options.onAction;
+    this.onDataChanged = options.onDataChanged;
     this.clearColor = parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
     this.gl = new GLRenderer(canvas);
     this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1);
@@ -145,6 +161,7 @@ class WebView {
       setData: (path, value) => this.setData(path, value),
       setOpen: (id, open) => this.setOpen(id, open),
       setSelectedTab: (id, index) => this.setSelectedTab(id, index),
+      setChecked: (id, checked) => this.setChecked(id, checked),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
         for (const dispose of this.disposers) dispose();
@@ -161,6 +178,8 @@ class WebView {
     if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
     this.byId = new Map();
     this.visibleBindings = new Map();
+    this.checkedBindings = new Map();
+    this.groupBindings = new Map();
     this.pressedNode = null;
     this.focusedNode = null;
     this.autofocusNode = null;
@@ -181,6 +200,8 @@ class WebView {
       open: true,
       selected: false,
       selectedIndex: 0,
+      checked: false,
+      groupValue: undefined,
       visibleFlag: true,
       sectionShown: true,
       scrollOffset: { x: 0, y: 0 },
@@ -213,6 +234,30 @@ class WebView {
       const { buttons } = this.tabsOf(node, true);
       node.selectedIndex = clampSelected(any.selected, buttons.length);
       this.applySelection(node);
+    }
+    if (any.type === "Container" && any.group === "exclusive-check") {
+      const path = bindPath(any.value);
+      if (path !== null) {
+        node.groupValue = this.data.get(path);
+        pushMapList(this.groupBindings, path, node);
+      } else {
+        node.groupValue = any.value;
+      }
+      this.applyGroupValue(node);
+    }
+    if (any.type === "Toggle") {
+      // Inside an exclusive-check group the state is derived from the group's
+      // value (applied above), never stored per option.
+      if (!this.exclusiveGroupOf(node)) {
+        const path = bindPath(any.checked);
+        if (path !== null) {
+          node.checked = isTruthy(this.data.get(path));
+          pushMapList(this.checkedBindings, path, node);
+        } else {
+          node.checked = any.checked === true;
+        }
+        this.applyChecked(node);
+      }
     }
     return node;
   }
@@ -281,13 +326,18 @@ class WebView {
   }
 
   /**
-   * Activating a Button — the one path shared by pointer taps and Enter/gamepad:
-   * it fires the named action and, for a tab button, moves the selection.
+   * Activating a control — the one path shared by pointer taps and Enter/gamepad.
+   * A Button fires its named action (and moves the selection when it is a tab); a
+   * Toggle flips, which in an `"exclusive-check"` group means selecting it.
    */
-  private activateButton(button: LayoutNode): void {
-    const action = (button.ir as AnyNode).onClick;
+  private activate(node: LayoutNode): void {
+    if (node.ir.type === "Toggle") {
+      this.setToggleChecked(node, nextChecked(node.checked, this.exclusiveGroupOf(node) !== null));
+      return;
+    }
+    const action = (node.ir as AnyNode).onClick;
     if (action) this.onAction?.(action);
-    const tab = this.tabIndexOf(button);
+    const tab = this.tabIndexOf(node);
     if (tab) this.setSelected(tab.group, tab.index);
   }
 
@@ -295,7 +345,9 @@ class WebView {
     const group = (opened.parent?.ir as AnyNode | undefined)?.group;
     if (group === undefined || group === "exclusive-select") return; // not an open-driven behavior
     if (group !== "exclusive-open") {
-      console.warn(`[zabloo] Unknown group behavior "${group}" — ignoring.`);
+      if (group !== "exclusive-check") {
+        console.warn(`[zabloo] Unknown group behavior "${group}" — ignoring.`);
+      }
       return;
     }
     for (const sibling of opened.parent?.children ?? []) {
@@ -304,6 +356,83 @@ class WebView {
         this.applyOpen(sibling);
       }
     }
+  }
+
+  // --- Toggle: checked state, indicator slots and exclusive-check groups ---
+
+  /** `children[0]` is in layout while checked, `children[1]` while unchecked. */
+  private applyChecked(node: LayoutNode): void {
+    for (let i = 0; i < node.children.length; i++) {
+      node.children[i].sectionShown = slotShown(i, node.checked);
+    }
+  }
+
+  /** The nearest `"exclusive-check"` ancestor, if this Toggle is one of its options. */
+  private exclusiveGroupOf(node: LayoutNode): LayoutNode | null {
+    let current = node.parent;
+    while (current) {
+      const any = current.ir as AnyNode;
+      if (any.type === "Container" && any.group === "exclusive-check") return current;
+      current = current.parent;
+    }
+    return null;
+  }
+
+  /** The Toggles this group owns — a nested group owns its own. */
+  private groupOptions(group: LayoutNode, node = group, out: LayoutNode[] = []): LayoutNode[] {
+    for (const child of node.children) {
+      const any = child.ir as AnyNode;
+      if (any.type === "Container" && any.group === "exclusive-check") continue;
+      if (any.type === "Toggle") out.push(child);
+      this.groupOptions(group, child, out);
+    }
+    return out;
+  }
+
+  /** Re-derives every option's state from the group's selected value. */
+  private applyGroupValue(group: LayoutNode): void {
+    for (const option of this.groupOptions(group)) {
+      option.checked = isSelected(group.groupValue, (option.ir as AnyNode).value);
+      this.applyChecked(option);
+    }
+  }
+
+  /**
+   * Single state-mutation path for Toggles (tap, Enter/gamepad, `setChecked`):
+   * updates the state, writes the new value into its bound path — the return leg
+   * of the data channel — and fires the node's named action.
+   */
+  private setToggleChecked(node: LayoutNode, checked: boolean): void {
+    const any = node.ir as AnyNode;
+    const group = this.exclusiveGroupOf(node);
+
+    if (group) {
+      // A radio only ever turns ON; the group's value is the state that moves.
+      if (!checked || node.checked) return;
+      group.groupValue = any.value;
+      this.applyGroupValue(group);
+      const path = bindPath((group.ir as AnyNode).value);
+      if (path !== null) this.writeData(path, any.value);
+    } else {
+      if (node.checked === checked) return;
+      node.checked = checked;
+      this.applyChecked(node);
+      const path = bindPath(any.checked);
+      if (path !== null) this.writeData(path, checked);
+    }
+
+    if (any.onChange) this.onAction?.(any.onChange);
+    this.render();
+  }
+
+  setChecked(id: string, checked: boolean): boolean {
+    const node = this.byId.get(id);
+    if (node?.ir.type !== "Toggle") {
+      console.warn(`[zabloo] setChecked: no Toggle with id "${id}".`);
+      return false;
+    }
+    this.setToggleChecked(node, checked);
+    return true;
   }
 
   setOpen(id: string, open: boolean): boolean {
@@ -349,12 +478,31 @@ class WebView {
   }
 
   setData(path: string, value: unknown): void {
+    this.applyData(path, value);
+    // Bound text is resolved at tessellation time — a render is enough.
+    this.render();
+  }
+
+  /** A control writing its own value: same store update, plus the game callback. */
+  private writeData(path: string, value: unknown): void {
+    this.applyData(path, value);
+    this.onDataChanged?.(path, value);
+  }
+
+  /** The one place a data path lands on the tree, whoever wrote it. */
+  private applyData(path: string, value: unknown): void {
     this.data.set(path, value);
     for (const node of this.visibleBindings.get(path) ?? []) {
       node.visibleFlag = isTruthy(value);
     }
-    // Bound text is resolved at tessellation time — a render is enough.
-    this.render();
+    for (const node of this.checkedBindings.get(path) ?? []) {
+      node.checked = isTruthy(value);
+      this.applyChecked(node);
+    }
+    for (const group of this.groupBindings.get(path) ?? []) {
+      group.groupValue = value;
+      this.applyGroupValue(group);
+    }
   }
 
   // --- focus & directional navigation (decision 2026-08-03 §7) ---
@@ -363,7 +511,7 @@ class WebView {
   // identity (Button, Collapse header); `states.focused` styles the focused node.
 
   private isFocusable(node: LayoutNode): boolean {
-    return node.ir.type === "Button" || isCollapseHeader(node);
+    return node.ir.type === "Button" || node.ir.type === "Toggle" || isCollapseHeader(node);
   }
 
   private collectFocusables(node: LayoutNode = this.root, out: LayoutNode[] = []): LayoutNode[] {
@@ -431,8 +579,8 @@ class WebView {
     if (!node.pressed) return;
     node.pressed = false;
     this.render();
-    if (node.ir.type === "Button") {
-      this.activateButton(node);
+    if (node.ir.type === "Button" || node.ir.type === "Toggle") {
+      this.activate(node);
     } else if (node.parent) {
       this.setCollapseOpen(node.parent, !node.parent.open);
     }
@@ -444,11 +592,12 @@ class WebView {
     const down = (event: PointerEvent) => {
       const point = this.eventPoint(event);
       const hit = this.hitTest(point);
-      const button = hit && this.findUp(hit, (n) => n.ir.type === "Button");
-      if (button) {
-        button.pressed = true;
-        this.pressedNode = button;
-        this.setFocus(button); // pointer and directional nav share one focus
+      const pressable =
+        hit && this.findUp(hit, (n) => n.ir.type === "Button" || n.ir.type === "Toggle");
+      if (pressable) {
+        pressable.pressed = true;
+        this.pressedNode = pressable;
+        this.setFocus(pressable); // pointer and directional nav share one focus
         this.canvas.setPointerCapture(event.pointerId);
         this.render();
         return;
@@ -501,7 +650,7 @@ class WebView {
         pressed.pressed = false;
         this.pressedNode = null;
         this.render();
-        if (contains(pressed.rect, point)) this.activateButton(pressed);
+        if (contains(pressed.rect, point)) this.activate(pressed);
         return;
       }
       const drag = this.scrollDrag;
@@ -600,9 +749,12 @@ class WebView {
   private effectiveStyle(node: LayoutNode): Style | undefined {
     const any = node.ir as AnyNode;
     let style = any.style;
-    // Merge order: base → selected → focused → pressed (pressed wins while held).
+    // Merge order: base → value states (selected/checked) → focused → pressed
+    // (pressed wins while held). A node never carries both value states.
     if (node.selected && any.states?.selected?.style)
       style = { ...style, ...any.states.selected.style };
+    if (node.checked && any.states?.checked?.style)
+      style = { ...style, ...any.states.checked.style };
     if (node.focused && any.states?.focused?.style)
       style = { ...style, ...any.states.focused.style };
     if (node.pressed && any.states?.pressed?.style)
