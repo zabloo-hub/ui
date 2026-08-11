@@ -4,12 +4,16 @@
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
- *   Collapse, ScrollView, Image.
+ *   Collapse, ScrollView, Image, Overlay.
+ * - Overlay nodes leave their parent's flow and are painted in a single top layer
+ *   above the whole view, ordered by `(z, document order)` (decision 2026-08-11).
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
  * - Styles are resolved per node and reference a flat token dictionary in the envelope.
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
  * - Paint is 100% implicit from style in v1 (no explicit draw-command layer).
  * - Two dynamic mechanisms only: named actions and data-path bindings.
+ * - Style/layout changes may be tweened by a per-node `transition` (duration + easing
+ *   from a closed curve set) — no keyframes, no timelines (decision 2026-08-11).
  * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
  *   Container preserving `layout`/`style`/`visible`/`children` (normative rule,
  *   decision 2026-08-11), and refuse only on a major-version mismatch.
@@ -78,7 +82,8 @@ export type ZNode =
   | ButtonNode
   | CollapseNode
   | ScrollViewNode
-  | ImageNode;
+  | ImageNode
+  | OverlayNode;
 
 /**
  * Runtime states a node can be styled in. The SDK owns the state itself, keyed by
@@ -118,6 +123,36 @@ export interface Style {
   opacity?: number;
 }
 
+/**
+ * Closed set of easing curves (decision 2026-08-11). Defined as closed-form cubic
+ * polynomials rather than CSS cubic-béziers so every target computes the SAME number
+ * without a solver — see `easeProgress`, the normative reference implementation.
+ */
+export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
+
+/**
+ * Declarative transition for a node's animatable values. The SDK tweens whenever a
+ * RESOLVED animatable value changes, whatever caused the change (entering/leaving a
+ * state, `SetData` on a bound input, a token swap) — there is no trigger list.
+ *
+ * Animatable: `background`, `borderColor`, `color` (componentwise lerp in straight
+ * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
+ * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
+ * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
+ * `text`, `open`, `src`, `axis`, `scrollbar`, and the Overlay's `modal`/`z` — `z` is
+ * numeric but it is ordering, not a visual magnitude).
+ *
+ * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
+ * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
+ * an interruption retargets from the current interpolated value over a full duration.
+ */
+export interface Transition {
+  /** Duration in milliseconds. A `Dim` so motion is themeable (`"{motion.fast}"`); <= 0 is instant. */
+  duration: Dim;
+  /** Default: "ease-out". */
+  easing?: Easing;
+}
+
 interface NodeBase {
   id?: string;
   /** Single hiding mechanism — `display:none` semantics (leaves layout). */
@@ -125,6 +160,12 @@ interface NodeBase {
   layout?: Layout;
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
+  /**
+   * Tweens this node's own animatable values when they change (no cascade — a node
+   * never inherits its parent's transition). Read from the base node only: a
+   * per-state transition (asymmetric in/out) is a compatible future extension.
+   */
+  transition?: Transition;
   /**
    * Receives initial focus (decision 2026-08-03 §7: navigation is automatic
    * spatial — the SDK moves focus from live layout rects; focusability derives
@@ -229,6 +270,42 @@ export interface ImageNode extends NodeBase {
   src: AssetRef;
 }
 
+/**
+ * Content lifted out of the normal flow into the view's overlay layer (decision
+ * 2026-08-11, ZAB-19). Declared in place in the tree — wherever the UI that opens
+ * it lives — but it never affects its siblings' layout: the SDK collects every
+ * visible Overlay of the view into ONE layer painted above the whole tree, sorted
+ * by `(z, document order)`.
+ *
+ * The overlay's own rect IS the view rect, so `layout.justify`/`align`/`padding`
+ * position its content (centered modal, bottom-right toast) and its `style`
+ * paints the backdrop — a translucent `background` is the backdrop, with no extra
+ * field and paint still implicit from style. `layout.width`/`height` on the
+ * Overlay itself are ignored (a layer is not sized); size the child instead.
+ *
+ * `visible` behaves as everywhere else: a hidden Overlay contributes no layer, no
+ * backdrop and no input blocking.
+ */
+export interface OverlayNode extends NodeBase {
+  type: "Overlay";
+  /**
+   * Blocks input to everything below (including lower overlays) and confines
+   * focus navigation to this subtree. Default: true. `false` (toast, tooltip)
+   * paints above but leaves the layer's own rect inert to input — only its
+   * children receive events, everything else passes through.
+   */
+  modal?: boolean;
+  /** Explicit stacking inside the overlay layer; ties break by document order. Default: 0. */
+  z?: number;
+  /**
+   * Named action fired on a dismiss request (Escape / gamepad B / a tap on the
+   * backdrop). A declared hook like `onClick` — closing itself is the SDK's
+   * default behavior plus the game→SDK API, never logic in the JSON.
+   */
+  onDismiss?: string;
+  children?: ZNode[];
+}
+
 /** True if this package's reader can consume content with version `v`. */
 export function supportsVersion(v: number): boolean {
   return Number.isInteger(v) && v === IR_VERSION;
@@ -301,6 +378,28 @@ export function isAssetRef(value: unknown): value is AssetRef {
  */
 export function assetIdFromRef(ref: AssetRef): string {
   return ref.slice("asset:".length);
+}
+
+/**
+ * Normative reference implementation of the closed easing set: maps linear progress
+ * `t` (0..1) to eased progress. Shared by the web renderer and the CLI preview; the
+ * Unity SDK ports these exact polynomials, which is what keeps the curves identical
+ * across targets. `t` outside 0..1 clamps; an unknown curve (newer content on an
+ * older reader) falls back to linear rather than refusing to animate.
+ */
+export function easeProgress(easing: Easing, t: number): number {
+  if (!(t > 0)) return 0; // also catches NaN
+  if (t >= 1) return 1;
+  switch (easing) {
+    case "ease-in":
+      return t * t * t;
+    case "ease-out":
+      return 1 - (1 - t) ** 3;
+    case "ease-in-out":
+      return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+    default:
+      return t;
+  }
 }
 
 const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;
