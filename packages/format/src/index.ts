@@ -12,6 +12,8 @@
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
  * - Paint is 100% implicit from style in v1 (no explicit draw-command layer).
  * - Two dynamic mechanisms only: named actions and data-path bindings.
+ * - Style/layout changes may be tweened by a per-node `transition` (duration + easing
+ *   from a closed curve set) — no keyframes, no timelines (decision 2026-08-11).
  * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
  *   Container preserving `layout`/`style`/`visible`/`children` (normative rule,
  *   decision 2026-08-11), and refuse only on a major-version mismatch.
@@ -116,6 +118,36 @@ export interface Style {
   opacity?: number;
 }
 
+/**
+ * Closed set of easing curves (decision 2026-08-11). Defined as closed-form cubic
+ * polynomials rather than CSS cubic-béziers so every target computes the SAME number
+ * without a solver — see `easeProgress`, the normative reference implementation.
+ */
+export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
+
+/**
+ * Declarative transition for a node's animatable values. The SDK tweens whenever a
+ * RESOLVED animatable value changes, whatever caused the change (entering/leaving a
+ * state, `SetData` on a bound input, a token swap) — there is no trigger list.
+ *
+ * Animatable: `background`, `borderColor`, `color` (componentwise lerp in straight
+ * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
+ * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
+ * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
+ * `text`, `open`, `src`, `axis`, `scrollbar`, and the Overlay's `modal`/`z` — `z` is
+ * numeric but it is ordering, not a visual magnitude).
+ *
+ * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
+ * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
+ * an interruption retargets from the current interpolated value over a full duration.
+ */
+export interface Transition {
+  /** Duration in milliseconds. A `Dim` so motion is themeable (`"{motion.fast}"`); <= 0 is instant. */
+  duration: Dim;
+  /** Default: "ease-out". */
+  easing?: Easing;
+}
+
 interface NodeBase {
   id?: string;
   /** Single hiding mechanism — `display:none` semantics (leaves layout). */
@@ -123,6 +155,12 @@ interface NodeBase {
   layout?: Layout;
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
+  /**
+   * Tweens this node's own animatable values when they change (no cascade — a node
+   * never inherits its parent's transition). Read from the base node only: a
+   * per-state transition (asymmetric in/out) is a compatible future extension.
+   */
+  transition?: Transition;
   /**
    * Receives initial focus (decision 2026-08-03 §7: navigation is automatic
    * spatial — the SDK moves focus from live layout rects; focusability derives
@@ -321,6 +359,28 @@ export function isAssetRef(value: unknown): value is AssetRef {
  */
 export function assetIdFromRef(ref: AssetRef): string {
   return ref.slice("asset:".length);
+}
+
+/**
+ * Normative reference implementation of the closed easing set: maps linear progress
+ * `t` (0..1) to eased progress. Shared by the web renderer and the CLI preview; the
+ * Unity SDK ports these exact polynomials, which is what keeps the curves identical
+ * across targets. `t` outside 0..1 clamps; an unknown curve (newer content on an
+ * older reader) falls back to linear rather than refusing to animate.
+ */
+export function easeProgress(easing: Easing, t: number): number {
+  if (!(t > 0)) return 0; // also catches NaN
+  if (t >= 1) return 1;
+  switch (easing) {
+    case "ease-in":
+      return t * t * t;
+    case "ease-out":
+      return 1 - (1 - t) ** 3;
+    case "ease-in-out":
+      return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+    default:
+      return t;
+  }
 }
 
 const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;

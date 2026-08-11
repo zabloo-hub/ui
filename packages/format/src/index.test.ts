@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   assetIdFromRef,
+  type ContainerNode,
   decodeAssetData,
+  type Easing,
   type Envelope,
+  easeProgress,
   IR_VERSION,
   isAssetRef,
   type OverlayNode,
   parseEnvelope,
   type ScrollViewNode,
   supportsVersion,
+  type Transition,
 } from "./index.js";
 
 const validEnvelope = {
@@ -363,5 +367,116 @@ describe("overlays & z-order (ZAB-19)", () => {
       },
     };
     expect(parseEnvelope(env).views.inventory?.type).toBe("ScrollView");
+  });
+});
+
+describe("style transitions (ZAB-33)", () => {
+  // Typed without casts: this file failing `tsc --noEmit` IS the type test.
+  const juicyEnvelope: Envelope = {
+    v: IR_VERSION,
+    tokens: { "motion.fast": 120, "color.primary": "#4f46e5" },
+    views: {
+      shop: {
+        type: "Button",
+        transition: { duration: "{motion.fast}", easing: "ease-out" },
+        style: { background: "{color.primary}", opacity: 1 },
+        layout: { height: 48 },
+        states: { pressed: { style: { background: "#312e81", opacity: 0.9 } } },
+        children: [{ type: "Text", text: "Buy" }],
+      },
+    },
+  };
+
+  it("accepts a node with a transition and a tokenized duration", () => {
+    const env = parseEnvelope(juicyEnvelope);
+    expect(env.views.shop?.transition?.duration).toBe("{motion.fast}");
+  });
+
+  it("easing is optional (the default lives in the SDK)", () => {
+    const bare: Transition = { duration: 200 };
+    const env = parseEnvelope({
+      v: IR_VERSION,
+      tokens: {},
+      views: { s: { type: "Container", transition: bare } },
+    });
+    expect(env.views.s?.transition?.easing).toBeUndefined();
+  });
+
+  it("accepts transition on all NodeBase-derived primitives", () => {
+    // Positive: transition belongs on NodeBase, like clip — any primitive can tween.
+    const withTransition: Envelope = {
+      v: IR_VERSION,
+      tokens: {},
+      views: {
+        button: { type: "Button", transition: { duration: 120 } },
+        text: { type: "Text", text: "fades", transition: { duration: 120 } },
+        scroll: { type: "ScrollView", transition: { duration: 120 } },
+        overlay: { type: "Overlay", transition: { duration: 120 } },
+      },
+    };
+    expect(withTransition.views.button?.transition?.duration).toBe(120);
+  });
+
+  it("rejects invalid easing values at type-check time", () => {
+    const node: ContainerNode = {
+      type: "Container",
+      // @ts-expect-error — "bounce" is not in the closed curve set
+      transition: { duration: 120, easing: "bounce" },
+    };
+    expect(node).toBeDefined();
+  });
+
+  it("requires a duration at type-check time", () => {
+    const node: ContainerNode = {
+      type: "Container",
+      // @ts-expect-error — duration is mandatory; there is no implicit default
+      transition: { easing: "linear" },
+    };
+    expect(node).toBeDefined();
+  });
+});
+
+describe("easeProgress", () => {
+  const curves: Easing[] = ["linear", "ease-in", "ease-out", "ease-in-out"];
+
+  it("pins both endpoints on every curve", () => {
+    for (const easing of curves) {
+      expect(easeProgress(easing, 0)).toBe(0);
+      expect(easeProgress(easing, 1)).toBe(1);
+    }
+  });
+
+  it("clamps out-of-range and non-finite progress", () => {
+    for (const easing of curves) {
+      expect(easeProgress(easing, -0.5)).toBe(0);
+      expect(easeProgress(easing, 1.5)).toBe(1);
+      expect(easeProgress(easing, Number.NaN)).toBe(0);
+    }
+  });
+
+  it("is monotonic and stays within 0..1", () => {
+    for (const easing of curves) {
+      let previous = 0;
+      for (let i = 1; i <= 20; i++) {
+        const value = easeProgress(easing, i / 20);
+        expect(value).toBeGreaterThanOrEqual(previous);
+        expect(value).toBeLessThanOrEqual(1);
+        previous = value;
+      }
+    }
+  });
+
+  it("matches the closed-form polynomials exactly (the cross-target contract)", () => {
+    expect(easeProgress("linear", 0.25)).toBeCloseTo(0.25, 10);
+    expect(easeProgress("ease-in", 0.5)).toBeCloseTo(0.125, 10);
+    expect(easeProgress("ease-out", 0.5)).toBeCloseTo(0.875, 10);
+    expect(easeProgress("ease-in-out", 0.5)).toBeCloseTo(0.5, 10);
+    expect(easeProgress("ease-in-out", 0.25)).toBeCloseTo(0.0625, 10);
+    expect(easeProgress("ease-in-out", 0.75)).toBeCloseTo(0.9375, 10);
+  });
+
+  it("falls back to linear for a curve it does not know", () => {
+    // Newer content on an older reader: animate linearly instead of refusing.
+    expect(easeProgress("ease-in-back" as Easing, 0.4)).toBeCloseTo(0.4, 10);
   });
 });
