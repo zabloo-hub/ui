@@ -12,16 +12,26 @@ export default function MainMenu() {
       </Row>
 
       <Row layout={{ gap: 12 }}>
+        {/* `transition` tweens whatever moves, with no trigger list: the pressed
+            background and the focus ring's borderWidth here. Releasing mid-tween
+            leaves from the color on screen — it never snaps back. */}
         <Button
           id="buy-btn"
           variant="primary"
           autofocus
           onClick="buy"
+          transition={{ duration: "{motion.fast}" }}
           layout={{ padding: "{space.4}" }}
         >
           <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Comprar</Text>
         </Button>
-        <Button id="quit-btn" variant="secondary" onClick="quit" layout={{ padding: "{space.4}" }}>
+        <Button
+          id="quit-btn"
+          variant="secondary"
+          onClick="quit"
+          transition={{ duration: "{motion.slow}", easing: "ease-in-out" }}
+          layout={{ padding: "{space.4}" }}
+        >
           <Text style={{ color: "#c8cede", fontSize: 24 }}>Salir</Text>
         </Button>
       </Row>
