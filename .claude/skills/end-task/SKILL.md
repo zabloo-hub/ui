@@ -13,7 +13,8 @@ Close out a finished task: Linear to Done + summary, docs reminder, cleanup.
   `ZAB-\d+` (case-insensitive).
 - If you are on `main` (typical right after a merge), ask the user which
   issue to close (e.g. `ZAB-12`).
-- Fetch the issue with the Linear MCP `get_issue` tool.
+- Fetch the issue with the Linear MCP `get_issue` tool. If it doesn't exist,
+  say so and ask the user for the right ID.
 - If the Linear MCP tools are unavailable, stop with a clear message.
 
 ## 2. Verify the PR is merged — gate
@@ -47,3 +48,6 @@ Close out a finished task: Linear to Done + summary, docs reminder, cleanup.
 - Delete the local branch: `git branch -d <branch>` (only `-d`, never `-D` —
   if git refuses, the branch isn't fully merged; surface that instead of
   forcing).
+- If you started from `main` (no task branch checked out), find the branch to
+  delete via `git branch --list '*<zab-xx>*'` (case-insensitive match on the
+  issue ID); if nothing matches, there is nothing to clean up.

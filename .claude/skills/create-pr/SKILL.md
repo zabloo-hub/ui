@@ -14,6 +14,7 @@ Create the pull request for the current task branch and sync Linear.
 - If there is no ID (or you are on `main`), stop: tell the user this skill
   runs on a task branch (see `/start-task`).
 - Fetch the issue with the Linear MCP `get_issue` tool for title and context.
+  If it doesn't exist, say so and ask the user for the right ID.
 - If the Linear MCP tools are unavailable, stop with a clear message.
 
 ## 2. Pre-flight
@@ -61,3 +62,5 @@ Fixes ZAB-XX
 ## 5. Report
 
 - Give the user the PR URL and confirm the Linear issue is In Review.
+- Remind the user: once the PR is merged, run `/end-task` to close the loop
+  (Linear to Done + branch cleanup).
