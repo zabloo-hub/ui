@@ -30,6 +30,9 @@ function node(ir: Partial<ZNode> & { type: string }, rect: Rect, children: Layou
     resolved: {},
     textBlock: null,
     anim: createNodeAnim(),
+    scopes: [],
+    repeat: null,
+    virtual: null,
   };
   for (const child of children) child.parent = built;
   return built;

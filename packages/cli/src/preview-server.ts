@@ -185,14 +185,36 @@ const PAGE = /* html */ `<!doctype html>
   function collectBindPaths(node, paths) {
     if (node === null || typeof node !== "object") return;
     if (typeof node.bind === "string") paths.add(node.bind);
+    if (node.type === "Repeat") {
+      // Inside a template the paths are RELATIVE to the item ("item.name"): they
+      // are addresses into the array, not values the game pushes. The array is —
+      // and so is whatever the empty state binds.
+      collectBindPaths(node.items, paths);
+      for (const child of (node.children ?? []).slice(1)) collectBindPaths(child, paths);
+      return;
+    }
     for (const value of Object.values(node)) collectBindPaths(value, paths);
   }
 
+  // Arrays and objects are values like any other since ZAB-29: a list is fed by
+  // pushing its array (paste JSON here, or use the console for a big one).
   function coerce(text) {
+    const trimmed = text.trim();
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return text;
+      }
+    }
     if (text === "true") return true;
     if (text === "false") return false;
-    if (text.trim() !== "" && !Number.isNaN(Number(text))) return Number(text);
+    if (trimmed !== "" && !Number.isNaN(Number(text))) return Number(text);
     return text;
+  }
+
+  function show(value) {
+    return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
   }
 
   function buildDataPanel(envelope) {
@@ -207,7 +229,7 @@ const PAGE = /* html */ `<!doctype html>
       const label = document.createElement("label");
       label.textContent = path;
       const input = document.createElement("input");
-      input.placeholder = "value…";
+      input.placeholder = "value or JSON…";
       if (dataValues.has(path)) input.value = dataValues.get(path);
       input.addEventListener("input", () => {
         dataValues.set(path, input.value);
@@ -218,9 +240,11 @@ const PAGE = /* html */ `<!doctype html>
     }
   }
 
-  // A control wrote its own value: keep it for the next reload and show it.
+  // A control wrote its own value: keep it for the next reload and show it. From
+  // inside a repeated item the path addresses the element ("shop.items.3.fav") —
+  // same channel, no per-component API (ZAB-29).
   function onDataChanged(path, value) {
-    const text = String(value);
+    const text = show(value);
     dataValues.set(path, text);
     const input = dataInputs.get(path);
     if (input) input.value = text;
@@ -272,7 +296,9 @@ const PAGE = /* html */ `<!doctype html>
     if (handle) handle.dispose();
     handle = ZablooRenderer.mount(canvas, json, {
       view: viewId,
-      onAction: (action) => log("action: " + action),
+      // An action from inside a row carries the item it fired from (ZAB-29).
+      onAction: (action, context) =>
+        log(context ? action + " → " + context.path + " (#" + context.index + ")" : "action: " + action),
       onDataChanged,
     });
     window.zabloo = handle;

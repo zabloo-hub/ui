@@ -6,22 +6,34 @@
  * the renderer's own layout pass and re-tessellates on change. The browser
  * provides a GPU canvas and pointer events — nothing else.
  *
- * Every frame starts with the resolve pass: tokens and states collapse into each
- * node's animatable values, the transition engine tweens the ones that moved, and
- * measure/arrange/paint run on that result. While anything is animating the view
- * schedules the next frame itself; otherwise it repaints only on change.
+ * Every frame starts with the EXPANSION pass (ZAB-31): the `Repeat` nodes turn the
+ * bound arrays into instances of their template — as many as the viewport can show
+ * — so everything after it works on an ordinary tree of nodes. Then the resolve
+ * pass: tokens and states collapse into each node's animatable values, the
+ * transition engine tweens the ones that moved, and measure/arrange/paint run on
+ * that result. While anything is animating the view schedules the next frame
+ * itself; otherwise it repaints only on change.
  *
  * Layout and paint then run in two passes: the tree, and above it the overlay
  * layer (`overlay.ts` owns the layering, input-capture and focus-scope rules).
  */
 
 import {
+  type ActionContext,
   clampProgress,
   type Dim,
   type Easing,
   type Envelope,
   type ImageFit,
+  ITEM_ALIAS,
+  type ItemScope,
+  itemKey,
+  itemPath,
   parseEnvelope,
+  type RepeatNode,
+  type ResolvedBind,
+  resolveBinding,
+  type ScrollAxis,
   type SliderAxis,
   type Style,
   type TokenValue,
@@ -30,6 +42,7 @@ import {
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
 import { type Clip, clipContains, isEmptyClip } from "./clip.js";
+import { affects, DataStore } from "./data.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
@@ -42,6 +55,8 @@ import {
   type LayoutNode,
   measure,
   type Rect,
+  type RepeatState,
+  wrapsLines,
 } from "./layout.js";
 import {
   autofocusIn,
@@ -55,6 +70,17 @@ import {
   stepPresence,
   topModal,
 } from "./overlay.js";
+import {
+  emptySlots,
+  INITIAL_WINDOW,
+  type ItemSpan,
+  itemsOf,
+  itemsPerLine,
+  itemTemplate,
+  reconcileWindow,
+  visibleSpan,
+  windowSlots,
+} from "./repeat.js";
 import { clamp, scrollbarThumb } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import {
@@ -121,6 +147,8 @@ interface AnyNode {
   /** Spinner: cycle length and ramp curve. */
   period?: Dim;
   easing?: Easing;
+  /** Repeat: the bound array (always a binding — the IR carries no literal data). */
+  items?: { bind: string };
 }
 
 /** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
@@ -155,8 +183,13 @@ const SCROLLBAR = { thickness: 4, margin: 2, minLength: 16, color: [1, 1, 1, 0.3
 export interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
   view?: string;
-  /** Named actions declared in the IR (e.g. onClick: "buy") fire here. */
-  onAction?: (action: string) => void;
+  /**
+   * Named actions declared in the IR (e.g. onClick: "buy") fire here. From inside
+   * a repeated item the action carries the `ActionContext` that says WHICH one
+   * (decision 2026-08-11, ZAB-29) — the innermost item's absolute path, its raw
+   * key and its position. Outside a `Repeat` there is no context to carry.
+   */
+  onAction?: (action: string, context?: ActionContext) => void;
   /**
    * The return leg of the data channel (decision 2026-08-11): fires whenever a
    * control writes its value into a bound path, so the game learns the new value
@@ -203,7 +236,7 @@ class WebView {
   private readonly fonts: FontLibrary;
   private readonly images: ImageLibrary;
   private readonly clearColor: Color;
-  private readonly onAction?: (action: string) => void;
+  private readonly onAction?: (action: string, context?: ActionContext) => void;
   private readonly onDataChanged?: (path: string, value: unknown) => void;
 
   private root!: LayoutNode;
@@ -225,13 +258,18 @@ class WebView {
   /** Overlays already out of the live layer but still fading — pixels, never input. */
   private readonly exiting = new Set<LayoutNode>();
   private byId = new Map<string, LayoutNode>();
-  private visibleBindings = new Map<string, LayoutNode[]>();
-  /** Bound `checked` (Toggle) and bound group `value` (exclusive-check), by data path. */
-  private checkedBindings = new Map<string, LayoutNode[]>();
-  private groupBindings = new Map<string, LayoutNode[]>();
-  /** Bound `value` (Slider), by data path. */
-  private sliderBindings = new Map<string, LayoutNode[]>();
-  private readonly data = new Map<string, unknown>();
+  /**
+   * Nodes whose STATE comes from data — a bound `visible`, `checked`, group
+   * `value` or Slider `value`. They are re-derived when a write touches the path
+   * they read, and the set is what a released item instance leaves.
+   *
+   * It is a set of nodes and not a path→nodes index on purpose: inside a `Repeat`
+   * the path a node reads depends on the item it is showing, so it changes every
+   * time an instance is reused at another index — an index keyed by path would go
+   * stale on every reorder.
+   */
+  private readonly bound = new Set<LayoutNode>();
+  private readonly data = new DataStore();
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
   private scrollDrag: ScrollDrag | null = null;
@@ -342,10 +380,7 @@ class WebView {
     const rootIr = this.envelope.views[this.viewId];
     if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
     this.byId = new Map();
-    this.visibleBindings = new Map();
-    this.checkedBindings = new Map();
-    this.groupBindings = new Map();
-    this.sliderBindings = new Map();
+    this.bound.clear();
     this.pressedNode = null;
     this.focusedNode = null;
     this.scrollDrag = null;
@@ -360,12 +395,16 @@ class WebView {
     this.overlayAnim.clear();
     this.presence.clear();
     this.exiting.clear();
-    this.root = this.buildNode(rootIr, null);
+    this.root = this.buildNode(rootIr, null, NO_SCOPES);
     // Initial focus (`autofocus`) is settled by the first render, together with
     // the overlay layer — a modal that starts open owns the focus from frame one.
   }
 
-  private buildNode(ir: ZNode, parent: LayoutNode | null): LayoutNode {
+  private buildNode(
+    ir: ZNode,
+    parent: LayoutNode | null,
+    scopes: readonly ItemScope[],
+  ): LayoutNode {
     const node: LayoutNode = {
       ir,
       parent,
@@ -391,23 +430,44 @@ class WebView {
       // Fresh state: the first resolve pass has nothing to tween from, so this
       // node snaps into its initial values — which is also why a reload snaps.
       anim: createNodeAnim(),
+      scopes,
+      repeat: null,
+      virtual: null,
     };
     const any = ir as AnyNode;
 
+    // An `id` inside a template is worn by every instance of it: the map keeps the
+    // last one realized, so the host channel (`setChecked`, `setOpen`, …) still
+    // reaches ONE of them. Addressing a particular row by id is not a thing v1 has
+    // — an action from inside a row comes back with its `ActionContext` instead.
     if (any.id) this.byId.set(any.id, node);
 
-    const visiblePath = bindPath(any.visible);
-    if (visiblePath !== null) {
-      // Bound visibility: hidden until data says so (same default as the SDK).
-      node.visibleFlag = isTruthy(this.data.get(visiblePath));
-      pushMapList(this.visibleBindings, visiblePath, node);
-    }
-
-    for (const childIr of any.children ?? []) {
-      const childAny = childIr as AnyNode;
-      // Static visible:false prunes the subtree; bindings build normally.
-      if (childAny.visible === false) continue;
-      node.children.push(this.buildNode(childIr, node));
+    if (any.type === "Repeat") {
+      // The template is NOT built here: its instances come from the data, and the
+      // expansion pass builds one per element of the window it can see. What the
+      // document contributes is the empty state, out of layout until it is needed.
+      node.repeat = {
+        instances: new Map(),
+        empty: emptySlots(ir).map((slotIr) => {
+          const slot = this.buildNode(slotIr, node, scopes);
+          slot.sectionShown = false;
+          return slot;
+        }),
+        extent: null,
+        itemMain: null,
+        measuredWidth: null,
+        itemCount: 0,
+        first: 0,
+        count: 0,
+      };
+      node.children.push(...node.repeat.empty);
+    } else {
+      for (const childIr of any.children ?? []) {
+        const childAny = childIr as AnyNode;
+        // Static visible:false prunes the subtree; bindings build normally.
+        if (childAny.visible === false) continue;
+        node.children.push(this.buildNode(childIr, node, scopes));
+      }
     }
 
     if (any.type === "Collapse") {
@@ -424,40 +484,318 @@ class WebView {
       node.selectedIndex = clampSelected(any.selected, buttons.length);
       this.applySelection(node);
     }
+    if (this.stateBinds(node).some((value) => bindPath(value) !== null)) this.bound.add(node);
+    this.applyBindings(node);
+    return node;
+  }
+
+  /**
+   * The values whose BINDING drives this node's state. Text is not one of them:
+   * it is read at measure time, so it needs no registration and follows the data
+   * of whatever item its instance is showing without any bookkeeping.
+   */
+  private stateBinds(node: LayoutNode): unknown[] {
+    const any = node.ir as AnyNode;
+    const values: unknown[] = [any.visible];
+    if (any.type === "Slider" || (any.type === "Container" && any.group === "exclusive-check")) {
+      values.push(any.value);
+    }
+    if (any.type === "Toggle") values.push(any.checked);
+    return values;
+  }
+
+  /**
+   * Derives from data everything this node's state reads. The single place those
+   * states are computed, so building a node, a `SetData` landing on it and an item
+   * instance being reused for another element all settle it the same way.
+   */
+  private applyBindings(node: LayoutNode): void {
+    const any = node.ir as AnyNode;
+    const visible = this.resolveBind(node, any.visible);
+    // Bound visibility: hidden until data says so (same default as the SDK).
+    if (visible) node.visibleFlag = isTruthy(this.readBind(visible));
     if (any.type === "Container" && any.group === "exclusive-check") {
-      const path = bindPath(any.value);
-      if (path !== null) {
-        node.groupValue = this.data.get(path);
-        pushMapList(this.groupBindings, path, node);
-      } else {
-        node.groupValue = any.value;
-      }
+      const bound = this.resolveBind(node, any.value);
+      node.groupValue = bound ? this.readBind(bound) : any.value;
       this.applyGroupValue(node);
     }
     if (any.type === "Slider") {
       const range = this.rangeOf(node);
-      const path = bindPath(any.value);
+      const bound = this.resolveBind(node, any.value);
       // Unbound, `value` is the initial number; bound, the store decides — and
       // an empty store leaves the control at its minimum, as the SDK does.
-      const initial = path !== null ? this.data.get(path) : any.value;
+      const initial = bound ? this.readBind(bound) : any.value;
       node.sliderValue = quantize(toNumber(initial, range.min), range);
-      if (path !== null) pushMapList(this.sliderBindings, path, node);
     }
-    if (any.type === "Toggle") {
-      // Inside an exclusive-check group the state is derived from the group's
-      // value (applied above), never stored per option.
-      if (!this.exclusiveGroupOf(node)) {
-        const path = bindPath(any.checked);
-        if (path !== null) {
-          node.checked = isTruthy(this.data.get(path));
-          pushMapList(this.checkedBindings, path, node);
-        } else {
-          node.checked = any.checked === true;
-        }
-        this.applyChecked(node);
+    // Inside an exclusive-check group a Toggle's state is derived from the group's
+    // value, never stored per option.
+    if (any.type === "Toggle" && !this.exclusiveGroupOf(node)) {
+      const bound = this.resolveBind(node, any.checked);
+      node.checked = bound ? isTruthy(this.readBind(bound)) : any.checked === true;
+      this.applyChecked(node);
+    }
+  }
+
+  // --- bindings (resolved against the node's item scopes — decision 2026-08-11, ZAB-29) ---
+
+  /** What a bindable value points at for THIS node, or null when it is not a binding. */
+  private resolveBind(node: LayoutNode, value: unknown): ResolvedBind | null {
+    const bind = bindPath(value);
+    return bind === null ? null : resolveBinding(bind, node.scopes);
+  }
+
+  /** The value behind a resolved binding: the store's, or the item's own position. */
+  private readBind(bound: ResolvedBind): unknown {
+    return bound.kind === "index" ? bound.index : this.data.get(bound.path);
+  }
+
+  /** The absolute path a binding WRITES to — an index is a position, not a slot. */
+  private writePath(node: LayoutNode, value: unknown): string | null {
+    const bound = this.resolveBind(node, value);
+    return bound?.kind === "path" ? bound.path : null;
+  }
+
+  // --- Repeat: expansion, item scopes and the life of an instance (ZAB-31) ---
+
+  /**
+   * Turns the `Repeat` nodes of the tree into nodes, top-down: the window each one
+   * can show becomes instances of its template, and everything outside it stays
+   * reserved space. It is the first thing a frame does — before the overlay layer
+   * is collected — so an Overlay declared inside a row joins the layer on the very
+   * frame that row appears, and the resolve pass sees a plain tree of nodes.
+   *
+   * Nested lists come out right by construction: expanding the outer one creates
+   * the instances the inner ones live in, and the walk reaches them right after.
+   */
+  private syncRepeats(node: LayoutNode = this.root): void {
+    if (node.repeat) this.expand(node);
+    for (const child of node.children) this.syncRepeats(child);
+  }
+
+  private expand(node: LayoutNode): void {
+    const state = node.repeat;
+    if (!state) return;
+    const ir = node.ir as RepeatNode;
+    // `items` is a binding by construction (the IR does not carry literal data):
+    // anything else repeats nothing, and the empty state takes over.
+    const bound = this.resolveBind(node, ir.items);
+    const arrayPath = bound?.kind === "path" ? bound.path : null;
+    const items = arrayPath === null ? [] : itemsOf(this.data.get(arrayPath));
+    state.itemCount = items.length;
+
+    const template = itemTemplate(ir);
+    const window = this.planWindow(node, items.length);
+    node.virtual = window.span;
+    state.first = window.first;
+    state.count = window.count;
+    const slots =
+      template === undefined || arrayPath === null
+        ? []
+        : windowSlots(items, ir.key, window.first, window.count);
+    const { entries, dropped } = reconcileWindow(state.instances, slots);
+    for (const instance of dropped) this.release(instance);
+
+    const alias = ir.as ?? ITEM_ALIAS;
+    const instances = new Map<string, LayoutNode>();
+    const children: LayoutNode[] = [];
+    for (const { slot, instance } of entries) {
+      const path = itemPath(arrayPath ?? "", slot.index);
+      let child = instance;
+      if (child === undefined) {
+        const scope: ItemScope = { alias, path, index: slot.index };
+        child = this.buildNode(template as ZNode, node, [...node.scopes, scope]);
+      } else {
+        this.rescope(child, alias, path, slot.index);
       }
+      instances.set(slot.identity, child);
+      children.push(child);
     }
-    return node;
+    state.instances = instances;
+    // The empty state is in layout exactly while there is nothing to repeat — the
+    // `display:none` semantics of every other slot (decision 2026-08-11, ZAB-29).
+    for (const slot of state.empty) slot.sectionShown = items.length === 0;
+    node.children = [...children, ...state.empty];
+  }
+
+  /**
+   * Points a reused instance at another element — what a `SetData` that reorders,
+   * inserts or removes comes down to. The scope object is SHARED by every node of
+   * the subtree (nested lists included, which hold it as the head of their own
+   * stack), so moving a row is one mutation however deep it is, and every binding
+   * inside follows on its next read.
+   */
+  private rescope(instance: LayoutNode, alias: string, path: string, index: number): void {
+    const scope = instance.scopes[instance.scopes.length - 1];
+    if (scope === undefined) return;
+    if (scope.path === path && scope.index === index && scope.alias === alias) return;
+    scope.alias = alias;
+    scope.path = path;
+    scope.index = index;
+    // The subtree now reads another element: everything derived from data has to
+    // be derived again (its text follows on its own — it is read at measure time).
+    this.refreshBindings(instance);
+  }
+
+  private refreshBindings(node: LayoutNode): void {
+    if (this.bound.has(node)) this.applyBindings(node);
+    for (const child of node.children) this.refreshBindings(child);
+  }
+
+  /**
+   * How much of the array to realize this frame. Every item is realized when there
+   * is nothing to window against — a `Repeat` outside a ScrollView, or one whose
+   * lines stack across the axis its scroller scrolls — because then the whole list
+   * is on screen anyway and virtualizing it would only cost a measurement.
+   */
+  private planWindow(
+    node: LayoutNode,
+    itemCount: number,
+  ): { span: ItemSpan | null; first: number; count: number } {
+    const whole = { span: null, first: 0, count: itemCount };
+    const state = node.repeat;
+    if (!state) return whole;
+    // Nothing to repeat: the node is not a list this frame, it is its empty state
+    // — and reserving the space of zero items would flatten it to nothing.
+    if (itemCount === 0) return whole;
+    const scroller = this.scrollerOf(node);
+    if (scroller === null) return whole;
+    // The lines of a wrapping node stack across it, so a grid is scrolled on the
+    // cross axis — vertically, since `wrap` only takes effect on a row.
+    const wrapping = wrapsLines(node);
+    const vertical = wrapping || (node.ir.layout?.direction ?? "column") !== "row";
+    if (!scrollsOn(scroller, vertical)) return whole;
+
+    const extent = state.extent;
+    const viewLength = vertical ? scroller.rect.height : scroller.rect.width;
+    if (extent === null || !(extent > 0) || !(viewLength > 0)) {
+      // Nothing measured yet — the first frame of a list, or of a reload. Realize
+      // a batch, and let the next frame settle the window with real rects.
+      return itemCount <= INITIAL_WINDOW ? whole : { span: null, first: 0, count: INITIAL_WINDOW };
+    }
+
+    const gap = node.resolved.gap ?? 0;
+    const padding = node.resolved.padding ?? 0;
+    const perLine = wrapping
+      ? itemsPerLine(Math.max(0, node.rect.width - padding * 2), state.itemMain ?? 0, gap)
+      : 1;
+    const start = vertical ? node.rect.y : node.rect.x;
+    const viewStart = (vertical ? scroller.rect.y : scroller.rect.x) - start - padding;
+    const span = visibleSpan(itemCount, { extent, gap, perLine }, viewStart, viewLength);
+    return { span, first: span.first, count: span.count };
+  }
+
+  /** The ScrollView this node scrolls inside, if any — an Overlay is its own scope. */
+  private scrollerOf(node: LayoutNode): LayoutNode | null {
+    let current = node.parent;
+    while (current) {
+      if (current.ir.type === "Overlay") return null;
+      if (current.ir.type === "ScrollView") return current;
+      current = current.parent;
+    }
+    return null;
+  }
+
+  /**
+   * Learns one line's size from the instances that were just laid out. The
+   * assumption virtualization rests on is that every instance of a template
+   * measures the same, so ONE of them is the measurement. When it moves — the
+   * first frame of a list, the frame the real rasterizer lands on, a resize that
+   * changes how many cells fit — the window this frame used came from the old
+   * number, so the frame is repeated with the new one.
+   */
+  private syncExtents(node: LayoutNode = this.root): void {
+    const state = node.repeat;
+    const instance = state && state.instances.size > 0 ? node.children[0] : undefined;
+    if (state && instance) {
+      // A width that moved is a relayout: whatever was learnt for the old one
+      // (rows that wrapped differently, another number of cells per line) is not
+      // a measurement of this list any more.
+      if (state.measuredWidth !== null && moved(state.measuredWidth, node.rect.width)) {
+        state.extent = null;
+        state.itemMain = null;
+      }
+      state.measuredWidth = node.rect.width;
+      const row = (node.ir.layout?.direction ?? "column") === "row";
+      const main = row ? instance.measured.x : instance.measured.y;
+      const extent = wrapsLines(node) ? (row ? instance.measured.y : instance.measured.x) : main;
+      // The BIGGEST instance seen wins. With the uniform items the assumption is
+      // about, that is the item's own size on the first frame and it never moves
+      // again; with rows of unequal size it converges upwards in a few frames
+      // instead of oscillating between two windows forever, each of which would
+      // schedule the next. The list is looser than it should be, never busy.
+      const nextExtent = state.extent === null ? extent : Math.max(state.extent, extent);
+      const nextMain = state.itemMain === null ? main : Math.max(state.itemMain, main);
+      state.extent = nextExtent;
+      state.itemMain = nextMain;
+    }
+    // Whether this frame's rects would now produce a different window than the
+    // one it was laid out with. They usually would not — but a scroll moved the
+    // rects AFTER the expansion pass read them, and the frame the game asked for
+    // is not the one that shows the rows it scrolled to. So the view asks for one
+    // more, and it converges there: what the plan reads (the scroller's rect, the
+    // node's own reserved size) does not depend on which items are realized.
+    if (state && this.windowDrifted(node, state)) this.scheduleFrame();
+    for (const child of node.children) this.syncExtents(child);
+  }
+
+  private windowDrifted(node: LayoutNode, state: RepeatState): boolean {
+    const next = this.planWindow(node, state.itemCount);
+    return next.first !== state.first || next.count !== state.count;
+  }
+
+  /**
+   * The item an action fires from — nothing outside a `Repeat`. It describes the
+   * INNERMOST item, which is enough for nested lists because its `path` already
+   * embeds every enclosing index (decision 2026-08-11, ZAB-29).
+   */
+  private contextOf(node: LayoutNode): ActionContext | undefined {
+    const repeat = this.repeatOf(node);
+    const scope = node.scopes[node.scopes.length - 1];
+    if (repeat === null || scope === undefined) return undefined;
+    const key = itemKey(this.data.get(scope.path), (repeat.ir as RepeatNode).key);
+    const context: ActionContext = { path: scope.path, index: scope.index };
+    // Absent when identity is positional: the game gets a key only if there is one.
+    if (key !== undefined) context.key = key;
+    return context;
+  }
+
+  /**
+   * The `Repeat` this node was instantiated by, i.e. the one that owns its
+   * innermost scope. A node of the EMPTY state is not inside an item, so it walks
+   * past its `Repeat` and finds whatever list encloses the whole thing.
+   */
+  private repeatOf(node: LayoutNode): LayoutNode | null {
+    let current: LayoutNode | null = node;
+    while (current) {
+      const parent: LayoutNode | null = current.parent;
+      if (parent?.repeat && !parent.repeat.empty.includes(current)) return parent;
+      current = parent;
+    }
+    return null;
+  }
+
+  /**
+   * Lets an instance go: it left the window, or its item left the array. Every
+   * piece of state the view keyed by node identity dies with it — which is exactly
+   * the state that does NOT travel with the item, and the reason a `key` is worth
+   * declaring.
+   */
+  private release(node: LayoutNode): void {
+    this.bound.delete(node);
+    this.overlayAnim.delete(node);
+    const id = (node.ir as AnyNode).id;
+    if (id !== undefined && this.byId.get(id) === node) this.byId.delete(id);
+    if (this.focusedNode === node) this.focusedNode = null;
+    if (this.pressedNode === node) this.pressedNode = null;
+    if (this.backdropPress === node) this.backdropPress = null;
+    if (this.scrollDrag?.node === node) this.scrollDrag = null;
+    if (this.sliderDrag?.node === node) this.sliderDrag = null;
+    if (this.sliderKeys?.node === node) this.sliderKeys = null;
+    for (let i = this.modalStack.length - 1; i >= 0; i--) {
+      if (this.modalStack[i].overlay === node) this.modalStack.splice(i, 1);
+      else if (this.modalStack[i].previousFocus === node) this.modalStack[i].previousFocus = null;
+    }
+    for (const child of node.children) this.release(child);
   }
 
   // --- behavior (renderer-owned, keyed by component type) ---
@@ -534,7 +872,9 @@ class WebView {
       return;
     }
     const action = (node.ir as AnyNode).onClick;
-    if (action) this.onAction?.(action);
+    // Fired with the item it belongs to, if any: a press inside a row has to say
+    // WHICH one (decision 2026-08-11, ZAB-29).
+    if (action) this.onAction?.(action, this.contextOf(node));
     const tab = this.tabIndexOf(node);
     if (tab) this.setSelected(tab.group, tab.index);
   }
@@ -609,17 +949,19 @@ class WebView {
       if (!checked || node.checked) return;
       group.groupValue = any.value;
       this.applyGroupValue(group);
-      const path = bindPath((group.ir as AnyNode).value);
+      const path = this.writePath(group, (group.ir as AnyNode).value);
       if (path !== null) this.writeData(path, any.value);
     } else {
       if (node.checked === checked) return;
       node.checked = checked;
       this.applyChecked(node);
-      const path = bindPath(any.checked);
+      // Inside an item this resolves to `shop.items.3.enabled`: a write into the
+      // array, on the same channel and with no per-component API (ZAB-29).
+      const path = this.writePath(node, any.checked);
       if (path !== null) this.writeData(path, checked);
     }
 
-    if (any.onChange) this.onAction?.(any.onChange);
+    if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
     this.render();
   }
 
@@ -655,16 +997,18 @@ class WebView {
     if (next === node.sliderValue) return;
     node.sliderValue = next;
     const any = node.ir as AnyNode;
-    const path = bindPath(any.value);
+    const path = this.writePath(node, any.value);
     if (path !== null) this.writeData(path, next);
-    if (any.onChange) this.onAction?.(any.onChange);
+    if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
     this.render();
   }
 
   /** Ends a gesture: `onCommit` fires only if the player actually moved the value. */
   private commitSlider(gesture: SliderGesture): void {
     const action = (gesture.node.ir as AnyNode).onCommit;
-    if (action && gesture.node.sliderValue !== gesture.from) this.onAction?.(action);
+    if (action && gesture.node.sliderValue !== gesture.from) {
+      this.onAction?.(action, this.contextOf(gesture.node));
+    }
   }
 
   /**
@@ -773,24 +1117,28 @@ class WebView {
     this.onDataChanged?.(path, value);
   }
 
-  /** The one place a data path lands on the tree, whoever wrote it. */
+  /**
+   * The one place a data path lands on the tree, whoever wrote it. Every bound
+   * node whose own path is touched re-derives its state from the store: writing
+   * an array moves the bindings INSIDE it (`shop.items` → `shop.items.3.name`)
+   * and writing into an item moves a binding watching the whole array, which is
+   * what `affects` decides. How many items there are is settled apart, by the
+   * expansion pass — every write ends in a render, and that is where it runs.
+   */
   private applyData(path: string, value: unknown): void {
     this.data.set(path, value);
-    for (const node of this.visibleBindings.get(path) ?? []) {
-      node.visibleFlag = isTruthy(value);
+    for (const node of this.bound) {
+      if (this.watches(node, path)) this.applyBindings(node);
     }
-    for (const node of this.checkedBindings.get(path) ?? []) {
-      node.checked = isTruthy(value);
-      this.applyChecked(node);
+  }
+
+  /** Whether a write to `written` changes what this node's state reads. */
+  private watches(node: LayoutNode, written: string): boolean {
+    for (const raw of this.stateBinds(node)) {
+      const bound = this.resolveBind(node, raw);
+      if (bound?.kind === "path" && affects(written, bound.path)) return true;
     }
-    for (const group of this.groupBindings.get(path) ?? []) {
-      group.groupValue = value;
-      this.applyGroupValue(group);
-    }
-    for (const node of this.sliderBindings.get(path) ?? []) {
-      const range = this.rangeOf(node);
-      node.sliderValue = quantize(toNumber(value, range.min), range);
-    }
+    return false;
   }
 
   // --- focus & directional navigation (decision 2026-08-03 §7) ---
@@ -944,9 +1292,9 @@ class WebView {
   private requestDismiss(overlay: LayoutNode): void {
     const spec = overlaySpec(overlay);
     if (spec === null) return;
-    const path = bindPath((overlay.ir as AnyNode).visible);
+    const path = this.writePath(overlay, (overlay.ir as AnyNode).visible);
     if (path !== null) this.writeData(path, false);
-    if (spec.onDismiss) this.onAction?.(spec.onDismiss);
+    if (spec.onDismiss) this.onAction?.(spec.onDismiss, this.contextOf(overlay));
     this.render();
   }
 
@@ -1368,8 +1716,8 @@ class WebView {
     now: number,
   ): void {
     const raw = (node.ir as AnyNode).value;
-    const path = bindPath(raw);
-    const target = clampProgress(path !== null ? this.data.get(path) : raw);
+    const bound = this.resolveBind(node, raw);
+    const target = clampProgress(bound ? this.readBind(bound) : raw);
     const stepped = stepValue(node.anim, "progress", target, transition, now);
     node.progress = stepped.value;
     if (stepped.animating) this.animating = true;
@@ -1423,12 +1771,16 @@ class WebView {
     this.frame = null;
   }
 
-  private resolveText(ir: ZNode): string {
-    const raw = (ir as AnyNode).text;
+  /**
+   * The string a Text paints. Resolved at measure time — never registered — so an
+   * instance reused for another item picks up that item's data with no bookkeeping:
+   * its scopes moved, and the path moves with them.
+   */
+  private resolveText(node: LayoutNode): string {
+    const raw = (node.ir as AnyNode).text;
     if (typeof raw === "string") return raw;
-    const path = bindPath(raw);
-    if (path !== null) return formatValue(this.data.get(path));
-    return "";
+    const bound = this.resolveBind(node, raw);
+    return bound ? formatValue(this.readBind(bound)) : "";
   }
 
   // --- layout + paint ---
@@ -1458,7 +1810,7 @@ class WebView {
       const style = this.effectiveStyle(node);
       const atlas = this.fonts.get(this.fontSize(style));
       const block = layoutText(
-        this.resolveText(ir),
+        this.resolveText(node),
         atlas,
         this.textOptions(style, atlas.lineHeight, availableWidth),
       );
@@ -1479,7 +1831,10 @@ class WebView {
     if (!(width > 0) || !(height > 0)) return;
     const viewRect: Rect = { x: 0, y: 0, width, height };
 
-    // The layer settles first: it reads no rects (only `visible` and section
+    // Data-driven structure comes first: how many nodes there are is settled
+    // before anything asks what they look like or where they are (ZAB-31).
+    this.syncRepeats();
+    // The layer settles next: it reads no rects (only `visible` and section
     // state), and the focus an opening modal moves has to reach THIS frame's
     // resolve pass — otherwise `states.focused` would land one frame late.
     this.layer = collectLayer(this.root);
@@ -1499,6 +1854,8 @@ class WebView {
     // what a Text with no explicit width wraps to.
     measure(this.root, this.measureLeaf, width);
     arrange(this.root, viewRect);
+    // What the instances measured is the input the NEXT window is computed from.
+    this.syncExtents();
     // The painted layer is the live one plus whatever is still fading out, in the
     // same `(z, document order)` — a closing modal keeps its place under the toast
     // that was above it.
@@ -1726,10 +2083,18 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function pushMapList<K, V>(map: Map<K, V[]>, key: K, value: V): void {
-  const list = map.get(key);
-  if (list) list.push(value);
-  else map.set(key, [value]);
+/** The scopes of a node outside every template — shared, and never written to. */
+const NO_SCOPES: readonly ItemScope[] = [];
+
+/** Whether a ScrollView scrolls on the axis a virtualized list stacks its lines on. */
+function scrollsOn(scroller: LayoutNode, vertical: boolean): boolean {
+  const axis = (scroller.ir as { axis?: ScrollAxis }).axis ?? "vertical";
+  return axis === "both" || axis === (vertical ? "vertical" : "horizontal");
+}
+
+/** Whether a measurement moved enough to matter — a subpixel wobble is not a relayout. */
+function moved(previous: number | null, next: number): boolean {
+  return previous === null || Math.abs(previous - next) > 0.5;
 }
 
 function parseColor(hex: string): Color | null {

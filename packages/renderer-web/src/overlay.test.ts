@@ -42,6 +42,9 @@ function node(ir: ZNode, rect: Rect, children: LayoutNode[] = []): LayoutNode {
     resolved: {},
     textBlock: null,
     anim: createNodeAnim(),
+    scopes: [],
+    repeat: null,
+    virtual: null,
   };
   for (const child of children) child.parent = built;
   return built;
