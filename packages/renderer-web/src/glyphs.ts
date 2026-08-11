@@ -1,13 +1,22 @@
 /**
- * Self-owned glyph atlas for the web renderer — the browser variant of the
- * pattern validated in the Unity text spike (2026-08-02): the platform's
- * rasterizer (Canvas2D `fillText`) draws glyphs, and WE snapshot them into an
- * atlas we own, with our own metrics table for the layout pass.
+ * Self-owned glyph atlas for the web renderer.
+ *
+ * Since ZAB-43 the glyphs come from OUR rasterizer — stb_truetype compiled to
+ * WASM (`ttf.ts`) over the TTF we ship — which is what makes text converge with
+ * the other targets: same algorithm, same font, same metrics, same bitmaps.
+ * Canvas2D (`fillText`/`measureText`) survives only as the fallback for the
+ * frames before the WASM lands, and for the (unlikely) case it fails to load.
+ *
+ * Either way WE own the atlas and the metrics table — the pattern validated in
+ * the Unity text spike (2026-08-02) — so everything downstream (packing, quads,
+ * measurement) is identical whoever rasterized.
  *
  * The atlas also reserves a WHITE pixel region so solid geometry (rounded
  * rects) samples the same texture as text — the whole UI renders in one
  * draw call.
  */
+
+import type { StbFont } from "./ttf.js";
 
 export interface GlyphInfo {
   advance: number;
@@ -27,8 +36,8 @@ export interface GlyphInfo {
 const ATLAS_SIZE = 1024;
 const PADDING = 2;
 
-/** Arial ≈ Unity's LegacyRuntime metrics — closest cross-target default. */
-const FONT_FAMILY = "Arial, Helvetica, sans-serif";
+/** Arial ≈ Unity's LegacyRuntime metrics, and what the shipped TTF matches. */
+const FALLBACK_FONT_FAMILY = "Arial, Helvetica, sans-serif";
 
 export class GlyphAtlas {
   readonly canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -41,6 +50,8 @@ export class GlyphAtlas {
   private readonly ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   private readonly glyphs = new Map<string, GlyphInfo>();
   private readonly scale: number; // rasterization scale (devicePixelRatio)
+  /** Rasterization size in device px — what the font is asked to scale to. */
+  private readonly devicePointSize: number;
   private penX = PADDING;
   private penY = PADDING;
   private rowHeight = 0;
@@ -59,8 +70,11 @@ export class GlyphAtlas {
   constructor(
     readonly pointSize: number,
     scale: number,
+    /** Our rasterizer. Null until the WASM lands — Canvas2D covers those frames. */
+    private readonly font: StbFont | null = null,
   ) {
     this.scale = Math.max(1, scale);
+    this.devicePointSize = pointSize * this.scale;
     this.canvas = createCanvas(ATLAS_SIZE, ATLAS_SIZE);
     const ctx = this.canvas.getContext("2d") as CanvasRenderingContext2D;
     ctx.fillStyle = "#ffffff";
@@ -74,39 +88,100 @@ export class GlyphAtlas {
     this.penX = 8;
 
     // Font-wide metrics at the logical point size.
-    ctx.font = this.cssFont();
-    const m = ctx.measureText("Mg");
-    const fontAscent = m.fontBoundingBoxAscent ?? pointSize * this.scale * 0.8;
-    const fontDescent = m.fontBoundingBoxDescent ?? pointSize * this.scale * 0.25;
-    this.ascent = fontAscent / this.scale;
-    this.lineHeight = (fontAscent + fontDescent) / this.scale;
+    if (font) {
+      const metrics = font.metrics(this.devicePointSize);
+      this.ascent = metrics.ascent / this.scale;
+      this.lineHeight = metrics.lineHeight / this.scale;
+    } else {
+      ctx.font = this.cssFont();
+      const m = ctx.measureText("Mg");
+      const fontAscent = m.fontBoundingBoxAscent ?? pointSize * this.scale * 0.8;
+      const fontDescent = m.fontBoundingBoxDescent ?? pointSize * this.scale * 0.25;
+      this.ascent = fontAscent / this.scale;
+      this.lineHeight = (fontAscent + fontDescent) / this.scale;
+    }
     this._version++;
   }
 
   private cssFont(): string {
-    return `${this.pointSize * this.scale}px ${FONT_FAMILY}`;
+    return `${this.devicePointSize}px ${FALLBACK_FONT_FAMILY}`;
   }
 
   get(char: string): GlyphInfo | undefined {
     let glyph = this.glyphs.get(char);
     if (glyph === undefined) {
-      glyph = this.rasterize(char);
+      glyph = this.font ? this.rasterizeStb(char, this.font) : this.rasterizeCanvas(char);
       this.glyphs.set(char, glyph);
     }
     return glyph;
   }
 
+  /**
+   * Kerning adjustment between two characters, in logical px. Read from the
+   * font's own tables, so it must be applied by everyone who walks a run — both
+   * `measure` here and the tessellator's paint loop, or the two would disagree.
+   * Zero on the Canvas2D fallback, which exposes no kerning at all.
+   */
+  kern(previous: string, char: string): number {
+    if (!this.font) return 0;
+    return this.font.kern(previous, char, this.devicePointSize) / this.scale;
+  }
+
   /** Single-line measure in logical px — what the layout pass calls for Text. */
   measure(text: string): { x: number; y: number } {
     let width = 0;
+    let previous = "";
     for (const char of text) {
       const glyph = this.get(char);
-      if (glyph) width += glyph.advance;
+      if (!glyph) continue;
+      if (previous !== "") width += this.kern(previous, char);
+      width += glyph.advance;
+      previous = char;
     }
     return { x: width, y: this.lineHeight };
   }
 
-  private rasterize(char: string): GlyphInfo {
+  /** Our rasterizer: stb hands us 8-bit coverage, we own where it lands. */
+  private rasterizeStb(char: string, font: StbFont): GlyphInfo {
+    const advance = font.advance(char, this.devicePointSize) / this.scale;
+    const bitmap = font.render(char, this.devicePointSize);
+    if (bitmap.width <= 0 || bitmap.height <= 0) return blank(advance);
+
+    const spot = this.reserve(bitmap.width, bitmap.height, char);
+    if (!spot) return blank(advance);
+
+    // Coverage → white pixels with the coverage as alpha, the same shape
+    // `fillText` produced. `createImageData` (not the `ImageData` global) keeps
+    // this working on an OffscreenCanvas too.
+    const image = this.ctx.createImageData(bitmap.width, bitmap.height);
+    const pixels = image.data;
+    for (let i = 0; i < bitmap.coverage.length; i++) {
+      const p = i * 4;
+      pixels[p] = 255;
+      pixels[p + 1] = 255;
+      pixels[p + 2] = 255;
+      pixels[p + 3] = bitmap.coverage[i];
+    }
+    this.ctx.putImageData(image, spot.x, spot.y);
+    this._version++;
+
+    return {
+      advance,
+      // stb's box is Y-down from the baseline; our quads are Y-up.
+      minX: bitmap.x0 / this.scale,
+      maxX: bitmap.x1 / this.scale,
+      maxY: -bitmap.y0 / this.scale,
+      minY: -bitmap.y1 / this.scale,
+      u0: spot.x / ATLAS_SIZE,
+      v0: spot.y / ATLAS_SIZE,
+      u1: (spot.x + bitmap.width) / ATLAS_SIZE,
+      v1: (spot.y + bitmap.height) / ATLAS_SIZE,
+      hasQuad: true,
+    };
+  }
+
+  /** The fallback: the browser rasterizes, we snapshot into our atlas. */
+  private rasterizeCanvas(char: string): GlyphInfo {
     const ctx = this.ctx;
     ctx.font = this.cssFont();
     const m = ctx.measureText(char);
@@ -120,48 +195,12 @@ export class GlyphAtlas {
     const w = left + right;
     const h = up + down;
 
-    if (w <= 0 || h <= 0 || /\s/.test(char)) {
-      return {
-        advance,
-        minX: 0,
-        maxX: 0,
-        minY: 0,
-        maxY: 0,
-        u0: 0,
-        v0: 0,
-        u1: 0,
-        v1: 0,
-        hasQuad: false,
-      };
-    }
+    if (w <= 0 || h <= 0 || /\s/.test(char)) return blank(advance);
 
-    // Shelf packing.
-    if (this.penX + w + PADDING > ATLAS_SIZE) {
-      this.penX = PADDING;
-      this.penY += this.rowHeight + PADDING;
-      this.rowHeight = 0;
-    }
-    if (this.penY + h + PADDING > ATLAS_SIZE) {
-      console.warn(`[zabloo] Glyph atlas (${this.pointSize}px) is full — glyph "${char}" skipped.`);
-      return {
-        advance,
-        minX: 0,
-        maxX: 0,
-        minY: 0,
-        maxY: 0,
-        u0: 0,
-        v0: 0,
-        u1: 0,
-        v1: 0,
-        hasQuad: false,
-      };
-    }
+    const spot = this.reserve(w, h, char);
+    if (!spot) return blank(advance);
 
-    const x = this.penX;
-    const y = this.penY;
-    ctx.fillText(char, x + left, y + up);
-    this.penX += w + PADDING;
-    this.rowHeight = Math.max(this.rowHeight, h);
+    ctx.fillText(char, spot.x + left, spot.y + up);
     this._version++;
 
     return {
@@ -170,13 +209,46 @@ export class GlyphAtlas {
       maxX: right / this.scale,
       maxY: up / this.scale,
       minY: -down / this.scale,
-      u0: x / ATLAS_SIZE,
-      v0: y / ATLAS_SIZE,
-      u1: (x + w) / ATLAS_SIZE,
-      v1: (y + h) / ATLAS_SIZE,
+      u0: spot.x / ATLAS_SIZE,
+      v0: spot.y / ATLAS_SIZE,
+      u1: (spot.x + w) / ATLAS_SIZE,
+      v1: (spot.y + h) / ATLAS_SIZE,
       hasQuad: true,
     };
   }
+
+  /** Shelf packing. Null when the atlas has no room left for this glyph. */
+  private reserve(w: number, h: number, char: string): { x: number; y: number } | null {
+    if (this.penX + w + PADDING > ATLAS_SIZE) {
+      this.penX = PADDING;
+      this.penY += this.rowHeight + PADDING;
+      this.rowHeight = 0;
+    }
+    if (this.penY + h + PADDING > ATLAS_SIZE) {
+      console.warn(`[zabloo] Glyph atlas (${this.pointSize}px) is full — glyph "${char}" skipped.`);
+      return null;
+    }
+    const spot = { x: this.penX, y: this.penY };
+    this.penX += w + PADDING;
+    this.rowHeight = Math.max(this.rowHeight, h);
+    return spot;
+  }
+}
+
+/** A glyph that paints nothing — whitespace, or one the atlas had no room for. */
+function blank(advance: number): GlyphInfo {
+  return {
+    advance,
+    minX: 0,
+    maxX: 0,
+    minY: 0,
+    maxY: 0,
+    u0: 0,
+    v0: 0,
+    u1: 0,
+    v1: 0,
+    hasQuad: false,
+  };
 }
 
 function createCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
@@ -191,15 +263,34 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
 export class FontLibrary {
   private readonly atlases = new Map<number, GlyphAtlas>();
 
-  constructor(private readonly scale: number) {}
+  constructor(
+    private readonly scale: number,
+    private font: StbFont | null = null,
+  ) {}
 
   get(pointSize: number): GlyphAtlas {
     let atlas = this.atlases.get(pointSize);
     if (!atlas) {
-      atlas = new GlyphAtlas(pointSize, this.scale);
+      atlas = new GlyphAtlas(pointSize, this.scale, this.font);
       this.atlases.set(pointSize, atlas);
     }
     return atlas;
+  }
+
+  /**
+   * Swaps in our rasterizer once its WASM has loaded, rebuilding every atlas
+   * handed out so far — their bitmaps and metrics came from the fallback.
+   * Returns the replaced atlases so the caller can release their GPU textures;
+   * dropping them silently would leak one texture per point size.
+   */
+  adopt(font: StbFont): GlyphAtlas[] {
+    this.font = font;
+    const replaced: GlyphAtlas[] = [];
+    for (const [pointSize, atlas] of this.atlases) {
+      replaced.push(atlas);
+      this.atlases.set(pointSize, new GlyphAtlas(pointSize, this.scale, font));
+    }
+    return replaced;
   }
 
   all(): Iterable<GlyphAtlas> {

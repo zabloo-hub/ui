@@ -40,5 +40,8 @@ pnpm-debug.log*
 .tmp/
 tmp/
 
+# --- WASM intermedio (el base64 committeado en src/generated es la fuente) ---
+packages/renderer-web/native/*.wasm
+
 # --- Contexto de Claude (generado por ai-docs/setup.sh; fuente en ai-docs) ---
 /CLAUDE.md
