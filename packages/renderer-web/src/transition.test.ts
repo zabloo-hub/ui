@@ -8,6 +8,7 @@ import {
   type ResolvedTransition,
   type ResolvedValues,
   stepNode,
+  stepValue,
 } from "./transition.js";
 
 const LINEAR: ResolvedTransition = { duration: 100, easing: "linear" };
@@ -231,5 +232,58 @@ describe("loopPhase", () => {
 
   it("holds at 0 before it starts", () => {
     expect(loopPhase(100, 50, 1000)).toBe(0);
+  });
+});
+
+describe("stepValue (behavior-driven scalars)", () => {
+  it("snaps on the first step, like any other mount", () => {
+    const anim = createNodeAnim();
+    expect(stepValue(anim, "progress", 0.4, LINEAR, 0)).toEqual({ value: 0.4, animating: false });
+  });
+
+  it("tweens a value the behavior computed, with the node's own transition", () => {
+    const anim = createNodeAnim();
+    stepValue(anim, "progress", 0, LINEAR, 0);
+    // The change starts the tween and this frame still shows the old value.
+    expect(stepValue(anim, "progress", 1, LINEAR, 0)).toEqual({ value: 0, animating: true });
+    expect(stepValue(anim, "progress", 1, LINEAR, 50).value).toBeCloseTo(0.5, 10);
+    expect(stepValue(anim, "progress", 1, LINEAR, 100)).toEqual({ value: 1, animating: false });
+  });
+
+  it("is instant without a usable transition — the pre-F7 behavior", () => {
+    const anim = createNodeAnim();
+    stepValue(anim, "progress", 0, null, 0);
+    expect(stepValue(anim, "progress", 1, null, 0)).toEqual({ value: 1, animating: false });
+  });
+
+  it("retargets mid-flight from the value on screen, over a full duration", () => {
+    const anim = createNodeAnim();
+    stepValue(anim, "progress", 0, LINEAR, 0);
+    stepValue(anim, "progress", 1, LINEAR, 0);
+    // Damage lands halfway through the heal: the bar leaves from the 0.5 on screen
+    // and takes a full duration to reach 0.25, instead of snapping or rushing.
+    expect(stepValue(anim, "progress", 0.25, LINEAR, 50).value).toBeCloseTo(0.5, 10);
+    expect(stepValue(anim, "progress", 0.25, LINEAR, 100).value).toBeCloseTo(0.375, 10);
+    expect(stepValue(anim, "progress", 0.25, LINEAR, 150)).toEqual({
+      value: 0.25,
+      animating: false,
+    });
+  });
+
+  it("shares the node's tracks with the animatable props without colliding", () => {
+    const anim = createNodeAnim();
+    stepNode(anim, { opacity: 1 }, LINEAR, 0);
+    stepValue(anim, "progress", 0, LINEAR, 0);
+    stepNode(anim, { opacity: 0 }, LINEAR, 0);
+    stepValue(anim, "progress", 1, LINEAR, 0);
+    expect(stepNode(anim, { opacity: 0 }, LINEAR, 50).values.opacity).toBeCloseTo(0.5, 10);
+    expect(stepValue(anim, "progress", 1, LINEAR, 50).value).toBeCloseTo(0.5, 10);
+  });
+
+  it("is forgotten with the rest of the node's state on a reload", () => {
+    const anim = createNodeAnim();
+    stepValue(anim, "progress", 0, LINEAR, 0);
+    clearNodeAnim(anim);
+    expect(stepValue(anim, "progress", 1, LINEAR, 0)).toEqual({ value: 1, animating: false });
   });
 });

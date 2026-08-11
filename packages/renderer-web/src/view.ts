@@ -16,6 +16,9 @@
  */
 
 import {
+  clampProgress,
+  type Dim,
+  type Easing,
   type Envelope,
   type ImageFit,
   parseEnvelope,
@@ -52,15 +55,18 @@ import {
 } from "./overlay.js";
 import { clamp, scrollbarThumb } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
+import { beadOpacity, DEFAULT_PERIOD } from "./spinner.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 import { layoutText, placeLines, type TextLayoutOptions } from "./text.js";
 import { isSelected, nextChecked, slotShown } from "./toggle.js";
 import {
   clearNodeAnim,
   createNodeAnim,
+  loopPhase,
   type ResolvedTransition,
   type ResolvedValues,
   stepNode,
+  stepValue,
 } from "./transition.js";
 import { decodeBase64, loadFont, type StbFont } from "./ttf.js";
 
@@ -91,8 +97,13 @@ interface AnyNode {
   autofocus?: boolean;
   checked?: unknown;
   onChange?: string;
+  /** Toggle option / group selection, and the ProgressBar's 0..1 fraction. */
   value?: unknown;
   transition?: Transition;
+  /** Spinner: cycle length, wave floor and ramp curve. */
+  period?: Dim;
+  min?: number;
+  easing?: Easing;
 }
 
 /** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
@@ -318,6 +329,8 @@ class WebView {
       groupValue: undefined,
       visibleFlag: true,
       sectionShown: true,
+      progress: 0,
+      loopStartedAt: null,
       scrollOffset: { x: 0, y: 0 },
       scrollMax: { x: 0, y: 0 },
       resolved: {},
@@ -347,6 +360,11 @@ class WebView {
     if (any.type === "Collapse") {
       node.open = any.open ?? true;
       this.applyOpen(node);
+    }
+    if (any.type === "ProgressBar") {
+      // `children[0]` is the fill and the rest is reserved: taking them out of
+      // layout is what makes "reserved" true for paint and input too.
+      for (let i = 1; i < node.children.length; i++) node.children[i].sectionShown = false;
     }
     if (any.group === "exclusive-select") {
       const { buttons } = this.tabsOf(node, true);
@@ -1086,14 +1104,65 @@ class WebView {
       width: this.optionalDim(layout?.width),
       height: this.optionalDim(layout?.height),
     };
-    const { values, animating } = stepNode(node.anim, targets, this.transitionOf(node), now);
+    const transition = this.transitionOf(node);
+    const { values, animating } = stepNode(node.anim, targets, transition, now);
     node.resolved = values;
     if (animating) this.animating = true;
+    if (node.ir.type === "ProgressBar") this.resolveProgress(node, transition, now);
     for (const child of node.children) this.resolve(child, now);
+    // After the children: the wave modulates values they have already resolved.
+    if (node.ir.type === "Spinner") this.spin(node, now);
+  }
+
+  /**
+   * The ProgressBar's fraction: read (or bound), clamped, and tweened on the VALUE
+   * with the node's own `transition` — behavior driving the interpolation engine
+   * with endpoints it computes (decision 2026-08-11 §5). Layout then derives the
+   * fill's rect from this number, so there is still one layout pass per frame and
+   * the rect never feeds back into its own input.
+   */
+  private resolveProgress(
+    node: LayoutNode,
+    transition: ResolvedTransition | null,
+    now: number,
+  ): void {
+    const raw = (node.ir as AnyNode).value;
+    const path = bindPath(raw);
+    const target = clampProgress(path !== null ? this.data.get(path) : raw);
+    const stepped = stepValue(node.anim, "progress", target, transition, now);
+    node.progress = stepped.value;
+    if (stepped.animating) this.animating = true;
+  }
+
+  /**
+   * The Spinner's loop: one phase per frame, spread over the beads, multiplied onto
+   * the opacity they just resolved (multiplicative like every other opacity in the
+   * system — decision 2026-08-06). It is renderer-owned behavior keyed by node
+   * identity, exactly like the scroll offset: nothing about it is in the IR beyond
+   * the node's own knobs.
+   */
+  private spin(node: LayoutNode, now: number): void {
+    const beads = node.children.filter(inFlow);
+    if (beads.length === 0) return;
+    const any = node.ir as AnyNode;
+    const period = this.dim(any.period, DEFAULT_PERIOD);
+    // A period of 0 is how a "reduce motion" theme stops the loop: the wave freezes
+    // at its first frame instead of the spinner disappearing.
+    const running = period > 0 && Number.isFinite(period);
+    if (node.loopStartedAt === null) node.loopStartedAt = now;
+    const phase = running ? loopPhase(node.loopStartedAt, now, period) : 0;
+    for (let i = 0; i < beads.length; i++) {
+      const bead = beads[i];
+      const pulse = beadOpacity(i, beads.length, phase, any.min, any.easing);
+      bead.resolved.opacity = (bead.resolved.opacity ?? 1) * pulse;
+    }
+    if (running) this.animating = true;
   }
 
   private forgetAnim(node: LayoutNode): void {
     clearNodeAnim(node.anim);
+    // A spinner that comes back starts its wave over, like a mount.
+    node.loopStartedAt = null;
     for (const child of node.children) this.forgetAnim(child);
   }
 

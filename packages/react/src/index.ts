@@ -8,6 +8,8 @@
 
 export {
   Accordion,
+  Badge,
+  type BadgeProps,
   Button,
   type ButtonProps,
   Checkbox,
@@ -20,6 +22,8 @@ export {
   type ContainerProps,
   Image,
   type ImageProps,
+  ProgressBar,
+  type ProgressBarProps,
   Radio,
   RadioGroup,
   type RadioGroupProps,
@@ -27,6 +31,8 @@ export {
   Row,
   ScrollView,
   type ScrollViewProps,
+  Spinner,
+  type SpinnerProps,
   Switch,
   type SwitchProps,
   Tab,

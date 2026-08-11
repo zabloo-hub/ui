@@ -28,6 +28,8 @@ function node(
     groupValue: undefined,
     visibleFlag: true,
     sectionShown: true,
+    progress: 0,
+    loopStartedAt: null,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
     resolved,

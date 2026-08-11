@@ -21,6 +21,8 @@ function node(ir: Partial<ZNode> & { type: string }, rect: Rect, children: Layou
     groupValue: undefined,
     visibleFlag: true,
     sectionShown: true,
+    progress: 0,
+    loopStartedAt: null,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
     // Hit-testing reads no animatable value: an un-resolved node is enough.

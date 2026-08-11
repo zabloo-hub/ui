@@ -4,7 +4,7 @@
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
- *   Collapse, ScrollView, Image, Overlay, Toggle, Repeat.
+ *   Collapse, ScrollView, Image, Overlay, Toggle, Repeat, ProgressBar, Spinner.
  * - Overlay nodes leave their parent's flow and are painted in a single top layer
  *   above the whole view, ordered by `(z, document order)` (decision 2026-08-11).
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
@@ -99,7 +99,9 @@ export type ZNode =
   | ImageNode
   | OverlayNode
   | ToggleNode
-  | RepeatNode;
+  | RepeatNode
+  | ProgressBarNode
+  | SpinnerNode;
 
 /**
  * Runtime states a node can be styled in. The SDK owns the state itself, keyed by
@@ -205,6 +207,11 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
  * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
  * an interruption retargets from the current interpolated value over a full duration.
+ *
+ * A component's own behavior may drive this same machinery with endpoints it
+ * computes, and then the tween is spec of that component rather than a value of the
+ * animatable set: `ProgressBar` tweens its `value` (never the fill rect) and
+ * `Spinner` loops on `period`, which is why neither prop appears in the set above.
  */
 export interface Transition {
   /** Duration in milliseconds. A `Dim` so motion is themeable (`"{motion.fast}"`); <= 0 is instant. */
@@ -669,6 +676,85 @@ export function itemIdentity(key: string | number | undefined, index: number): s
   return key === undefined ? String(index) : `k:${key}`;
 }
 
+/**
+ * Fractional indicator (decision 2026-08-11, ZAB-35). The NODE IS THE TRACK — its
+ * `style` paints the groove and its `layout` sizes it — and `children[0]` is the
+ * FILL, a normal node whose own style paints the bar. A positional slot, like
+ * Collapse's header and Toggle's indicators: paint stays implicit, so the fill is a
+ * composed child and not a new draw command.
+ *
+ * It is a node type rather than authoring sugar because nothing in v1 can express
+ * "a fraction of my parent": `Layout` dims are px and are not bindable, and `grow`
+ * is neither. The fraction is exactly the capability this primitive adds.
+ *
+ * **Geometry (normative).** Along `layout.direction` (`"row"` = horizontal, the
+ * default; `"column"` = vertical) the SDK sizes the fill at `contentMain * value`,
+ * where `contentMain` is the track's main axis minus its padding, and stretches it
+ * across the whole cross axis. `layout.justify` anchors it: `"start"` (default)
+ * grows from the left/top, `"end"` from the right/bottom. The fill's OWN
+ * `layout.width`/`height`/`grow` on the main axis are ignored — the SDK owns that
+ * number. `children[1..]` are reserved: v1 lays out nothing else inside the track
+ * (a label on top of the bar needs overlapping placement, which v1 does not have).
+ *
+ * **Value.** `0..1`, clamped; a non-finite value (or a binding whose data is missing
+ * or not a number) reads as `0`. A read binding (`{ bind: "player.hp" }`) is the
+ * expected authoring path — `SetData` moves the bar.
+ *
+ * **Motion.** A `transition` on this node tweens the VALUE, not the computed rect:
+ * the SDK interpolates the fraction and then runs its normal layout pass with it, so
+ * there is still one pass per frame and both targets get the same number (decision
+ * 2026-08-11 §4). The fill's own `transition` never sees the change, since its main
+ * size is not one of its declared inputs.
+ *
+ * Forward-tolerance: an SDK that does not know this type renders it as a Container
+ * (normative unknown-type rule), i.e. the track with an unsized fill inside — the
+ * bar loses its fraction, never the layout around it.
+ */
+export interface ProgressBarNode extends NodeBase {
+  type: "ProgressBar";
+  /** Progress in 0..1 (clamped). Static or a read binding. Default: 0. */
+  value?: Bindable<number>;
+  /** `children[0]` = the fill; further children are reserved (unused in v1). */
+  children?: ZNode[];
+}
+
+/**
+ * Indeterminate activity indicator (decision 2026-08-11, ZAB-35): a node whose
+ * children pulse in a travelling wave — the three dots that breathe.
+ *
+ * It does not spin. v1 has no transform (no translate/rotate/scale, decision
+ * 2026-08-11 §2), so a rotating arc is not expressible; what IS expressible, and
+ * portable to every target down to the last decimal, is a periodic modulation of
+ * `opacity`. It is a node type because an infinite loop is behavior owned by the SDK
+ * and keyed by component identity (like the scroll offset) — that identity has to
+ * exist in the IR, and nothing else in it repeats forever.
+ *
+ * **Wave (normative).** With `n` children, child `i` carries the phase
+ * `frac(elapsed / period - i / n)` and the SDK MULTIPLIES its resolved `opacity` by
+ * `min + (1 - min) * spinnerPulse(phase, easing)`. Multiplicative, like every other
+ * opacity in the system (decision 2026-08-06), so a dot that authored `opacity: 0.5`
+ * still pulses, just dimmer. Children keep their normal layout: the beads are laid
+ * out by the node's own `direction`/`gap`/`align` like any container's.
+ *
+ * Forward-tolerance: an older SDK renders it as a Container — the beads show, at
+ * rest. The degradation is the absence of the loop, never a layout change.
+ */
+export interface SpinnerNode extends NodeBase {
+  type: "Spinner";
+  /**
+   * Full cycle in milliseconds. A `Dim` so the loop is themeable like the rest of
+   * motion (`"{motion.loop}"`, and a "reduce motion" theme stops it dead).
+   * Default: 900. `<= 0` or non-finite freezes the wave at its first frame.
+   */
+  period?: Dim;
+  /** Trough of the wave: the opacity multiplier at its dimmest, 0..1. Default: 0.25. */
+  min?: number;
+  /** Curve of the ramp up and back down. Default: "ease-in-out". */
+  easing?: Easing;
+  /** The beads, in wave order — normal children in every other respect. */
+  children?: ZNode[];
+}
+
 /** True if this package's reader can consume content with version `v`. */
 export function supportsVersion(v: number): boolean {
   return Number.isInteger(v) && v === IR_VERSION;
@@ -763,6 +849,32 @@ export function easeProgress(easing: Easing, t: number): number {
     default:
       return t;
   }
+}
+
+/**
+ * Normative reference implementation of the `Spinner`'s wave (decision 2026-08-11,
+ * ZAB-35): maps a bead's phase to its 0..1 pulse. Built on `easeProgress` for the
+ * same reason it exists — closed-form arithmetic is what keeps every target on the
+ * same number — and shaped as a symmetric ramp, up over the first half of the cycle
+ * and back down over the second, so the loop is seamless: `f(0) = 0`, `f(0.5) = 1`,
+ * and `f` approaches 0 again as the phase completes. Phases outside 0..1 wrap
+ * (including negative ones, which is how a bead's offset arrives).
+ */
+export function spinnerPulse(phase: number, easing: Easing = "ease-in-out"): number {
+  if (!Number.isFinite(phase)) return 0;
+  const p = phase - Math.floor(phase);
+  return p < 0.5 ? easeProgress(easing, p * 2) : easeProgress(easing, (1 - p) * 2);
+}
+
+/**
+ * Normative reading of a `ProgressBar`'s `value` (decision 2026-08-11, ZAB-35):
+ * clamps to 0..1 and reads anything that is not a finite number — missing data, a
+ * string, NaN — as 0. Shared so "what does a broken binding show" has one answer
+ * across targets: an empty bar, never a full one and never a crash.
+ */
+export function clampProgress(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0; // NaN too
+  return value > 1 ? 1 : value;
 }
 
 const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;
