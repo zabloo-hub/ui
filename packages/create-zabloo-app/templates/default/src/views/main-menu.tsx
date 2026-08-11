@@ -1,12 +1,29 @@
 // Every .tsx in src/views/ is one document of the exported envelope; the
 // filename is the view ID the SDK loads by (`export const id = "…"` pins a
 // stable ID if you rename the file).
-import { Button, Collapse, Column, Row, Text } from "@zabloo/react";
+import { Button, Collapse, Column, Image, Row, Text } from "@zabloo/react";
 import { GoldRow } from "../components/GoldRow";
 
 export default function MainMenu() {
   return (
     <Column layout={{ grow: 1, justify: "center", align: "center", gap: 16 }}>
+      {/* Images live in src/assets/ and are referenced by path: `zabloo export`
+          hashes the file and inlines it in the envelope, so the game gets the
+          bytes with the UI. Everything else is plain style — `color` tints the
+          picture (this logo is white, so it takes the tint), `radius` rounds it,
+          and `background` is what you see while the bytes decode. Sized here;
+          without layout width/height it takes its own pixel size, and `fit`
+          ("contain" | "cover" | "stretch") chooses how it fills the box. */}
+      <Image
+        src="logo.png"
+        layout={{ width: 88, height: 88 }}
+        style={{
+          color: "{color.primary}",
+          background: "{color.surface}",
+          radius: "{radius.md}",
+        }}
+      />
+
       <GoldRow />
 
       <Row layout={{ gap: 12 }}>

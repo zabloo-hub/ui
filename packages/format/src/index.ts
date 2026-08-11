@@ -146,8 +146,8 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
  * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
  * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
- * `text`, `open`, `src`, `axis`, `scrollbar`, and the Overlay's `modal`/`z` — `z` is
- * numeric but it is ordering, not a visual magnitude).
+ * `text`, `open`, `src`, `fit`, `axis`, `scrollbar`, and the Overlay's `modal`/`z` —
+ * `z` is numeric but it is ordering, not a visual magnitude).
  *
  * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
  * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
@@ -282,13 +282,43 @@ export interface ScrollViewNode extends NodeBase {
 }
 
 /**
- * Textured rectangle. `src` references the envelope's asset manifest; at authoring
- * time the prop carries a path relative to `src/assets/` and `zabloo export` rewrites
- * it to the final `asset:<id>` ref (ZAB-13 implements the component + rendering).
+ * How an image fills its layout rect (decision 2026-08-11, ZAB-13). Every mode
+ * paints INSIDE the rect — `cover` crops the source through its UVs instead of
+ * overflowing, so the "nothing paints outside the layout rect" invariant that
+ * makes hit-testing on rects honest holds without any clipping machinery.
+ *
+ * - `"contain"` (default): the whole image, undistorted, centered — letterboxed.
+ * - `"cover"`: fills the rect, undistorted, cropping the overflowing axis evenly.
+ * - `"stretch"`: fills the rect exactly, distorting the aspect ratio.
+ */
+export type ImageFit = "contain" | "cover" | "stretch";
+
+/**
+ * Textured rectangle (6th primitive). A content-bearing LEAF, like `Text`: its
+ * intrinsic size is the source's pixel size from the manifest — which is why it is
+ * a node type and not a `Container` with a texture paint (decision 2026-08-11,
+ * ZAB-13). It takes no children.
+ *
+ * `src` references the envelope's asset manifest; at authoring time the prop carries
+ * a path relative to `src/assets/` and `zabloo export` rewrites it to the final
+ * `asset:<id>` ref. It is static — an asset reference is collected at export time,
+ * so it is never a binding.
+ *
+ * Paint stays implicit from style, with no new fields:
+ * - `style.color` **tints** the image (multiplied per channel; absent = white =
+ *   the pixels as they are), the same "color of this node's content" `Text` uses
+ *   for its glyphs — so `states.*.style.color` tints per state for free.
+ * - `style.radius` rounds the painted image, matching the node's own background.
+ * - `style.background`/`borderWidth` ARE the loading placeholder: an image paints
+ *   nothing until its bytes are decoded, and layout has already reserved the space
+ *   from the manifest's `width`/`height`. No `loading` state exists — the
+ *   placeholder is authored, not a runtime state.
  */
 export interface ImageNode extends NodeBase {
   type: "Image";
   src: AssetRef;
+  /** How the source fills the layout rect. Default: "contain". */
+  fit?: ImageFit;
 }
 
 /**

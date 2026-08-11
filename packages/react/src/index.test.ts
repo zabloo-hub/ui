@@ -8,6 +8,7 @@ import {
   Collapse,
   Column,
   Container,
+  Image,
   Radio,
   RadioGroup,
   Row,
@@ -161,6 +162,44 @@ describe("renderToIR", () => {
         { type: "Text", text: "Item 2" },
       ],
     });
+  });
+
+  it("serializes Image with the authoring path — the export rewrites it to asset:", () => {
+    const ir = renderToIR(
+      h(Image, {
+        id: "hero",
+        src: "art/hero.png",
+        fit: "cover",
+        // Tint and placeholder are plain style: no Image-specific props.
+        style: { color: "{color.gold}", background: "{color.surface}", radius: 12 },
+        layout: { width: 240, height: 120 },
+      }),
+    );
+    expect(ir).toEqual({
+      type: "Image",
+      id: "hero",
+      src: "art/hero.png",
+      fit: "cover",
+      style: { color: "{color.gold}", background: "{color.surface}", radius: 12 },
+      layout: { width: 240, height: 120 },
+    });
+  });
+
+  it("omits fit when the default (contain) is good enough", () => {
+    expect(renderToIR(h(Image, { src: "logo.png" }))).toEqual({
+      type: "Image",
+      src: "logo.png",
+    });
+  });
+
+  it("rejects an Image without a src", () => {
+    expect(() => renderToIR(h(Image, { src: "" }))).toThrow(/needs a `src` path/);
+  });
+
+  it("rejects an Image with children — it is a leaf", () => {
+    expect(() => renderToIR(h(Image, { src: "logo.png" }, h(Text, null, "x")))).toThrow(
+      /takes no children/,
+    );
   });
 
   it("lowers Checkbox to a Toggle with both indicator slots", () => {

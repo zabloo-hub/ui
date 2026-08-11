@@ -5,6 +5,7 @@
  * + one per atlas + one per image texture).
  */
 
+import type { ImageFit } from "@zabloo/format";
 import type { ImageAsset } from "./assets.js";
 import type { Batch } from "./gl.js";
 import type { GlyphAtlas } from "./glyphs.js";
@@ -16,6 +17,16 @@ const CORNER_SEGMENTS = 6;
 
 /** Untinted: the shader multiplies texture × vertex color, so white = the pixels as-is. */
 const UNTINTED: Color = [1, 1, 1, 1];
+
+/** How an Image node paints — the resolved style the view hands down. */
+export interface ImagePaint {
+  /** Default: "contain". */
+  fit?: ImageFit;
+  /** Tint × inherited opacity, already resolved. Default: opaque white (untinted). */
+  color?: Color;
+  /** Rounds the painted image, like the node's background. Default: 0. */
+  radius?: number;
+}
 
 export class GeometryBuilder {
   private readonly solid: Batch = { texture: null, vertices: [], indices: [] };
@@ -105,30 +116,63 @@ export class GeometryBuilder {
   }
 
   /**
-   * Textured quad for an Image node, aspect-fitted and centered inside the
-   * layout rect. Fitting (rather than stretching) keeps the picture undistorted,
-   * and staying inside the rect preserves the invariant that nothing paints
-   * outside it — the same reason borders are inset.
+   * Textured geometry for an Image node. Every `fit` mode paints INSIDE the layout
+   * rect — `cover` crops through the UVs instead of overflowing — which preserves
+   * the invariant that nothing paints outside the rect (the same reason borders are
+   * inset): hit-testing on layout rects stays honest, and no clipping is needed.
+   *
+   * A radius rounds the painted image the same way it rounds a background, so an
+   * image inside a rounded panel does not poke out at the corners. The geometry is
+   * then the rounded-rect fan, with UVs derived from each vertex's position — one
+   * source of truth for the shape, shared with `roundedRect`.
    *
    * Paints nothing while the decode is in flight; layout already reserved the
-   * space from the manifest's dimensions.
+   * space from the manifest's dimensions, and the node's own background shows
+   * through in the meantime (the loading placeholder is authored, not a state).
    */
-  image(rect: Rect, asset: ImageAsset, opacity: number): void {
+  image(rect: Rect, asset: ImageAsset, paint: ImagePaint = {}): void {
     if (asset.bitmap === null) return;
-    const fitted = aspectFit(rect, asset.width, asset.height);
-    if (fitted === null) return;
+    const quad = fitImage(rect, asset.width, asset.height, paint.fit);
+    if (quad === null) return;
 
     const batch = this.imageBatchFor(asset);
     const base = batch.vertices.length / 8;
-    const color = fade(UNTINTED, opacity);
-    const x1 = fitted.x + fitted.width;
-    const y1 = fitted.y + fitted.height;
-    // v grows downward, like the atlas: texImage2D uploads rows top-first.
-    pushVertex(batch, fitted.x, fitted.y, 0, 0, color);
-    pushVertex(batch, x1, fitted.y, 1, 0, color);
-    pushVertex(batch, x1, y1, 1, 1, color);
-    pushVertex(batch, fitted.x, y1, 0, 1, color);
-    batch.indices.push(base, base + 1, base + 2, base + 2, base + 3, base);
+    const color = paint.color ?? UNTINTED;
+    const { rect: box, uv } = quad;
+    const r = Math.min(paint.radius ?? 0, box.width * 0.5, box.height * 0.5);
+
+    if (r <= 0.01) {
+      const x1 = box.x + box.width;
+      const y1 = box.y + box.height;
+      const u1 = uv.x + uv.width;
+      const v1 = uv.y + uv.height;
+      // v grows downward, like the atlas: texImage2D uploads rows top-first.
+      pushVertex(batch, box.x, box.y, uv.x, uv.y, color);
+      pushVertex(batch, x1, box.y, u1, uv.y, color);
+      pushVertex(batch, x1, y1, u1, v1, color);
+      pushVertex(batch, box.x, y1, uv.x, v1, color);
+      batch.indices.push(base, base + 1, base + 2, base + 2, base + 3, base);
+      return;
+    }
+
+    // Rounded: same fan as a rounded-rect background, sampling the texture at
+    // each vertex's relative position inside the painted box.
+    const uvAt = (x: number, y: number): [number, number] => [
+      uv.x + ((x - box.x) / box.width) * uv.width,
+      uv.y + ((y - box.y) / box.height) * uv.height,
+    ];
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const [cu, cv] = uvAt(cx, cy);
+    pushVertex(batch, cx, cy, cu, cv, color);
+    const points = perimeter(box, r);
+    for (const [x, y] of points) {
+      const [u, v] = uvAt(x, y);
+      pushVertex(batch, x, y, u, v, color);
+    }
+    for (let i = 0; i < points.length; i++) {
+      batch.indices.push(base, base + 1 + i, base + 1 + ((i + 1) % points.length));
+    }
   }
 
   private imageBatchFor(asset: ImageAsset): Batch {
@@ -195,6 +239,43 @@ export function aspectFit(rect: Rect, width: number, height: number): Rect | nul
     width: fittedWidth,
     height: fittedHeight,
   };
+}
+
+/** The painted box and the slice of the texture it samples (both in 0..1 for the UVs). */
+export interface ImageQuad {
+  rect: Rect;
+  uv: Rect;
+}
+
+/** The whole texture — what every mode but `cover` samples. */
+const FULL_UV: Rect = { x: 0, y: 0, width: 1, height: 1 };
+
+/**
+ * Resolves a `fit` into the box to paint and the UV window to sample. `contain`
+ * shrinks the box (letterbox) and `cover` shrinks the UV window (crop): both keep
+ * the aspect ratio, and neither ever paints outside `rect`. `stretch` takes the
+ * whole box and the whole texture, distorting on purpose.
+ *
+ * Null when either side has no usable size — a manifest without dimensions and a
+ * decode still in flight, or a collapsed rect.
+ */
+export function fitImage(
+  rect: Rect,
+  width: number,
+  height: number,
+  fit: ImageFit = "contain",
+): ImageQuad | null {
+  if (!(rect.width > 0) || !(rect.height > 0) || !(width > 0) || !(height > 0)) return null;
+  if (fit === "stretch") return { rect, uv: FULL_UV };
+  if (fit === "cover") {
+    const scale = Math.max(rect.width / width, rect.height / height);
+    // Visible slice of the source, in source px → UV fractions, centered.
+    const u = Math.min(1, rect.width / scale / width);
+    const v = Math.min(1, rect.height / scale / height);
+    return { rect, uv: { x: (1 - u) / 2, y: (1 - v) / 2, width: u, height: v } };
+  }
+  const fitted = aspectFit(rect, width, height);
+  return fitted === null ? null : { rect: fitted, uv: FULL_UV };
 }
 
 /** Applies an inherited opacity to a color (per-vertex alpha, decision 2026-08-06). */

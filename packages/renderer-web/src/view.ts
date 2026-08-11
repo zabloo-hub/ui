@@ -8,6 +8,7 @@
 
 import {
   type Envelope,
+  type ImageFit,
   parseEnvelope,
   type Style,
   type TokenValue,
@@ -36,6 +37,7 @@ interface AnyNode {
   onClick?: string;
   text?: unknown;
   src?: unknown;
+  fit?: ImageFit;
   open?: boolean;
   group?: string;
   selected?: unknown;
@@ -850,7 +852,15 @@ class WebView {
       );
     } else if (node.ir.type === "Image") {
       const asset = this.images.get((node.ir as AnyNode).src);
-      if (asset) geometry.image(node.rect, asset, opacity);
+      if (asset) {
+        // `color` tints the pixels, exactly as it colors a Text's glyphs — absent
+        // means white, i.e. the image as it is (decision 2026-08-11, ZAB-13).
+        geometry.image(node.rect, asset, {
+          fit: (node.ir as AnyNode).fit,
+          color: fade(this.color(style?.color, [1, 1, 1, 1]), opacity),
+          radius: this.dim(style?.radius),
+        });
+      }
     }
     for (const child of node.children) this.paint(child, geometry, opacity);
   }
