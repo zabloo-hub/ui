@@ -22,6 +22,8 @@ import type {
   ProgressBarNode,
   ScrollAxis,
   ScrollViewNode,
+  SliderAxis,
+  SliderNode,
   SpinnerNode,
   StateName,
   StateOverride,
@@ -40,6 +42,7 @@ export type HostType =
   | "Collapse"
   | "ScrollView"
   | "Toggle"
+  | "Slider"
   | "Image"
   | "ProgressBar"
   | "Spinner";
@@ -82,15 +85,25 @@ export interface HostInstance {
     onChange?: string;
     /**
      * Toggle: this option's value in a group. Container: the group's selected
-     * value. ProgressBar: the 0..1 fraction.
+     * value. ProgressBar: the 0..1 fraction. Slider: the current number
+     * (usually a read/write binding).
      */
     value?: Bindable<string | number>;
+    /**
+     * Slider: the range ends and the settle hook (`axis` is shared with
+     * ScrollView). `min` is shared with the Spinner, where it is the wave's
+     * floor — this bag is the union of every primitive's props, and the two
+     * meanings never meet on one node.
+     */
+    min?: number;
+    max?: number;
+    step?: number;
+    onCommit?: string;
     /** Image: authoring path relative to `src/assets/` — `zabloo export` rewrites it. */
     src?: string;
     fit?: ImageFit;
-    /** Spinner: cycle length, wave floor and ramp curve. */
+    /** Spinner: cycle length and ramp curve (its wave floor is `min`, above). */
     period?: Dim;
-    min?: number;
     easing?: Easing;
   };
   children: HostNode[];
@@ -115,6 +128,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "Collapse",
   "ScrollView",
   "Toggle",
+  "Slider",
   "Image",
   "ProgressBar",
   "Spinner",
@@ -128,7 +142,7 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Toggle, Image, ProgressBar, Spinner ` +
+        `Collapse, ScrollView, Toggle, Slider, Image, ProgressBar, Spinner ` +
         `(Row/Column/Checkbox/Switch/Radio/Badge are sugar from @zabloo/react).`,
     );
   }
@@ -208,6 +222,35 @@ export function toIR(instance: HostInstance): ZNode {
       if (node.children && node.children.length < 2) {
         throw new Error(
           "A Toggle needs both indicator slots: children[0] (checked) and children[1] (unchecked).",
+        );
+      }
+      return node;
+    }
+    case "Slider": {
+      const { value, min, max, step, axis, onChange, onCommit } = instance.props;
+      if (typeof value === "object" && value !== null && !("bind" in value)) {
+        throw new Error("<Slider value> must be a number or a { bind } binding.");
+      }
+      if (min !== undefined && max !== undefined && max <= min) {
+        throw new Error(`<Slider> needs max > min (got min=${min}, max=${max}).`);
+      }
+      const node: SliderNode = {
+        type: "Slider",
+        ...base,
+        ...(value !== undefined && { value: value as SliderNode["value"] }),
+        ...(min !== undefined && { min }),
+        ...(max !== undefined && { max }),
+        ...(step !== undefined && { step }),
+        ...(axis !== undefined && { axis: axis as SliderAxis }),
+        ...(onChange !== undefined && { onChange }),
+        ...(onCommit !== undefined && { onCommit }),
+        ...childrenIR(instance),
+      };
+      // The slots are positional, like the Toggle's indicator: a half-built
+      // slider would render a rail whose thumb never appears.
+      if (node.children?.length !== 2) {
+        throw new Error(
+          "A Slider needs exactly two slots: children[0] (fill), children[1] (thumb).",
         );
       }
       return node;

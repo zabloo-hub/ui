@@ -31,6 +31,8 @@ export {
   Row,
   ScrollView,
   type ScrollViewProps,
+  Slider,
+  type SliderProps,
   Spinner,
   type SpinnerProps,
   Switch,

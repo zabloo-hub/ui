@@ -1,4 +1,10 @@
-import type { ContainerNode, ProgressBarNode, SpinnerNode, ToggleNode } from "@zabloo/format";
+import type {
+  ContainerNode,
+  ProgressBarNode,
+  SliderNode,
+  SpinnerNode,
+  ToggleNode,
+} from "@zabloo/format";
 import { createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
 import {
@@ -16,6 +22,7 @@ import {
   Row,
   renderToIR,
   ScrollView,
+  Slider,
   Spinner,
   Switch,
   Tab,
@@ -280,6 +287,55 @@ describe("renderToIR", () => {
     // Round box: radius = half the size, on both slots.
     const [checkedSlot] = (options[0].children ?? []) as ContainerNode[];
     expect(checkedSlot.style?.radius).toBe(11);
+  });
+
+  it("lowers Slider to a rail plus its two value-driven slots", () => {
+    const ir = renderToIR(
+      h(Slider, {
+        id: "volume",
+        value: { bind: "settings.volume" },
+        step: 0.05,
+        onChange: "volume-preview",
+        onCommit: "volume-apply",
+        length: 240,
+      }),
+    );
+    expect(ir).toEqual({
+      type: "Slider",
+      id: "volume",
+      value: { bind: "settings.volume" },
+      step: 0.05,
+      onChange: "volume-preview",
+      onCommit: "volume-apply",
+      // The node IS the rail: its own style paints the track.
+      layout: { width: 240, height: 6 },
+      style: { radius: 3, background: "#2f3446" },
+      children: [
+        // children[0] — the fill: no size along the axis, the SDK sets it.
+        { type: "Container", layout: { height: 6 }, style: { radius: 3, background: "#4f46e5" } },
+        // children[1] — the thumb, fatter than the rail it rides.
+        {
+          type: "Container",
+          layout: { width: 18, height: 18 },
+          style: { radius: 9, background: "#ffffff" },
+        },
+      ],
+    });
+  });
+
+  it("turns a vertical Slider's rail on its side", () => {
+    const ir = renderToIR(
+      h(Slider, { axis: "vertical", length: 120, thickness: 8, min: 0, max: 100, step: 10 }),
+    ) as SliderNode;
+    expect(ir.axis).toBe("vertical");
+    expect(ir.layout).toEqual({ height: 120, width: 8 });
+    const [fill] = (ir.children ?? []) as ContainerNode[];
+    expect(fill.layout).toEqual({ width: 8 });
+    expect([ir.min, ir.max, ir.step]).toEqual([0, 100, 10]);
+  });
+
+  it("rejects a Slider range that cannot be dragged", () => {
+    expect(() => renderToIR(h(Slider, { min: 10, max: 2 }))).toThrow(/max > min/);
   });
 
   it("rejects binding a Radio value (the selection is bound on the group)", () => {

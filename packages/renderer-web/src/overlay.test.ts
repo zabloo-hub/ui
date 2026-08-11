@@ -29,6 +29,7 @@ function node(ir: ZNode, rect: Rect, children: LayoutNode[] = []): LayoutNode {
     selected: false,
     selectedIndex: 0,
     checked: false,
+    sliderValue: 0,
     groupValue: undefined,
     visibleFlag: true,
     sectionShown: true,
