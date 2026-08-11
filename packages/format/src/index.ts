@@ -4,12 +4,15 @@
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
- *   Collapse, ScrollView, Image.
+ *   Collapse, ScrollView, Image, Toggle.
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
  * - Styles are resolved per node and reference a flat token dictionary in the envelope.
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
  * - Paint is 100% implicit from style in v1 (no explicit draw-command layer).
- * - Two dynamic mechanisms only: named actions and data-path bindings.
+ * - Two dynamic mechanisms only: named actions and data-path bindings. Bindings
+ *   are READ/WRITE from v1 on the controls that own a value (Toggle): the SDK
+ *   writes the new value into its own data store and notifies the game through
+ *   one callback (decision 2026-08-11, ZAB-23).
  * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
  *   Container preserving `layout`/`style`/`visible`/`children` (normative rule,
  *   decision 2026-08-11), and refuse only on a major-version mismatch.
@@ -78,9 +81,15 @@ export type ZNode =
   | ButtonNode
   | CollapseNode
   | ScrollViewNode
-  | ImageNode;
+  | ImageNode
+  | ToggleNode;
 
-export type StateName = "hover" | "pressed" | "disabled" | "focused";
+/**
+ * `checked` (ZAB-23) is the first state a node carries as *value*, not as a
+ * transient interaction: it styles a Toggle that is on. Merge order in the SDKs:
+ * base → checked → focused → pressed.
+ */
+export type StateName = "hover" | "pressed" | "disabled" | "focused" | "checked";
 
 /** Per-state style overrides. The SDK owns runtime state, keyed by component type. */
 export interface StateOverride {
@@ -142,12 +151,23 @@ interface NodeBase {
  * Older SDKs ignore unknown `group` values, so composites degrade gracefully
  * (an Accordion becomes independent Collapses) instead of failing to render.
  */
-export type GroupBehavior = "exclusive-open";
+export type GroupBehavior =
+  /** Accordion: opening a child Collapse closes its siblings. */
+  | "exclusive-open"
+  /** RadioGroup: one descendant Toggle checked, identified by the group's `value`. */
+  | "exclusive-check";
 
 export interface ContainerNode extends NodeBase {
   type: "Container";
   /** Cross-child behavior the SDK enforces (e.g. Accordion = "exclusive-open"). */
   group?: GroupBehavior;
+  /**
+   * Selected value of an `"exclusive-check"` group (RadioGroup): a descendant
+   * Toggle is checked when its `value` equals this one, and tapping a Toggle
+   * writes its `value` here. Meaningless on any other group — the whole point of
+   * a radio group is that the selection is ONE value, not N booleans.
+   */
+  value?: Bindable<string | number>;
   children?: ZNode[];
 }
 
@@ -208,6 +228,40 @@ export interface ScrollViewNode extends NodeBase {
 export interface ImageNode extends NodeBase {
   type: "Image";
   src: AssetRef;
+}
+
+/**
+ * Two-state control (7th primitive, decision 2026-08-11): the checkbox, the
+ * switch and the radio are ONE type — they differ in styling and in the group
+ * they sit in, not in behavior. The SDK owns the runtime `checked` state (keyed
+ * by type, like Button's pressed and Collapse's open) and toggles it on
+ * tap/Enter/gamepad-A.
+ *
+ * **Indicator slots** — paint stays implicit (no explicit paint layer in v1), so
+ * the check/knob is composed, not drawn by a new primitive command:
+ * `children[0]` is shown only while checked, `children[1]` only while unchecked,
+ * and `children[2..]` are always shown (the label). The slots enter/leave layout
+ * with `display:none` semantics — the same mechanism as Collapse content, so a
+ * switch moves its knob by swapping two `justify`-ed slots and a checkbox shows
+ * its tick. `@zabloo/react`'s `<Checkbox>`/`<Switch>`/`<Radio>` build the slots;
+ * hand-writing them is not the expected authoring path.
+ *
+ * **Value.** Standalone, a Toggle carries a boolean: `checked` may be a static
+ * initial value or a READ/WRITE binding — the SDK writes the new value back into
+ * its data store and notifies the game. Inside an `"exclusive-check"` group its
+ * `checked` is DERIVED from the group's `value` (never stored per node), and
+ * tapping it writes its own `value` into the group's binding.
+ */
+export interface ToggleNode extends NodeBase {
+  type: "Toggle";
+  /** Initial state, or a read/write data-path binding. Default: false. */
+  checked?: Bindable<boolean>;
+  /** This option's value inside an `"exclusive-check"` group (radio). */
+  value?: string | number;
+  /** Named action fired after every change, like Button's `onClick`. */
+  onChange?: string;
+  /** `children[0]` = checked slot; `children[1]` = unchecked slot; `children[2..]` = always shown. */
+  children?: ZNode[];
 }
 
 /** True if this package's reader can consume content with version `v`. */

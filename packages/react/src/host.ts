@@ -20,11 +20,12 @@ import type {
   StateOverride,
   Style,
   TextNode,
+  ToggleNode,
   ZNode,
 } from "@zabloo/format";
 
 /** Host vocabulary — the IR primitives authorable in v1. */
-export type HostType = "Container" | "Text" | "Button" | "Collapse" | "ScrollView";
+export type HostType = "Container" | "Text" | "Button" | "Collapse" | "ScrollView" | "Toggle";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
 export interface CommonProps {
@@ -49,6 +50,10 @@ export interface HostInstance {
     group?: GroupBehavior;
     axis?: ScrollAxis;
     scrollbar?: boolean;
+    checked?: Bindable<boolean>;
+    onChange?: string;
+    /** Toggle: this option's value in a group. Container: the group's selected value. */
+    value?: Bindable<string | number>;
   };
   children: HostNode[];
 }
@@ -71,6 +76,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "Button",
   "Collapse",
   "ScrollView",
+  "Toggle",
 ]);
 
 export function isHostType(type: string): type is HostType {
@@ -81,7 +87,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView (Row/Column are sugar from @zabloo/react).`,
+        `Collapse, ScrollView, Toggle (Row/Column/Checkbox/Switch/Radio are sugar from ` +
+        `@zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -132,8 +139,33 @@ export function toIR(instance: HostInstance): ZNode {
         type: "Container",
         ...base,
         ...(instance.props.group !== undefined && { group: instance.props.group }),
+        ...(instance.props.value !== undefined && { value: instance.props.value }),
         ...childrenIR(instance),
       };
+      return node;
+    }
+    case "Toggle": {
+      const value = instance.props.value;
+      if (value !== undefined && typeof value === "object") {
+        throw new Error(
+          "A <Radio> value is static — bind the selection on the <RadioGroup> instead.",
+        );
+      }
+      const node: ToggleNode = {
+        type: "Toggle",
+        ...base,
+        ...(instance.props.checked !== undefined && { checked: instance.props.checked }),
+        ...(value !== undefined && { value }),
+        ...(instance.props.onChange !== undefined && { onChange: instance.props.onChange }),
+        ...childrenIR(instance),
+      };
+      // The indicator convention is positional, so a half-built one must fail here
+      // rather than silently render a control that never changes shape.
+      if (node.children && node.children.length < 2) {
+        throw new Error(
+          "A Toggle needs both indicator slots: children[0] (checked) and children[1] (unchecked).",
+        );
+      }
       return node;
     }
     case "ScrollView": {

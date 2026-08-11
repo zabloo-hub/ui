@@ -176,8 +176,11 @@ const PAGE = /* html */ `<!doctype html>
   }
 
   // The preview page plays the role of "the game": it discovers the envelope's
-  // data-path bindings and offers inputs to push values (zabloo.setData).
+  // data-path bindings and offers inputs to push values (zabloo.setData). The
+  // traffic runs both ways — controls write their value back (onDataChanged),
+  // and the field shows it, which is the whole point of a two-way binding.
   const dataValues = new Map();
+  const dataInputs = new Map();
 
   function collectBindPaths(node, paths) {
     if (node === null || typeof node !== "object") return;
@@ -199,6 +202,7 @@ const PAGE = /* html */ `<!doctype html>
     const fields = document.getElementById("fields");
     panel.classList.toggle("empty", paths.size === 0);
     fields.innerHTML = "";
+    dataInputs.clear();
     for (const path of [...paths].sort()) {
       const label = document.createElement("label");
       label.textContent = path;
@@ -209,8 +213,18 @@ const PAGE = /* html */ `<!doctype html>
         dataValues.set(path, input.value);
         handle.setData(path, coerce(input.value));
       });
+      dataInputs.set(path, input);
       fields.append(label, input);
     }
+  }
+
+  // A control wrote its own value: keep it for the next reload and show it.
+  function onDataChanged(path, value) {
+    const text = String(value);
+    dataValues.set(path, text);
+    const input = dataInputs.get(path);
+    if (input) input.value = text;
+    log(path + " = " + text);
   }
 
   function replayData() {
@@ -259,6 +273,7 @@ const PAGE = /* html */ `<!doctype html>
     handle = ZablooRenderer.mount(canvas, json, {
       view: viewId,
       onAction: (action) => log("action: " + action),
+      onDataChanged,
     });
     window.zabloo = handle;
     replayData();
