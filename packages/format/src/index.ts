@@ -129,9 +129,25 @@ export interface Layout {
   grow?: number;
 }
 
+/** Alignment of a text block inside its rect, on either axis. */
+export type TextAlign = "start" | "center" | "end";
+
+/**
+ * What happens to text that does not fit (decision 2026-08-11, ZAB-17):
+ * - `"clip"` (default): the glyphs that would cross the boundary are dropped, so
+ *   nothing ever paints outside the layout rect — the same invariant `Image` keeps.
+ * - `"ellipsis"`: the truncation is marked with `…` (U+2026), trimming glyphs from
+ *   the end of the last line until the mark fits.
+ */
+export type TextOverflow = "clip" | "ellipsis";
+
 /**
  * Resolved per-node style. Paint is implicit: `background`/`radius`/`borderWidth`
  * imply the rounded-rect fill/stroke the tessellator derives.
+ *
+ * The text properties live here, next to `fontSize`/`color`, so they are themeable
+ * through tokens and overridable per state (`states.focused.style.textAlign`) like
+ * every other visual input. They are read from a `Text` node and ignored elsewhere.
  */
 export interface Style {
   background?: ColorValue;
@@ -141,6 +157,28 @@ export interface Style {
   color?: ColorValue;
   fontSize?: Dim;
   opacity?: number;
+  /** Horizontal alignment of each line inside the rect. Default: "start". */
+  textAlign?: TextAlign;
+  /** Vertical alignment of the whole block inside the rect. Default: "start". */
+  textAlignY?: TextAlign;
+  /**
+   * Distance between the tops of two consecutive lines, in px (a `Dim`, so
+   * `"{text.line}"` works). Absent = the font's own metric (ascent + descent), which
+   * is what a single-line `Text` has always measured. The extra space a bigger value
+   * introduces is split evenly above and below each line (half-leading), so raising
+   * it never moves a single-line `Text` off-centre.
+   */
+  lineHeight?: Dim;
+  /** Word wrap to the available width. Default: true. */
+  wrap?: boolean;
+  /** How text that does not fit is cut. Default: "clip". */
+  overflow?: TextOverflow;
+  /**
+   * Maximum number of lines. Absent = unbounded (the block grows and the flexbox
+   * gives it the room). Extra lines are dropped and, with `overflow: "ellipsis"`,
+   * the last kept line ends in `…`.
+   */
+  maxLines?: number;
 }
 
 /**
@@ -158,7 +196,9 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * Animatable: `background`, `borderColor`, `color` (componentwise lerp in straight
  * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
  * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
- * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
+ * atlas key), the text-layout properties (`wrap`, `textAlign`, `textAlignY`,
+ * `lineHeight`, `overflow`, `maxLines` — a re-wrap has no intermediate value),
+ * `grow`, the layout enums, and every structural prop (`visible`, `clip`,
  * `text`, `open`, `src`, `fit`, `axis`, `scrollbar`, the Slider's `value`/`min`/
  * `max`/`step` — a control's value is state the player is dragging, not a visual
  * magnitude to catch up with — and the Overlay's `modal`/`z`/`autoCloseMs`, the
@@ -247,6 +287,48 @@ export interface ContainerNode extends NodeBase {
   children?: ZNode[];
 }
 
+/**
+ * A run of text. A LEAF with an intrinsic size: it takes no children, and the
+ * layout pass sizes it from the font metrics.
+ *
+ * **Multiline (decision 2026-08-11, ZAB-17).** Text wraps by default to the width
+ * the flexbox offers it, and every text knob is `style` (`wrap`, `textAlign`,
+ * `textAlignY`, `lineHeight`, `overflow`, `maxLines`). Because break points must be
+ * IDENTICAL on every target, the algorithm is normative — an SDK implements exactly
+ * this, not "whatever the platform's text engine does":
+ *
+ * 1. **Available width.** The view offers its own width to the root; each node passes
+ *    down what it received minus its `padding` on both sides, and an explicit
+ *    `layout.width` REPLACES the offer for that subtree. Row and column behave the
+ *    same (a child is offered the parent's full content width, never a share of it —
+ *    v1 measures no cross-child competition). A `ScrollView` offers nothing on a
+ *    scrollable axis: its children measure unconstrained there, so a horizontal
+ *    scroller never wraps. No offer (or one <= 0) means no wrapping.
+ * 2. **Hard breaks.** `\r\n` and `\r` normalize to `\n`, which always breaks. An empty
+ *    paragraph still produces a line, so a blank line takes vertical space.
+ * 3. **Word wrap** (greedy, first fit). Break opportunities are runs of SPACE (U+0020)
+ *    and TAB (U+0009) — no other character breaks, so a non-breaking space holds. A
+ *    word is appended to the current line while the total fits; otherwise the line
+ *    ends and the word starts the next one, and the spaces at the break are dropped
+ *    (they never count toward a line's width, though spaces that start a line do —
+ *    indentation is preserved). Every width includes the font's KERNING between
+ *    consecutive glyphs, and a break ends the chain: the pair straddling it never
+ *    applies, which is what keeps a measured line exactly as wide as the painted one.
+ * 4. **Long words.** A word that does not fit on a line of its own is broken between
+ *    glyphs, at the last one that fits, with a minimum of one glyph per line.
+ * 5. **Truncation.** Lines past `maxLines` are dropped; then `overflow` cuts what is
+ *    still too wide — `wrap: false` only, since a wrapped line already fits and the
+ *    minimum-one-glyph rule wins over the cut — and, if `"ellipsis"`, marks the last
+ *    line with `…`, dropping glyphs and trailing spaces until the mark fits.
+ * 6. **Placement.** Block height = lines × `lineHeight`. Line `i` sits at
+ *    `top + i · lineHeight`, and its baseline at
+ *    `+ (lineHeight − fontLineHeight) / 2 + ascent` (half-leading). `textAlign`
+ *    aligns each line inside the content box by its own width; `textAlignY` aligns
+ *    the block as a whole.
+ *
+ * The text properties SNAP like `fontSize` — none of them is animatable by a
+ * `transition` (a re-wrap has no meaningful intermediate value).
+ */
 export interface TextNode extends NodeBase {
   type: "Text";
   text: Bindable<string>;

@@ -117,28 +117,24 @@ export class GlyphAtlas {
   }
 
   /**
+   * Horizontal advance of one character in logical px. With `kern` and the two
+   * font-wide metrics it makes an atlas a `TextMetrics`: an atlas IS the font as
+   * far as `text.ts` is concerned, which is what measures and wraps a run since
+   * ZAB-17 (the old single-line `measure` lived here).
+   */
+  advance(char: string): number {
+    return this.get(char)?.advance ?? 0;
+  }
+
+  /**
    * Kerning adjustment between two characters, in logical px. Read from the
    * font's own tables, so it must be applied by everyone who walks a run — both
-   * `measure` here and the tessellator's paint loop, or the two would disagree.
-   * Zero on the Canvas2D fallback, which exposes no kerning at all.
+   * the wrapping in `text.ts` and the tessellator's paint loop, or the two would
+   * disagree. Zero on the Canvas2D fallback, which exposes no kerning at all.
    */
   kern(previous: string, char: string): number {
     if (!this.font) return 0;
     return this.font.kern(previous, char, this.devicePointSize) / this.scale;
-  }
-
-  /** Single-line measure in logical px — what the layout pass calls for Text. */
-  measure(text: string): { x: number; y: number } {
-    let width = 0;
-    let previous = "";
-    for (const char of text) {
-      const glyph = this.get(char);
-      if (!glyph) continue;
-      if (previous !== "") width += this.kern(previous, char);
-      width += glyph.advance;
-      previous = char;
-    }
-    return { x: width, y: this.lineHeight };
   }
 
   /** Our rasterizer: stb hands us 8-bit coverage, we own where it lands. */

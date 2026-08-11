@@ -1,12 +1,20 @@
-import type { SliderNode, ZNode } from "@zabloo/format";
+import type { Layout, SliderNode, ZNode } from "@zabloo/format";
 import { describe, expect, it } from "vitest";
-import { arrange, type LayoutNode, measure, type Rect } from "./layout.js";
+import { arrange, type LayoutNode, type MeasureLeaf, measure, type Rect } from "./layout.js";
+import type { ResolvedValues } from "./transition.js";
 import { createNodeAnim } from "./transition.js";
 
-/** A tree node in the state `build` leaves it in, before measure/arrange. */
-function node(ir: ZNode, children: LayoutNode[] = [], value = 0): LayoutNode {
+/**
+ * A tree in the state the resolve pass leaves it in: tokens already collapsed into
+ * `resolved`, which is where measure reads its width and padding from.
+ */
+function node(
+  ir: Partial<ZNode> & { type: string },
+  resolved: ResolvedValues = {},
+  children: LayoutNode[] = [],
+): LayoutNode {
   const built: LayoutNode = {
-    ir,
+    ir: ir as ZNode,
     parent: null,
     children,
     measured: { x: 0, y: 0 },
@@ -17,41 +25,154 @@ function node(ir: ZNode, children: LayoutNode[] = [], value = 0): LayoutNode {
     selected: false,
     selectedIndex: 0,
     checked: false,
-    sliderValue: value,
+    sliderValue: 0,
     groupValue: undefined,
     visibleFlag: true,
     sectionShown: true,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
-    // The view's resolve pass writes these; here they are the declared numbers.
-    resolved: {
-      width: ir.layout?.width as number | undefined,
-      height: ir.layout?.height as number | undefined,
-      padding: (ir.layout?.padding as number | undefined) ?? 0,
-      gap: 0,
-    },
+    resolved,
+    textBlock: null,
     anim: createNodeAnim(),
   };
   for (const child of children) child.parent = built;
   return built;
 }
 
-const noLeaf = () => ({ x: 0, y: 0 });
+const leaf = (resolved: ResolvedValues = {}) => node({ type: "Text", text: "" }, resolved);
+
+/** Records the width offered to every leaf — the input a Text wraps to. */
+function recorder(size = { x: 0, y: 0 }): {
+  offers: Array<number | null>;
+  measureLeaf: MeasureLeaf;
+} {
+  const offers: Array<number | null> = [];
+  return {
+    offers,
+    measureLeaf: (_node, availableWidth) => {
+      offers.push(availableWidth);
+      return size;
+    },
+  };
+}
+
+describe("measure — the available width offered to a leaf", () => {
+  it("offers the view width to a root leaf", () => {
+    const { offers, measureLeaf } = recorder();
+    measure(leaf(), measureLeaf, 300);
+    expect(offers).toEqual([300]);
+  });
+
+  it("offers nothing when nothing is offered — unconstrained means no wrapping", () => {
+    const { offers, measureLeaf } = recorder();
+    measure(leaf(), measureLeaf, null);
+    expect(offers).toEqual([null]);
+  });
+
+  it("subtracts the padding of every node it crosses, its own included", () => {
+    const text = leaf({ padding: 4 });
+    const root = node({ type: "Container" }, { padding: 10 }, [text]);
+    const { offers, measureLeaf } = recorder();
+    measure(root, measureLeaf, 300);
+    expect(offers).toEqual([300 - 20 - 8]);
+  });
+
+  it("replaces the offer with an explicit width, on the node itself or on an ancestor", () => {
+    const { offers, measureLeaf } = recorder();
+    measure(leaf({ width: 120 }), measureLeaf, 300);
+    expect(offers).toEqual([120]);
+
+    const inner = leaf();
+    const root = node({ type: "Container" }, { width: 200, padding: 10 }, [inner]);
+    const second = recorder();
+    measure(root, second.measureLeaf, 1000);
+    expect(second.offers).toEqual([180]);
+  });
+
+  it("never offers a negative width", () => {
+    const text = leaf();
+    const root = node({ type: "Container" }, { padding: 40 }, [text]);
+    const { offers, measureLeaf } = recorder();
+    measure(root, measureLeaf, 50);
+    expect(offers).toEqual([0]);
+  });
+
+  it("offers the full content width to every child, in a row as in a column", () => {
+    const children = [leaf(), leaf(), leaf()];
+    const row = node({ type: "Container", layout: { direction: "row" } }, {}, children);
+    const { offers, measureLeaf } = recorder();
+    measure(row, measureLeaf, 300);
+    // v1 measures no cross-child competition: each child is offered the whole width.
+    expect(offers).toEqual([300, 300, 300]);
+  });
+
+  it("skips the children that are out of layout", () => {
+    const hidden = leaf();
+    hidden.visibleFlag = false;
+    const root = node({ type: "Container" }, {}, [hidden, leaf()]);
+    const { offers, measureLeaf } = recorder();
+    measure(root, measureLeaf, 300);
+    expect(offers).toEqual([300]);
+  });
+
+  it("offers nothing on a ScrollView's scrollable axis", () => {
+    for (const [axis, expected] of [
+      ["vertical", 300],
+      ["horizontal", null],
+      ["both", null],
+      [undefined, 300], // default: vertical
+    ] as const) {
+      const { offers, measureLeaf } = recorder();
+      measure(node({ type: "ScrollView", axis }, {}, [leaf()]), measureLeaf, 300);
+      expect(offers, `axis: ${axis}`).toEqual([expected]);
+    }
+  });
+});
+
+describe("measure — sizes", () => {
+  it("grows a leaf by its own padding", () => {
+    const { measureLeaf } = recorder({ x: 30, y: 20 });
+    const size = measure(leaf({ padding: 5 }), measureLeaf, null);
+    expect(size).toEqual({ x: 40, y: 30 });
+  });
+
+  it("stacks a column's children and keeps the widest", () => {
+    const { measureLeaf } = recorder({ x: 30, y: 20 });
+    const root = node({ type: "Container" }, { gap: 4 }, [leaf(), leaf()]);
+    expect(measure(root, measureLeaf, null)).toEqual({ x: 30, y: 44 });
+  });
+
+  it("lets an explicit size win over what the content measured", () => {
+    const { measureLeaf } = recorder({ x: 30, y: 20 });
+    expect(measure(leaf({ width: 100, height: 8 }), measureLeaf, null)).toEqual({ x: 100, y: 8 });
+  });
+});
+
+// --- Slider (ZAB-24): the slots are placed by the value, not by the flex pass ---
+
+const noLeaf: MeasureLeaf = () => ({ x: 0, y: 0 });
+
+/** What the resolve pass leaves behind for a slot whose layout is plain numbers. */
+const resolvedOf = (layout: Layout): ResolvedValues => ({
+  width: layout.width as number | undefined,
+  height: layout.height as number | undefined,
+  padding: (layout.padding as number | undefined) ?? 0,
+});
 
 /** The shape `<Slider>` emits: a 200×6 rail with a 6px fill and an 18px thumb. */
 function slider(props: Omit<SliderNode, "type" | "children"> = {}, value = 0, length = 200) {
   const horizontal = props.axis !== "vertical";
-  const rail = horizontal ? { width: length, height: 6 } : { width: 6, height: length };
-  const fill = horizontal ? { height: 6 } : { width: 6 };
-  const built = node(
-    { type: "Slider", ...props, layout: { ...rail, ...props.layout } },
-    [
-      node({ type: "Container", layout: fill }),
-      node({ type: "Container", layout: { width: 18, height: 18 } }),
-    ],
-    value,
-  );
-  measure(built, noLeaf);
+  const rail: Layout = horizontal
+    ? { width: length, height: 6, ...props.layout }
+    : { width: 6, height: length, ...props.layout };
+  const fill: Layout = horizontal ? { height: 6 } : { width: 6 };
+  const thumb: Layout = { width: 18, height: 18 };
+  const built = node({ type: "Slider", ...props, layout: rail }, resolvedOf(rail), [
+    node({ type: "Container", layout: fill }, resolvedOf(fill)),
+    node({ type: "Container", layout: thumb }, resolvedOf(thumb)),
+  ]);
+  built.sliderValue = value;
+  measure(built, noLeaf, null);
   return built;
 }
 
@@ -62,14 +183,12 @@ const laidOut = (target: LayoutNode, at: Rect = { x: 0, y: 0, width: 200, height
 
 describe("measure: Slider", () => {
   it("sizes itself from its own layout, never from its slots", () => {
-    const built = slider();
     // A 18px thumb must not turn a 6px rail into an 18px one, nor add length.
-    expect(built.measured).toEqual({ x: 200, y: 6 });
+    expect(slider().measured).toEqual({ x: 200, y: 6 });
   });
 
   it("still measures the slots, so the thumb has a size to travel with", () => {
-    const built = slider();
-    expect(built.children[1].measured).toEqual({ x: 18, y: 18 });
+    expect(slider().children[1].measured).toEqual({ x: 18, y: 18 });
   });
 });
 
@@ -121,7 +240,6 @@ describe("arrange: Slider", () => {
 
   it("insets the rail with its own padding", () => {
     const built = slider({ layout: { padding: 10 } }, 1);
-    measure(built, noLeaf);
     const { fill } = laidOut(built, { x: 0, y: 0, width: 200, height: 26 });
     expect(fill.x).toBe(10);
     expect(fill.width).toBe(180);

@@ -12,6 +12,7 @@
 import type { Layout, ScrollAxis, SliderAxis, ZNode } from "@zabloo/format";
 import { clamp, resolveScrollMax } from "./scroll.js";
 import { fractionOf, growsUpward, resolveRange, sliderGeometry } from "./slider.js";
+import type { TextBlock } from "./text.js";
 import type { NodeAnim, ResolvedValues } from "./transition.js";
 
 export interface Rect {
@@ -60,6 +61,12 @@ export interface LayoutNode {
    * inputs both this pass and paint read. Rewritten by the view's resolve pass.
    */
   resolved: ResolvedValues;
+  /**
+   * `Text` only: the lines this frame's measure pass broke the content into, kept
+   * so paint does not wrap a second time (text is measured once per frame, with the
+   * width the flexbox offered). Null on every other node type.
+   */
+  textBlock: TextBlock | null;
   /** Tweens in flight for this node. Rebuilding the tree drops them, so a reload snaps. */
   anim: NodeAnim;
 }
@@ -89,15 +96,50 @@ export function contains(rect: Rect, point: { x: number; y: number }): boolean {
   );
 }
 
-export type MeasureLeaf = (ir: ZNode) => { x: number; y: number };
+/**
+ * Sizes a childless node against the width it may use — `null` when that width is
+ * unconstrained, which is what tells a `Text` not to wrap.
+ */
+export type MeasureLeaf = (
+  node: LayoutNode,
+  availableWidth: number | null,
+) => {
+  x: number;
+  y: number;
+};
 
 function layoutOf(node: LayoutNode): Layout | undefined {
   return node.ir.layout;
 }
 
-/** Bottom-up measure. `measureLeaf` sizes childless nodes (Text). */
-export function measure(node: LayoutNode, measureLeaf: MeasureLeaf): { x: number; y: number } {
+/**
+ * The width a node's children may use. A `ScrollView` offers nothing on a scrollable
+ * axis: its children are measured unconstrained there (that is what makes the content
+ * overflow the viewport and scroll), so a horizontal scroller never wraps its text.
+ */
+function childWidth(node: LayoutNode, inner: number | null): number | null {
+  if (node.ir.type !== "ScrollView") return inner;
+  const axis = (node.ir as { axis?: ScrollAxis }).axis ?? "vertical";
+  return axis === "vertical" ? inner : null;
+}
+
+/**
+ * Bottom-up measure. `measureLeaf` sizes childless nodes (Text, Image).
+ *
+ * `availableWidth` is the width the parent offers (the view's own width at the root,
+ * `null` for unconstrained): a node's `layout.width`, when declared, REPLACES the
+ * offer, and what is left after its padding flows down to every child — in a row as
+ * much as in a column, since v1 measures no cross-child competition for it. Only the
+ * leaves use it: it is the width a `Text` wraps to (decision 2026-08-11, ZAB-17).
+ */
+export function measure(
+  node: LayoutNode,
+  measureLeaf: MeasureLeaf,
+  availableWidth: number | null = null,
+): { x: number; y: number } {
   const padding = node.resolved.padding ?? 0;
+  const own = node.resolved.width ?? availableWidth;
+  const inner = own === null ? null : Math.max(0, own - padding * 2);
   let size: { x: number; y: number };
 
   if (node.ir.type === "Slider") {
@@ -105,20 +147,21 @@ export function measure(node: LayoutNode, measureLeaf: MeasureLeaf): { x: number
     // layout props, never the sum of its slots (a 18px thumb must not define a
     // 220px track). The slots are still measured — the thumb's own size is what
     // the value-driven arrange positions — they just do not add up.
-    for (const child of node.children) measure(child, measureLeaf);
+    for (const child of node.children) measure(child, measureLeaf, inner);
     size = { x: padding * 2, y: padding * 2 };
   } else if (node.children.length === 0) {
-    const leaf = measureLeaf(node.ir);
+    const leaf = measureLeaf(node, inner);
     size = { x: leaf.x + padding * 2, y: leaf.y + padding * 2 };
   } else {
     const row = layoutOf(node)?.direction === "row";
     const gap = node.resolved.gap ?? 0;
+    const offer = childWidth(node, inner);
     let main = 0;
     let cross = 0;
     let active = 0;
     for (const child of node.children) {
       if (!inFlow(child)) continue; // display:none, or lifted to the overlay layer
-      const cs = measure(child, measureLeaf);
+      const cs = measure(child, measureLeaf, offer);
       main += row ? cs.x : cs.y;
       cross = Math.max(cross, row ? cs.y : cs.x);
       active++;

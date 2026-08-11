@@ -37,6 +37,7 @@ function node(ir: ZNode, rect: Rect, children: LayoutNode[] = []): LayoutNode {
     scrollMax: { x: 0, y: 0 },
     // The layer rules read no animatable value: an un-resolved node is enough.
     resolved: {},
+    textBlock: null,
     anim: createNodeAnim(),
   };
   for (const child of children) child.parent = built;
