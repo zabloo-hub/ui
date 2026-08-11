@@ -1,6 +1,6 @@
 import type { OverlayNode, ZNode } from "@zabloo/format";
 import { describe, expect, it } from "vitest";
-import type { LayoutNode, Rect } from "./layout.js";
+import { inLayout, type LayoutNode, type Rect } from "./layout.js";
 import {
   autofocusIn,
   collectLayer,
@@ -8,9 +8,10 @@ import {
   isWithin,
   overlaySpec,
   resolveHit,
+  stepPresence,
   topModal,
 } from "./overlay.js";
-import { createNodeAnim } from "./transition.js";
+import { createNodeAnim, type ResolvedTransition } from "./transition.js";
 
 /** The view rect every overlay is arranged against. */
 const VIEW: Rect = { x: 0, y: 0, width: 100, height: 100 };
@@ -128,6 +129,64 @@ describe("collectLayer", () => {
     const panel = box([overlay({ id: "in-collapsed-content" })]);
     panel.sectionShown = false;
     expect(collectLayer(box([panel]))).toEqual([]);
+  });
+});
+
+describe("stepPresence", () => {
+  // Linear so every assertion below is the fraction of the duration, nothing else.
+  const fade: ResolvedTransition = { duration: 100, easing: "linear" };
+
+  it("snaps on the first step: a modal already open when the view loads does not fade in", () => {
+    const anim = createNodeAnim();
+    expect(stepPresence(anim, true, fade, 0)).toEqual({ value: 1, animating: false });
+  });
+
+  it("fades in when it enters the layer", () => {
+    const anim = createNodeAnim();
+    expect(stepPresence(anim, false, fade, 0).value).toBe(0); // closed: the value to leave from
+    expect(stepPresence(anim, true, fade, 0)).toEqual({ value: 0, animating: true });
+    expect(stepPresence(anim, true, fade, 50).value).toBeCloseTo(0.5);
+    expect(stepPresence(anim, true, fade, 100)).toEqual({ value: 1, animating: false });
+  });
+
+  it("keeps painting a closed overlay for one transition — the exit outlives its visible", () => {
+    const anim = createNodeAnim();
+    stepPresence(anim, true, fade, 0);
+    expect(stepPresence(anim, false, fade, 0)).toEqual({ value: 1, animating: true });
+    expect(stepPresence(anim, false, fade, 25).value).toBeCloseTo(0.75);
+    expect(stepPresence(anim, false, fade, 100)).toEqual({ value: 0, animating: false });
+  });
+
+  it("is instant without a transition — exactly the pre-F7 frame", () => {
+    const anim = createNodeAnim();
+    stepPresence(anim, false, null, 0);
+    expect(stepPresence(anim, true, null, 0)).toEqual({ value: 1, animating: false });
+    expect(stepPresence(anim, false, null, 1)).toEqual({ value: 0, animating: false });
+  });
+
+  it("reopening mid-exit leaves from the opacity on screen, over a full duration", () => {
+    const anim = createNodeAnim();
+    stepPresence(anim, true, fade, 0);
+    stepPresence(anim, false, fade, 0);
+    expect(stepPresence(anim, false, fade, 50).value).toBeCloseTo(0.5);
+    // Retargeted from 0.5, not from 0: half the way back after half a duration.
+    expect(stepPresence(anim, true, fade, 50).value).toBeCloseTo(0.5);
+    expect(stepPresence(anim, true, fade, 100).value).toBeCloseTo(0.75);
+    expect(stepPresence(anim, true, fade, 150)).toEqual({ value: 1, animating: false });
+  });
+});
+
+describe("the painted layer during an exit", () => {
+  it("keeps a closed overlay in its own place while it fades, and only for that", () => {
+    const closing = hidden(overlay({ id: "confirm" }));
+    const toast = overlay({ id: "toast", modal: false, z: 10 });
+    const root = box([closing, toast]);
+    // The live layer — input, focus and the auto-close timers all read this one —
+    // dropped it the moment `visible` went false.
+    expect(idsOf(collectLayer(root))).toEqual(["toast"]);
+    // The painted one keeps it, still under the toast that was above it.
+    const painted = collectLayer(root, (n) => inLayout(n) || n === closing);
+    expect(idsOf(painted)).toEqual(["confirm", "toast"]);
   });
 });
 

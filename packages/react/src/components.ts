@@ -14,6 +14,7 @@ import type {
   Easing,
   GroupBehavior,
   ImageFit,
+  Layout,
   ScrollAxis,
   SliderAxis,
   Style,
@@ -65,6 +66,60 @@ export interface ScrollViewProps extends CommonProps {
   /** Overlay position indicator painted by the SDK. Default: true. */
   scrollbar?: boolean;
   children?: ReactNode;
+}
+
+export interface OverlayProps extends CommonProps {
+  /**
+   * Blocks input to everything below (lower overlays included) and confines focus
+   * navigation to this subtree. Default: true. `false` — a toast, a tooltip —
+   * paints above but leaves the layer's own rect inert: only its children take
+   * events and everything else passes through to the tree.
+   */
+  modal?: boolean;
+  /** Explicit stacking inside the layer; ties break by document order. Default: 0. */
+  z?: number;
+  /** Named action fired on a dismiss request (Escape / gamepad B / backdrop tap). */
+  onDismiss?: string;
+  /** Self-dismiss delay in ms, counted from the moment it enters the layer. */
+  autoCloseMs?: number;
+  children?: ReactNode;
+}
+
+/** Where an overlay's content sits on the layer — sugar over `justify`/`align`. */
+export type OverlayPosition =
+  | "center"
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
+/** Props shared by the three overlay composites — a modal is always modal, hence the Omit. */
+interface OverlaySugarProps extends Omit<OverlayProps, "modal"> {
+  /** Placement of the content on the layer. */
+  position?: OverlayPosition;
+}
+
+export interface ModalProps extends OverlaySugarProps {
+  /** The panel that holds the content. Its `style` is the card; `style` is the backdrop. */
+  panel?: Omit<ContainerProps, "children">;
+}
+
+export interface ToastProps extends OverlaySugarProps {
+  /** The pill that holds the message. */
+  panel?: Omit<ContainerProps, "children">;
+  /** Style of the auto-wrapped message, when `children` is a bare string. */
+  label?: Style;
+}
+
+export interface TooltipProps extends OverlaySugarProps {
+  /** The bubble that holds the hint. */
+  panel?: Omit<ContainerProps, "children">;
+  /** Style of the auto-wrapped hint, when `children` is a bare string. */
+  label?: Style;
 }
 
 export interface ImageProps extends CommonProps {
@@ -223,6 +278,25 @@ export const Text: FC<TextProps> = primitive<TextProps>("Text");
 export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
 export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
 export const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("ScrollView");
+
+/**
+ * A layer above the whole view, declared where the UI that opens it lives but
+ * painted apart (decision 2026-08-11): it leaves its parent's flow, so it neither
+ * takes space nor pushes its siblings, and the SDK collects every visible overlay
+ * of the view into ONE layer ordered by `(z, document order)`.
+ *
+ * Its rect IS the view's, so `layout.width`/`height` are ignored (size the child
+ * instead) and `layout.justify`/`align`/`padding` place the content; its own
+ * `style.background` — with alpha — IS the backdrop, and no background at all
+ * makes a transparent layer. Opening and closing is `visible` and nothing else:
+ * bind it (`visible={{ bind: "ui.confirmOpen" }}`) and the game moves that boolean
+ * with `SetData`, while Escape, a backdrop tap and `autoCloseMs` write `false`
+ * back through the same binding and fire `onDismiss`.
+ *
+ * Unlike `<Toggle>` and `<Slider>` it has no positional slots, so it is exported
+ * raw; `<Modal>`, `<Toast>` and `<Tooltip>` below are the ready-made shapes.
+ */
+export const Overlay: FC<OverlayProps> = primitive<OverlayProps>("Overlay");
 
 /**
  * A textured rectangle, sized by default to the source's own pixels (it is a leaf
@@ -681,6 +755,172 @@ export function Badge({
       style: { radius: 999, ...BADGE, ...style },
     },
     children ?? text,
+  );
+}
+
+const BACKDROP: Style = { background: "#00000099" };
+const PANEL: Style = { background: "#181b26", radius: 12, borderWidth: 1, borderColor: "#2f3446" };
+const TOAST: Style = { background: "#2f3446", radius: 8 };
+const TOOLTIP: Style = { background: "#101218", radius: 6, borderWidth: 1, borderColor: "#2f3446" };
+const MESSAGE: Style = { color: "#e8ecf5", fontSize: 14 };
+const HINT: Style = { color: "#c8cede", fontSize: 12 };
+/** Keeps the content off the screen edges — the layer spans the whole view. */
+const LAYER_INSET = 24;
+/** Stacking bands by convention (the IR imposes no taxonomy): the last one opened wins. */
+const TOAST_Z = 10;
+const TOOLTIP_Z = 20;
+
+/**
+ * The nine placements, as the flex the layer already has. The layer is emitted as
+ * a row so `justify` is always the horizontal axis and `align` the vertical one,
+ * whatever the content is — the author never has to think about main vs cross.
+ */
+const PLACEMENT: Record<OverlayPosition, { justify: Layout["justify"]; align: Layout["align"] }> = {
+  center: { justify: "center", align: "center" },
+  top: { justify: "center", align: "start" },
+  bottom: { justify: "center", align: "end" },
+  left: { justify: "start", align: "center" },
+  right: { justify: "end", align: "center" },
+  "top-left": { justify: "start", align: "start" },
+  "top-right": { justify: "end", align: "start" },
+  "bottom-left": { justify: "start", align: "end" },
+  "bottom-right": { justify: "end", align: "end" },
+};
+
+/** The layer's layout for a placement, with the author's `layout` overriding it. */
+function layerLayout(position: OverlayPosition, layout: Layout | undefined): Layout {
+  return { direction: "row", ...PLACEMENT[position], padding: LAYER_INSET, ...layout };
+}
+
+/** A bare string/number message becomes a `<Text>`; a node is used as it is. */
+function message(children: ReactNode, style: Style): ReactNode {
+  return typeof children === "string" || typeof children === "number"
+    ? createElement(Text, { style }, children)
+    : children;
+}
+
+/**
+ * A modal dialog: a full-view layer that dims what it covers, captures input and
+ * traps focus, with the content in a centered panel.
+ *
+ * The component IS the backdrop — `style` paints it (dim by default), which is why
+ * there is no `backdrop` prop — and `panel` styles the card inside it. Give a child
+ * `autofocus` and it takes the focus when the modal opens; the SDK gives it back
+ * when it closes.
+ *
+ * ```tsx
+ * <Modal visible={{ bind: "ui.confirmQuit" }} onDismiss="quit-cancelled" transition={{ duration: 150 }}>
+ *   <Text>¿Salir de la partida?</Text>
+ *   <Row layout={{ gap: 8 }}>
+ *     <Button onClick="quit-confirm" autofocus><Text>Salir</Text></Button>
+ *     <Button onClick="quit-cancelled"><Text>Cancelar</Text></Button>
+ *   </Row>
+ * </Modal>
+ * ```
+ */
+export function Modal({
+  position = "center",
+  panel,
+  layout,
+  style,
+  children,
+  ...rest
+}: ModalProps): ReturnType<FC> {
+  return createElement(
+    Overlay,
+    {
+      ...rest,
+      modal: true,
+      layout: layerLayout(position, layout),
+      style: { ...BACKDROP, ...style },
+    },
+    createElement(
+      Container,
+      {
+        ...panel,
+        layout: { padding: 20, gap: 12, ...panel?.layout },
+        style: { ...PANEL, ...panel?.style },
+      },
+      children,
+    ),
+  );
+}
+
+/**
+ * A transient message that floats over the UI without stealing it: non-modal, so
+ * the layer is inert to input and the player keeps using what is underneath, and
+ * self-closing after `autoCloseMs` (the SDK clears the bound `visible` and fires
+ * `onDismiss`, exactly like Escape does on a modal).
+ *
+ * A bare string is wrapped in a `<Text>`; pass nodes for an icon plus a label. Its
+ * `z` puts it above modals by convention, so a confirmation still shows while a
+ * dialog is up.
+ *
+ * ```tsx
+ * <Toast visible={{ bind: "ui.saved" }} onDismiss="toast-closed" transition={{ duration: 200 }}>
+ *   Partida guardada
+ * </Toast>
+ * ```
+ */
+export function Toast({
+  position = "bottom",
+  panel,
+  label,
+  autoCloseMs = 3000,
+  z = TOAST_Z,
+  layout,
+  children,
+  ...rest
+}: ToastProps): ReturnType<FC> {
+  return createElement(
+    Overlay,
+    { ...rest, modal: false, z, autoCloseMs, layout: layerLayout(position, layout) },
+    createElement(
+      Container,
+      {
+        ...panel,
+        layout: { direction: "row", align: "center", gap: 8, padding: 12, ...panel?.layout },
+        style: { ...TOAST, ...panel?.style },
+      },
+      message(children, { ...MESSAGE, ...label }),
+    ),
+  );
+}
+
+/**
+ * A hint bubble over the UI: the same non-modal layer as a `<Toast>`, smaller and
+ * without a timer.
+ *
+ * v1 has no anchoring to another node's rect and no hover/focus trigger — both are
+ * capabilities the IR does not have yet — so a tooltip is placed on the layer like
+ * any other overlay and shown by its `visible` binding, which the game moves with
+ * `SetData` when it decides the hint applies.
+ *
+ * ```tsx
+ * <Tooltip visible={{ bind: "ui.hint" }} position="top">Pulsa A para saltar</Tooltip>
+ * ```
+ */
+export function Tooltip({
+  position = "top",
+  panel,
+  label,
+  z = TOOLTIP_Z,
+  layout,
+  children,
+  ...rest
+}: TooltipProps): ReturnType<FC> {
+  return createElement(
+    Overlay,
+    { ...rest, modal: false, z, layout: layerLayout(position, layout) },
+    createElement(
+      Container,
+      {
+        ...panel,
+        layout: { direction: "row", align: "center", gap: 6, padding: 8, ...panel?.layout },
+        style: { ...TOOLTIP, ...panel?.style },
+      },
+      message(children, { ...HINT, ...label }),
+    ),
   );
 }
 

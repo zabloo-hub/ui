@@ -52,6 +52,7 @@ import {
   overlaySpec,
   type Point,
   resolveHit,
+  stepPresence,
   topModal,
 } from "./overlay.js";
 import { clamp, scrollbarThumb } from "./scroll.js";
@@ -72,6 +73,7 @@ import {
   clearNodeAnim,
   createNodeAnim,
   loopPhase,
+  type NodeAnim,
   type ResolvedTransition,
   type ResolvedValues,
   stepNode,
@@ -212,6 +214,16 @@ class WebView {
     [];
   /** Live `autoCloseMs` timers, keyed by the overlay they will dismiss. */
   private readonly autoCloseTimers = new Map<LayoutNode, ReturnType<typeof setTimeout>>();
+  /**
+   * The enter/exit fade of each Overlay, kept OUT of the node's own `NodeAnim`:
+   * the resolve pass drops that one when a node leaves layout, and an exit whose
+   * starting point is erased by the exit itself would never animate.
+   */
+  private readonly overlayAnim = new Map<LayoutNode, NodeAnim>();
+  /** This frame's presence per overlay (absent = 0, nothing to paint). */
+  private readonly presence = new Map<LayoutNode, number>();
+  /** Overlays already out of the live layer but still fading — pixels, never input. */
+  private readonly exiting = new Set<LayoutNode>();
   private byId = new Map<string, LayoutNode>();
   private visibleBindings = new Map<string, LayoutNode[]>();
   /** Bound `checked` (Toggle) and bound group `value` (exclusive-check), by data path. */
@@ -344,6 +356,10 @@ class WebView {
     this.layer = [];
     this.modalStack.length = 0;
     this.clearAutoClose();
+    // Presence dies with the document, like every other tween: a reload snaps.
+    this.overlayAnim.clear();
+    this.presence.clear();
+    this.exiting.clear();
     this.root = this.buildNode(rootIr, null);
     // Initial focus (`autofocus`) is settled by the first render, together with
     // the overlay layer — a modal that starts open owns the focus from frame one.
@@ -929,6 +945,43 @@ class WebView {
     this.render();
   }
 
+  /**
+   * The layer's enter/exit fade: one presence tween per Overlay of the view,
+   * whether it is up or not — a hidden one has to sit at 0 so that opening it is a
+   * change to animate from, instead of the snap a first observation would give.
+   *
+   * The tween runs on the overlay's OWN `transition`, so this adds no IR surface:
+   * without one, presence jumps and the frame looks exactly like it did before F7.
+   */
+  private syncPresence(now: number): void {
+    this.presence.clear();
+    this.exiting.clear();
+    this.eachOverlay(this.root, (overlay) => {
+      let anim = this.overlayAnim.get(overlay);
+      if (!anim) {
+        anim = createNodeAnim();
+        this.overlayAnim.set(overlay, anim);
+      }
+      const live = this.layer.includes(overlay);
+      const stepped = stepPresence(anim, live, this.transitionOf(overlay), now);
+      if (stepped.animating) this.animating = true;
+      // Recorded even at 0 — the frame an overlay opens on starts there, and a
+      // missing entry would paint it fully opaque for exactly that frame, which
+      // reads as a flash right before the fade in.
+      this.presence.set(overlay, stepped.value);
+      // Out of the live layer but still visible: it paints, and nothing else. It
+      // takes no input, traps no focus and re-arms no timer, because every one of
+      // those reads `this.layer`, which it already left.
+      if (!live && stepped.value > 0) this.exiting.add(overlay);
+    });
+  }
+
+  /** Every Overlay of the tree, hidden ones included — presence is tracked for all. */
+  private eachOverlay(node: LayoutNode, visit: (overlay: LayoutNode) => void): void {
+    if (node.ir.type === "Overlay") visit(node);
+    for (const child of node.children) this.eachOverlay(child, visit);
+  }
+
   /** Arms `autoCloseMs` while an overlay is in the layer; disarms it when it leaves. */
   private syncAutoClose(): void {
     for (const [overlay, timer] of this.autoCloseTimers) {
@@ -1264,9 +1317,10 @@ class WebView {
    * rects never feed back into their own input (decision 2026-08-11 §4).
    */
   private resolve(node: LayoutNode, now: number): void {
-    if (!inLayout(node)) {
+    if (!inLayout(node) && !this.exiting.has(node)) {
       // Out of layout: nothing to paint, and no honest previous value for the day
       // it comes back — dropping the state makes that return snap, like a mount.
+      // An overlay mid-exit is the exception: it is still on screen this frame.
       this.forgetAnim(node);
       return;
     }
@@ -1430,16 +1484,27 @@ class WebView {
     // The resolve pass walks the whole tree, overlay subtrees included: a node in
     // the layer tweens like any other, it just gets laid out and painted apart.
     this.animating = false;
-    this.resolve(this.root, now());
+    const frameTime = now();
+    // Before resolve: a closing overlay is still painted for one transition, and
+    // that is what keeps the resolve pass from dropping its subtree mid-fade.
+    this.syncPresence(frameTime);
+    this.resolve(this.root, frameTime);
 
     // The view's own width is the offer the constraint chain starts from — that is
     // what a Text with no explicit width wraps to.
     measure(this.root, this.measureLeaf, width);
     arrange(this.root, viewRect);
+    // The painted layer is the live one plus whatever is still fading out, in the
+    // same `(z, document order)` — a closing modal keeps its place under the toast
+    // that was above it.
+    const paintLayer =
+      this.exiting.size === 0
+        ? this.layer
+        : collectLayer(this.root, (node) => inLayout(node) || this.exiting.has(node));
     // Every layer entry is arranged against the view rect — that is why
     // `layout.width`/`height` on an Overlay are ignored — and its own layout
     // props place the content inside it.
-    for (const overlay of this.layer) {
+    for (const overlay of paintLayer) {
       measure(overlay, this.measureLeaf, width);
       arrange(overlay, viewRect);
     }
@@ -1447,8 +1512,11 @@ class WebView {
     const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);
     this.paint(this.root, geometry);
     // Then the layer, in `(z, document order)` — each entry is a paint root, so
-    // it does not inherit the opacity of wherever it was declared.
-    for (const overlay of this.layer) this.paint(overlay, geometry);
+    // it does not inherit the opacity of wherever it was declared, only its own
+    // presence: the backdrop and the panel fade in and out together.
+    for (const overlay of paintLayer) {
+      this.paint(overlay, geometry, this.presence.get(overlay) ?? 1);
+    }
     this.gl.draw(geometry.batches(), width, height, this.clearColor);
 
     // A tween in flight owns the clock: keep painting until everything settles.
@@ -1469,7 +1537,7 @@ class WebView {
     parentOpacity = 1,
     clip: Clip | null = null,
   ): void {
-    if (!inLayout(node)) return;
+    if (!inLayout(node) && !this.exiting.has(node)) return;
     const values = node.resolved;
 
     // Opacity inherits multiplicatively down the subtree (per-vertex alpha;

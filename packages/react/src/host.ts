@@ -19,6 +19,7 @@ import type {
   ImageFit,
   ImageNode,
   Layout,
+  OverlayNode,
   ProgressBarNode,
   ScrollAxis,
   ScrollViewNode,
@@ -41,6 +42,7 @@ export type HostType =
   | "Button"
   | "Collapse"
   | "ScrollView"
+  | "Overlay"
   | "Toggle"
   | "Slider"
   | "Image"
@@ -105,6 +107,11 @@ export interface HostInstance {
     /** Spinner: cycle length and ramp curve (its wave floor is `min`, above). */
     period?: Dim;
     easing?: Easing;
+    /** Overlay: input capture + focus trap, stacking, dismiss hook and self-close delay. */
+    modal?: boolean;
+    z?: number;
+    onDismiss?: string;
+    autoCloseMs?: number;
   };
   children: HostNode[];
 }
@@ -127,6 +134,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "Button",
   "Collapse",
   "ScrollView",
+  "Overlay",
   "Toggle",
   "Slider",
   "Image",
@@ -142,8 +150,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Toggle, Slider, Image, ProgressBar, Spinner ` +
-        `(Row/Column/Checkbox/Switch/Radio/Badge are sugar from @zabloo/react).`,
+        `Collapse, ScrollView, Overlay, Toggle, Slider, Image, ProgressBar, Spinner ` +
+        `(Row/Column/Checkbox/Switch/Radio/Badge/Modal/Toast/Tooltip are sugar from @zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -306,6 +314,27 @@ export function toIR(instance: HostInstance): ZNode {
         ...(instance.props.min !== undefined && { min: instance.props.min }),
         ...(instance.props.easing !== undefined && { easing: instance.props.easing }),
         children,
+      };
+      return node;
+    }
+    case "Overlay": {
+      const { modal, z, onDismiss, autoCloseMs } = instance.props;
+      // The renderer ignores a non-positive timeout, which would silently turn a
+      // typo into "never closes on its own" — say it here, at authoring time.
+      if (autoCloseMs !== undefined && !(autoCloseMs > 0)) {
+        throw new Error(
+          `<Overlay autoCloseMs={${autoCloseMs}}> must be a positive number of milliseconds ` +
+            "(omit it to keep the overlay up until something closes it).",
+        );
+      }
+      const node: OverlayNode = {
+        type: "Overlay",
+        ...base,
+        ...(modal !== undefined && { modal }),
+        ...(z !== undefined && { z }),
+        ...(onDismiss !== undefined && { onDismiss }),
+        ...(autoCloseMs !== undefined && { autoCloseMs }),
+        ...childrenIR(instance),
       };
       return node;
     }
