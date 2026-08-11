@@ -18,6 +18,7 @@ function node(ir: Partial<ZNode> & { type: string }, rect: Rect, children: Layou
     selected: false,
     selectedIndex: 0,
     checked: false,
+    sliderValue: 0,
     groupValue: undefined,
     visibleFlag: true,
     sectionShown: true,

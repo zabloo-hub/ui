@@ -8,7 +8,14 @@
  * variants never reach the IR.
  */
 
-import type { Bindable, GroupBehavior, ImageFit, ScrollAxis, Style } from "@zabloo/format";
+import type {
+  Bindable,
+  GroupBehavior,
+  ImageFit,
+  ScrollAxis,
+  SliderAxis,
+  Style,
+} from "@zabloo/format";
 import {
   Children,
   createElement,
@@ -107,6 +114,35 @@ export interface SwitchProps extends ToggleControlProps {
 export interface RadioProps extends Omit<CheckboxProps, "checked"> {
   /** This option's value. Checked while it equals the `<RadioGroup>` value. */
   value: string | number;
+}
+
+export interface SliderProps extends CommonProps {
+  /**
+   * Current value, or a READ/WRITE data-path binding (`{ bind: "settings.volume" }`):
+   * the SDK writes every new value back and notifies the game. Default: `min`.
+   */
+  value?: Bindable<number>;
+  /** Range ends. Default: 0 and 1 — the unit interval a volume or a ratio lives in. */
+  min?: number;
+  max?: number;
+  /** Quantization step from `min`. Absent = continuous (arrows still move by 5%). */
+  step?: number;
+  /** Track orientation. Vertical runs bottom-to-top, like a fader. Default: "horizontal". */
+  axis?: SliderAxis;
+  /** Named action fired on every change — the live hook (a volume preview). */
+  onChange?: string;
+  /** Named action fired when the gesture ends: the value the player settled on. */
+  onCommit?: string;
+  /** Track length along its axis, in px. Default: 200. */
+  length?: number;
+  /** Track thickness across its axis, in px. Default: 6. */
+  thickness?: number;
+  /** Thumb size, in px. Default: 18. */
+  thumbSize?: number;
+  /** The filled part of the track, from the start to the value. */
+  fill?: Style;
+  /** The handle that rides the track. */
+  thumb?: Style;
 }
 
 export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
@@ -296,6 +332,82 @@ export function RadioGroup({ layout, ...rest }: RadioGroupProps): ReturnType<FC>
     group: "exclusive-check",
     layout: { direction: "column", ...layout },
   });
+}
+
+/**
+ * The `Slider` primitive. NOT exported, for the same reason `Toggle` isn't: its
+ * two slots are positional (`children[0]` fill, `children[1]` thumb) and the
+ * sugar below is the one place that convention is written down.
+ */
+interface SliderPrimitiveProps extends CommonProps {
+  value?: Bindable<number>;
+  min?: number;
+  max?: number;
+  step?: number;
+  axis?: SliderAxis;
+  onChange?: string;
+  onCommit?: string;
+  children?: ReactNode;
+}
+const SliderPrimitive: FC<SliderPrimitiveProps> = primitive<SliderPrimitiveProps>("Slider");
+
+const SLIDER_LENGTH = 200;
+const SLIDER_THICKNESS = 6;
+const SLIDER_THUMB = 18;
+const RAIL: Style = { background: "#2f3446" };
+const FILL: Style = { background: "#4f46e5" };
+const THUMB: Style = { background: "#ffffff" };
+
+/**
+ * Slider: a number the player drags. The component itself IS the rail — `style`
+ * paints it — and it emits the two slots the SDK positions from the value: the
+ * fill (start → value) and the thumb, which rides the rail centered on the
+ * value and is normally fatter than it.
+ *
+ * `value` may be a read/write binding, and the two hooks split the two questions
+ * a game asks: `onChange` follows the drag (preview the volume) while `onCommit`
+ * fires once the player lets go (apply the expensive setting).
+ *
+ * ```tsx
+ * <Slider value={{ bind: "settings.volume" }} onChange="volume-preview" onCommit="volume-apply" />
+ * <Slider min={0} max={100} step={10} axis="vertical" length={120} />
+ * ```
+ */
+export function Slider({
+  length = SLIDER_LENGTH,
+  thickness = SLIDER_THICKNESS,
+  thumbSize = SLIDER_THUMB,
+  fill,
+  thumb,
+  axis,
+  layout,
+  style,
+  ...rest
+}: SliderProps): ReturnType<FC> {
+  const horizontal = axis !== "vertical";
+  const across = { [horizontal ? "height" : "width"]: thickness };
+  return createElement(
+    SliderPrimitive,
+    {
+      ...rest,
+      ...(axis !== undefined && { axis }),
+      layout: {
+        [horizontal ? "width" : "height"]: length,
+        ...across,
+        ...layout,
+      },
+      style: { radius: thickness / 2, ...RAIL, ...style },
+    },
+    // The fill takes no size along the axis: the SDK sets that from the value.
+    createElement(Container, {
+      layout: across,
+      style: { radius: thickness / 2, ...FILL, ...fill },
+    }),
+    createElement(Container, {
+      layout: { width: thumbSize, height: thumbSize },
+      style: { radius: thumbSize / 2, ...THUMB, ...thumb },
+    }),
+  );
 }
 
 export interface TabProps extends CommonProps {

@@ -19,6 +19,8 @@ import type {
   Layout,
   ScrollAxis,
   ScrollViewNode,
+  SliderAxis,
+  SliderNode,
   StateName,
   StateOverride,
   Style,
@@ -36,6 +38,7 @@ export type HostType =
   | "Collapse"
   | "ScrollView"
   | "Toggle"
+  | "Slider"
   | "Image";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
@@ -74,8 +77,16 @@ export interface HostInstance {
     scrollbar?: boolean;
     checked?: Bindable<boolean>;
     onChange?: string;
-    /** Toggle: this option's value in a group. Container: the group's selected value. */
+    /**
+     * Toggle: this option's value in a group. Container: the group's selected
+     * value. Slider: the current number (usually a read/write binding).
+     */
     value?: Bindable<string | number>;
+    /** Slider: range, quantization and the settle hook (`axis` is shared with ScrollView). */
+    min?: number;
+    max?: number;
+    step?: number;
+    onCommit?: string;
     /** Image: authoring path relative to `src/assets/` — `zabloo export` rewrites it. */
     src?: string;
     fit?: ImageFit;
@@ -102,6 +113,7 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "Collapse",
   "ScrollView",
   "Toggle",
+  "Slider",
   "Image",
 ]);
 
@@ -113,8 +125,8 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
-        `Collapse, ScrollView, Toggle, Image (Row/Column/Checkbox/Switch/Radio are sugar ` +
-        `from @zabloo/react).`,
+        `Collapse, ScrollView, Toggle, Slider, Image (Row/Column/Checkbox/Switch/Radio are ` +
+        `sugar from @zabloo/react).`,
     );
   }
   return { kind: "instance", type, props, children: [] };
@@ -193,6 +205,35 @@ export function toIR(instance: HostInstance): ZNode {
       if (node.children && node.children.length < 2) {
         throw new Error(
           "A Toggle needs both indicator slots: children[0] (checked) and children[1] (unchecked).",
+        );
+      }
+      return node;
+    }
+    case "Slider": {
+      const { value, min, max, step, axis, onChange, onCommit } = instance.props;
+      if (typeof value === "object" && value !== null && !("bind" in value)) {
+        throw new Error("<Slider value> must be a number or a { bind } binding.");
+      }
+      if (min !== undefined && max !== undefined && max <= min) {
+        throw new Error(`<Slider> needs max > min (got min=${min}, max=${max}).`);
+      }
+      const node: SliderNode = {
+        type: "Slider",
+        ...base,
+        ...(value !== undefined && { value: value as SliderNode["value"] }),
+        ...(min !== undefined && { min }),
+        ...(max !== undefined && { max }),
+        ...(step !== undefined && { step }),
+        ...(axis !== undefined && { axis: axis as SliderAxis }),
+        ...(onChange !== undefined && { onChange }),
+        ...(onCommit !== undefined && { onCommit }),
+        ...childrenIR(instance),
+      };
+      // The slots are positional, like the Toggle's indicator: a half-built
+      // slider would render a rail whose thumb never appears.
+      if (node.children?.length !== 2) {
+        throw new Error(
+          "A Slider needs exactly two slots: children[0] (fill), children[1] (thumb).",
         );
       }
       return node;

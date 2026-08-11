@@ -27,6 +27,8 @@ export {
   Row,
   ScrollView,
   type ScrollViewProps,
+  Slider,
+  type SliderProps,
   Switch,
   type SwitchProps,
   Tab,

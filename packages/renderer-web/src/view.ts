@@ -19,6 +19,7 @@ import {
   type Envelope,
   type ImageFit,
   parseEnvelope,
+  type SliderAxis,
   type Style,
   type TokenValue,
   type Transition,
@@ -51,6 +52,14 @@ import {
 } from "./overlay.js";
 import { clamp, scrollbarThumb } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
+import {
+  growsUpward,
+  quantize,
+  resolveRange,
+  type SliderRange,
+  stepBy,
+  valueAt,
+} from "./slider.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
 import { isSelected, nextChecked, slotShown } from "./toggle.js";
 import {
@@ -90,6 +99,12 @@ interface AnyNode {
   onChange?: string;
   value?: unknown;
   transition?: Transition;
+  // Slider (the rest of its contract — `value`/`onChange` are shared above).
+  min?: number;
+  max?: number;
+  step?: number;
+  axis?: string;
+  onCommit?: string;
 }
 
 /** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
@@ -102,6 +117,16 @@ interface ScrollDrag {
 
 /** Below this many px of pointer travel, a gesture still counts as a click/tap. */
 const DRAG_THRESHOLD = 4;
+
+/**
+ * A Slider gesture in flight (pointer or held arrow key). `from` is the value it
+ * started at: `onCommit` is "the value the player settled on", so a gesture that
+ * ends where it began fires nothing.
+ */
+interface SliderGesture {
+  node: LayoutNode;
+  from: number;
+}
 
 /**
  * Overlay scrollbar (spec 2026-08-11): painted by the SDK inside the
@@ -136,6 +161,8 @@ export interface ZablooHandle {
   /** Selects a tab of an `"exclusive-select"` group by its container id. */
   setSelectedTab(id: string, index: number): boolean;
   setChecked(id: string, checked: boolean): boolean;
+  /** Moves a Slider — exactly the gesture the player would have made, hooks included. */
+  setValue(id: string, value: number): boolean;
   setScroll(id: string, x: number, y: number): boolean;
   dispose(): void;
 }
@@ -176,10 +203,15 @@ class WebView {
   /** Bound `checked` (Toggle) and bound group `value` (exclusive-check), by data path. */
   private checkedBindings = new Map<string, LayoutNode[]>();
   private groupBindings = new Map<string, LayoutNode[]>();
+  /** Bound `value` (Slider), by data path. */
+  private sliderBindings = new Map<string, LayoutNode[]>();
   private readonly data = new Map<string, unknown>();
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
   private scrollDrag: ScrollDrag | null = null;
+  /** Slider being dragged with the pointer, and the one being nudged with the keyboard. */
+  private sliderDrag: SliderGesture | null = null;
+  private sliderKeys: SliderGesture | null = null;
   /** Overlay whose backdrop took the pointer down, pending a release on it. */
   private backdropPress: LayoutNode | null = null;
   /** Pending self-scheduled frame, while a transition is in flight. */
@@ -229,6 +261,7 @@ class WebView {
       setOpen: (id, open) => this.setOpen(id, open),
       setSelectedTab: (id, index) => this.setSelectedTab(id, index),
       setChecked: (id, checked) => this.setChecked(id, checked),
+      setValue: (id, value) => this.setValue(id, value),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       dispose: () => {
         this.cancelFrame();
@@ -249,9 +282,12 @@ class WebView {
     this.visibleBindings = new Map();
     this.checkedBindings = new Map();
     this.groupBindings = new Map();
+    this.sliderBindings = new Map();
     this.pressedNode = null;
     this.focusedNode = null;
     this.scrollDrag = null;
+    this.sliderDrag = null;
+    this.sliderKeys = null;
     this.backdropPress = null;
     // The tree is new, so every node identity the layer state referenced is gone.
     this.layer = [];
@@ -275,6 +311,7 @@ class WebView {
       selected: false,
       selectedIndex: 0,
       checked: false,
+      sliderValue: 0,
       groupValue: undefined,
       visibleFlag: true,
       sectionShown: true,
@@ -321,6 +358,15 @@ class WebView {
         node.groupValue = any.value;
       }
       this.applyGroupValue(node);
+    }
+    if (any.type === "Slider") {
+      const range = this.rangeOf(node);
+      const path = bindPath(any.value);
+      // Unbound, `value` is the initial number; bound, the store decides — and
+      // an empty store leaves the control at its minimum, as the SDK does.
+      const initial = path !== null ? this.data.get(path) : any.value;
+      node.sliderValue = quantize(toNumber(initial, range.min), range);
+      if (path !== null) pushMapList(this.sliderBindings, path, node);
     }
     if (any.type === "Toggle") {
       // Inside an exclusive-check group the state is derived from the group's
@@ -512,6 +558,87 @@ class WebView {
     return true;
   }
 
+  // --- Slider: value state, pointer/keyboard gestures and the two hooks ---
+
+  private rangeOf(node: LayoutNode): SliderRange {
+    const any = node.ir as AnyNode;
+    return resolveRange(any.min, any.max, any.step);
+  }
+
+  private sliderVertical(node: LayoutNode): boolean {
+    return growsUpward((node.ir as { axis?: SliderAxis }).axis);
+  }
+
+  /**
+   * Single state-mutation path for Sliders (drag, tap on the track, arrow keys,
+   * `setValue`): clamps and quantizes, writes the new value into its bound path
+   * — the return leg of the data channel — and fires the live `onChange`.
+   * `onCommit` is NOT fired here: it belongs to the end of a gesture.
+   */
+  private setSliderValue(node: LayoutNode, value: number): void {
+    const next = quantize(value, this.rangeOf(node));
+    if (next === node.sliderValue) return;
+    node.sliderValue = next;
+    const any = node.ir as AnyNode;
+    const path = bindPath(any.value);
+    if (path !== null) this.writeData(path, next);
+    if (any.onChange) this.onAction?.(any.onChange);
+    this.render();
+  }
+
+  /** Ends a gesture: `onCommit` fires only if the player actually moved the value. */
+  private commitSlider(gesture: SliderGesture): void {
+    const action = (gesture.node.ir as AnyNode).onCommit;
+    if (action && gesture.node.sliderValue !== gesture.from) this.onAction?.(action);
+  }
+
+  /**
+   * The value a point on the track selects. Mirrors `arrangeSlider` exactly —
+   * same padding, same thumb inset — so the thumb lands under the finger and
+   * stays there for the rest of the drag.
+   */
+  private valueAtPoint(node: LayoutNode, point: Point): number {
+    const vertical = this.sliderVertical(node);
+    const padding = node.resolved.padding ?? 0;
+    const length = Math.max(0, (vertical ? node.rect.height : node.rect.width) - padding * 2);
+    const start = (vertical ? node.rect.y : node.rect.x) + padding;
+    const thumb = node.children[1];
+    const thumbSize = thumb ? Math.min(vertical ? thumb.measured.y : thumb.measured.x, length) : 0;
+    const position = vertical ? point.y : point.x;
+    return valueAt(position, start, length, thumbSize, this.rangeOf(node), vertical);
+  }
+
+  /**
+   * One arrow-key press on the focused Slider. Only the keys ALONG its axis get
+   * here (the cross-axis ones keep navigating), and on a vertical slider up
+   * means more — the value grows upward, like the track does.
+   */
+  private nudgeSlider(node: LayoutNode, dx: number, dy: number): void {
+    const vertical = this.sliderVertical(node);
+    const direction = vertical ? -dy : dx;
+    if (!this.sliderKeys) this.sliderKeys = { node, from: node.sliderValue };
+    this.setSliderValue(node, stepBy(node.sliderValue, direction, this.rangeOf(node)));
+  }
+
+  /** True while this arrow key adjusts the focused Slider instead of moving the focus. */
+  private sliderAxisKey(node: LayoutNode | null, dx: number): node is LayoutNode {
+    if (node?.ir.type !== "Slider" || !inLayout(node)) return false;
+    return this.sliderVertical(node) ? dx === 0 : dx !== 0;
+  }
+
+  /** The game/page channel for sliders — the `setChecked` counterpart, gesture included. */
+  setValue(id: string, value: number): boolean {
+    const node = this.byId.get(id);
+    if (node?.ir.type !== "Slider") {
+      console.warn(`[zabloo] setValue: no Slider with id "${id}".`);
+      return false;
+    }
+    const gesture: SliderGesture = { node, from: node.sliderValue };
+    this.setSliderValue(node, value);
+    this.commitSlider(gesture);
+    return true;
+  }
+
   setOpen(id: string, open: boolean): boolean {
     const node = this.byId.get(id);
     if (node?.ir.type !== "Collapse") {
@@ -580,6 +707,10 @@ class WebView {
       group.groupValue = value;
       this.applyGroupValue(group);
     }
+    for (const node of this.sliderBindings.get(path) ?? []) {
+      const range = this.rangeOf(node);
+      node.sliderValue = quantize(toNumber(value, range.min), range);
+    }
   }
 
   // --- focus & directional navigation (decision 2026-08-03 §7) ---
@@ -588,7 +719,12 @@ class WebView {
   // identity (Button, Collapse header); `states.focused` styles the focused node.
 
   private isFocusable(node: LayoutNode): boolean {
-    return node.ir.type === "Button" || node.ir.type === "Toggle" || isCollapseHeader(node);
+    return (
+      node.ir.type === "Button" ||
+      node.ir.type === "Toggle" ||
+      node.ir.type === "Slider" ||
+      isCollapseHeader(node)
+    );
   }
 
   /**
@@ -660,6 +796,9 @@ class WebView {
   pressFocused(down: boolean): void {
     const node = this.focusedNode;
     if (!node || !inLayout(node)) return;
+    // A Slider has nothing to activate: it is adjusted with the axis arrows, and
+    // pressing it must not fall through to the Collapse branch below.
+    if (node.ir.type === "Slider") return;
     if (down) {
       node.pressed = true;
       this.render();
@@ -767,6 +906,19 @@ class WebView {
         return;
       }
       const hit = resolved.kind === "node" ? resolved.node : null;
+      // Sliders take the pointer first: the gesture starts on the press (the
+      // thumb jumps to the finger) and the control lives inside scrollable
+      // screens, where the drag must move the value, not the list.
+      const slider = hit && this.findUp(hit, (n) => n.ir.type === "Slider");
+      if (slider) {
+        this.sliderDrag = { node: slider, from: slider.sliderValue };
+        slider.pressed = true;
+        this.setFocus(slider);
+        this.canvas.setPointerCapture(event.pointerId);
+        this.setSliderValue(slider, this.valueAtPoint(slider, point));
+        this.render();
+        return;
+      }
       const pressable =
         hit && this.findUp(hit, (n) => n.ir.type === "Button" || n.ir.type === "Toggle");
       if (pressable) {
@@ -791,6 +943,13 @@ class WebView {
       }
     };
     const move = (event: PointerEvent) => {
+      const slider = this.sliderDrag;
+      if (slider) {
+        // No drag threshold: a slider follows the finger from the first pixel
+        // (there is no tap-vs-drag ambiguity — the press already set a value).
+        this.setSliderValue(slider.node, this.valueAtPoint(slider.node, this.eventPoint(event)));
+        return;
+      }
       const drag = this.scrollDrag;
       if (!drag) return;
       const point = this.eventPoint(event);
@@ -809,6 +968,14 @@ class WebView {
       const direction = KEY_DIRECTIONS[event.key];
       if (direction) {
         event.preventDefault();
+        // On a focused Slider the arrows ALONG its axis adjust the value; the
+        // cross-axis ones keep navigating, so the player is never trapped in
+        // the control (decision 2026-08-11, ZAB-24). Repeats slide it.
+        const focused = this.focusedNode;
+        if (this.sliderAxisKey(focused, direction[0])) {
+          this.nudgeSlider(focused, direction[0], direction[1]);
+          return;
+        }
         this.moveFocus(direction[0], direction[1]);
       } else if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -824,9 +991,24 @@ class WebView {
     };
     const keyup = (event: KeyboardEvent) => {
       if (event.key === "Enter" || event.key === " ") this.pressFocused(false);
+      // Releasing an arrow ends the keyboard gesture — the same commit a
+      // pointer release fires, so both ways of moving a slider settle alike.
+      else if (KEY_DIRECTIONS[event.key] && this.sliderKeys) {
+        const gesture = this.sliderKeys;
+        this.sliderKeys = null;
+        this.commitSlider(gesture);
+      }
     };
     const up = (event: PointerEvent) => {
       const point = this.eventPoint(event);
+      const slider = this.sliderDrag;
+      if (slider) {
+        this.sliderDrag = null;
+        slider.node.pressed = false;
+        this.render();
+        this.commitSlider(slider);
+        return;
+      }
       const pressed = this.pressedNode;
       if (pressed) {
         pressed.pressed = false;
@@ -1275,6 +1457,21 @@ function bindPath(value: unknown): string | null {
     if (typeof path === "string" && path.length > 0) return path;
   }
   return null;
+}
+
+/**
+ * A number off the data channel. Numeric strings are accepted for the same
+ * reason `isSelected` tolerates them: the game may have pushed a value that
+ * crossed a text field or a JSON payload, and a control bound to live data must
+ * not hinge on which side did the parsing.
+ */
+function toNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
 }
 
 function isTruthy(value: unknown): boolean {

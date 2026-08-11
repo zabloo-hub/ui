@@ -4,7 +4,7 @@
  * The IR is a payload consumed at runtime by engine SDKs (and hot-updated over the
  * wire), never build-time source. Design rules (see decisions 2026-08-01):
  * - v1 vocabulary is a closed set grown by capability: Container, Text, Button,
- *   Collapse, ScrollView, Image, Overlay, Toggle.
+ *   Collapse, ScrollView, Image, Overlay, Toggle, Slider.
  * - Overlay nodes leave their parent's flow and are painted in a single top layer
  *   above the whole view, ordered by `(z, document order)` (decision 2026-08-11).
  * - Assets travel embedded (base64) in an `assets` manifest; nodes reference them as `asset:<id>` (decision 2026-08-11).
@@ -12,8 +12,8 @@
  * - Layout is runtime Flexbox in the SDK (Yoga subset) — no baked rects.
  * - Paint is 100% implicit from style in v1 (no explicit draw-command layer).
  * - Two dynamic mechanisms only: named actions and data-path bindings. Bindings
- *   are READ/WRITE from v1 on the controls that own a value (Toggle): the SDK
- *   writes the new value into its own data store and notifies the game through
+ *   are READ/WRITE from v1 on the controls that own a value (Toggle, Slider): the
+ *   SDK writes the new value into its own data store and notifies the game through
  *   one callback (decision 2026-08-11, ZAB-23).
  * - Style/layout changes may be tweened by a per-node `transition` (duration + easing
  *   from a closed curve set) — no keyframes, no timelines (decision 2026-08-11).
@@ -87,7 +87,8 @@ export type ZNode =
   | ScrollViewNode
   | ImageNode
   | OverlayNode
-  | ToggleNode;
+  | ToggleNode
+  | SliderNode;
 
 /**
  * Runtime states a node can be styled in. The SDK owns the state itself, keyed by
@@ -146,9 +147,10 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * sRGB with straight alpha), `opacity`, `radius`, `borderWidth`, and the layout dims
  * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
  * atlas key), `grow`, the layout enums, and every structural prop (`visible`, `clip`,
- * `text`, `open`, `src`, `fit`, `axis`, `scrollbar`, and the Overlay's `modal`/`z`/
- * `autoCloseMs` — the last two are numeric but they are ordering and timing, not
- * visual magnitudes).
+ * `text`, `open`, `src`, `fit`, `axis`, `scrollbar`, the Slider's `value`/`min`/
+ * `max`/`step` — a control's value is state the player is dragging, not a visual
+ * magnitude to catch up with — and the Overlay's `modal`/`z`/`autoCloseMs`, the
+ * last two numeric but ordering and timing).
  *
  * Both endpoints must resolve to numbers/colors — an `undefined` (auto) endpoint
  * snaps. Mounting and envelope reloads snap too (no previous value to tween from);
@@ -353,6 +355,65 @@ export interface ToggleNode extends NodeBase {
   /** Named action fired after every change, like Button's `onClick`. */
   onChange?: string;
   /** `children[0]` = checked slot; `children[1]` = unchecked slot; `children[2..]` = always shown. */
+  children?: ZNode[];
+}
+
+/** Orientation of a Slider's track. Vertical runs bottom-to-top, like a fader. */
+export type SliderAxis = "horizontal" | "vertical";
+
+/**
+ * Continuous value control (9th primitive, decision 2026-08-11, ZAB-24). The
+ * capacity it forces is the one no primitive could express: a NUMBER the player
+ * sets by pointing, whose geometry is a function of that number rather than of
+ * the flex pass. The SDK owns the runtime value (keyed by type, like Toggle's
+ * `checked`) and drives it from the drag, a tap on the track, the axis arrow
+ * keys and the game's own API.
+ *
+ * **The node IS the track**: its `style` paints the rail through the ordinary
+ * implicit paint (no new draw command, no third slot), and it takes exactly two
+ * positional children the SDK arranges from the value instead of laying them
+ * out in flow:
+ *
+ * | Index | What it is | How the SDK places it |
+ * |---|---|---|
+ * | `children[0]` | the fill | from the track's start to the value's fraction |
+ * | `children[1]` | the thumb | its own size, centered on the value's position |
+ *
+ * The thumb's travel is inset by half its own size, so it never paints outside
+ * the node's rect (the border-box invariant of 2026-08-06 holds and hit-testing
+ * on layout rects stays honest). A Slider **measures as a leaf**: the slots
+ * never contribute to its size — the track's length and thickness come from its
+ * own `layout` (`@zabloo/react`'s `<Slider>` fills them in).
+ *
+ * **Value.** `value` may be a static initial number or a READ/WRITE binding: the
+ * SDK writes every new value into its data store and notifies the game, exactly
+ * like `Toggle.checked` (decision 2026-08-11, ZAB-23). It is clamped to
+ * `[min, max]` and, with a `step`, quantized to `min + k * step`.
+ */
+export interface SliderNode extends NodeBase {
+  type: "Slider";
+  /** Current value, or a read/write data-path binding. Default: `min`. */
+  value?: Bindable<number>;
+  /** Lower end of the range. Default: 0. */
+  min?: number;
+  /** Upper end of the range. Default: 1. */
+  max?: number;
+  /** Quantization step from `min`. Absent (or <= 0) means a continuous value. */
+  step?: number;
+  /** Track orientation. Default: "horizontal". */
+  axis?: SliderAxis;
+  /**
+   * Named action fired on every value change, however it was caused — the live
+   * hook (a volume preview follows the drag).
+   */
+  onChange?: string;
+  /**
+   * Named action fired when a gesture ENDS (pointer release, arrow key up): the
+   * value the player settled on. The expensive-to-apply setting (graphics
+   * quality, resolution) hangs here instead of debouncing `onChange` game-side.
+   */
+  onCommit?: string;
+  /** `children[0]` = fill; `children[1]` = thumb. Both optional, both positional. */
   children?: ZNode[];
 }
 

@@ -9,8 +9,9 @@
  * writes its interpolated dims. Layout is pure geometry over resolved inputs.
  */
 
-import type { Layout, ScrollAxis, ZNode } from "@zabloo/format";
+import type { Layout, ScrollAxis, SliderAxis, ZNode } from "@zabloo/format";
 import { clamp, resolveScrollMax } from "./scroll.js";
+import { fractionOf, growsUpward, resolveRange, sliderGeometry } from "./slider.js";
 import type { NodeAnim, ResolvedValues } from "./transition.js";
 
 export interface Rect {
@@ -39,6 +40,8 @@ export interface LayoutNode {
   selectedIndex: number;
   /** Toggle only: the control's value. In a group it mirrors the group's selection. */
   checked: boolean;
+  /** Slider only: the runtime value, already clamped and quantized to its range. */
+  sliderValue: number;
   /** `"exclusive-check"` group only: the selected value its options compare against. */
   groupValue: unknown;
   /** `visible` value (bound or static) — display:none semantics. */
@@ -97,7 +100,14 @@ export function measure(node: LayoutNode, measureLeaf: MeasureLeaf): { x: number
   const padding = node.resolved.padding ?? 0;
   let size: { x: number; y: number };
 
-  if (node.children.length === 0) {
+  if (node.ir.type === "Slider") {
+    // A Slider measures as a LEAF: the rail's length and thickness are its own
+    // layout props, never the sum of its slots (a 18px thumb must not define a
+    // 220px track). The slots are still measured — the thumb's own size is what
+    // the value-driven arrange positions — they just do not add up.
+    for (const child of node.children) measure(child, measureLeaf);
+    size = { x: padding * 2, y: padding * 2 };
+  } else if (node.children.length === 0) {
     const leaf = measureLeaf(node.ir);
     size = { x: leaf.x + padding * 2, y: leaf.y + padding * 2 };
   } else {
@@ -128,6 +138,10 @@ export function measure(node: LayoutNode, measureLeaf: MeasureLeaf): { x: number
 /** Top-down arrange into `rect` (view space). */
 export function arrange(node: LayoutNode, rect: Rect): void {
   node.rect = rect;
+  if (node.ir.type === "Slider") {
+    arrangeSlider(node, rect);
+    return;
+  }
   const children = node.children.filter(inFlow);
   const count = children.length;
   if (count === 0) return;
@@ -226,4 +240,67 @@ export function arrange(node: LayoutNode, rect: Rect): void {
     arrange(child, childRect);
     cursor += mains[i] + between;
   }
+}
+
+/**
+ * The Slider's own arrange (decision 2026-08-11, ZAB-24): the node IS the track,
+ * and its two positional slots are placed from the VALUE instead of by the flex
+ * pass — `children[0]` (the fill) spans the value's fraction of the rail and
+ * `children[1]` (the thumb) rides the travel, inset by half its own size so it
+ * never paints outside the node's rect.
+ *
+ * Both slots keep their measured size across the track (a thin rail with a fat
+ * thumb is the normal case) and are centered on it; `padding` insets the rail,
+ * like it does everywhere else. A vertical slider runs bottom-to-top.
+ */
+function arrangeSlider(node: LayoutNode, rect: Rect): void {
+  const padding = node.resolved.padding ?? 0;
+  const horizontal = !growsUpward((node.ir as { axis?: SliderAxis }).axis);
+  const content: Rect = {
+    x: rect.x + padding,
+    y: rect.y + padding,
+    width: Math.max(0, rect.width - padding * 2),
+    height: Math.max(0, rect.height - padding * 2),
+  };
+  const length = horizontal ? content.width : content.height;
+  const across = horizontal ? content.height : content.width;
+
+  const ir = node.ir as { min?: number; max?: number; step?: number };
+  const fraction = fractionOf(node.sliderValue, resolveRange(ir.min, ir.max, ir.step));
+
+  const [fill, thumb] = node.children;
+  const thumbSize = thumb ? Math.min(mainSize(thumb, horizontal), length) : 0;
+  const geometry = sliderGeometry(fraction, length, thumbSize);
+
+  // `start` runs along the axis from the rail's beginning; on a vertical track
+  // that beginning is the BOTTOM, so it is mirrored into view space.
+  const place = (child: LayoutNode, start: number, size: number): void => {
+    // Centered across the rail, at its OWN size: the usual slider is a fat thumb
+    // on a thin rail, so the thumb overflows its parent on the cross axis — which
+    // is ordinary here (a `clip` is the only thing that cuts paint or input, ZAB-7).
+    const crossSize = crossOf(child, horizontal, across);
+    const crossPos = (horizontal ? content.y : content.x) + (across - crossSize) / 2;
+    arrange(
+      child,
+      horizontal
+        ? { x: content.x + start, y: crossPos, width: size, height: crossSize }
+        : { x: crossPos, y: content.y + length - start - size, width: crossSize, height: size },
+    );
+  };
+
+  if (fill && inFlow(fill)) place(fill, 0, geometry.fillLength);
+  if (thumb && inFlow(thumb)) place(thumb, geometry.thumbStart, thumbSize);
+  // Extra children are not part of the contract: they would have no defined
+  // position, so they are left where they are (measured, never arranged).
+}
+
+function mainSize(node: LayoutNode, horizontal: boolean): number {
+  return horizontal ? node.measured.x : node.measured.y;
+}
+
+/** A slot's size across the rail — its own if it declared one, else the full rail. */
+function crossOf(node: LayoutNode, horizontal: boolean, fallback: number): number {
+  const declared = horizontal ? node.ir.layout?.height : node.ir.layout?.width;
+  if (declared === undefined) return fallback;
+  return horizontal ? node.measured.y : node.measured.x;
 }
