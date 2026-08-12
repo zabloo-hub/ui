@@ -1,0 +1,213 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.track": "#3f3f46",
+    "color.fill": "#4f46e5",
+    "color.text": "#e2e8f0",
+    "space.2": 8,
+    "radius.pill": 999,
+    "motion.loop": 900
+  },
+  "views": {
+    "controls": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Toggle",
+          "id": "switch",
+          "checked": true,
+          "onChange": "toggle-sound",
+          "layout": { "direction": "row", "align": "center", "gap": "{space.2}", "height": 24 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "switch-on",
+              "layout": { "width": 36, "height": 20, "justify": "end", "align": "center" },
+              "style": { "background": "#22c55e", "radius": "{radius.pill}" },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "knob-on",
+                  "layout": { "width": 16, "height": 16 },
+                  "style": { "background": "#ffffff", "radius": "{radius.pill}" }
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "switch-off",
+              "layout": { "width": 36, "height": 20, "justify": "start", "align": "center" },
+              "style": { "background": "{color.track}", "radius": "{radius.pill}" },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "knob-off",
+                  "layout": { "width": 16, "height": 16 },
+                  "style": { "background": "#94a3b8", "radius": "{radius.pill}" }
+                }
+              ]
+            },
+            {
+              "type": "Text",
+              "id": "switch-label",
+              "text": "Sonido",
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "radio-group",
+          "group": "exclusive-check",
+          "value": "medium",
+          "layout": { "direction": "row", "align": "center", "gap": "{space.2}" },
+          "children": [
+            {
+              "type": "Toggle",
+              "id": "radio-low",
+              "value": "low",
+              "layout": { "width": 60, "height": 24, "align": "center" },
+              "style": { "background": "{color.track}" },
+              "states": { "checked": { "style": { "background": "{color.fill}" } } },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "low-dot",
+                  "layout": { "width": 8, "height": 8 },
+                  "style": { "background": "#ffffff", "radius": "{radius.pill}" }
+                },
+                {
+                  "type": "Container",
+                  "id": "low-empty",
+                  "layout": { "width": 8, "height": 8 },
+                  "style": { "background": "#71717a", "radius": "{radius.pill}" }
+                }
+              ]
+            },
+            {
+              "type": "Toggle",
+              "id": "radio-medium",
+              "value": "medium",
+              "layout": { "width": 60, "height": 24, "align": "center" },
+              "style": { "background": "{color.track}" },
+              "states": { "checked": { "style": { "background": "{color.fill}" } } },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "medium-dot",
+                  "layout": { "width": 8, "height": 8 },
+                  "style": { "background": "#ffffff", "radius": "{radius.pill}" }
+                },
+                {
+                  "type": "Container",
+                  "id": "medium-empty",
+                  "layout": { "width": 8, "height": 8 },
+                  "style": { "background": "#71717a", "radius": "{radius.pill}" }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Slider",
+          "id": "volume",
+          "value": 0.4,
+          "min": 0,
+          "max": 1,
+          "onChange": "volume-changed",
+          "onCommit": "volume-committed",
+          "layout": { "width": 200, "height": 20 },
+          "style": { "background": "{color.track}", "radius": "{radius.pill}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "volume-fill",
+              "style": { "background": "{color.fill}", "radius": "{radius.pill}" }
+            },
+            {
+              "type": "Container",
+              "id": "volume-thumb",
+              "layout": { "width": 16, "height": 16 },
+              "style": { "background": "#ffffff", "radius": "{radius.pill}" }
+            }
+          ]
+        },
+        {
+          "type": "Slider",
+          "id": "quality",
+          "value": 2,
+          "min": 0,
+          "max": 4,
+          "step": 1,
+          "axis": "vertical",
+          "layout": { "width": 20, "height": 100 },
+          "style": { "background": "{color.track}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "quality-fill",
+              "style": { "background": "{color.fill}" }
+            },
+            {
+              "type": "Container",
+              "id": "quality-thumb",
+              "layout": { "width": 18, "height": 12 },
+              "style": { "background": "#ffffff" }
+            }
+          ]
+        },
+        {
+          "type": "ProgressBar",
+          "id": "loading",
+          "value": { "bind": "download.progress" },
+          "layout": { "direction": "row", "width": 200, "height": 12, "padding": 2 },
+          "style": { "background": "{color.track}", "radius": "{radius.pill}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "loading-fill",
+              "style": { "background": "{color.fill}", "radius": "{radius.pill}" }
+            }
+          ]
+        },
+        {
+          "type": "Spinner",
+          "id": "spinner",
+          "period": "{motion.loop}",
+          "min": 0.25,
+          "easing": "ease-in-out",
+          "layout": { "direction": "row", "gap": 6, "align": "center", "height": 12 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "bead-0",
+              "layout": { "width": 8, "height": 8 },
+              "style": { "background": "{color.text}", "radius": "{radius.pill}" }
+            },
+            {
+              "type": "Container",
+              "id": "bead-1",
+              "layout": { "width": 8, "height": 8 },
+              "style": { "background": "{color.text}", "radius": "{radius.pill}" }
+            },
+            {
+              "type": "Container",
+              "id": "bead-2",
+              "layout": { "width": 8, "height": 8 },
+              "style": { "background": "{color.text}", "radius": "{radius.pill}" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

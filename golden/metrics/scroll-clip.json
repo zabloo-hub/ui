@@ -1,0 +1,370 @@
+{
+  "view": "scroll-clip",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 422,
+      "y": 156
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "ScrollView",
+        "ref": "vertical",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 160,
+          "height": 140
+        },
+        "style": {
+          "background": "#1e293b",
+          "radius": 6,
+          "padding": 8,
+          "gap": 8
+        },
+        "scroll": {
+          "x": 0,
+          "y": 0,
+          "maxX": 0,
+          "maxY": 178.391
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "row-0",
+            "rect": {
+              "x": 16,
+              "y": 16,
+              "width": 120,
+              "height": 40
+            },
+            "style": {
+              "background": "#334155"
+            },
+            "clip": {
+              "x": 8,
+              "y": 8,
+              "width": 160,
+              "height": 140,
+              "radius": 6
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "row-1",
+            "rect": {
+              "x": 16,
+              "y": 64,
+              "width": 120,
+              "height": 40
+            },
+            "style": {
+              "background": "#475569"
+            },
+            "clip": {
+              "x": 8,
+              "y": 8,
+              "width": 160,
+              "height": 140,
+              "radius": 6
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "row-2",
+            "rect": {
+              "x": 16,
+              "y": 112,
+              "width": 120,
+              "height": 40
+            },
+            "style": {
+              "background": "#64748b"
+            },
+            "clip": {
+              "x": 8,
+              "y": 8,
+              "width": 160,
+              "height": 140,
+              "radius": 6
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "row-3",
+            "rect": {
+              "x": 16,
+              "y": 160,
+              "width": 120,
+              "height": 40
+            },
+            "style": {
+              "background": "#94a3b8"
+            },
+            "clip": {
+              "x": 8,
+              "y": 8,
+              "width": 160,
+              "height": 140,
+              "radius": 6
+            }
+          },
+          {
+            "type": "Text",
+            "ref": "scrolled-text",
+            "rect": {
+              "x": 16,
+              "y": 208,
+              "width": 120,
+              "height": 110.391
+            },
+            "style": {
+              "color": "#e2e8f0"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "El texto de un",
+                  "width": 97.844,
+                  "x": 16,
+                  "baseline": 222.484
+                },
+                {
+                  "text": "scroller vertical",
+                  "width": 106.688,
+                  "x": 16,
+                  "baseline": 240.883
+                },
+                {
+                  "text": "sí envuelve,",
+                  "width": 85.383,
+                  "x": 16,
+                  "baseline": 259.281
+                },
+                {
+                  "text": "porque el ancho",
+                  "width": 114.758,
+                  "x": 16,
+                  "baseline": 277.68
+                },
+                {
+                  "text": "no es el eje",
+                  "width": 81.836,
+                  "x": 16,
+                  "baseline": 296.078
+                },
+                {
+                  "text": "scrolleable",
+                  "width": 76.484,
+                  "x": 16,
+                  "baseline": 314.477
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            },
+            "clip": {
+              "x": 8,
+              "y": 8,
+              "width": 160,
+              "height": 140,
+              "radius": 6
+            }
+          }
+        ]
+      },
+      {
+        "type": "ScrollView",
+        "ref": "horizontal",
+        "rect": {
+          "x": 176,
+          "y": 8,
+          "width": 140,
+          "height": 60
+        },
+        "style": {
+          "background": "#1e293b",
+          "gap": 8
+        },
+        "scroll": {
+          "x": 0,
+          "y": 0,
+          "maxX": 624.766,
+          "maxY": 0
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "card-0",
+            "rect": {
+              "x": 176,
+              "y": 8,
+              "width": 80,
+              "height": 44
+            },
+            "style": {
+              "background": "#0ea5e9"
+            },
+            "clip": {
+              "x": 176,
+              "y": 8,
+              "width": 140,
+              "height": 60,
+              "radius": 0
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "card-1",
+            "rect": {
+              "x": 264,
+              "y": 8,
+              "width": 80,
+              "height": 44
+            },
+            "style": {
+              "background": "#22c55e"
+            },
+            "clip": {
+              "x": 176,
+              "y": 8,
+              "width": 140,
+              "height": 60,
+              "radius": 0
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "card-2",
+            "rect": {
+              "x": 352,
+              "y": 8,
+              "width": 80,
+              "height": 44
+            },
+            "style": {
+              "background": "#f59e0b"
+            },
+            "clip": {
+              "x": 176,
+              "y": 8,
+              "width": 140,
+              "height": 60,
+              "radius": 0
+            }
+          },
+          {
+            "type": "Text",
+            "ref": "unwrapped-text",
+            "rect": {
+              "x": 440,
+              "y": 8,
+              "width": 500.766,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#e2e8f0"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "En cambio este no envuelve nunca: su eje scrolleable no ofrece ancho",
+                  "width": 500.766,
+                  "x": 440,
+                  "baseline": 22.484
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            },
+            "clip": {
+              "x": 176,
+              "y": 8,
+              "width": 140,
+              "height": 60,
+              "radius": 0
+            }
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "clipping-box",
+        "rect": {
+          "x": 324,
+          "y": 8,
+          "width": 90,
+          "height": 60
+        },
+        "style": {
+          "background": "#1e293b",
+          "radius": 6
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "overflowing-child",
+            "rect": {
+              "x": 324,
+              "y": 8,
+              "width": 140,
+              "height": 100
+            },
+            "style": {
+              "background": "#ef4444"
+            },
+            "clip": {
+              "x": 324,
+              "y": 8,
+              "width": 90,
+              "height": 60,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Container",
+                "ref": "nested-in-clip",
+                "rect": {
+                  "x": 324,
+                  "y": 8,
+                  "width": 40,
+                  "height": 20
+                },
+                "style": {
+                  "background": "#fde047"
+                },
+                "clip": {
+                  "x": 324,
+                  "y": 8,
+                  "width": 90,
+                  "height": 60,
+                  "radius": 6
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

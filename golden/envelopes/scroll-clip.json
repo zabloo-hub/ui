@@ -1,0 +1,128 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.panel": "#1e293b",
+    "color.text": "#e2e8f0",
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "views": {
+    "scroll-clip": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "row",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "ScrollView",
+          "id": "vertical",
+          "axis": "vertical",
+          "layout": {
+            "direction": "column",
+            "width": 160,
+            "height": 140,
+            "padding": "{space.2}",
+            "gap": "{space.2}"
+          },
+          "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "row-0",
+              "layout": { "width": 120, "height": 40 },
+              "style": { "background": "#334155" }
+            },
+            {
+              "type": "Container",
+              "id": "row-1",
+              "layout": { "width": 120, "height": 40 },
+              "style": { "background": "#475569" }
+            },
+            {
+              "type": "Container",
+              "id": "row-2",
+              "layout": { "width": 120, "height": 40 },
+              "style": { "background": "#64748b" }
+            },
+            {
+              "type": "Container",
+              "id": "row-3",
+              "layout": { "width": 120, "height": 40 },
+              "style": { "background": "#94a3b8" }
+            },
+            {
+              "type": "Text",
+              "id": "scrolled-text",
+              "text": "El texto de un scroller vertical sí envuelve, porque el ancho no es el eje scrolleable",
+              "layout": { "width": 120 },
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        },
+        {
+          "type": "ScrollView",
+          "id": "horizontal",
+          "axis": "horizontal",
+          "scrollbar": false,
+          "layout": { "direction": "row", "width": 140, "height": 60, "gap": "{space.2}" },
+          "style": { "background": "{color.panel}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "card-0",
+              "layout": { "width": 80, "height": 44 },
+              "style": { "background": "#0ea5e9" }
+            },
+            {
+              "type": "Container",
+              "id": "card-1",
+              "layout": { "width": 80, "height": 44 },
+              "style": { "background": "#22c55e" }
+            },
+            {
+              "type": "Container",
+              "id": "card-2",
+              "layout": { "width": 80, "height": 44 },
+              "style": { "background": "#f59e0b" }
+            },
+            {
+              "type": "Text",
+              "id": "unwrapped-text",
+              "text": "En cambio este no envuelve nunca: su eje scrolleable no ofrece ancho",
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "clipping-box",
+          "clip": true,
+          "layout": { "width": 90, "height": 60 },
+          "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "overflowing-child",
+              "layout": { "width": 140, "height": 100 },
+              "style": { "background": "#ef4444" },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "nested-in-clip",
+                  "layout": { "width": 40, "height": 20 },
+                  "style": { "background": "#fde047" }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

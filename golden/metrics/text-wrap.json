@@ -1,0 +1,320 @@
+{
+  "view": "text-wrap",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 236,
+      "y": 492.777
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Text",
+        "ref": "wrapped",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 200,
+          "height": 55.195
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "El zorro marrón salta sobre",
+              "width": 192.961,
+              "x": 8,
+              "baseline": 22.484
+            },
+            {
+              "text": "el perro perezoso una y",
+              "width": 168.102,
+              "x": 8,
+              "baseline": 40.883
+            },
+            {
+              "text": "otra vez",
+              "width": 56.914,
+              "x": 8,
+              "baseline": 59.281
+            }
+          ],
+          "lineHeight": 18.398,
+          "truncated": false
+        }
+      },
+      {
+        "type": "Text",
+        "ref": "hard-breaks",
+        "rect": {
+          "x": 8,
+          "y": 71.195,
+          "width": 200,
+          "height": 55.195
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "Primera línea",
+              "width": 95.148,
+              "x": 8,
+              "baseline": 85.68
+            },
+            {
+              "text": "",
+              "width": 0,
+              "x": 8,
+              "baseline": 104.078
+            },
+            {
+              "text": "Tercera línea",
+              "width": 92.492,
+              "x": 8,
+              "baseline": 122.477
+            }
+          ],
+          "lineHeight": 18.398,
+          "truncated": false
+        }
+      },
+      {
+        "type": "Text",
+        "ref": "no-wrap-clipped",
+        "rect": {
+          "x": 8,
+          "y": 134.391,
+          "width": 120,
+          "height": 18.398
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "Una línea que n",
+              "width": 112.977,
+              "x": 8,
+              "baseline": 148.875
+            }
+          ],
+          "lineHeight": 18.398,
+          "truncated": true
+        }
+      },
+      {
+        "type": "Text",
+        "ref": "no-wrap-ellipsis",
+        "rect": {
+          "x": 8,
+          "y": 160.789,
+          "width": 120,
+          "height": 18.398
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "Una línea que…",
+              "width": 115.633,
+              "x": 8,
+              "baseline": 175.273
+            }
+          ],
+          "lineHeight": 18.398,
+          "truncated": true
+        }
+      },
+      {
+        "type": "Text",
+        "ref": "max-lines-ellipsis",
+        "rect": {
+          "x": 8,
+          "y": 187.188,
+          "width": 200,
+          "height": 36.797
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "El zorro marrón salta sobre",
+              "width": 192.961,
+              "x": 8,
+              "baseline": 201.672
+            },
+            {
+              "text": "el perro perezoso una y…",
+              "width": 184.102,
+              "x": 8,
+              "baseline": 220.07
+            }
+          ],
+          "lineHeight": 18.398,
+          "truncated": true
+        }
+      },
+      {
+        "type": "Text",
+        "ref": "long-word",
+        "rect": {
+          "x": 8,
+          "y": 231.984,
+          "width": 90,
+          "height": 55.195
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "Supercalifra",
+              "width": 85.375,
+              "x": 8,
+              "baseline": 246.469
+            },
+            {
+              "text": "gilisticoespi",
+              "width": 81.813,
+              "x": 8,
+              "baseline": 264.867
+            },
+            {
+              "text": "alidoso",
+              "width": 50.703,
+              "x": 8,
+              "baseline": 283.266
+            }
+          ],
+          "lineHeight": 18.398,
+          "truncated": false
+        }
+      },
+      {
+        "type": "Container",
+        "ref": "aligned-box",
+        "rect": {
+          "x": 8,
+          "y": 295.18,
+          "width": 220,
+          "height": 90
+        },
+        "style": {
+          "background": "#1e293b"
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "centered",
+            "rect": {
+              "x": 8,
+              "y": 295.18,
+              "width": 220,
+              "height": 90
+            },
+            "style": {
+              "color": "#e2e8f0"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Centrado en ambos ejes",
+                  "width": 174.328,
+                  "x": 30.836,
+                  "baseline": 345.465
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "ref": "loose-lines",
+        "rect": {
+          "x": 8,
+          "y": 393.18,
+          "width": 180,
+          "height": 56
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "Interlineado holgado que",
+              "width": 176.148,
+              "x": 11.852,
+              "baseline": 412.465
+            },
+            {
+              "text": "ocupa dos líneas",
+              "width": 120.977,
+              "x": 67.023,
+              "baseline": 440.465
+            }
+          ],
+          "lineHeight": 28,
+          "truncated": false
+        }
+      },
+      {
+        "type": "Text",
+        "ref": "big",
+        "rect": {
+          "x": 8,
+          "y": 457.18,
+          "width": 60.023,
+          "height": 27.598
+        },
+        "style": {
+          "color": "#e2e8f0"
+        },
+        "text": {
+          "lines": [
+            {
+              "text": "Título",
+              "width": 60.023,
+              "x": 8,
+              "baseline": 478.906
+            }
+          ],
+          "lineHeight": 27.598,
+          "truncated": false
+        }
+      }
+    ]
+  }
+}

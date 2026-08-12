@@ -1,0 +1,349 @@
+{
+  "view": "overlays",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": "modal-accept",
+  "hover": null,
+  "pressed": null,
+  "layer": [
+    {
+      "ref": "modal",
+      "z": 10,
+      "modal": true,
+      "presence": 1,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 480,
+        "height": 320
+      }
+    },
+    {
+      "ref": "toast",
+      "z": 20,
+      "modal": false,
+      "presence": 1,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 480,
+        "height": 320
+      }
+    }
+  ],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 152,
+      "y": 108
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 16,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Button",
+        "ref": "under-modal",
+        "rect": {
+          "x": 16,
+          "y": 16,
+          "width": 120,
+          "height": 36
+        },
+        "style": {
+          "background": "#4f46e5",
+          "radius": 6
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "under-label",
+            "rect": {
+              "x": 59.109,
+              "y": 24.801,
+              "width": 33.781,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#e2e8f0"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Abrir",
+                  "width": 33.781,
+                  "x": 59.109,
+                  "baseline": 39.285
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "Button",
+        "ref": "tooltip-anchor",
+        "rect": {
+          "x": 16,
+          "y": 60,
+          "width": 100,
+          "height": 32
+        },
+        "style": {
+          "background": "#334155",
+          "radius": 6
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "anchor-label",
+            "rect": {
+              "x": 43.461,
+              "y": 66.801,
+              "width": 45.078,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#e2e8f0"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Ayuda",
+                  "width": 45.078,
+                  "x": 43.461,
+                  "baseline": 81.285
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "Overlay",
+        "ref": "modal",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 480,
+          "height": 320
+        },
+        "measured": {
+          "x": 240,
+          "y": 90.398
+        },
+        "style": {
+          "background": "#00000099"
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "modal-panel",
+            "rect": {
+              "x": 120,
+              "y": 114.801,
+              "width": 240,
+              "height": 90.398
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 16,
+              "gap": 8
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "modal-title",
+                "rect": {
+                  "x": 136,
+                  "y": 130.801,
+                  "width": 70.266,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "¿Seguro?",
+                      "width": 70.266,
+                      "x": 136,
+                      "baseline": 145.285
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                }
+              },
+              {
+                "type": "Button",
+                "ref": "modal-accept",
+                "rect": {
+                  "x": 136,
+                  "y": 157.199,
+                  "width": 100,
+                  "height": 32
+                },
+                "states": [
+                  "focused"
+                ],
+                "style": {
+                  "background": "#22c55e",
+                  "radius": 6
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "accept-label",
+                    "rect": {
+                      "x": 178.441,
+                      "y": 164,
+                      "width": 15.117,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#0b1120"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Sí",
+                          "width": 15.117,
+                          "x": 178.441,
+                          "baseline": 178.484
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Overlay",
+        "ref": "toast",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 480,
+          "height": 320
+        },
+        "measured": {
+          "x": 192,
+          "y": 72
+        },
+        "style": {
+          "padding": 16
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "toast-body",
+            "rect": {
+              "x": 304,
+              "y": 264,
+              "width": 160,
+              "height": 40
+            },
+            "style": {
+              "background": "#0f766e",
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "toast-text",
+                "rect": {
+                  "x": 348.418,
+                  "y": 274.801,
+                  "width": 71.164,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Guardado",
+                      "width": 71.164,
+                      "x": 348.418,
+                      "baseline": 289.285
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Overlay",
+        "ref": "tooltip",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "width": 0,
+          "height": 0
+        },
+        "style": {
+          "padding": 8
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "tooltip-bubble",
+            "rect": {
+              "x": 0,
+              "y": 0,
+              "width": 0,
+              "height": 0
+            },
+            "style": {
+              "background": "#0b1120",
+              "radius": 4
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "tooltip-text",
+                "rect": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 0,
+                  "height": 0
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

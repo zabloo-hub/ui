@@ -1,0 +1,96 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.tint": "#f87171",
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "assets": {
+    "icons/coin.png": {
+      "hash": "eb629c98d2e0ee600d6a37b5aeb758b74d7e5b46adc80d6b94142ee69a6b611a",
+      "mime": "image/png",
+      "size": 105,
+      "width": 32,
+      "height": 32,
+      "data": "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAMElEQVR4nO3OIQEAAAgDMErQvxCJMBDjZmJ+tdOXVAICAgICAgICAgICAgICAunAA0PzaKZfQ78NAAAAAElFTkSuQmCC"
+    },
+    "images/banner.png": {
+      "hash": "b401deb59d51eb137424c42ecdf507bcc80d83bfaa21715cbb5c56bf1819f5b8",
+      "mime": "image/png",
+      "size": 120,
+      "width": 64,
+      "height": 16,
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAQCAYAAACm53kpAAAAP0lEQVR4nO3QMREAIBDAsFeAfwOIQwXIyECH7L3O2uf+bHSA1gAdoDVAB2gN0AFaA3SA1gAdoDVAB2gN0AHaAyl+bJd8QtPgAAAAAElFTkSuQmCC"
+    }
+  },
+  "views": {
+    "assets-image": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Image",
+          "id": "intrinsic",
+          "src": "asset:icons/coin.png"
+        },
+        {
+          "type": "Image",
+          "id": "contained",
+          "src": "asset:images/banner.png",
+          "fit": "contain",
+          "layout": { "width": 120, "height": 60 },
+          "style": { "background": "#1e293b", "radius": "{radius.md}" }
+        },
+        {
+          "type": "Image",
+          "id": "covered",
+          "src": "asset:images/banner.png",
+          "fit": "cover",
+          "layout": { "width": 120, "height": 60 },
+          "style": { "background": "#1e293b" }
+        },
+        {
+          "type": "Image",
+          "id": "stretched",
+          "src": "asset:images/banner.png",
+          "fit": "stretch",
+          "layout": { "width": 120, "height": 60 }
+        },
+        {
+          "type": "Image",
+          "id": "tinted",
+          "src": "asset:icons/coin.png",
+          "layout": { "width": 24, "height": 24 },
+          "style": { "color": "{color.tint}", "radius": "{radius.md}" }
+        },
+        {
+          "type": "Container",
+          "id": "shared-hash",
+          "layout": { "direction": "row", "gap": "{space.2}", "align": "center" },
+          "children": [
+            {
+              "type": "Image",
+              "id": "coin-again",
+              "src": "asset:icons/coin.png",
+              "layout": { "width": 16, "height": 16 }
+            },
+            {
+              "type": "Text",
+              "id": "coin-label",
+              "text": "1200",
+              "style": { "color": "#e2e8f0" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

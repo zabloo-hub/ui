@@ -56,7 +56,7 @@ import {
 } from "./gamepad.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
-import { FontLibrary } from "./glyphs.js";
+import { FontLibrary, type GlyphAtlas } from "./glyphs.js";
 import { childClip, effectiveClip } from "./hit.js";
 import {
   arrange,
@@ -107,10 +107,17 @@ import {
   stepBy,
   valueAt,
 } from "./slider.js";
+import { snapshotView, type ViewSnapshot } from "./snapshot.js";
 import { beadOpacity, DEFAULT_PERIOD } from "./spinner.js";
 import { effectiveStyle } from "./states.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
-import { layoutText, placeLines, type TextLayoutOptions, type TextMetrics } from "./text.js";
+import {
+  layoutText,
+  type PlacedLine,
+  placeLines,
+  type TextLayoutOptions,
+  type TextMetrics,
+} from "./text.js";
 import {
   caretAt,
   caretVisible,
@@ -282,6 +289,14 @@ export interface MountOptions {
 export interface ZablooHandle {
   readonly viewIds: string[];
   /**
+   * Resolves once the view has swapped in its OWN text rasterizer and repainted
+   * with it (see `loadRasterizer`). Until then text is measured with the
+   * browser's, so the first frames are not the ones the other targets produce —
+   * which is why anything comparing metrics (the golden harness, a screenshot)
+   * waits on this. It never rejects: a failed load keeps the fallback.
+   */
+  readonly ready: Promise<void>;
+  /**
    * Same loading path as the SDK: any versioned payload (dev push, hot-update).
    *
    * It never throws (decision 2026-08-12, ZAB-37). A payload the validator refuses —
@@ -301,6 +316,12 @@ export interface ZablooHandle {
   /** Writes a TextInput's text — the same edit the player would have typed. */
   setText(id: string, text: string): boolean;
   setScroll(id: string, x: number, y: number): boolean;
+  /**
+   * Metrics of the frame on screen: rects, wrap points, baselines, clips, layer
+   * order and focus/hover/press. The cross-target contract of the golden tests
+   * (ZAB-48/ZAB-38) and what a canvas overlaying this view draws against.
+   */
+  snapshot(): ViewSnapshot;
   dispose(): void;
 }
 
@@ -335,6 +356,8 @@ class WebView {
   private root!: LayoutNode;
   /** The view's overlays, flattened and ordered — rebuilt on every render. */
   private layer: LayoutNode[] = [];
+  /** The layer the last frame PAINTED — the live one plus whatever was fading out. */
+  private paintLayer: readonly LayoutNode[] = [];
   /** Open modals, innermost last, each with the focus it interrupted. */
   private readonly modalStack: Array<{ overlay: LayoutNode; previousFocus: LayoutNode | null }> =
     [];
@@ -404,6 +427,8 @@ class WebView {
   private animating = false;
   /** Our TTF rasterizer, once its WASM has loaded (see `loadRasterizer`). */
   private font: StbFont | null = null;
+  /** Settles when that rasterizer is in and the view has repainted with it. */
+  private readonly ready: Promise<void>;
   /** Disposed views must not touch GL from work that was already in flight. */
   private disposed = false;
   private readonly disposers: Array<() => void> = [];
@@ -429,7 +454,7 @@ class WebView {
     this.build();
     this.listen();
     this.resize();
-    this.loadRasterizer();
+    this.ready = this.loadRasterizer();
   }
 
   /**
@@ -442,8 +467,8 @@ class WebView {
    * this re-renders once the real one is ready. The atlases built meanwhile are
    * thrown away, textures included.
    */
-  private loadRasterizer(): void {
-    loadFont(decodeBase64(DEFAULT_FONT_BASE64)).then(
+  private loadRasterizer(): Promise<void> {
+    return loadFont(decodeBase64(DEFAULT_FONT_BASE64)).then(
       (font) => {
         if (this.disposed) {
           font.dispose();
@@ -465,6 +490,7 @@ class WebView {
   handle(): ZablooHandle {
     return {
       viewIds: Object.keys(this.envelope.views),
+      ready: this.ready,
       reload: (input) => {
         // A corrupt hot-update never takes down a UI that is already on screen
         // (decision 2026-08-12, ZAB-37): it reports and the current envelope stays.
@@ -493,6 +519,7 @@ class WebView {
       setValue: (id, value) => this.setValue(id, value),
       setText: (id, text) => this.setText(id, text),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
+      snapshot: () => this.snapshot(),
       dispose: () => {
         this.disposed = true;
         this.cancelFrame();
@@ -2788,6 +2815,7 @@ class WebView {
       this.exiting.size === 0
         ? this.layer
         : collectLayer(this.root, (node) => this.layerPresent(node) || this.exiting.has(node));
+    this.paintLayer = paintLayer;
     for (const overlay of paintLayer) {
       measure(overlay, this.measureLeaf, width);
       this.arrangeOverlay(overlay, viewRect);
@@ -2850,22 +2878,12 @@ class WebView {
       );
     }
     if (node.ir.type === "Text") {
-      const block = node.textBlock;
-      if (block) {
-        const style = this.effectiveStyle(node);
-        const atlas = this.fonts.get(this.fontSize(style));
+      const placed = this.placeText(node);
+      if (placed) {
         const color = fade(values.color ?? DEFAULT_TEXT_COLOR, opacity);
-        // Lines are placed inside the padding box: a Text's own padding already
-        // grew its measured size, so it has to keep the glyphs off the edge too.
-        const box = deflate(node.rect, values.padding ?? 0);
-        const lines = placeLines(
-          block,
-          box,
-          atlas,
-          style?.textAlign ?? "start",
-          style?.textAlignY ?? "start",
-        );
-        for (const line of lines) geometry.text(line.x, line.y, line.text, atlas, color);
+        for (const line of placed.lines) {
+          geometry.text(line.x, line.y, line.text, placed.atlas, color);
+        }
       }
     } else if (node.ir.type === "TextInput") {
       this.paintField(node, geometry, opacity, clip);
@@ -2889,6 +2907,65 @@ class WebView {
       if (inFlow(child)) this.paint(child, geometry, opacity, inner);
     }
     if (node.ir.type === "ScrollView") this.paintScrollbar(node, geometry, opacity, inner);
+  }
+
+  /**
+   * Where this frame's lines of a `Text` sit, and the atlas they are painted
+   * with. Paint and the metrics snapshot go through this one function on purpose:
+   * a baseline recorded in a golden file has to be the baseline the tessellator
+   * actually used, not a second computation of it that could drift.
+   *
+   * Null on anything that is not a `Text`, and on a `Text` the measure pass has
+   * not broken into lines yet (out of layout for the whole frame).
+   */
+  private placeText(node: LayoutNode): { lines: PlacedLine[]; atlas: GlyphAtlas } | null {
+    const block = node.textBlock;
+    if (node.ir.type !== "Text" || !block) return null;
+    const style = this.effectiveStyle(node);
+    const atlas = this.fonts.get(this.fontSize(style));
+    // Lines are placed inside the padding box: a Text's own padding already grew
+    // its measured size, so it has to keep the glyphs off the edge too.
+    const box = deflate(node.rect, node.resolved.padding ?? 0);
+    return {
+      lines: placeLines(
+        block,
+        box,
+        atlas,
+        style?.textAlign ?? "start",
+        style?.textAlignY ?? "start",
+      ),
+      atlas,
+    };
+  }
+
+  /**
+   * The metrics of the frame currently on screen (ZAB-48) — rects, wrap points,
+   * baselines, clips, layer order and where the focus/hover/press landed.
+   *
+   * Public because it is not a test detail: it is the contract the cross-target
+   * comparison of ZAB-38 asks BOTH targets for, and the rects the visual editor's
+   * canvas needs to draw selection over the same tree the renderer laid out. It
+   * describes the last painted frame — it never renders one — so calling it can
+   * neither move the view forward nor perturb what is being measured.
+   */
+  snapshot(): ViewSnapshot {
+    return snapshotView({
+      view: this.viewId,
+      size: this.logicalSize(),
+      root: this.root,
+      layer: this.paintLayer.map((overlay) => ({
+        node: overlay,
+        presence: this.presence.get(overlay) ?? 1,
+      })),
+      focused: this.focusedNode,
+      hovered: this.hoveredNode,
+      pressed: this.pressedNode,
+      radiusOf: this.radiusOf,
+      textOf: (node) => {
+        const placed = this.placeText(node);
+        return placed ? { lines: placed.lines, ascent: placed.atlas.ascent } : null;
+      },
+    });
   }
 
   /**

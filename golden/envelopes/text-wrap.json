@@ -1,0 +1,116 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.text": "#e2e8f0",
+    "text.md": 16,
+    "text.lg": 24,
+    "line.loose": 28,
+    "space.2": 8
+  },
+  "views": {
+    "text-wrap": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Text",
+          "id": "wrapped",
+          "text": "El zorro marrón salta sobre el perro perezoso una y otra vez",
+          "layout": { "width": 200 },
+          "style": { "color": "{color.text}", "fontSize": "{text.md}" }
+        },
+        {
+          "type": "Text",
+          "id": "hard-breaks",
+          "text": "Primera línea\n\nTercera línea",
+          "layout": { "width": 200 },
+          "style": { "color": "{color.text}", "fontSize": "{text.md}" }
+        },
+        {
+          "type": "Text",
+          "id": "no-wrap-clipped",
+          "text": "Una línea que no cabe de ninguna manera aquí",
+          "layout": { "width": 120 },
+          "style": { "color": "{color.text}", "fontSize": "{text.md}", "wrap": false }
+        },
+        {
+          "type": "Text",
+          "id": "no-wrap-ellipsis",
+          "text": "Una línea que no cabe de ninguna manera aquí",
+          "layout": { "width": 120 },
+          "style": {
+            "color": "{color.text}",
+            "fontSize": "{text.md}",
+            "wrap": false,
+            "overflow": "ellipsis"
+          }
+        },
+        {
+          "type": "Text",
+          "id": "max-lines-ellipsis",
+          "text": "El zorro marrón salta sobre el perro perezoso una y otra vez",
+          "layout": { "width": 200 },
+          "style": {
+            "color": "{color.text}",
+            "fontSize": "{text.md}",
+            "maxLines": 2,
+            "overflow": "ellipsis"
+          }
+        },
+        {
+          "type": "Text",
+          "id": "long-word",
+          "text": "Supercalifragilisticoespialidoso",
+          "layout": { "width": 90 },
+          "style": { "color": "{color.text}", "fontSize": "{text.md}" }
+        },
+        {
+          "type": "Container",
+          "id": "aligned-box",
+          "layout": { "width": 220, "height": 90 },
+          "style": { "background": "#1e293b" },
+          "children": [
+            {
+              "type": "Text",
+              "id": "centered",
+              "text": "Centrado en ambos ejes",
+              "layout": { "width": 220, "height": 90 },
+              "style": {
+                "color": "{color.text}",
+                "fontSize": "{text.md}",
+                "textAlign": "center",
+                "textAlignY": "center"
+              }
+            }
+          ]
+        },
+        {
+          "type": "Text",
+          "id": "loose-lines",
+          "text": "Interlineado holgado que ocupa dos líneas",
+          "layout": { "width": 180 },
+          "style": {
+            "color": "{color.text}",
+            "fontSize": "{text.md}",
+            "lineHeight": "{line.loose}",
+            "textAlign": "end"
+          }
+        },
+        {
+          "type": "Text",
+          "id": "big",
+          "text": "Título",
+          "style": { "color": "{color.text}", "fontSize": "{text.lg}" }
+        }
+      ]
+    }
+  }
+}

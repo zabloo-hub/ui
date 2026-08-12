@@ -1,0 +1,309 @@
+{
+  "view": "flex-layout",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 232,
+      "y": 298
+    },
+    "style": {
+      "background": "#1b1e27",
+      "padding": 16,
+      "gap": 16
+    },
+    "children": [
+      {
+        "type": "Container",
+        "ref": "row-between",
+        "rect": {
+          "x": 16,
+          "y": 16,
+          "width": 448,
+          "height": 48
+        },
+        "measured": {
+          "x": 128,
+          "y": 48
+        },
+        "style": {
+          "background": "#272b38",
+          "radius": 6,
+          "padding": 8,
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "fixed-left",
+            "rect": {
+              "x": 24,
+              "y": 28,
+              "width": 40,
+              "height": 24
+            },
+            "style": {
+              "background": "#4f46e5"
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "fixed-right",
+            "rect": {
+              "x": 392,
+              "y": 32,
+              "width": 64,
+              "height": 16
+            },
+            "style": {
+              "background": "#22c55e"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "row-grow",
+        "rect": {
+          "x": 16,
+          "y": 80,
+          "width": 448,
+          "height": 40
+        },
+        "measured": {
+          "x": 46,
+          "y": 40
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "grow-1",
+            "rect": {
+              "x": 16,
+              "y": 80,
+              "width": 134,
+              "height": 0
+            },
+            "measured": {
+              "x": 0,
+              "y": 0
+            },
+            "style": {
+              "background": "#334155"
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "grow-2",
+            "rect": {
+              "x": 158,
+              "y": 80,
+              "width": 268,
+              "height": 0
+            },
+            "measured": {
+              "x": 0,
+              "y": 0
+            },
+            "style": {
+              "background": "#475569"
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "no-grow",
+            "rect": {
+              "x": 434,
+              "y": 80,
+              "width": 30,
+              "height": 0
+            },
+            "style": {
+              "background": "#64748b"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "align-stretch",
+        "rect": {
+          "x": 16,
+          "y": 136,
+          "width": 448,
+          "height": 36
+        },
+        "measured": {
+          "x": 108,
+          "y": 36
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "stretched",
+            "rect": {
+              "x": 16,
+              "y": 136,
+              "width": 50,
+              "height": 36
+            },
+            "measured": {
+              "x": 50,
+              "y": 0
+            },
+            "style": {
+              "background": "#0ea5e9"
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "height-overridden-by-stretch",
+            "rect": {
+              "x": 74,
+              "y": 136,
+              "width": 50,
+              "height": 36
+            },
+            "measured": {
+              "x": 50,
+              "y": 12
+            },
+            "style": {
+              "background": "#f59e0b"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "grid-holder",
+        "rect": {
+          "x": 16,
+          "y": 188,
+          "width": 448,
+          "height": 48
+        },
+        "measured": {
+          "x": 200,
+          "y": 48
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "wrap-grid",
+            "rect": {
+              "x": 16,
+              "y": 188,
+              "width": 200,
+              "height": 48
+            },
+            "style": {
+              "gap": 8
+            },
+            "children": [
+              {
+                "type": "Container",
+                "ref": "cell-0",
+                "rect": {
+                  "x": 16,
+                  "y": 188,
+                  "width": 60,
+                  "height": 20
+                }
+              },
+              {
+                "type": "Container",
+                "ref": "cell-1",
+                "rect": {
+                  "x": 84,
+                  "y": 188,
+                  "width": 60,
+                  "height": 20
+                }
+              },
+              {
+                "type": "Container",
+                "ref": "cell-2",
+                "rect": {
+                  "x": 152,
+                  "y": 188,
+                  "width": 60,
+                  "height": 20
+                }
+              },
+              {
+                "type": "Container",
+                "ref": "cell-3",
+                "rect": {
+                  "x": 16,
+                  "y": 216,
+                  "width": 60,
+                  "height": 20
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "justify-center",
+        "rect": {
+          "x": 16,
+          "y": 252,
+          "width": 448,
+          "height": 30
+        },
+        "measured": {
+          "x": 56,
+          "y": 30
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "centered-a",
+            "rect": {
+              "x": 212,
+              "y": 272,
+              "width": 24,
+              "height": 10
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "centered-b",
+            "rect": {
+              "x": 244,
+              "y": 262,
+              "width": 24,
+              "height": 20
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

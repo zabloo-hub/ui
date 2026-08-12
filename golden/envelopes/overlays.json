@@ -1,0 +1,160 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.panel": "#1e293b",
+    "color.text": "#e2e8f0",
+    "color.scrim": "#00000099",
+    "space.2": 8,
+    "space.4": 16,
+    "radius.md": 6
+  },
+  "views": {
+    "overlays": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.4}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Button",
+          "id": "under-modal",
+          "onClick": "open",
+          "layout": { "width": 120, "height": 36, "justify": "center", "align": "center" },
+          "style": { "background": "#4f46e5", "radius": "{radius.md}" },
+          "children": [
+            {
+              "type": "Text",
+              "id": "under-label",
+              "text": "Abrir",
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        },
+        {
+          "type": "Button",
+          "id": "tooltip-anchor",
+          "onClick": "help",
+          "layout": { "width": 100, "height": 32, "justify": "center", "align": "center" },
+          "style": { "background": "#334155", "radius": "{radius.md}" },
+          "children": [
+            {
+              "type": "Text",
+              "id": "anchor-label",
+              "text": "Ayuda",
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "modal",
+          "visible": { "bind": "ui.modalOpen" },
+          "modal": true,
+          "z": 10,
+          "onDismiss": "close-modal",
+          "layout": { "justify": "center", "align": "center" },
+          "style": { "background": "{color.scrim}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "modal-panel",
+              "layout": {
+                "direction": "column",
+                "width": 240,
+                "padding": "{space.4}",
+                "gap": "{space.2}",
+                "align": "start"
+              },
+              "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "modal-title",
+                  "text": "¿Seguro?",
+                  "style": { "color": "{color.text}" }
+                },
+                {
+                  "type": "Button",
+                  "id": "modal-accept",
+                  "onClick": "accept",
+                  "autofocus": true,
+                  "layout": { "width": 100, "height": 32, "justify": "center", "align": "center" },
+                  "style": { "background": "#22c55e", "radius": "{radius.md}" },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "accept-label",
+                      "text": "Sí",
+                      "style": { "color": "#0b1120" }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "toast",
+          "visible": { "bind": "ui.toastOpen" },
+          "modal": false,
+          "z": 20,
+          "autoCloseMs": 3000,
+          "onDismiss": "close-toast",
+          "layout": { "justify": "end", "align": "end", "padding": "{space.4}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "toast-body",
+              "layout": { "width": 160, "height": 40, "justify": "center", "align": "center" },
+              "style": { "background": "#0f766e", "radius": "{radius.md}" },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "toast-text",
+                  "text": "Guardado",
+                  "style": { "color": "{color.text}" }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "tooltip",
+          "modal": false,
+          "z": 5,
+          "anchor": {
+            "id": "tooltip-anchor",
+            "at": "bottom",
+            "offset": "{space.2}",
+            "trigger": "hover"
+          },
+          "layout": { "justify": "center", "align": "start", "padding": "{space.2}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "tooltip-bubble",
+              "layout": { "width": 120, "height": 28, "justify": "center", "align": "center" },
+              "style": { "background": "#0b1120", "radius": 4 },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "tooltip-text",
+                  "text": "Pista",
+                  "style": { "color": "{color.text}" }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

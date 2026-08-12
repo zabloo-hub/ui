@@ -1,0 +1,98 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.primary": "#4f46e5",
+    "color.primary.hover": "#6366f1",
+    "color.primary.pressed": "#4338ca",
+    "color.muted": "#3f3f46",
+    "color.text": "#f8fafc",
+    "color.focus": "#facc15",
+    "space.3": 12,
+    "radius.md": 6,
+    "text.md": 16,
+    "border.focus": 2
+  },
+  "views": {
+    "states-tokens": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.3}",
+        "gap": "{space.3}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Button",
+          "id": "primary",
+          "onClick": "buy",
+          "autofocus": true,
+          "layout": { "padding": "{space.3}", "width": 160, "height": 44, "justify": "center" },
+          "style": {
+            "background": "{color.primary}",
+            "radius": "{radius.md}",
+            "color": "{color.text}",
+            "borderWidth": 0,
+            "borderColor": "{color.focus}"
+          },
+          "states": {
+            "hover": { "style": { "background": "{color.primary.hover}" } },
+            "pressed": { "style": { "background": "{color.primary.pressed}" } },
+            "focused": { "style": { "borderWidth": "{border.focus}" } },
+            "disabled": { "style": { "opacity": 0.4 } }
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "primary-label",
+              "text": "Comprar",
+              "style": { "color": "{color.text}", "fontSize": "{text.md}" }
+            }
+          ]
+        },
+        {
+          "type": "Button",
+          "id": "secondary",
+          "onClick": "cancel",
+          "layout": { "padding": "{space.3}", "width": 160, "height": 44, "justify": "center" },
+          "style": {
+            "background": "{color.muted}",
+            "radius": "{radius.md}",
+            "borderWidth": 0,
+            "borderColor": "{color.focus}"
+          },
+          "states": {
+            "hover": { "style": { "background": "#52525b" } },
+            "pressed": { "style": { "background": "#27272a" } },
+            "focused": { "style": { "borderWidth": "{border.focus}" } }
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "secondary-label",
+              "text": "Cancelar",
+              "style": { "color": "{color.text}", "fontSize": "{text.md}" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "faded",
+          "layout": { "width": 80, "height": 20 },
+          "style": { "background": "{color.primary}", "opacity": 0.5 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "faded-child",
+              "layout": { "width": 20, "height": 20 },
+              "style": { "background": "{color.text}", "opacity": 0.5 }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
