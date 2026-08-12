@@ -1,0 +1,90 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.field": "#1e293b",
+    "color.text": "#e2e8f0",
+    "color.placeholder": "#64748b",
+    "color.focus": "#4f46e5",
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "views": {
+    "textinput": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "TextInput",
+          "id": "name",
+          "value": "Sergi",
+          "placeholder": "Tu nombre",
+          "onChange": "name-changed",
+          "onSubmit": "name-accepted",
+          "maxLength": 12,
+          "layout": { "width": 200, "padding": "{space.2}" },
+          "style": {
+            "background": "{color.field}",
+            "radius": "{radius.md}",
+            "color": "{color.text}",
+            "borderWidth": 0,
+            "borderColor": "{color.focus}"
+          },
+          "states": {
+            "empty": { "style": { "color": "{color.placeholder}" } },
+            "focused": { "style": { "borderWidth": 2 } }
+          }
+        },
+        {
+          "type": "TextInput",
+          "id": "search",
+          "placeholder": "Buscar…",
+          "onChange": "search-changed",
+          "layout": { "width": 200, "padding": "{space.2}" },
+          "style": {
+            "background": "{color.field}",
+            "radius": "{radius.md}",
+            "color": "{color.text}",
+            "borderWidth": 0,
+            "borderColor": "{color.focus}"
+          },
+          "states": {
+            "empty": { "style": { "color": "{color.placeholder}" } },
+            "focused": { "style": { "borderWidth": 2 } }
+          }
+        },
+        {
+          "type": "TextInput",
+          "id": "bound-field",
+          "value": { "bind": "form.city" },
+          "placeholder": "Ciudad",
+          "layout": { "width": 200, "padding": "{space.2}" },
+          "style": {
+            "background": "{color.field}",
+            "radius": "{radius.md}",
+            "color": "{color.text}"
+          },
+          "states": { "empty": { "style": { "color": "{color.placeholder}" } } }
+        },
+        {
+          "type": "TextInput",
+          "id": "overflowing",
+          "value": "Un valor mucho más largo de lo que cabe en la caja",
+          "layout": { "width": 140, "padding": "{space.2}" },
+          "style": {
+            "background": "{color.field}",
+            "radius": "{radius.md}",
+            "color": "{color.text}"
+          }
+        }
+      ]
+    }
+  }
+}

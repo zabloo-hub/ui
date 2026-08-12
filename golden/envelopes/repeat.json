@@ -1,0 +1,99 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.panel": "#1e293b",
+    "color.row": "#334155",
+    "color.text": "#e2e8f0",
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "views": {
+    "repeat": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "row",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "ScrollView",
+          "id": "list-scroller",
+          "axis": "vertical",
+          "layout": { "direction": "column", "width": 220, "height": 160, "padding": "{space.2}" },
+          "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+          "children": [
+            {
+              "type": "Repeat",
+              "id": "inventory",
+              "items": { "bind": "shop.items" },
+              "as": "item",
+              "key": "id",
+              "layout": { "direction": "column", "align": "start", "gap": "{space.2}" },
+              "children": [
+                {
+                  "type": "Button",
+                  "id": "row",
+                  "onClick": "buy",
+                  "layout": {
+                    "direction": "row",
+                    "width": 200,
+                    "height": 32,
+                    "align": "center",
+                    "justify": "space-between",
+                    "padding": "{space.2}"
+                  },
+                  "style": { "background": "{color.row}", "radius": 4 },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "row-name",
+                      "text": { "bind": "item.name" },
+                      "style": { "color": "{color.text}" }
+                    },
+                    {
+                      "type": "Text",
+                      "id": "row-index",
+                      "text": { "bind": "item.$index" },
+                      "style": { "color": "{color.text}" }
+                    }
+                  ]
+                },
+                {
+                  "type": "Text",
+                  "id": "empty-state",
+                  "text": "Nada por aquí",
+                  "style": { "color": "{color.text}" }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Repeat",
+          "id": "empty-list",
+          "items": { "bind": "shop.nothing" },
+          "layout": { "direction": "column", "align": "start", "gap": "{space.2}", "width": 160 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "never-shown",
+              "layout": { "width": 100, "height": 20 },
+              "style": { "background": "#ef4444" }
+            },
+            {
+              "type": "Text",
+              "id": "nothing-yet",
+              "text": "Sin resultados",
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

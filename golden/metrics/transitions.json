@@ -1,0 +1,162 @@
+{
+  "view": "transitions",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 216,
+      "y": 204
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Button",
+        "ref": "tweened",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 120,
+          "height": 40
+        },
+        "style": {
+          "background": "#334155",
+          "radius": 6
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "tweened-label",
+            "rect": {
+              "x": 49.766,
+              "y": 18.801,
+              "width": 36.469,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#f8fafc"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Pasa",
+                  "width": 36.469,
+                  "x": 49.766,
+                  "baseline": 33.285
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "Button",
+        "ref": "eased",
+        "rect": {
+          "x": 8,
+          "y": 56,
+          "width": 120,
+          "height": 40
+        },
+        "style": {
+          "background": "#334155"
+        }
+      },
+      {
+        "type": "Button",
+        "ref": "instant",
+        "rect": {
+          "x": 8,
+          "y": 104,
+          "width": 120,
+          "height": 40
+        },
+        "style": {
+          "background": "#334155"
+        }
+      },
+      {
+        "type": "ProgressBar",
+        "ref": "tweened-bar",
+        "rect": {
+          "x": 8,
+          "y": 152,
+          "width": 200,
+          "height": 12
+        },
+        "style": {
+          "background": "#334155"
+        },
+        "value": 0.25,
+        "children": [
+          {
+            "type": "Container",
+            "ref": "bar-fill",
+            "rect": {
+              "x": 8,
+              "y": 152,
+              "width": 50,
+              "height": 12
+            },
+            "measured": {
+              "x": 0,
+              "y": 0
+            },
+            "style": {
+              "background": "#f97316"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Collapse",
+        "ref": "tweened-collapse",
+        "rect": {
+          "x": 8,
+          "y": 172,
+          "width": 200,
+          "height": 24
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "collapse-header",
+            "rect": {
+              "x": 8,
+              "y": 172,
+              "width": 200,
+              "height": 24
+            },
+            "style": {
+              "background": "#334155"
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "collapse-content",
+            "out": "section"
+          }
+        ]
+      }
+    ]
+  }
+}

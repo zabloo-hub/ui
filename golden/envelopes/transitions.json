@@ -1,0 +1,95 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.idle": "#334155",
+    "color.hot": "#f97316",
+    "motion.slow": 400,
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "views": {
+    "transitions": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Button",
+          "id": "tweened",
+          "onClick": "noop",
+          "transition": { "duration": "{motion.slow}", "easing": "linear" },
+          "layout": { "width": 120, "height": 40, "justify": "center", "align": "center" },
+          "style": { "background": "{color.idle}", "radius": "{radius.md}", "opacity": 1 },
+          "states": {
+            "hover": { "style": { "background": "{color.hot}" } },
+            "pressed": { "style": { "opacity": 0.5, "radius": 20 } }
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "tweened-label",
+              "text": "Pasa",
+              "style": { "color": "#f8fafc" }
+            }
+          ]
+        },
+        {
+          "type": "Button",
+          "id": "eased",
+          "onClick": "noop",
+          "transition": { "duration": "{motion.slow}", "easing": "ease-out" },
+          "layout": { "width": 120, "height": 40 },
+          "style": { "background": "{color.idle}" },
+          "states": { "hover": { "style": { "background": "{color.hot}" } } }
+        },
+        {
+          "type": "Button",
+          "id": "instant",
+          "onClick": "noop",
+          "layout": { "width": 120, "height": 40 },
+          "style": { "background": "{color.idle}" },
+          "states": { "hover": { "style": { "background": "{color.hot}" } } }
+        },
+        {
+          "type": "ProgressBar",
+          "id": "tweened-bar",
+          "value": { "bind": "job.progress" },
+          "transition": { "duration": "{motion.slow}", "easing": "linear" },
+          "layout": { "direction": "row", "width": 200, "height": 12 },
+          "style": { "background": "{color.idle}" },
+          "children": [
+            { "type": "Container", "id": "bar-fill", "style": { "background": "{color.hot}" } }
+          ]
+        },
+        {
+          "type": "Collapse",
+          "id": "tweened-collapse",
+          "open": false,
+          "transition": { "duration": "{motion.slow}", "easing": "linear" },
+          "layout": { "direction": "column", "align": "start", "width": 200 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "collapse-header",
+              "layout": { "width": 200, "height": 24 },
+              "style": { "background": "{color.idle}" }
+            },
+            {
+              "type": "Container",
+              "id": "collapse-content",
+              "layout": { "width": 200, "height": 60 },
+              "style": { "background": "{color.hot}" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,436 @@
+{
+  "view": "controls",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 216,
+      "y": 248
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Toggle",
+        "ref": "switch",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 93.82,
+          "height": 24
+        },
+        "states": [
+          "checked"
+        ],
+        "style": {
+          "gap": 8
+        },
+        "value": 1,
+        "children": [
+          {
+            "type": "Container",
+            "ref": "switch-on",
+            "rect": {
+              "x": 8,
+              "y": 10,
+              "width": 36,
+              "height": 20
+            },
+            "style": {
+              "background": "#22c55e",
+              "radius": 999
+            },
+            "children": [
+              {
+                "type": "Container",
+                "ref": "knob-on",
+                "rect": {
+                  "x": 18,
+                  "y": 14,
+                  "width": 16,
+                  "height": 16
+                },
+                "style": {
+                  "background": "#ffffff",
+                  "radius": 999
+                }
+              }
+            ]
+          },
+          {
+            "type": "Container",
+            "ref": "switch-off",
+            "rect": {
+              "x": 8,
+              "y": 10,
+              "width": 36,
+              "height": 20
+            },
+            "style": {
+              "background": "#3f3f46",
+              "radius": 999,
+              "opacity": 0
+            },
+            "children": [
+              {
+                "type": "Container",
+                "ref": "knob-off",
+                "rect": {
+                  "x": 18,
+                  "y": 10,
+                  "width": 16,
+                  "height": 16
+                },
+                "style": {
+                  "background": "#94a3b8",
+                  "radius": 999
+                }
+              }
+            ]
+          },
+          {
+            "type": "Text",
+            "ref": "switch-label",
+            "rect": {
+              "x": 52,
+              "y": 10.801,
+              "width": 49.82,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#e2e8f0"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Sonido",
+                  "width": 49.82,
+                  "x": 52,
+                  "baseline": 25.285
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "radio-group",
+        "rect": {
+          "x": 8,
+          "y": 40,
+          "width": 128,
+          "height": 24
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Toggle",
+            "ref": "radio-low",
+            "rect": {
+              "x": 8,
+              "y": 40,
+              "width": 60,
+              "height": 24
+            },
+            "style": {
+              "background": "#3f3f46"
+            },
+            "value": 0,
+            "children": [
+              {
+                "type": "Container",
+                "ref": "low-dot",
+                "rect": {
+                  "x": 34,
+                  "y": 40,
+                  "width": 8,
+                  "height": 8
+                },
+                "style": {
+                  "background": "#ffffff",
+                  "radius": 999,
+                  "opacity": 0
+                }
+              },
+              {
+                "type": "Container",
+                "ref": "low-empty",
+                "rect": {
+                  "x": 34,
+                  "y": 40,
+                  "width": 8,
+                  "height": 8
+                },
+                "style": {
+                  "background": "#71717a",
+                  "radius": 999
+                }
+              }
+            ]
+          },
+          {
+            "type": "Toggle",
+            "ref": "radio-medium",
+            "rect": {
+              "x": 76,
+              "y": 40,
+              "width": 60,
+              "height": 24
+            },
+            "states": [
+              "checked"
+            ],
+            "style": {
+              "background": "#4f46e5"
+            },
+            "value": 1,
+            "children": [
+              {
+                "type": "Container",
+                "ref": "medium-dot",
+                "rect": {
+                  "x": 102,
+                  "y": 40,
+                  "width": 8,
+                  "height": 8
+                },
+                "style": {
+                  "background": "#ffffff",
+                  "radius": 999
+                }
+              },
+              {
+                "type": "Container",
+                "ref": "medium-empty",
+                "rect": {
+                  "x": 102,
+                  "y": 40,
+                  "width": 8,
+                  "height": 8
+                },
+                "style": {
+                  "background": "#71717a",
+                  "radius": 999,
+                  "opacity": 0
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Slider",
+        "ref": "volume",
+        "rect": {
+          "x": 8,
+          "y": 72,
+          "width": 200,
+          "height": 20
+        },
+        "style": {
+          "background": "#3f3f46",
+          "radius": 999
+        },
+        "value": 0.4,
+        "children": [
+          {
+            "type": "Container",
+            "ref": "volume-fill",
+            "rect": {
+              "x": 8,
+              "y": 72,
+              "width": 80,
+              "height": 20
+            },
+            "measured": {
+              "x": 0,
+              "y": 0
+            },
+            "style": {
+              "background": "#4f46e5",
+              "radius": 999
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "volume-thumb",
+            "rect": {
+              "x": 81.6,
+              "y": 74,
+              "width": 16,
+              "height": 16
+            },
+            "style": {
+              "background": "#ffffff",
+              "radius": 999
+            }
+          }
+        ]
+      },
+      {
+        "type": "Slider",
+        "ref": "quality",
+        "rect": {
+          "x": 8,
+          "y": 100,
+          "width": 20,
+          "height": 100
+        },
+        "style": {
+          "background": "#3f3f46"
+        },
+        "value": 2,
+        "children": [
+          {
+            "type": "Container",
+            "ref": "quality-fill",
+            "rect": {
+              "x": 8,
+              "y": 150,
+              "width": 20,
+              "height": 50
+            },
+            "measured": {
+              "x": 0,
+              "y": 0
+            },
+            "style": {
+              "background": "#4f46e5"
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "quality-thumb",
+            "rect": {
+              "x": 9,
+              "y": 144,
+              "width": 18,
+              "height": 12
+            },
+            "style": {
+              "background": "#ffffff"
+            }
+          }
+        ]
+      },
+      {
+        "type": "ProgressBar",
+        "ref": "loading",
+        "rect": {
+          "x": 8,
+          "y": 208,
+          "width": 200,
+          "height": 12
+        },
+        "style": {
+          "background": "#3f3f46",
+          "radius": 999,
+          "padding": 2
+        },
+        "value": 0.35,
+        "children": [
+          {
+            "type": "Container",
+            "ref": "loading-fill",
+            "rect": {
+              "x": 10,
+              "y": 210,
+              "width": 68.6,
+              "height": 8
+            },
+            "measured": {
+              "x": 0,
+              "y": 0
+            },
+            "style": {
+              "background": "#4f46e5",
+              "radius": 999
+            }
+          }
+        ]
+      },
+      {
+        "type": "Spinner",
+        "ref": "spinner",
+        "rect": {
+          "x": 8,
+          "y": 228,
+          "width": 36,
+          "height": 12
+        },
+        "style": {
+          "gap": 6
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "bead-0",
+            "rect": {
+              "x": 8,
+              "y": 230,
+              "width": 8,
+              "height": 8
+            },
+            "style": {
+              "background": "#e2e8f0",
+              "radius": 999,
+              "opacity": 0.25
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "bead-1",
+            "rect": {
+              "x": 22,
+              "y": 230,
+              "width": 8,
+              "height": 8
+            },
+            "style": {
+              "background": "#e2e8f0",
+              "radius": 999,
+              "opacity": 0.889
+            }
+          },
+          {
+            "type": "Container",
+            "ref": "bead-2",
+            "rect": {
+              "x": 36,
+              "y": 230,
+              "width": 8,
+              "height": 8
+            },
+            "style": {
+              "background": "#e2e8f0",
+              "radius": 999,
+              "opacity": 0.889
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "view": "textinput",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 216,
+      "y": 177.594
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "TextInput",
+        "ref": "name",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 200,
+          "height": 34.398
+        },
+        "style": {
+          "background": "#1e293b",
+          "color": "#e2e8f0",
+          "borderColor": "#4f46e5",
+          "radius": 6,
+          "padding": 8
+        },
+        "field": {
+          "text": "Sergi",
+          "anchor": 5,
+          "focus": 5,
+          "scroll": 0
+        }
+      },
+      {
+        "type": "TextInput",
+        "ref": "search",
+        "rect": {
+          "x": 8,
+          "y": 50.398,
+          "width": 200,
+          "height": 34.398
+        },
+        "states": [
+          "empty"
+        ],
+        "style": {
+          "background": "#1e293b",
+          "color": "#64748b",
+          "borderColor": "#4f46e5",
+          "radius": 6,
+          "padding": 8
+        },
+        "field": {
+          "text": "",
+          "anchor": 0,
+          "focus": 0,
+          "scroll": 0
+        }
+      },
+      {
+        "type": "TextInput",
+        "ref": "bound-field",
+        "rect": {
+          "x": 8,
+          "y": 92.797,
+          "width": 200,
+          "height": 34.398
+        },
+        "style": {
+          "background": "#1e293b",
+          "color": "#e2e8f0",
+          "radius": 6,
+          "padding": 8
+        },
+        "field": {
+          "text": "Barcelona",
+          "anchor": 0,
+          "focus": 0,
+          "scroll": 0
+        }
+      },
+      {
+        "type": "TextInput",
+        "ref": "overflowing",
+        "rect": {
+          "x": 8,
+          "y": 135.195,
+          "width": 140,
+          "height": 34.398
+        },
+        "style": {
+          "background": "#1e293b",
+          "color": "#e2e8f0",
+          "radius": 6,
+          "padding": 8
+        },
+        "field": {
+          "text": "Un valor mucho más largo de lo que cabe en la caja",
+          "anchor": 50,
+          "focus": 50,
+          "scroll": 247.102
+        }
+      }
+    ]
+  }
+}

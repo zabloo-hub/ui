@@ -1,0 +1,135 @@
+{
+  "v": 1,
+  "tokens": {
+    "space.2": 8,
+    "space.4": 16,
+    "color.surface": "#1b1e27",
+    "color.card": "#272b38",
+    "radius.md": 6
+  },
+  "views": {
+    "flex-layout": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "stretch",
+        "padding": "{space.4}",
+        "gap": "{space.4}"
+      },
+      "style": { "background": "{color.surface}" },
+      "children": [
+        {
+          "type": "Container",
+          "id": "row-between",
+          "layout": {
+            "direction": "row",
+            "justify": "space-between",
+            "align": "center",
+            "height": 48,
+            "padding": "{space.2}",
+            "gap": "{space.2}"
+          },
+          "style": { "background": "{color.card}", "radius": "{radius.md}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "fixed-left",
+              "layout": { "width": 40, "height": 24 },
+              "style": { "background": "#4f46e5" }
+            },
+            {
+              "type": "Container",
+              "id": "fixed-right",
+              "layout": { "width": 64, "height": 16 },
+              "style": { "background": "#22c55e" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "row-grow",
+          "layout": { "direction": "row", "height": 40, "gap": "{space.2}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "grow-1",
+              "layout": { "grow": 1 },
+              "style": { "background": "#334155" }
+            },
+            {
+              "type": "Container",
+              "id": "grow-2",
+              "layout": { "grow": 2 },
+              "style": { "background": "#475569" }
+            },
+            {
+              "type": "Container",
+              "id": "no-grow",
+              "layout": { "width": 30 },
+              "style": { "background": "#64748b" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "align-stretch",
+          "layout": { "direction": "row", "align": "stretch", "height": 36, "gap": "{space.2}" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "stretched",
+              "layout": { "width": 50 },
+              "style": { "background": "#0ea5e9" }
+            },
+            {
+              "type": "Container",
+              "id": "height-overridden-by-stretch",
+              "layout": { "width": 50, "height": 12 },
+              "style": { "background": "#f59e0b" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "grid-holder",
+          "layout": { "direction": "row", "align": "start" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "wrap-grid",
+              "layout": {
+                "direction": "row",
+                "wrap": true,
+                "gap": "{space.2}",
+                "width": 200,
+                "justify": "start"
+              },
+              "children": [
+                { "type": "Container", "id": "cell-0", "layout": { "width": 60, "height": 20 } },
+                { "type": "Container", "id": "cell-1", "layout": { "width": 60, "height": 20 } },
+                { "type": "Container", "id": "cell-2", "layout": { "width": 60, "height": 20 } },
+                { "type": "Container", "id": "cell-3", "layout": { "width": 60, "height": 20 } }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "justify-center",
+          "layout": {
+            "direction": "row",
+            "justify": "center",
+            "align": "end",
+            "height": 30,
+            "gap": "{space.2}"
+          },
+          "children": [
+            { "type": "Container", "id": "centered-a", "layout": { "width": 24, "height": 10 } },
+            { "type": "Container", "id": "centered-b", "layout": { "width": 24, "height": 20 } }
+          ]
+        }
+      ]
+    }
+  }
+}

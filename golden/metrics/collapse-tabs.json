@@ -1,0 +1,309 @@
+{
+  "view": "collapse-tabs",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 256,
+      "y": 234
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Container",
+        "ref": "accordion",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 220,
+          "height": 114
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Collapse",
+            "ref": "section-a",
+            "rect": {
+              "x": 8,
+              "y": 8,
+              "width": 220,
+              "height": 78
+            },
+            "states": [
+              "open"
+            ],
+            "children": [
+              {
+                "type": "Container",
+                "ref": "header-a",
+                "rect": {
+                  "x": 8,
+                  "y": 8,
+                  "width": 220,
+                  "height": 28
+                },
+                "style": {
+                  "background": "#1e293b",
+                  "radius": 6,
+                  "padding": 8
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "header-a-label",
+                    "rect": {
+                      "x": 82.422,
+                      "y": 16,
+                      "width": 71.156,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Sección A",
+                          "width": 71.156,
+                          "x": 82.422,
+                          "baseline": 30.484
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Container",
+                "ref": "content-a",
+                "rect": {
+                  "x": 8,
+                  "y": 36,
+                  "width": 220,
+                  "height": 50
+                },
+                "style": {
+                  "background": "#334155"
+                }
+              }
+            ]
+          },
+          {
+            "type": "Collapse",
+            "ref": "section-b",
+            "rect": {
+              "x": 8,
+              "y": 94,
+              "width": 220,
+              "height": 28
+            },
+            "children": [
+              {
+                "type": "Container",
+                "ref": "header-b",
+                "rect": {
+                  "x": 8,
+                  "y": 94,
+                  "width": 220,
+                  "height": 28
+                },
+                "style": {
+                  "background": "#1e293b",
+                  "radius": 6,
+                  "padding": 8
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "header-b-label",
+                    "rect": {
+                      "x": 81.98,
+                      "y": 102,
+                      "width": 72.039,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Sección B",
+                          "width": 72.039,
+                          "x": 81.98,
+                          "baseline": 116.484
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Container",
+                "ref": "content-b",
+                "out": "section"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "tabs",
+        "rect": {
+          "x": 8,
+          "y": 130,
+          "width": 240,
+          "height": 96
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "tab-bar",
+            "rect": {
+              "x": 8,
+              "y": 130,
+              "width": 148,
+              "height": 28
+            },
+            "style": {
+              "gap": 8
+            },
+            "children": [
+              {
+                "type": "Button",
+                "ref": "tab-0",
+                "rect": {
+                  "x": 8,
+                  "y": 130,
+                  "width": 70,
+                  "height": 28
+                },
+                "style": {
+                  "background": "#1e293b",
+                  "radius": 6
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "tab-0-label",
+                    "rect": {
+                      "x": 28.324,
+                      "y": 134.801,
+                      "width": 29.352,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Uno",
+                          "width": 29.352,
+                          "x": 28.324,
+                          "baseline": 149.285
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Button",
+                "ref": "tab-1",
+                "rect": {
+                  "x": 86,
+                  "y": 130,
+                  "width": 70,
+                  "height": 28
+                },
+                "states": [
+                  "selected"
+                ],
+                "style": {
+                  "background": "#4f46e5",
+                  "radius": 6
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "tab-1-label",
+                    "rect": {
+                      "x": 106.773,
+                      "y": 134.801,
+                      "width": 28.453,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Dos",
+                          "width": 28.453,
+                          "x": 106.773,
+                          "baseline": 149.285
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Container",
+            "ref": "panel-0",
+            "out": "section"
+          },
+          {
+            "type": "Container",
+            "ref": "panel-1",
+            "rect": {
+              "x": 8,
+              "y": 166,
+              "width": 240,
+              "height": 60
+            },
+            "style": {
+              "background": "#7c2d12"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

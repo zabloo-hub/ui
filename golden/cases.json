@@ -1,0 +1,79 @@
+{
+  "flex-layout": {
+    "envelope": "flex-layout.json",
+    "about": "The Yoga subset: direction, justify, align, gap, padding, grow, wrap."
+  },
+  "states-tokens": {
+    "envelope": "states-tokens.json",
+    "about": "Token resolution per node, the state merge order, autofocus and inherited opacity."
+  },
+  "bindings": {
+    "envelope": "bindings.json",
+    "about": "Bound text, bound visibility and a bound Toggle, fed through the data channel.",
+    "data": {
+      "player.gold": 1200,
+      "player.level": 7,
+      "shop.items": [{ "name": "Poción" }, { "name": "Espada" }],
+      "flags.premium": true,
+      "flags.banned": false,
+      "settings.sound": true
+    }
+  },
+  "text-wrap": {
+    "envelope": "text-wrap.json",
+    "about": "The normative wrap algorithm: break points, hard breaks, long words, maxLines, ellipsis, alignment and line height."
+  },
+  "scroll-clip": {
+    "envelope": "scroll-clip.json",
+    "about": "Scrollable extents on both axes, what a scrollable axis offers to a wrap, and clipped subtrees."
+  },
+  "collapse-tabs": {
+    "envelope": "collapse-tabs.json",
+    "about": "display:none semantics through a Collapse and an exclusive-select group."
+  },
+  "controls": {
+    "envelope": "controls.json",
+    "about": "Toggle slots, a radio group by value, both Slider axes with quantization, a bound ProgressBar and the Spinner wave.",
+    "data": { "download.progress": 0.35 }
+  },
+  "textinput": {
+    "envelope": "textinput.json",
+    "about": "Field geometry, the placeholder's empty state, a bound value and content that overflows its box.",
+    "data": { "form.city": "Barcelona" }
+  },
+  "transitions": {
+    "envelope": "transitions.json",
+    "about": "Tweened values at REST — the clock is run to the end of the longest duration, so this records where the motion settles.",
+    "data": { "job.progress": 0.25 },
+    "advanceMs": 400
+  },
+  "assets-image": {
+    "envelope": "assets-image.json",
+    "about": "Intrinsic size from the manifest and the three fit modes. Pixels are never decoded: layout does not need them."
+  },
+  "repeat": {
+    "envelope": "repeat.json",
+    "about": "A bound array expanded into instances, virtualized inside a scroller, plus the empty-state slot of an absent array.",
+    "data": {
+      "shop.items": [
+        { "id": "a", "name": "Poción" },
+        { "id": "b", "name": "Espada" },
+        { "id": "c", "name": "Escudo" },
+        { "id": "d", "name": "Arco" },
+        { "id": "e", "name": "Casco" },
+        { "id": "f", "name": "Botas" },
+        { "id": "g", "name": "Anillo" },
+        { "id": "h", "name": "Capa" },
+        { "id": "i", "name": "Daga" },
+        { "id": "j", "name": "Antorcha" },
+        { "id": "k", "name": "Cuerda" },
+        { "id": "l", "name": "Mapa" }
+      ]
+    }
+  },
+  "overlays": {
+    "envelope": "overlays.json",
+    "about": "The layer in (z, document order), a modal taking the focus with it, and a hover-triggered tooltip that is absent until its anchor lights up.",
+    "data": { "ui.modalOpen": true, "ui.toastOpen": true }
+  }
+}

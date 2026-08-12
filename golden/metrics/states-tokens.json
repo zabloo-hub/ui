@@ -1,0 +1,153 @@
+{
+  "view": "states-tokens",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": "primary",
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 184,
+      "y": 156
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 12,
+      "gap": 12
+    },
+    "children": [
+      {
+        "type": "Button",
+        "ref": "primary",
+        "rect": {
+          "x": 12,
+          "y": 12,
+          "width": 160,
+          "height": 44
+        },
+        "states": [
+          "focused"
+        ],
+        "style": {
+          "background": "#4f46e5",
+          "color": "#f8fafc",
+          "borderColor": "#facc15",
+          "borderWidth": 2,
+          "radius": 6,
+          "padding": 12
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "primary-label",
+            "rect": {
+              "x": 24,
+              "y": 24.801,
+              "width": 62.234,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#f8fafc"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Comprar",
+                  "width": 62.234,
+                  "x": 24,
+                  "baseline": 39.285
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "Button",
+        "ref": "secondary",
+        "rect": {
+          "x": 12,
+          "y": 68,
+          "width": 160,
+          "height": 44
+        },
+        "style": {
+          "background": "#3f3f46",
+          "borderColor": "#facc15",
+          "radius": 6,
+          "padding": 12
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "secondary-label",
+            "rect": {
+              "x": 24,
+              "y": 80.801,
+              "width": 64.031,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#f8fafc"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Cancelar",
+                  "width": 64.031,
+                  "x": 24,
+                  "baseline": 95.285
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "Container",
+        "ref": "faded",
+        "rect": {
+          "x": 12,
+          "y": 124,
+          "width": 80,
+          "height": 20
+        },
+        "style": {
+          "background": "#4f46e5",
+          "opacity": 0.5
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "faded-child",
+            "rect": {
+              "x": 12,
+              "y": 124,
+              "width": 20,
+              "height": 20
+            },
+            "style": {
+              "background": "#f8fafc",
+              "opacity": 0.5
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

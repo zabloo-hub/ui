@@ -1,0 +1,101 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.text": "#e2e8f0",
+    "space.2": 8
+  },
+  "views": {
+    "bindings": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Text",
+          "id": "static-text",
+          "text": "Oro",
+          "style": { "color": "{color.text}" }
+        },
+        {
+          "type": "Text",
+          "id": "bound-text",
+          "text": { "bind": "player.gold" },
+          "style": { "color": "{color.text}" }
+        },
+        {
+          "type": "Text",
+          "id": "bound-number",
+          "text": { "bind": "player.level" },
+          "style": { "color": "{color.text}" }
+        },
+        {
+          "type": "Text",
+          "id": "bound-missing",
+          "text": { "bind": "player.nothing.here" },
+          "style": { "color": "{color.text}" }
+        },
+        {
+          "type": "Text",
+          "id": "bound-deep",
+          "text": { "bind": "shop.items.1.name" },
+          "style": { "color": "{color.text}" }
+        },
+        {
+          "type": "Container",
+          "id": "bound-visible-on",
+          "visible": { "bind": "flags.premium" },
+          "layout": { "width": 60, "height": 20 },
+          "style": { "background": "#22c55e" }
+        },
+        {
+          "type": "Container",
+          "id": "bound-visible-off",
+          "visible": { "bind": "flags.banned" },
+          "layout": { "width": 60, "height": 20 },
+          "style": { "background": "#ef4444" }
+        },
+        {
+          "type": "Container",
+          "id": "static-invisible",
+          "visible": false,
+          "layout": { "width": 60, "height": 20 },
+          "style": { "background": "#ef4444" }
+        },
+        {
+          "type": "Toggle",
+          "id": "bound-toggle",
+          "checked": { "bind": "settings.sound" },
+          "onChange": "sound-changed",
+          "layout": { "direction": "row", "align": "center", "gap": "{space.2}", "height": 24 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "toggle-on",
+              "layout": { "width": 16, "height": 16 },
+              "style": { "background": "#22c55e" }
+            },
+            {
+              "type": "Container",
+              "id": "toggle-off",
+              "layout": { "width": 16, "height": 16 },
+              "style": { "background": "#3f3f46" }
+            },
+            {
+              "type": "Text",
+              "id": "toggle-label",
+              "text": "Sonido",
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

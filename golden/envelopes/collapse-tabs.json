@@ -1,0 +1,158 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.panel": "#1e293b",
+    "color.text": "#e2e8f0",
+    "color.accent": "#4f46e5",
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "views": {
+    "collapse-tabs": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Container",
+          "id": "accordion",
+          "group": "exclusive-open",
+          "layout": { "direction": "column", "align": "start", "gap": "{space.2}", "width": 220 },
+          "children": [
+            {
+              "type": "Collapse",
+              "id": "section-a",
+              "open": true,
+              "layout": { "direction": "column", "align": "start", "width": 220 },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "header-a",
+                  "layout": {
+                    "width": 220,
+                    "height": 28,
+                    "align": "center",
+                    "padding": "{space.2}"
+                  },
+                  "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "header-a-label",
+                      "text": "Sección A",
+                      "style": { "color": "{color.text}" }
+                    }
+                  ]
+                },
+                {
+                  "type": "Container",
+                  "id": "content-a",
+                  "layout": { "width": 220, "height": 50 },
+                  "style": { "background": "#334155" }
+                }
+              ]
+            },
+            {
+              "type": "Collapse",
+              "id": "section-b",
+              "open": false,
+              "layout": { "direction": "column", "align": "start", "width": 220 },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "header-b",
+                  "layout": {
+                    "width": 220,
+                    "height": 28,
+                    "align": "center",
+                    "padding": "{space.2}"
+                  },
+                  "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "header-b-label",
+                      "text": "Sección B",
+                      "style": { "color": "{color.text}" }
+                    }
+                  ]
+                },
+                {
+                  "type": "Container",
+                  "id": "content-b",
+                  "layout": { "width": 220, "height": 50 },
+                  "style": { "background": "#475569" }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "tabs",
+          "group": "exclusive-select",
+          "selected": 1,
+          "layout": { "direction": "column", "align": "start", "gap": "{space.2}", "width": 240 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "tab-bar",
+              "layout": { "direction": "row", "gap": "{space.2}" },
+              "children": [
+                {
+                  "type": "Button",
+                  "id": "tab-0",
+                  "layout": { "width": 70, "height": 28, "justify": "center", "align": "center" },
+                  "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+                  "states": { "selected": { "style": { "background": "{color.accent}" } } },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "tab-0-label",
+                      "text": "Uno",
+                      "style": { "color": "{color.text}" }
+                    }
+                  ]
+                },
+                {
+                  "type": "Button",
+                  "id": "tab-1",
+                  "layout": { "width": 70, "height": 28, "justify": "center", "align": "center" },
+                  "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+                  "states": { "selected": { "style": { "background": "{color.accent}" } } },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "tab-1-label",
+                      "text": "Dos",
+                      "style": { "color": "{color.text}" }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "panel-0",
+              "layout": { "width": 240, "height": 60 },
+              "style": { "background": "#166534" }
+            },
+            {
+              "type": "Container",
+              "id": "panel-1",
+              "layout": { "width": 240, "height": 60 },
+              "style": { "background": "#7c2d12" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

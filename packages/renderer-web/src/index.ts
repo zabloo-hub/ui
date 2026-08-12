@@ -7,4 +7,14 @@
  * canvas; today it powers the `zabloo dev` live preview.
  */
 
+export {
+  type ClipSnapshot,
+  type LayerSnapshot,
+  type LineSnapshot,
+  type NodeSnapshot,
+  type RectSnapshot,
+  serializeSnapshot,
+  type TextSnapshot,
+  type ViewSnapshot,
+} from "./snapshot.js";
 export { type MountOptions, mount, type ZablooHandle } from "./view.js";
