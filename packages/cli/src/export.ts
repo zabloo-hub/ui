@@ -15,7 +15,14 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { type Envelope, IR_VERSION, type TokenValue, type ZNode } from "@zabloo/format";
+import {
+  type Envelope,
+  EnvelopeError,
+  IR_VERSION,
+  readEnvelope,
+  type TokenValue,
+  type ZNode,
+} from "@zabloo/format";
 import { createJiti, type Jiti } from "jiti";
 import { collectAssets } from "./assets.js";
 
@@ -39,7 +46,10 @@ export interface ExportResult {
   assets: Array<{ id: string; bytes: number }>;
   /** Decoded bytes across the asset manifest. */
   assetBytes: number;
-  /** Size warnings from the asset pass, for the CLI summary. */
+  /**
+   * What the CLI summary prints as `⚠`: the asset pass's size warnings and every
+   * `warn` the envelope validation found (dangling tokens, dropped props, …).
+   */
   warnings: string[];
 }
 
@@ -101,6 +111,18 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
   if (Object.keys(collected.assets).length > 0) {
     envelope.assets = collected.assets;
   }
+
+  // The export is the last place an authoring error is cheap to fix, so the
+  // envelope is validated BEFORE it is written (ZAB-37). What is written is the
+  // tree the author's components produced, never the repaired one: silently
+  // dropping a node from the artifact would hide the bug the warning just named.
+  const { envelope: loadable, diagnostics } = readEnvelope(envelope);
+  const warnings = [...collected.warnings];
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.level === "warn") warnings.push(diagnostic.message);
+  }
+  if (loadable === null) throw new EnvelopeError(diagnostics);
+
   const outDir = resolve(root, config.outDir ?? "dist");
   await mkdir(outDir, { recursive: true });
   const outFile = join(outDir, "zabloo.ir.json");
@@ -110,7 +132,7 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
     viewIds: Object.keys(views),
     assets: Object.entries(collected.assets).map(([id, entry]) => ({ id, bytes: entry.size })),
     assetBytes: collected.totalBytes,
-    warnings: collected.warnings,
+    warnings,
   };
 }
 

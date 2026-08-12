@@ -29,7 +29,6 @@ import {
   type ItemScope,
   itemKey,
   itemPath,
-  parseEnvelope,
   type RepeatNode,
   type ResolvedBind,
   resolveBinding,
@@ -44,6 +43,7 @@ import { ImageLibrary } from "./assets.js";
 import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
 import { closedHeight, collapseTarget } from "./collapse.js";
 import { affects, DataStore } from "./data.js";
+import { loadEnvelope } from "./envelope.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
@@ -243,7 +243,14 @@ export interface MountOptions {
 
 export interface ZablooHandle {
   readonly viewIds: string[];
-  /** Same loading path as the SDK: any versioned payload (dev push, hot-update). */
+  /**
+   * Same loading path as the SDK: any versioned payload (dev push, hot-update).
+   *
+   * It never throws (decision 2026-08-12, ZAB-37). A payload the validator refuses —
+   * truncated, corrupt, a major version this reader does not implement — is reported
+   * to the console and DISCARDED: the envelope currently on screen stays exactly as
+   * it is. A bad hot-update costs the player an update, never their session.
+   */
   reload(envelope: string | object): void;
   /** The game/page data channel — bound Text/visible/checked react (cached + replayed). */
   setData(path: string, value: unknown): void;
@@ -259,17 +266,22 @@ export interface ZablooHandle {
   dispose(): void;
 }
 
+/**
+ * Mounts an envelope on a canvas. JSON text or a parsed value, both fine.
+ *
+ * Warnings from the validator go to the console and the load continues without the
+ * broken parts; a FATAL one throws an `EnvelopeError` whose message names the field
+ * and the version (decision 2026-08-12, ZAB-37). It throws here — and only here —
+ * because there is no previous UI to protect: the caller has to hear that its
+ * payload never became a view. Once mounted, `reload` swallows the same failure.
+ */
 export function mount(
   canvas: HTMLCanvasElement,
   envelope: string | object,
   options: MountOptions = {},
 ): ZablooHandle {
-  const view = new WebView(canvas, toEnvelope(envelope), options);
+  const view = new WebView(canvas, loadEnvelope(envelope), options);
   return view.handle();
-}
-
-function toEnvelope(input: string | object): Envelope {
-  return parseEnvelope(typeof input === "string" ? JSON.parse(input) : input);
 }
 
 class WebView {
@@ -403,7 +415,17 @@ class WebView {
     return {
       viewIds: Object.keys(this.envelope.views),
       reload: (input) => {
-        this.envelope = toEnvelope(input);
+        // A corrupt hot-update never takes down a UI that is already on screen
+        // (decision 2026-08-12, ZAB-37): it reports and the current envelope stays.
+        let next: Envelope;
+        try {
+          next = loadEnvelope(input);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          console.warn(`[zabloo] reload rejected, keeping the current envelope — ${detail}`);
+          return;
+        }
+        this.envelope = next;
         if (!this.envelope.views[this.viewId]) {
           this.viewId = Object.keys(this.envelope.views)[0];
         }
@@ -2141,10 +2163,12 @@ class WebView {
       value.startsWith("{") &&
       value.endsWith("}")
     ) {
-      const key = value.slice(1, -1);
-      const resolved = this.envelope.tokens[key];
-      if (resolved === undefined) console.warn(`[zabloo] Unknown design token ${value}`);
-      return resolved;
+      // A token the dictionary does not define resolves to "no value" and the
+      // property falls back to its default. It is not reported HERE: this runs on
+      // every style resolution, so the warning would repeat frame after frame —
+      // the load pass already emitted it once, naming the node and the property
+      // it sits on (decision 2026-08-12, ZAB-37).
+      return this.envelope.tokens[value.slice(1, -1)];
     }
     return value as TokenValue;
   }
