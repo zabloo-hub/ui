@@ -75,5 +75,16 @@
     "envelope": "overlays.json",
     "about": "The layer in (z, document order), a modal taking the focus with it, and a hover-triggered tooltip that is absent until its anchor lights up.",
     "data": { "ui.modalOpen": true, "ui.toastOpen": true }
+  },
+  "settings": {
+    "envelope": "settings.json",
+    "about": "The whole F5 catalog composed as one screen: the selected tab's panel in the layout and the other out of it, a select whose anchored popover stays closed, and a toggle, a slider and a field all reading their value from the data.",
+    "data": {
+      "settings.quality": "Alta",
+      "settings.fullscreen": true,
+      "settings.brightness": 60,
+      "settings.volume": 0.8,
+      "profile.name": "Sergi"
+    }
   }
 }

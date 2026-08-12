@@ -1,0 +1,751 @@
+{
+  "view": "settings",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 316,
+      "y": 223.594
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Container",
+        "ref": "settings-tabs",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 300,
+          "height": 207.594
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Container",
+            "ref": "tab-bar",
+            "rect": {
+              "x": 8,
+              "y": 8,
+              "width": 137.844,
+              "height": 34.398
+            },
+            "style": {
+              "gap": 8
+            },
+            "children": [
+              {
+                "type": "Button",
+                "ref": "tab-general",
+                "rect": {
+                  "x": 8,
+                  "y": 8,
+                  "width": 72.922,
+                  "height": 34.398
+                },
+                "states": [
+                  "selected"
+                ],
+                "style": {
+                  "background": "#4f46e5",
+                  "radius": 6,
+                  "padding": 8
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "tab-general-label",
+                    "rect": {
+                      "x": 16,
+                      "y": 16,
+                      "width": 56.922,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "General",
+                          "width": 56.922,
+                          "x": 16,
+                          "baseline": 30.484
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Button",
+                "ref": "tab-audio",
+                "rect": {
+                  "x": 88.922,
+                  "y": 8,
+                  "width": 56.922,
+                  "height": 34.398
+                },
+                "style": {
+                  "background": "#262c3d",
+                  "radius": 6,
+                  "padding": 8
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "tab-audio-label",
+                    "rect": {
+                      "x": 96.922,
+                      "y": 16,
+                      "width": 40.922,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Audio",
+                          "width": 40.922,
+                          "x": 96.922,
+                          "baseline": 30.484
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Container",
+            "ref": "panel-general",
+            "rect": {
+              "x": 8,
+              "y": 50.398,
+              "width": 300,
+              "height": 165.195
+            },
+            "style": {
+              "background": "#1e293b",
+              "borderColor": "#3b4160",
+              "borderWidth": 1,
+              "radius": 6,
+              "padding": 8,
+              "gap": 8
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "quality-label",
+                "rect": {
+                  "x": 16,
+                  "y": 58.398,
+                  "width": 284,
+                  "height": 18.398
+                },
+                "measured": {
+                  "x": 54.258,
+                  "y": 18.398
+                },
+                "style": {
+                  "color": "#94a3b8"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Calidad",
+                      "width": 54.258,
+                      "x": 16,
+                      "baseline": 72.883
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                }
+              },
+              {
+                "type": "Button",
+                "ref": "quality",
+                "rect": {
+                  "x": 16,
+                  "y": 84.797,
+                  "width": 284,
+                  "height": 34.398
+                },
+                "style": {
+                  "background": "#20242f",
+                  "borderColor": "#3b4160",
+                  "borderWidth": 1,
+                  "radius": 6,
+                  "padding": 8
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "quality-value",
+                    "rect": {
+                      "x": 24,
+                      "y": 92.797,
+                      "width": 27.57,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Alta",
+                          "width": 27.57,
+                          "x": 24,
+                          "baseline": 107.281
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  },
+                  {
+                    "type": "Overlay",
+                    "ref": "quality-popover",
+                    "rect": {
+                      "x": 0,
+                      "y": 0,
+                      "width": 0,
+                      "height": 0
+                    },
+                    "style": {
+                      "padding": 8
+                    },
+                    "children": [
+                      {
+                        "type": "ScrollView",
+                        "ref": "quality-list",
+                        "rect": {
+                          "x": 0,
+                          "y": 0,
+                          "width": 0,
+                          "height": 0
+                        },
+                        "style": {
+                          "background": "#20242f",
+                          "borderColor": "#3b4160",
+                          "borderWidth": 1,
+                          "radius": 6,
+                          "padding": 4
+                        },
+                        "scroll": {
+                          "x": 0,
+                          "y": 0,
+                          "maxX": 0,
+                          "maxY": 0
+                        },
+                        "children": [
+                          {
+                            "type": "Container",
+                            "ref": "quality-options",
+                            "rect": {
+                              "x": 0,
+                              "y": 0,
+                              "width": 0,
+                              "height": 0
+                            },
+                            "clip": {
+                              "x": 0,
+                              "y": 0,
+                              "width": 0,
+                              "height": 0,
+                              "radius": 0
+                            },
+                            "children": [
+                              {
+                                "type": "Toggle",
+                                "ref": "quality-baja",
+                                "rect": {
+                                  "x": 0,
+                                  "y": 0,
+                                  "width": 0,
+                                  "height": 0
+                                },
+                                "style": {
+                                  "padding": 8,
+                                  "gap": 8
+                                },
+                                "clip": {
+                                  "x": 0,
+                                  "y": 0,
+                                  "width": 0,
+                                  "height": 0,
+                                  "radius": 0
+                                },
+                                "value": 0,
+                                "children": [
+                                  {
+                                    "type": "Container",
+                                    "ref": "quality-baja-on",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "background": "#4f46e5",
+                                      "radius": 999,
+                                      "opacity": 0
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  },
+                                  {
+                                    "type": "Container",
+                                    "ref": "quality-baja-off",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "background": "#3f3f46",
+                                      "radius": 999
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  },
+                                  {
+                                    "type": "Text",
+                                    "ref": "quality-baja-label",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "color": "#e2e8f0"
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "Toggle",
+                                "ref": "quality-media",
+                                "rect": {
+                                  "x": 0,
+                                  "y": 0,
+                                  "width": 0,
+                                  "height": 0
+                                },
+                                "style": {
+                                  "padding": 8,
+                                  "gap": 8
+                                },
+                                "clip": {
+                                  "x": 0,
+                                  "y": 0,
+                                  "width": 0,
+                                  "height": 0,
+                                  "radius": 0
+                                },
+                                "value": 0,
+                                "children": [
+                                  {
+                                    "type": "Container",
+                                    "ref": "quality-media-on",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "background": "#4f46e5",
+                                      "radius": 999,
+                                      "opacity": 0
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  },
+                                  {
+                                    "type": "Container",
+                                    "ref": "quality-media-off",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "background": "#3f3f46",
+                                      "radius": 999
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  },
+                                  {
+                                    "type": "Text",
+                                    "ref": "quality-media-label",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "color": "#e2e8f0"
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "Toggle",
+                                "ref": "quality-alta",
+                                "rect": {
+                                  "x": 0,
+                                  "y": 0,
+                                  "width": 0,
+                                  "height": 0
+                                },
+                                "states": [
+                                  "checked"
+                                ],
+                                "style": {
+                                  "padding": 8,
+                                  "gap": 8
+                                },
+                                "clip": {
+                                  "x": 0,
+                                  "y": 0,
+                                  "width": 0,
+                                  "height": 0,
+                                  "radius": 0
+                                },
+                                "value": 1,
+                                "children": [
+                                  {
+                                    "type": "Container",
+                                    "ref": "quality-alta-on",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "background": "#4f46e5",
+                                      "radius": 999
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  },
+                                  {
+                                    "type": "Container",
+                                    "ref": "quality-alta-off",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "background": "#3f3f46",
+                                      "radius": 999,
+                                      "opacity": 0
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  },
+                                  {
+                                    "type": "Text",
+                                    "ref": "quality-alta-label",
+                                    "rect": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0
+                                    },
+                                    "style": {
+                                      "color": "#e2e8f0"
+                                    },
+                                    "clip": {
+                                      "x": 0,
+                                      "y": 0,
+                                      "width": 0,
+                                      "height": 0,
+                                      "radius": 0
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Toggle",
+                "ref": "fullscreen",
+                "rect": {
+                  "x": 16,
+                  "y": 127.195,
+                  "width": 284,
+                  "height": 24
+                },
+                "measured": {
+                  "x": 171.188,
+                  "y": 24
+                },
+                "states": [
+                  "checked"
+                ],
+                "style": {
+                  "gap": 8
+                },
+                "value": 1,
+                "children": [
+                  {
+                    "type": "Container",
+                    "ref": "fullscreen-on",
+                    "rect": {
+                      "x": 16,
+                      "y": 129.195,
+                      "width": 36,
+                      "height": 20
+                    },
+                    "style": {
+                      "background": "#4f46e5",
+                      "radius": 999
+                    },
+                    "children": [
+                      {
+                        "type": "Container",
+                        "ref": "fullscreen-knob-on",
+                        "rect": {
+                          "x": 26,
+                          "y": 133.195,
+                          "width": 16,
+                          "height": 16
+                        },
+                        "style": {
+                          "background": "#ffffff",
+                          "radius": 999
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Container",
+                    "ref": "fullscreen-off",
+                    "rect": {
+                      "x": 16,
+                      "y": 129.195,
+                      "width": 36,
+                      "height": 20
+                    },
+                    "style": {
+                      "background": "#3f3f46",
+                      "radius": 999,
+                      "opacity": 0
+                    },
+                    "children": [
+                      {
+                        "type": "Container",
+                        "ref": "fullscreen-knob-off",
+                        "rect": {
+                          "x": 26,
+                          "y": 129.195,
+                          "width": 16,
+                          "height": 16
+                        },
+                        "style": {
+                          "background": "#94a3b8",
+                          "radius": 999
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Text",
+                    "ref": "fullscreen-label",
+                    "rect": {
+                      "x": 60,
+                      "y": 129.996,
+                      "width": 127.188,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Pantalla completa",
+                          "width": 127.188,
+                          "x": 60,
+                          "baseline": 144.48
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Slider",
+                "ref": "brightness",
+                "rect": {
+                  "x": 16,
+                  "y": 159.195,
+                  "width": 284,
+                  "height": 6
+                },
+                "style": {
+                  "background": "#3f3f46",
+                  "radius": 999
+                },
+                "value": 60,
+                "children": [
+                  {
+                    "type": "Container",
+                    "ref": "brightness-fill",
+                    "rect": {
+                      "x": 16,
+                      "y": 159.195,
+                      "width": 170.4,
+                      "height": 6
+                    },
+                    "measured": {
+                      "x": 0,
+                      "y": 0
+                    },
+                    "style": {
+                      "background": "#4f46e5",
+                      "radius": 999
+                    }
+                  },
+                  {
+                    "type": "Container",
+                    "ref": "brightness-thumb",
+                    "rect": {
+                      "x": 176.8,
+                      "y": 154.195,
+                      "width": 16,
+                      "height": 16
+                    },
+                    "style": {
+                      "background": "#ffffff",
+                      "radius": 999
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "TextInput",
+                "ref": "player-name",
+                "rect": {
+                  "x": 16,
+                  "y": 173.195,
+                  "width": 284,
+                  "height": 34.398
+                },
+                "style": {
+                  "background": "#20242f",
+                  "color": "#e2e8f0",
+                  "borderColor": "#4f46e5",
+                  "radius": 6,
+                  "padding": 8
+                },
+                "field": {
+                  "text": "Sergi",
+                  "anchor": 0,
+                  "focus": 0,
+                  "scroll": 0
+                }
+              }
+            ]
+          },
+          {
+            "type": "Container",
+            "ref": "panel-audio",
+            "out": "section"
+          }
+        ]
+      }
+    ]
+  }
+}

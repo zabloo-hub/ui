@@ -17,7 +17,7 @@ pnpm build      # export the envelope to dist/zabloo.ir.json
 
 ## Project layout
 
-- `src/views/` — every `.tsx` here is one view of the envelope (filename = view ID).
+- `src/views/` — every `.tsx` here is one view of the envelope (filename = view ID). Two come with the project: `main-menu` and `settings` (tabs, a switch, a slider, a dropdown and a text field, all bound). The preview's view picker switches between them; in Unity, the one a document loads is its **View** field.
 - `src/components/` — your React components; they run at export time and emit zabloo primitives (they never reach the IR).
 - `src/assets/` — images (`.png`, `.jpg`); `<Image src="logo.png">` references them by path relative to this folder, and the export inlines them in the envelope.
 - `src/theme.ts` — design tokens (flat dictionary, hot-updatable) and component variants (resolved at export time).
