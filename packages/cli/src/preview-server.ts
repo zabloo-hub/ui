@@ -134,6 +134,8 @@ const PAGE = /* html */ `<!doctype html>
            border-radius: 6px; padding: 3px 8px; }
   #status { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
   #status.ok { background: #4ade80; }
+  #pad { color: #818cf8; letter-spacing: .04em; }
+  #pad.off { display: none; }
   #hint { margin-left: auto; color: #6b7280; }
   canvas { flex: 1; width: 100%; display: block; }
   #log { position: fixed; left: 12px; bottom: 12px; max-height: 30%; overflow: auto;
@@ -155,6 +157,7 @@ const PAGE = /* html */ `<!doctype html>
   <b>zabloo</b> preview
   <select id="views"></select>
   <span id="status" title="live connection"></span>
+  <span id="pad" class="off" title="d-pad/stick: focus · A: press · B: back · right stick: scroll">🎮 gamepad</span>
   <span id="hint">console: <code>zabloo.setData("player.gold", 900)</code></span>
 </header>
 <canvas id="canvas"></canvas>
@@ -326,6 +329,20 @@ const PAGE = /* html */ `<!doctype html>
   }
 
   views.addEventListener("change", () => load(views.value));
+
+  // Gamepad indicator (ZAB-47). The renderer polls the pad itself; the page only
+  // says whether there is one, so console navigation can be told apart from a
+  // controller the browser has not seen yet — it reports none until the first
+  // button press, which is the API's own rule, not a bug in the preview.
+  const padBadge = document.getElementById("pad");
+  function syncPad() {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const connected = [...pads].some((pad) => pad && pad.connected);
+    padBadge.classList.toggle("off", !connected);
+  }
+  window.addEventListener("gamepadconnected", syncPad);
+  window.addEventListener("gamepaddisconnected", syncPad);
+  syncPad();
 
   const events = new EventSource("/events");
   events.onopen = () => status.classList.add("ok");

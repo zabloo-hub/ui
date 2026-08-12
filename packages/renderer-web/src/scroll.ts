@@ -44,6 +44,30 @@ export function scrollbarThumb(
   return { start: clamp(offset / max, 0, 1) * (track - length), length };
 }
 
+/**
+ * How far one axis has to scroll to bring `[start, start + size]` inside the
+ * viewport `[viewStart, viewStart + viewSize]` — the auto-scroll that follows the
+ * focus (ZAB-47), which the ScrollView spec deferred to the gamepad phase.
+ *
+ * It is the SMALLEST move that does it, and 0 when the target already fits:
+ * navigating must not jump the list around under a player who can already see
+ * where the focus went. A target bigger than the viewport aligns its leading edge
+ * — the beginning of something too big is the useful half — unless it already
+ * covers the viewport, in which case it is as visible as it will ever be.
+ */
+export function revealDelta(
+  start: number,
+  size: number,
+  viewStart: number,
+  viewSize: number,
+): number {
+  const before = viewStart - start;
+  const after = start + Math.max(0, size) - (viewStart + viewSize);
+  if (before > 0 && after > 0) return 0;
+  if (before > 0) return -before;
+  return after > 0 ? Math.min(after, -before) : 0;
+}
+
 export function resolveScrollMax(
   direction: "row" | "column",
   axis: ScrollAxis | undefined,

@@ -44,6 +44,16 @@ import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
 import { closedHeight, collapseTarget } from "./collapse.js";
 import { affects, DataStore } from "./data.js";
 import { loadEnvelope } from "./envelope.js";
+import {
+  activePad,
+  type Direction,
+  type PadIntent,
+  type RepeatState as PadRepeat,
+  type PadSnapshot,
+  readPad,
+  scrollDelta,
+  stepRepeat,
+} from "./gamepad.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary } from "./glyphs.js";
@@ -87,7 +97,7 @@ import {
   visibleSpan,
   windowSlots,
 } from "./repeat.js";
-import { clamp, scrollbarThumb } from "./scroll.js";
+import { clamp, revealDelta, scrollbarThumb } from "./scroll.js";
 import { clampSelected, resolveTabsGroup } from "./select.js";
 import {
   growsUpward,
@@ -192,6 +202,34 @@ interface ScrollDrag {
 
 /** Below this many px of pointer travel, a gesture still counts as a click/tap. */
 const DRAG_THRESHOLD = 4;
+
+/**
+ * The parts of a `keydown` the view reads. A real `KeyboardEvent` satisfies it as
+ * it comes, and the gamepad synthesizes one (ZAB-47) — which is what lets a d-pad
+ * walk a TextInput's caret through the very same code the arrows go through,
+ * instead of a second copy of the rules that would drift from it.
+ */
+interface KeyIntent {
+  key: string;
+  shiftKey: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  /** Whether the key is auto-repeating: a held Enter must not re-fire `onSubmit`. */
+  repeat: boolean;
+  preventDefault(): void;
+}
+
+/** A synthetic arrow press, for the gamepad directions that reach a focused field. */
+function arrowIntent(key: string): KeyIntent {
+  return {
+    key,
+    shiftKey: false,
+    metaKey: false,
+    ctrlKey: false,
+    repeat: false,
+    preventDefault() {},
+  };
+}
 
 /**
  * A Slider gesture in flight (pointer or held arrow key). `from` is the value it
@@ -349,6 +387,19 @@ class WebView {
   private backdropPress: LayoutNode | null = null;
   /** Pending self-scheduled frame, while a transition is in flight. */
   private frame: number | null = null;
+  /**
+   * The gamepad's own frame loop (ZAB-47). The Gamepad API is polled, never
+   * pushed, and the view otherwise paints on change only — so a pad needs a loop
+   * of its own, alive exactly while one is connected.
+   */
+  private padPoll: number | null = null;
+  /** The pad's state on the previous poll: what turns a held button into an edge. */
+  private padHeld: Direction | null = null;
+  private padRepeat: PadRepeat | null = null;
+  private padPress = false;
+  private padBack = false;
+  /** When the previous poll ran — the scroll stick moves px per SECOND, not per frame. */
+  private padTime = 0;
   /** Set by the resolve pass when any node still has a tween running. */
   private animating = false;
   /** Our TTF rasterizer, once its WASM has loaded (see `loadRasterizer`). */
@@ -1562,7 +1613,40 @@ class WebView {
     }
     if (best) {
       this.setFocus(best);
+      this.revealFocused(best);
       this.render();
+    }
+  }
+
+  /**
+   * Brings the node the focus just moved to into view — the auto-scroll the
+   * ScrollView spec deferred to "the gamepad phase" (2026-08-11, ZAB-9). Without
+   * it, directional navigation walks into rows that are scrolled out of sight:
+   * the focus is real and its highlight invisible, and a pad has no wheel to go
+   * looking for it. It is SDK behavior, not IR: nothing new to author.
+   *
+   * It bubbles the way the browser's `scrollIntoView` does — each scroller reveals
+   * the child of its own that contains the focus, which is the node itself for the
+   * innermost one and the scroller below it for every one above. That converges in
+   * one pass instead of measuring an inner rect the inner scroll has just moved.
+   *
+   * Only navigation calls it: a pointer press focuses what the player is already
+   * looking at, and the focus a modal restores lands during a render, where a
+   * scroll of its own would be a frame late anyway.
+   */
+  private revealFocused(node: LayoutNode): void {
+    let target: LayoutNode = node;
+    let scroller = this.scrollerOf(node);
+    while (scroller) {
+      const view = deflate(scroller.rect, scroller.resolved.padding ?? 0);
+      this.setScrollOffset(
+        scroller,
+        scroller.scrollOffset.x + revealDelta(target.rect.x, target.rect.width, view.x, view.width),
+        scroller.scrollOffset.y +
+          revealDelta(target.rect.y, target.rect.height, view.y, view.height),
+      );
+      target = scroller;
+      scroller = this.scrollerOf(scroller);
     }
   }
 
@@ -1574,8 +1658,11 @@ class WebView {
    *
    * Typing never reaches here: characters, composition and paste arrive as `input`
    * events on the hidden field. This owns only the caret, deletion and submission.
+   *
+   * It takes an INTENT, not an event, so the gamepad's d-pad enters and leaves a
+   * field by exactly the same rule as the arrows (ZAB-47).
    */
-  private editKey(event: KeyboardEvent): boolean {
+  private editKey(event: KeyIntent): boolean {
     const node = this.focusedNode;
     if (node?.ir.type !== "TextInput" || !inLayout(node)) return false;
     const shortcut = event.metaKey || event.ctrlKey;
@@ -1667,6 +1754,138 @@ class WebView {
     } else if (node.parent) {
       this.setCollapseOpen(node.parent, !node.parent.open);
     }
+  }
+
+  // --- gamepad (ZAB-47) ---
+  // One more source of input over the machinery that already exists: the pad
+  // resolves to the intentions the keyboard produces (a direction, a press, a
+  // dismiss, a scroll) and feeds them into the very same handlers. `gamepad.ts`
+  // owns the rules; this owns the loop that runs them and where they land.
+
+  /** The pads the browser reports, with the stale entries of an unplugged one dropped. */
+  private pads(): readonly (PadSnapshot | null)[] {
+    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return [];
+    return navigator.getGamepads().map((pad) => (pad?.connected ? pad : null));
+  }
+
+  /** Starts or stops the poll loop to match what is plugged in. */
+  private syncPad(): void {
+    if (activePad(this.pads())) this.startPad();
+    else this.stopPad();
+  }
+
+  /**
+   * The Gamepad API is polled, never pushed: a held button is a state, not an
+   * event, so the only way to read one is a frame. Hence a loop of its own —
+   * separate from `scheduleFrame`, which exists to finish a transition and stops
+   * as soon as one ends. It runs exactly while a pad is connected: a preview with
+   * no pad schedules nothing and costs what it always did.
+   */
+  private startPad(): void {
+    if (this.padPoll !== null || typeof globalThis.requestAnimationFrame !== "function") return;
+    this.padTime = now();
+    const poll = () => {
+      this.padPoll = globalThis.requestAnimationFrame(poll);
+      this.pollPad();
+    };
+    this.padPoll = globalThis.requestAnimationFrame(poll);
+  }
+
+  private stopPad(): void {
+    if (this.padPoll === null) return;
+    globalThis.cancelAnimationFrame(this.padPoll);
+    this.padPoll = null;
+    // A pad unplugged mid-press CANCELS it, the way a pointer that leaves the
+    // control does: pulling a cable is not how a player buys something.
+    if (this.padPress && this.focusedNode?.pressed) {
+      this.focusedNode.pressed = false;
+      this.render();
+    }
+    // A slider being nudged when the pad went away still settles: `onCommit` is
+    // "the value the player left it at", and that value is on screen.
+    if (this.padRepeat && this.sliderKeys) {
+      const gesture = this.sliderKeys;
+      this.sliderKeys = null;
+      this.commitSlider(gesture);
+    }
+    this.padHeld = null;
+    this.padRepeat = null;
+    this.padPress = false;
+    this.padBack = false;
+  }
+
+  /** One poll: read the pad, then hand each intention to the handler that owns it. */
+  private pollPad(): void {
+    if (this.disposed) return;
+    const time = now();
+    const elapsed = time - this.padTime;
+    this.padTime = time;
+    const pad = activePad(this.pads());
+    if (!pad) return;
+    const intent = readPad(pad, this.padHeld);
+    this.padHeld = intent.direction;
+    this.padDirection(intent, time);
+    this.padButtons(intent);
+    this.padScroll(intent, elapsed);
+  }
+
+  /**
+   * A held direction on the repeat clock. The browser gives the arrow keys their
+   * repeat for free; a pad has to be told, which is the whole of `stepRepeat`.
+   */
+  private padDirection(intent: PadIntent, time: number): void {
+    const step = stepRepeat(this.padRepeat, intent.direction, time);
+    const released = this.padRepeat !== null && step.state === null;
+    this.padRepeat = step.state;
+    // Letting go of the direction ends a Slider gesture, the same commit the
+    // `keyup` of an arrow fires — both ways of moving a slider settle alike.
+    if (released && this.sliderKeys) {
+      const gesture = this.sliderKeys;
+      this.sliderKeys = null;
+      this.commitSlider(gesture);
+    }
+    if (!step.fire || !step.state) return;
+    const [dx, dy] = step.state.direction;
+    // The keyboard's own cascade, in the same order: the focused field's caret
+    // first (it gives the key back at the end of the text, so the player leaves
+    // it with the d-pad instead of being trapped — decision 2026-08-11, ZAB-26),
+    // then a Slider's own axis, and only then the focus itself.
+    if (this.editKey(arrowIntent(arrowKey(step.state.direction)))) return;
+    const focused = this.focusedNode;
+    if (this.sliderAxisKey(focused, dx)) {
+      this.nudgeSlider(focused, dx, dy);
+      return;
+    }
+    this.moveFocus(dx, dy);
+  }
+
+  /** A (press the focused node) and B (back), on their edges — a hold is not a stream. */
+  private padButtons(intent: PadIntent): void {
+    if (intent.press !== this.padPress) {
+      this.padPress = intent.press;
+      this.pressFocused(intent.press);
+    }
+    if (intent.back !== this.padBack) {
+      this.padBack = intent.back;
+      // B is Escape: a dismiss request for the modal that owns input, and
+      // nothing at all when no overlay is up.
+      const modal = intent.back ? topModal(this.layer) : null;
+      if (modal) this.requestDismiss(modal);
+    }
+  }
+
+  /** The right stick scrolls the ScrollView the focus lives in — px per second, not per frame. */
+  private padScroll(intent: PadIntent, elapsed: number): void {
+    if (intent.scroll.x === 0 && intent.scroll.y === 0) return;
+    const focused = this.focusedNode;
+    const scroller = focused && inLayout(focused) ? this.scrollerOf(focused) : null;
+    if (!scroller) return;
+    const delta = scrollDelta(intent.scroll, elapsed);
+    this.setScrollOffset(
+      scroller,
+      scroller.scrollOffset.x + delta.x,
+      scroller.scrollOffset.y + delta.y,
+    );
   }
 
   // --- overlay layer (decision 2026-08-11, ZAB-19) ---
@@ -2082,6 +2301,11 @@ class WebView {
       if (this.setHover(null)) this.render();
     };
     const resize = () => this.resize();
+    // Connect/disconnect is all the Gamepad API pushes — the buttons are polled.
+    // A pad that was already announced before this view mounted is picked up by
+    // the same call, which is why it also runs once here.
+    const padChanged = () => this.syncPad();
+    this.syncPad();
 
     this.canvas.addEventListener("pointerdown", down);
     this.canvas.addEventListener("pointermove", move);
@@ -2091,6 +2315,8 @@ class WebView {
     globalThis.addEventListener("keydown", keydown);
     globalThis.addEventListener("keyup", keyup);
     globalThis.addEventListener("resize", resize);
+    globalThis.addEventListener("gamepadconnected", padChanged);
+    globalThis.addEventListener("gamepaddisconnected", padChanged);
     this.disposers.push(() => {
       this.canvas.removeEventListener("pointerdown", down);
       this.canvas.removeEventListener("pointermove", move);
@@ -2100,6 +2326,9 @@ class WebView {
       globalThis.removeEventListener("keydown", keydown);
       globalThis.removeEventListener("keyup", keyup);
       globalThis.removeEventListener("resize", resize);
+      globalThis.removeEventListener("gamepadconnected", padChanged);
+      globalThis.removeEventListener("gamepaddisconnected", padChanged);
+      this.stopPad();
     });
   }
 
@@ -2799,6 +3028,12 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
 };
+
+/** `KEY_DIRECTIONS` the other way round: the arrow a gamepad direction stands in for. */
+function arrowKey([dx, dy]: Direction): string {
+  if (dx !== 0) return dx > 0 ? "ArrowRight" : "ArrowLeft";
+  return dy > 0 ? "ArrowDown" : "ArrowUp";
+}
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
