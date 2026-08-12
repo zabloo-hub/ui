@@ -62,6 +62,19 @@ export class GeometryBuilder {
     this.group = this.openGroup(clip);
   }
 
+  /**
+   * Starts a new group unconditionally: what a PAINT ROOT needs, and the only
+   * thing `setClip` cannot express — two roots may share a clipping region (both
+   * unclipped, typically) and still have to be ordered one after the other.
+   *
+   * Without it an overlay entry would keep filling the tree's group, and since a
+   * group draws solids before text, the tree's glyphs would come out ON TOP of an
+   * opaque panel floating above them (found in the preview, ZAB-25).
+   */
+  startRoot(clip: Clip | null = null): void {
+    this.group = this.openGroup(clip);
+  }
+
   private openGroup(clip: Clip | null): ClipGroup {
     const group: ClipGroup = {
       clip,

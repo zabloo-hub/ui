@@ -206,6 +206,33 @@ describe("GeometryBuilder.image", () => {
 
     expect(geometry.batches().map((b) => b.texture)).toEqual([null, image, atlas]);
   });
+
+  it("startRoot orders a later paint root's solids OVER an earlier root's text", () => {
+    // The overlay-layer bug found in the preview (ZAB-25): both roots are
+    // unclipped, so `setClip` sees no change and they would share one group —
+    // where every solid is drawn before every glyph, putting the tree's text on
+    // top of a panel floating above it.
+    const geometry = new GeometryBuilder();
+    const atlas = { version: 1, bitmap: {} } as unknown as GlyphAtlas;
+    geometry.text(0, 0, "", atlas, [1, 1, 1, 1]); // the tree's label
+    geometry.startRoot();
+    geometry.roundedRect(RECT, 0, [1, 0, 0, 1]); // the dropdown's panel
+
+    // Two groups, in painter's order: the panel's solid comes after the label.
+    expect(geometry.batches().map((b) => b.texture)).toEqual([null, atlas, null]);
+    const [, label, panel] = geometry.batches();
+    expect(label.indices.length).toBe(0); // empty string: no glyphs, but its own batch
+    expect(panel.indices.length).toBeGreaterThan(0);
+  });
+
+  it("startRoot opens a group even when the clip is unchanged", () => {
+    const geometry = new GeometryBuilder();
+    geometry.roundedRect(RECT, 0, [1, 0, 0, 1]);
+    geometry.startRoot();
+    geometry.roundedRect(RECT, 0, [0, 1, 0, 1]);
+
+    expect(geometry.batches().filter((b) => b.indices.length > 0)).toHaveLength(2);
+  });
 });
 
 describe("GeometryBuilder.setClip", () => {

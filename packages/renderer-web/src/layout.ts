@@ -127,6 +127,14 @@ export interface LayoutNode {
    * from the trough instead of jumping into the middle of a cycle.
    */
   loopStartedAt: number | null;
+  /**
+   * `Overlay` with `anchor.trigger: "press"` only: whether the popover is open
+   * (decision 2026-08-12, ZAB-25). Runtime state the renderer owns, like the
+   * Collapse's `open` — the anchor's press toggles it, and a dismiss or a
+   * selection inside closes it. Every other overlay ignores it: what puts those
+   * in the layer is `visible`.
+   */
+  popoverOpen: boolean;
   /** Runtime scroll position (ScrollView only) — re-clamped on every relayout. */
   scrollOffset: { x: number; y: number };
   /** Content overflow bounds for `scrollOffset`, recomputed on every relayout. */
@@ -209,6 +217,7 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
     collapsePending: false,
     forcedClip: false,
     loopStartedAt: null,
+    popoverOpen: false,
     scrollOffset: { x: 0, y: 0 },
     scrollMax: { x: 0, y: 0 },
     text: "",

@@ -1,17 +1,20 @@
 // View "settings-demo" (file-based convention: the filename is the view ID).
 // Manual test bed for the F5 form controls: Checkbox/Switch (independent
 // booleans, ZAB-23), RadioGroup (one value, exclusive selection, ZAB-23),
-// Slider (a continuous value, ZAB-24) and TextInput (text with a caret and a
-// selection, ZAB-26). Every control is bound, so the preview's data panel shows
+// Slider (a continuous value, ZAB-24), TextInput (text with a caret and a
+// selection, ZAB-26) and Select (one value picked from a popover in the overlay
+// layer, ZAB-25). Every control is bound, so the preview's data panel shows
 // both directions: type a value and the control moves; drag, tap or type into
 // the control and the field updates (the game's onDataChanged).
 import {
   Checkbox,
   Column,
   Container,
+  Option,
   Radio,
   RadioGroup,
   Row,
+  Select,
   Slider,
   Switch,
   Text,
@@ -20,6 +23,21 @@ import {
 
 const LABEL = { color: "{color.text}", fontSize: 16 } as const;
 const ROW = { padding: "{space.2}", width: 320 } as const;
+
+// Long enough that the dropdown scrolls: what makes the list navigable is the
+// focus dragging the ScrollView along with it.
+const LANGUAGES = [
+  "Español",
+  "English",
+  "Français",
+  "Deutsch",
+  "Italiano",
+  "Português",
+  "Polski",
+  "Türkçe",
+  "Svenska",
+  "Suomi",
+] as const;
 
 export default function SettingsDemo() {
   return (
@@ -109,6 +127,29 @@ export default function SettingsDemo() {
           onCommit="brightness-apply"
           length={320}
         />
+
+        {/* Desplegable: el botón cerrado enseña el VALOR (la IR no tiene
+            expresiones con las que buscar una etiqueta), y la lista se abre en la
+            capa de overlays anclada a él. Se cierra al elegir, con Escape y al
+            clicar fuera; con el teclado, Enter abre sobre la opción en uso y las
+            flechas arrastran el scroll de la lista larga. */}
+        <Row layout={{ ...ROW, justify: "space-between", align: "center", gap: 12 }}>
+          <Text style={LABEL}>Idioma</Text>
+          <Text bind="settings.language" style={{ color: "{color.muted}", fontSize: 14 }} />
+        </Row>
+        <Select
+          id="language"
+          value={{ bind: "settings.language" }}
+          onChange="language-changed"
+          width={320}
+          maxHeight={180}
+        >
+          {LANGUAGES.map((language) => (
+            <Option key={language} value={language}>
+              <Text style={LABEL}>{language}</Text>
+            </Option>
+          ))}
+        </Select>
 
         <Text style={{ color: "{color.muted}", fontSize: 14 }}>Calidad gráfica</Text>
         <RadioGroup value={{ bind: "settings.quality" }} layout={{ gap: 4 }}>
