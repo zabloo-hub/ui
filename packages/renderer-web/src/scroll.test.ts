@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clamp, resolveScrollMax, scrollbarThumb } from "./scroll.js";
+import { clamp, resolveScrollMax, revealDelta, scrollbarThumb } from "./scroll.js";
 
 describe("clamp", () => {
   it("passes values already in range through unchanged", () => {
@@ -80,5 +80,35 @@ describe("resolveScrollMax", () => {
 
   it("negative overflow (content smaller than viewport) clamps to zero, not negative", () => {
     expect(resolveScrollMax("column", "both", -20, -10)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+// A 100 px viewport starting at 0, and a 20 px target somewhere along the axis.
+describe("revealDelta", () => {
+  it("does not move a target that already fits", () => {
+    expect(revealDelta(0, 20, 0, 100)).toBe(0);
+    expect(revealDelta(40, 20, 0, 100)).toBe(0);
+    expect(revealDelta(80, 20, 0, 100)).toBe(0); // flush with the far edge
+  });
+
+  it("scrolls back just enough to reach a target above the viewport", () => {
+    expect(revealDelta(-30, 20, 0, 100)).toBe(-30);
+  });
+
+  it("scrolls forward just enough to reach a target below the viewport", () => {
+    expect(revealDelta(110, 20, 0, 100)).toBe(30);
+  });
+
+  it("aligns the leading edge of a target bigger than the viewport", () => {
+    expect(revealDelta(40, 300, 0, 100)).toBe(40);
+  });
+
+  it("leaves a target that already covers the whole viewport alone", () => {
+    expect(revealDelta(-40, 300, 0, 100)).toBe(0);
+  });
+
+  it("works on a viewport that does not start at the origin", () => {
+    expect(revealDelta(500, 20, 520, 100)).toBe(-20);
+    expect(revealDelta(650, 20, 520, 100)).toBe(50);
   });
 });

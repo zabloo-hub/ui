@@ -516,7 +516,13 @@ describe("author errors", () => {
       },
     });
 
-    expect(view.warnings.join("\n")).toContain("Unknown design token {color.nope}");
+    // Reported ONCE, at load, naming the node and the property it sits on — not
+    // once per frame from the style resolution (decision 2026-08-12, ZAB-37).
+    expect(view.warnings).toHaveLength(1);
+    expect(view.warnings[0]).toContain('views["broken"].style.background');
+    expect(view.warnings[0]).toContain("{color.nope}");
+    // The declared-but-unresolvable color still paints the missing-color magenta:
+    // an author error is loud on screen, not silently invisible.
     expect(node(view.snapshot(), "broken").style?.background).toBe("#ff00ff");
   });
 });

@@ -18,6 +18,7 @@ import {
   type ProgressBarNode,
   parseEnvelope,
   type RepeatNode,
+  readEnvelope,
   readPath,
   resolveBinding,
   type ScrollViewNode,
@@ -68,9 +69,19 @@ describe("parseEnvelope", () => {
     );
   });
 
-  it("rejects envelopes without tokens or views", () => {
-    expect(() => parseEnvelope({ v: IR_VERSION, views: {} })).toThrow("`tokens`");
+  it("refuses an envelope without a views map", () => {
     expect(() => parseEnvelope({ v: IR_VERSION, tokens: {} })).toThrow("`views`");
+  });
+
+  // A dictionary is repairable (every token ref simply resolves to nothing); a
+  // views map is not — there would be no tree at all (ZAB-37).
+  it("degrades a missing tokens dictionary instead of refusing", () => {
+    const { envelope, diagnostics } = readEnvelope({
+      v: IR_VERSION,
+      views: validEnvelope.views,
+    });
+    expect(envelope?.tokens).toEqual({});
+    expect(diagnostics.map((d) => d.code)).toContain("invalid-tokens");
   });
 });
 
@@ -115,55 +126,50 @@ describe("parseEnvelope: assets", () => {
     expect(env.assets?.["hero.png"]?.mime).toBe("image/png");
   });
 
-  it("rejects a non-object assets section", () => {
-    expect(() => parseEnvelope({ ...validEnvelope, assets: [] })).toThrow(
-      "`assets` must be an object",
-    );
+  // A broken manifest costs its own entries a texture, never the UI its load
+  // (ZAB-37 — it used to throw). `dropped` asserts both halves of that policy.
+  const dropped = (entry: unknown, field: string) => {
+    const { envelope, diagnostics } = readEnvelope({ ...validEnvelope, assets: { x: entry } });
+    expect(envelope?.assets).toBeUndefined();
+    const warning = diagnostics.find((d) => d.code === "invalid-asset");
+    expect(warning?.level).toBe("warn");
+    expect(warning?.message).toContain(field);
+    expect(warning?.path).toBe('assets["x"]');
+  };
+
+  it("drops a non-object assets section", () => {
+    const { envelope, diagnostics } = readEnvelope({ ...validEnvelope, assets: [] });
+    expect(envelope?.assets).toBeUndefined();
+    expect(diagnostics.map((d) => d.code)).toContain("invalid-assets");
   });
 
-  it("rejects entries missing hash, mime or size", () => {
-    expect(() =>
-      parseEnvelope({ ...validEnvelope, assets: { x: { mime: "image/png", size: 3 } } }),
-    ).toThrow("`hash`");
-    expect(() =>
-      parseEnvelope({ ...validEnvelope, assets: { x: { hash: "h", size: 3 } } }),
-    ).toThrow("`mime`");
-    expect(() =>
-      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, size: "3" } } }),
-    ).toThrow("`size`");
+  it("drops entries missing hash, mime or size", () => {
+    dropped({ mime: "image/png", size: 3 }, "`hash`");
+    dropped({ hash: "h", size: 3 }, "`mime`");
+    dropped({ ...asset, size: "3" }, "`size`");
   });
 
-  it("rejects data that is not base64-shaped (without decoding it)", () => {
-    expect(() =>
-      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "!!" } } }),
-    ).toThrow("base64");
-    expect(() =>
-      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, data: "AAA" } } }),
-    ).toThrow("base64");
+  it("drops data that is not base64-shaped (without decoding it)", () => {
+    dropped({ ...asset, data: "!!" }, "base64");
+    dropped({ ...asset, data: "AAA" }, "base64");
   });
 
-  it("rejects non-finite size", () => {
-    expect(() =>
-      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, size: Number.NaN } } }),
-    ).toThrow("`size`");
-    expect(() =>
-      parseEnvelope({
-        ...validEnvelope,
-        assets: { x: { ...asset, size: Number.POSITIVE_INFINITY } },
-      }),
-    ).toThrow("`size`");
+  it("drops non-finite size", () => {
+    dropped({ ...asset, size: Number.NaN }, "`size`");
+    dropped({ ...asset, size: Number.POSITIVE_INFINITY }, "`size`");
   });
 
-  it("rejects non-finite width/height", () => {
-    expect(() =>
-      parseEnvelope({ ...validEnvelope, assets: { x: { ...asset, width: Number.NaN } } }),
-    ).toThrow("`width`");
-    expect(() =>
-      parseEnvelope({
-        ...validEnvelope,
-        assets: { x: { ...asset, height: Number.POSITIVE_INFINITY } },
-      }),
-    ).toThrow("`height`");
+  it("drops non-finite width/height", () => {
+    dropped({ ...asset, width: Number.NaN }, "`width`");
+    dropped({ ...asset, height: Number.POSITIVE_INFINITY }, "`height`");
+  });
+
+  it("keeps the good entries when one is dropped", () => {
+    const { envelope } = readEnvelope({
+      ...validEnvelope,
+      assets: { "hero.png": asset, broken: { mime: "image/png" } },
+    });
+    expect(Object.keys(envelope?.assets ?? {})).toEqual(["hero.png"]);
   });
 });
 

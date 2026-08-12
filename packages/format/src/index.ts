@@ -24,10 +24,27 @@
  * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
  *   Container preserving `layout`/`style`/`visible`/`children` (normative rule,
  *   decision 2026-08-11), and refuse only on a major-version mismatch.
+ *
+ * This module holds the TYPES and the normative reference implementations every
+ * target ports (`resolveBinding`, `readPath`, `easeProgress`, `spinnerPulse`,
+ * `clampProgress`). Reading an envelope — the version, the refs and the validation
+ * policy of ZAB-37 — lives in `./validate.js` and is re-exported here, so
+ * `@zabloo/format` stays one import for consumers.
  */
 
-/** Major IR version implemented by this package. */
-export const IR_VERSION = 1;
+export {
+  assetIdFromRef,
+  type Diagnostic,
+  type DiagnosticCode,
+  type DiagnosticLevel,
+  EnvelopeError,
+  type EnvelopeReport,
+  IR_VERSION,
+  isAssetRef,
+  parseEnvelope,
+  readEnvelope,
+  supportsVersion,
+} from "./validate.js";
 
 /** A reference to a design token, e.g. `"{color.primary}"`. */
 export type TokenRef = `{${string}}`;
@@ -1035,46 +1052,6 @@ export interface SpinnerNode extends NodeBase {
   children?: ZNode[];
 }
 
-/** True if this package's reader can consume content with version `v`. */
-export function supportsVersion(v: number): boolean {
-  return Number.isInteger(v) && v === IR_VERSION;
-}
-
-/**
- * Minimal structural validation of an envelope. Forward-tolerant by design: unknown
- * props and node types pass through — only the envelope shape and the major version
- * are enforced.
- */
-export function parseEnvelope(data: unknown): Envelope {
-  if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    throw new Error("IR envelope: expected a JSON object");
-  }
-  const env = data as Record<string, unknown>;
-  if (typeof env.v !== "number") {
-    throw new Error("IR envelope: missing numeric `v` field");
-  }
-  if (!supportsVersion(env.v)) {
-    throw new Error(
-      `IR envelope: unsupported major version ${env.v} (this reader implements v${IR_VERSION})`,
-    );
-  }
-  if (typeof env.tokens !== "object" || env.tokens === null) {
-    throw new Error("IR envelope: missing `tokens` dictionary");
-  }
-  if (typeof env.views !== "object" || env.views === null) {
-    throw new Error("IR envelope: missing `views` map");
-  }
-  if (env.assets !== undefined) {
-    if (typeof env.assets !== "object" || env.assets === null || Array.isArray(env.assets)) {
-      throw new Error("IR envelope: `assets` must be an object");
-    }
-    for (const [id, entry] of Object.entries(env.assets)) {
-      validateAssetEntry(id, entry);
-    }
-  }
-  return data as Envelope;
-}
-
 /**
  * Decode an asset's inlined bytes. Browser-safe on purpose (atob, no `node:` imports)
  * — shared by the web renderer and the CLI preview; the Unity SDK decodes on its side
@@ -1090,23 +1067,6 @@ export function decodeAssetData(entry: AssetEntry): Uint8Array {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
-}
-
-/**
- * True if `value` is a well-formed asset reference (`"asset:<id>"` with a non-empty
- * id). SDK consumers should use this instead of hand-rolled `startsWith("asset:")`
- * string surgery.
- */
-export function isAssetRef(value: unknown): value is AssetRef {
-  return typeof value === "string" && value.startsWith("asset:") && value.length > "asset:".length;
-}
-
-/**
- * Extract the manifest id from an asset ref (strips the `asset:` prefix). SDK
- * consumers should use this instead of hand-rolled string surgery.
- */
-export function assetIdFromRef(ref: AssetRef): string {
-  return ref.slice("asset:".length);
 }
 
 /**
@@ -1155,43 +1115,4 @@ export function spinnerPulse(phase: number, easing: Easing = "ease-in-out"): num
 export function clampProgress(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0; // NaN too
   return value > 1 ? 1 : value;
-}
-
-const BASE64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;
-
-/** Cheap shape checks only — `data` is never decoded here (that would pay the cost twice). */
-function validateAssetEntry(id: string, value: unknown): void {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`IR envelope: asset "${id}" must be an object`);
-  }
-  const entry = value as Record<string, unknown>;
-  if (typeof entry.hash !== "string" || entry.hash.length === 0) {
-    throw new Error(`IR envelope: asset "${id}": missing non-empty \`hash\``);
-  }
-  if (typeof entry.mime !== "string" || entry.mime.length === 0) {
-    throw new Error(`IR envelope: asset "${id}": missing non-empty \`mime\``);
-  }
-  if (typeof entry.size !== "number" || !Number.isFinite(entry.size) || entry.size < 0) {
-    throw new Error(`IR envelope: asset "${id}": missing numeric \`size\``);
-  }
-  if (
-    entry.width !== undefined &&
-    (typeof entry.width !== "number" || !Number.isFinite(entry.width))
-  ) {
-    throw new Error(`IR envelope: asset "${id}": \`width\` must be a number`);
-  }
-  if (
-    entry.height !== undefined &&
-    (typeof entry.height !== "number" || !Number.isFinite(entry.height))
-  ) {
-    throw new Error(`IR envelope: asset "${id}": \`height\` must be a number`);
-  }
-  if (
-    entry.data !== undefined &&
-    (typeof entry.data !== "string" ||
-      entry.data.length % 4 !== 0 ||
-      !BASE64_SHAPE.test(entry.data))
-  ) {
-    throw new Error(`IR envelope: asset "${id}": \`data\` is not base64`);
-  }
 }
