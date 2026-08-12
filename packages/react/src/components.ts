@@ -266,6 +266,50 @@ export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
   value?: Bindable<string | number>;
 }
 
+export interface SelectProps extends Omit<ContainerProps, "group" | "value"> {
+  /**
+   * REQUIRED: the dropdown hangs off the closed button by this `id`, and an anchor
+   * relation is the one thing in v1 that addresses another node by name.
+   */
+  id: string;
+  /**
+   * The selected value — usually a read/write binding (`{ bind: "settings.lang" }`):
+   * picking an option writes it back and notifies the game, exactly like a
+   * `<RadioGroup>`, which is the same `"exclusive-check"` group underneath.
+   */
+  value?: Bindable<string | number>;
+  /** Named action fired after every change, like `<RadioGroup>`'s options. */
+  onChange?: string;
+  /** The `<Option>`s. They live in the dropdown, never in the closed button. */
+  children?: ReactNode;
+  /** Width of the closed button and of the dropdown below it, in px. Default: 220. */
+  width?: number;
+  /**
+   * Cap on the dropdown's height, in px. Past it the list scrolls — which is what
+   * a long list of languages needs. Default: 240.
+   */
+  maxHeight?: number;
+  /** Which side of the button the list opens on. Default: "bottom" (it flips when it must). */
+  position?: OverlayPosition;
+  /** Style of the closed button, merged over the default box. */
+  button?: Style;
+  /** Style of the label inside the closed button — it shows the VALUE (see the docs). */
+  label?: Style;
+  /** Style of the dropdown panel, merged over the default. */
+  panel?: Style;
+}
+
+export interface OptionProps extends CommonProps {
+  /** This option's value. Selected while it equals the `<Select>`'s. */
+  value: string | number;
+  /** The row's content — usually a `<Text>`. */
+  children?: ReactNode;
+  /** Size of the check mark's box, in px. Default: 16. */
+  size?: number;
+  /** The mark shown on the selected row. */
+  mark?: Style;
+}
+
 export interface ProgressBarProps extends CommonProps {
   /**
    * Progress in 0..1 (clamped), usually a read binding (`{ bind: "player.hp" }`):
@@ -558,6 +602,158 @@ export function RadioGroup({ layout, ...rest }: RadioGroupProps): ReturnType<FC>
     group: "exclusive-check",
     layout: { direction: "column", ...layout },
   });
+}
+
+const SELECT_WIDTH = 220;
+const SELECT_MAX_HEIGHT = 240;
+const OPTION_MARK = 16;
+const SELECT_BUTTON: Style = {
+  background: "#20242f",
+  radius: 6,
+  borderWidth: 1,
+  borderColor: "#3a4055",
+};
+const SELECT_PANEL: Style = {
+  background: "#20242f",
+  radius: 6,
+  borderWidth: 1,
+  borderColor: "#3a4055",
+};
+const OPTION_MARK_STYLE: Style = { background: "#4f46e5", radius: OPTION_MARK / 2 };
+// `focused` after `checked` in the normative merge order, so walking the list
+// with the keyboard lights the row you are ON, not the one already chosen —
+// without it the two are indistinguishable and the list cannot be navigated.
+const OPTION_STATES: NonNullable<CommonProps["states"]> = {
+  checked: { style: { background: "#2c3243" } },
+  focused: { style: { background: "#3a4157" } },
+};
+
+/**
+ * One row of a `<Select>`: the same `Toggle` a `<Radio>` lowers to, dressed as a
+ * list row instead of a bullet — the mark sits on the selected one and the row
+ * itself highlights through `states.checked`, which is the state an
+ * `"exclusive-check"` group already derives for its options.
+ *
+ * Tapping it selects, writes the group's binding and closes the dropdown; the
+ * closing is the popover's rule, not the option's (decision 2026-08-12, ZAB-25).
+ */
+export function Option({
+  size = OPTION_MARK,
+  mark,
+  layout,
+  states,
+  children,
+  ...rest
+}: OptionProps): ReturnType<FC> {
+  const dot = Math.round(size * 0.5);
+  return createElement(
+    Toggle,
+    {
+      ...rest,
+      layout: { direction: "row", align: "center", gap: 8, padding: 8, ...layout },
+      states: { ...OPTION_STATES, ...states },
+    },
+    // The two indicator slots, as everywhere: the whole indicator in each state,
+    // so nothing styles a descendant by state. Here the "off" one is the space
+    // the mark would take, which is what keeps the labels on one column.
+    slot(size, {}, { size: dot, style: { ...OPTION_MARK_STYLE, ...mark } }),
+    slot(size, {}),
+    children,
+  );
+}
+
+/**
+ * A dropdown: a button that opens a list of options in the overlay layer, anchored
+ * to itself, and closes when the player picks one.
+ *
+ * It is a flattened composite and NOT a primitive (decision 2026-08-12, ZAB-25) —
+ * a `Button`, a modal `Overlay` anchored to it with `trigger: "press"`, and a
+ * `ScrollView` around the `"exclusive-check"` group that `<RadioGroup>` already
+ * uses. The selection is ONE value, so it needed no mechanism of its own; what the
+ * IR gained is the popover, which is what lets a choice close the list.
+ *
+ * ```tsx
+ * <Select id="lang" value={{ bind: "settings.lang" }} onChange="lang-changed">
+ *   <Option value="es"><Text>es</Text></Option>
+ *   <Option value="en"><Text>en</Text></Option>
+ * </Select>
+ * ```
+ *
+ * **The closed button shows the VALUE**, through a `<Text>` bound to the same path
+ * — the IR has no expressions, so there is nothing to look a label up with. Author
+ * the display strings as the values when they are for the player to read; an empty
+ * value leaves the button blank (there is no placeholder for the same reason).
+ */
+export function Select({
+  id,
+  value,
+  onChange,
+  width = SELECT_WIDTH,
+  maxHeight = SELECT_MAX_HEIGHT,
+  position = "bottom",
+  button,
+  label,
+  panel,
+  layout,
+  style,
+  children,
+  ...rest
+}: SelectProps): ReturnType<FC> {
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error(
+      "<Select> needs an `id`: the dropdown is anchored to the button by it, and an " +
+        "anchor is the one relation in v1 that addresses another node by name.",
+    );
+  }
+  const bind = typeof value === "object" && value !== null ? value.bind : undefined;
+  // The closed face is an ordinary Button — its press opens the popover because it
+  // is the anchor of one, never because its type says so — and the dropdown is
+  // declared INSIDE it, which is both where an overlay belongs (in place, where the
+  // UI that opens it lives) and what keeps `<Select>` one element: an Overlay never
+  // joins its parent's flow, so it adds nothing to the button's box.
+  return createElement(
+    Button,
+    {
+      ...rest,
+      id,
+      layout: { direction: "row", align: "center", width, padding: 10, ...layout },
+      style: { ...SELECT_BUTTON, ...button, ...style },
+    },
+    createElement(Text, {
+      style: { color: "#e6e8ef", fontSize: 15, ...label },
+      ...(bind !== undefined ? { bind } : {}),
+    }),
+    createElement(
+      Overlay,
+      {
+        modal: true,
+        layout: layerLayout(position, undefined, true),
+        anchor: { id, at: position, trigger: "press" },
+      },
+      createElement(
+        ScrollView,
+        {
+          // `stretch` on both the list and the group is what makes an option row
+          // as wide as the panel. Without it each row is only as wide as its own
+          // label, and the empty rest of the row is a click that does nothing.
+          layout: { width, height: maxHeight, padding: 4, align: "stretch" },
+          style: { ...SELECT_PANEL, ...panel },
+        },
+        createElement(
+          Container,
+          {
+            group: "exclusive-check",
+            value,
+            // `stretch` is what makes the whole ROW the target: without it each
+            // option is only as wide as its label, and the empty half of the row
+            // is a click that lands on the list and does nothing.
+            layout: { direction: "column", align: "stretch" },
+          },
+          children,
+        ),
+      ),
+    ),
+  );
 }
 
 /**

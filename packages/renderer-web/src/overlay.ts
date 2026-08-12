@@ -20,6 +20,12 @@
  * `visible` that closed it by exactly one transition, and it can be **anchored**
  * to another node's rect (`anchorBox`, decision 2026-08-11, ZAB-46) — the one
  * placement in v1 that is relative to a rect the node does not contain.
+ *
+ * An anchored overlay may also be a **popover** (`trigger: "press"`, decision
+ * 2026-08-12, ZAB-25): the anchor's press opens it and the SDK owns that state, so
+ * a dismiss or a selection inside can close it. That is the whole of `<Select>` —
+ * the dropdown is a `Button`, a modal anchored `Overlay` and an `"exclusive-check"`
+ * group, with no primitive of its own.
  */
 
 import type { AnchorAt, Dim, OverlayAnchor, OverlayTrigger } from "@zabloo/format";
@@ -101,7 +107,9 @@ export function anchorSpec(node: LayoutNode): AnchorSpec | null {
     id: anchor.id,
     at: anchor.at !== undefined && ANCHOR_AT.includes(anchor.at) ? anchor.at : "top",
     offset: anchor.offset,
-    trigger: anchor.trigger === "hover" ? "hover" : "manual",
+    // Unknown triggers read as `manual`, the pre-ZAB-46 gate: newer content
+    // degrades to an overlay its `visible` opens, never to one that cannot open.
+    trigger: anchor.trigger === "hover" ? "hover" : anchor.trigger === "press" ? "press" : "manual",
   };
 }
 
@@ -113,6 +121,59 @@ export function anchorSpec(node: LayoutNode): AnchorSpec | null {
  */
 export function isHoverTriggered(node: LayoutNode): boolean {
   return anchorSpec(node)?.trigger === "hover";
+}
+
+/**
+ * Whether this overlay is a POPOVER: opened and closed by its anchor's press, with
+ * the SDK owning that state (decision 2026-08-12, ZAB-25). Unlike a hover-triggered
+ * one it is a surface, not a hint — it takes input normally, which is what lets the
+ * player pick something inside it.
+ */
+export function isPressTriggered(node: LayoutNode): boolean {
+  return anchorSpec(node)?.trigger === "press";
+}
+
+/**
+ * The `"exclusive-check"` groups inside a subtree, outermost first — the popover's
+ * own lists. Descending stops at each group: a nested one belongs to that group's
+ * options, and the popover closes on ITS selection, not on its children's.
+ */
+export function checkGroupsIn(node: LayoutNode, out: LayoutNode[] = []): LayoutNode[] {
+  const ir = node.ir as { type: string; group?: string };
+  if (ir.type === "Container" && ir.group === "exclusive-check") {
+    out.push(node);
+    return out;
+  }
+  for (const child of node.children) checkGroupsIn(child, out);
+  return out;
+}
+
+/**
+ * Where the focus goes when a popover opens: the option the group already holds,
+ * so a list of twenty languages opens ON the one in use instead of at the top.
+ * Null when nothing is selected — the caller falls back to `autofocus`.
+ *
+ * It reads `checked`, which an `"exclusive-check"` group derives from its value, so
+ * it needs no second notion of "the current one".
+ */
+export function selectedOptionIn(overlay: LayoutNode): LayoutNode | null {
+  for (const group of checkGroupsIn(overlay)) {
+    const found = checkedOption(group);
+    if (found) return found;
+  }
+  return null;
+}
+
+function checkedOption(node: LayoutNode): LayoutNode | null {
+  for (const child of node.children) {
+    const ir = child.ir as { type: string; group?: string };
+    // A nested group owns its own options, exactly as `groupOptions` reads it.
+    if (ir.type === "Container" && ir.group === "exclusive-check") continue;
+    if (ir.type === "Toggle" && child.checked && inLayout(child)) return child;
+    const found = checkedOption(child);
+    if (found) return found;
+  }
+  return null;
 }
 
 /**

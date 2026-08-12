@@ -7,10 +7,13 @@ import {
   autofocusIn,
   collectLayer,
   focusScope,
+  isHoverTriggered,
   isOnScreen,
+  isPressTriggered,
   isWithin,
   overlaySpec,
   resolveHit,
+  selectedOptionIn,
   stepPresence,
   topModal,
 } from "./overlay.js";
@@ -337,6 +340,17 @@ describe("anchorSpec", () => {
     ).toEqual({ id: "buy", at: "bottom-left", offset: "{space.2}", trigger: "hover" });
   });
 
+  it("reads the popover trigger (decision 2026-08-12, ZAB-25)", () => {
+    expect(anchorSpec(overlay({ anchor: { id: "lang", trigger: "press" } }))?.trigger).toBe(
+      "press",
+    );
+  });
+
+  it("reads a trigger this build does not know as `manual`, never as no overlay at all", () => {
+    const unknown = { id: "lang", trigger: "shout" } as unknown as OverlayNode["anchor"];
+    expect(anchorSpec(overlay({ anchor: unknown }))?.trigger).toBe("manual");
+  });
+
   it("falls back to the default placement for a name this build does not know", () => {
     const unknown = { id: "buy", at: "over-there" } as unknown as OverlayNode["anchor"];
     expect(anchorSpec(overlay({ anchor: unknown }))?.at).toBe("top");
@@ -433,5 +447,64 @@ describe("isOnScreen", () => {
     box([list]);
     expect(isOnScreen(inside, radius)).toBe(true);
     expect(isOnScreen(scrolledAway, radius)).toBe(false);
+  });
+});
+
+describe("popovers (decision 2026-08-12, ZAB-25)", () => {
+  /** One option row of a dropdown — the Toggle a `<Option>` lowers to. */
+  const option = (value: string, checked: boolean, rect = VIEW): LayoutNode => {
+    const built = node({ type: "Toggle", value }, rect);
+    built.checked = checked;
+    return built;
+  };
+
+  const group = (options: LayoutNode[]): LayoutNode =>
+    node({ type: "Container", group: "exclusive-check" }, VIEW, options);
+
+  it("tells a popover apart from a hint and from a plain anchored overlay", () => {
+    const popover = overlay({ anchor: { id: "lang", trigger: "press" } });
+    expect(isPressTriggered(popover)).toBe(true);
+    // A popover is a surface, not a hint: it takes input, so it is NOT the inert
+    // kind `resolveHit` skips.
+    expect(isHoverTriggered(popover)).toBe(false);
+    expect(isPressTriggered(overlay({ anchor: { id: "lang", trigger: "hover" } }))).toBe(false);
+    expect(isPressTriggered(overlay({ anchor: { id: "lang" } }))).toBe(false);
+    expect(isPressTriggered(overlay({}))).toBe(false);
+  });
+
+  it("takes the pointer like any other overlay — that is how an option is picked", () => {
+    const row = option("es", false, { x: 0, y: 0, width: 50, height: 20 });
+    const popover = overlay({ anchor: { id: "lang", trigger: "press" } }, [group([row])]);
+    const hit = resolveHit(box(), [popover], { x: 10, y: 10 }, () => 0);
+    expect(hit).toEqual({ kind: "node", node: row });
+  });
+
+  it("opens ON its selection, so a long list lands where the player left it", () => {
+    const chosen = option("en", true);
+    const popover = overlay({ anchor: { id: "lang", trigger: "press" } }, [
+      group([option("es", false), chosen, option("fr", false)]),
+    ]);
+    expect(selectedOptionIn(popover)).toBe(chosen);
+  });
+
+  it("has no selection to open on when the group holds none", () => {
+    const popover = overlay({ anchor: { id: "lang", trigger: "press" } }, [
+      group([option("es", false), option("en", false)]),
+    ]);
+    expect(selectedOptionIn(popover)).toBeNull();
+  });
+
+  it("ignores an option that is out of layout — it cannot take the focus", () => {
+    const popover = overlay({ anchor: { id: "lang", trigger: "press" } }, [
+      group([hidden(option("es", true))]),
+    ]);
+    expect(selectedOptionIn(popover)).toBeNull();
+  });
+
+  it("reads the OUTER group's selection, not a nested group's own", () => {
+    const outer = option("en", true);
+    const nested = group([option("deep", true)]);
+    const popover = overlay({ anchor: { id: "lang", trigger: "press" } }, [group([nested, outer])]);
+    expect(selectedOptionIn(popover)).toBe(outer);
   });
 });

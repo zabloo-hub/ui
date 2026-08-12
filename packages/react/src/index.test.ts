@@ -1,11 +1,14 @@
 import type {
+  ButtonNode,
   ContainerNode,
   OverlayNode,
   ProgressBarNode,
   RepeatNode,
+  ScrollViewNode,
   SliderNode,
   SpinnerNode,
   TextInputNode,
+  TextNode,
   ToggleNode,
 } from "@zabloo/format";
 import { Fragment, createElement as h, useState } from "react";
@@ -22,6 +25,7 @@ import {
   Image,
   List,
   Modal,
+  Option,
   Overlay,
   ProgressBar,
   Radio,
@@ -29,6 +33,7 @@ import {
   Row,
   renderToIR,
   ScrollView,
+  Select,
   Slider,
   Spinner,
   Switch,
@@ -297,6 +302,69 @@ describe("renderToIR", () => {
     // Round box: radius = half the size, on both slots.
     const [checkedSlot] = (options[0].children ?? []) as ContainerNode[];
     expect(checkedSlot.style?.radius).toBe(11);
+  });
+
+  it("lowers Select to a Button anchoring a modal popover over an exclusive-check group", () => {
+    const ir = renderToIR(
+      h(
+        Select,
+        { id: "lang", value: { bind: "settings.lang" }, width: 180, maxHeight: 120 },
+        h(Option, { value: "es" }, h(Text, null, "es")),
+        h(Option, { value: "en" }, h(Text, null, "en")),
+      ),
+    ) as ButtonNode;
+
+    // One element, and the closed face is a plain Button: nothing about the type
+    // says "dropdown" — the anchor relation does.
+    expect(ir.type).toBe("Button");
+    expect(ir.id).toBe("lang");
+    expect(ir.layout?.width).toBe(180);
+    const [face, popover] = (ir.children ?? []) as [TextNode, OverlayNode];
+    // The closed button shows the VALUE: the IR has no expressions, so there is
+    // nothing to look a label up with.
+    expect(face).toMatchObject({ type: "Text", text: { bind: "settings.lang" } });
+
+    expect(popover.type).toBe("Overlay");
+    expect(popover.modal).toBe(true);
+    expect(popover.anchor).toEqual({ id: "lang", at: "bottom", trigger: "press" });
+    // The layer placement travels alongside, so an SDK that ignores `anchor`
+    // still shows the list somewhere instead of nothing.
+    expect(popover.layout).toMatchObject({ direction: "row", justify: "center", align: "end" });
+
+    const [list] = (popover.children ?? []) as [ScrollViewNode];
+    expect(list.type).toBe("ScrollView");
+    // Stretched, so the group — and with it every row — fills the panel's width.
+    expect(list.layout).toMatchObject({ width: 180, height: 120, align: "stretch" });
+    const [group] = (list.children ?? []) as [ContainerNode];
+    expect(group.group).toBe("exclusive-check");
+    // Stretched, so the whole row is the target and not just its label.
+    expect(group.layout).toEqual({ direction: "column", align: "stretch" });
+    expect(group.value).toEqual({ bind: "settings.lang" });
+    const options = (group.children ?? []) as ToggleNode[];
+    expect(options.map((o) => o.type)).toEqual(["Toggle", "Toggle"]);
+    expect(options.map((o) => o.value)).toEqual(["es", "en"]);
+    // Both indicator slots, as on every Toggle: the mark, and the space it takes.
+    expect((options[0].children ?? []).length).toBe(3);
+  });
+
+  it("opens Select where `position` says, and passes it through to the anchor", () => {
+    const ir = renderToIR(
+      h(Select, { id: "lang", position: "top-left" }, h(Option, { value: "es" })),
+    ) as ButtonNode;
+    const popover = (ir.children ?? [])[1] as OverlayNode;
+    expect(popover.anchor?.at).toBe("top-left");
+    expect(popover.layout).toMatchObject({ justify: "start", align: "start" });
+  });
+
+  it("leaves the Select's label empty when the value is not a binding", () => {
+    const ir = renderToIR(h(Select, { id: "lang" }, h(Option, { value: "es" }))) as ButtonNode;
+    expect((ir.children ?? [])[0]).toMatchObject({ type: "Text", text: "" });
+  });
+
+  it("rejects a Select without an id — an anchor addresses a node by name", () => {
+    expect(() => renderToIR(h(Select, { id: "" }, h(Option, { value: "es" })))).toThrow(
+      /<Select> needs an `id`/,
+    );
   });
 
   it("lowers Slider to a rail plus its two value-driven slots", () => {

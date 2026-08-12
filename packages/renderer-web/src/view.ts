@@ -79,10 +79,12 @@ import {
   focusScope,
   isModal,
   isOnScreen,
+  isPressTriggered,
   isWithin,
   overlaySpec,
   type Point,
   resolveHit,
+  selectedOptionIn,
   stepPresence,
   topModal,
 } from "./overlay.js";
@@ -390,6 +392,13 @@ class WebView {
   private readonly data = new DataStore();
   private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
+  /**
+   * The node a just-opened popover focused, to be revealed once this frame's
+   * boxes are final (ZAB-25). Navigation reveals its own focus immediately, from
+   * rects that are already laid out; a popover's are not, so this defers it by
+   * exactly one pass instead of by one frame. See `revealOpenedPopover`.
+   */
+  private pendingReveal: LayoutNode | null = null;
   /** Node under the mouse, if any — the only state the pointer owns by itself. */
   private hoveredNode: LayoutNode | null = null;
   private scrollDrag: ScrollDrag | null = null;
@@ -1076,6 +1085,9 @@ class WebView {
     if (action) this.onAction?.(action, this.contextOf(node));
     const tab = this.tabIndexOf(node);
     if (tab) this.setSelected(tab.group, tab.index);
+    // Opening a popover is behavior on top of the action, never instead of it: a
+    // `<Select>` trigger is an ordinary Button that happens to be an anchor.
+    if (this.togglePopovers(node)) this.render();
   }
 
   private enforceGroup(opened: LayoutNode): void {
@@ -1141,7 +1153,15 @@ class WebView {
 
     if (group) {
       // A radio only ever turns ON; the group's value is the state that moves.
-      if (!checked || node.checked) return;
+      if (!checked) return;
+      // Choosing is the gesture that ends the menu (decision 2026-08-12, ZAB-25),
+      // and it ends it even when the choice is the option already selected — a
+      // dropdown that stayed open on "I meant this one" would be a dead end.
+      this.closeEnclosingPopover(node);
+      if (node.checked) {
+        this.render();
+        return;
+      }
       group.groupValue = any.value;
       this.applyGroupValue(group);
       const path = this.writePath(group, (group.ir as AnyNode).value);
@@ -1265,8 +1285,8 @@ class WebView {
     return this.fonts.get(this.fontSize(this.effectiveStyle(node)));
   }
 
-  /** The box the content lives in: the node's rect minus its padding. */
-  private textBox(node: LayoutNode): Rect {
+  /** The box a node's content lives in: its rect minus its padding. */
+  private contentBox(node: LayoutNode): Rect {
     return deflate(node.rect, node.resolved.padding ?? 0);
   }
 
@@ -1308,7 +1328,7 @@ class WebView {
 
   /** The caret index a point selects, in the field's own content coordinates. */
   private textIndexAt(node: LayoutNode, point: Point): number {
-    const box = this.textBox(node);
+    const box = this.contentBox(node);
     return indexAtX(node.text, point.x - box.x + node.textScroll, this.textMetrics(node));
   }
 
@@ -1319,7 +1339,7 @@ class WebView {
    */
   private syncTextScroll(node: LayoutNode): void {
     const metrics = this.textMetrics(node);
-    const box = this.textBox(node);
+    const box = this.contentBox(node);
     node.textScroll = scrollFor(
       node.textScroll,
       caretX(node.text, node.selection.focus, metrics),
@@ -1507,6 +1527,30 @@ class WebView {
   }
 
   /**
+   * Reveals the focus a POPOVER opened on, once this frame's boxes are final.
+   *
+   * `revealFocused` is otherwise navigation-only, and deliberately so: a pointer
+   * press focuses what the player is already looking at, and a focus restored
+   * during a render would scroll a frame late. A popover is the case that rule
+   * does not cover — it opens ON its selection (ZAB-25), so the list has to be
+   * scrolled to an option that the frame it appears on has only just been laid
+   * out. Doing it here, after arrange, is what makes it the SAME frame: only
+   * scroll offsets change, and arrange is the only pass that reads them back.
+   */
+  private revealOpenedPopover(): boolean {
+    const node = this.pendingReveal;
+    if (node === null) return false;
+    this.pendingReveal = null;
+    if (!inLayout(node)) return false;
+    const before = this.scrollerOf(node);
+    const from = before ? { ...before.scrollOffset } : null;
+    this.revealFocused(node);
+    return from !== null && before !== null
+      ? from.x !== before.scrollOffset.x || from.y !== before.scrollOffset.y
+      : false;
+  }
+
+  /**
    * The game/page channel for scrolling — the `setOpen` counterpart. Host API,
    * not IR: the offset has no prop to author (decision 2026-08-11, ZAB-9), and
    * whatever lands here is clamped to the last relayout's bounds.
@@ -1590,8 +1634,32 @@ class WebView {
     return focusScope(this.root, this.layer);
   }
 
-  /** The scope's declared initial focus (`autofocus`), if it is really focusable. */
+  /**
+   * The scope's initial focus. A popover opens ON its selection — the option the
+   * group already holds, so a list of twenty languages lands where the player left
+   * it (decision 2026-08-12, ZAB-25) — and everything else opens on its declared
+   * `autofocus`.
+   */
   private autofocus(scope: LayoutNode = this.scope()): LayoutNode | null {
+    if (isPressTriggered(scope)) {
+      // Whatever it lands on has to be SEEN: the list opens scrolled to it.
+      const reveal = (node: LayoutNode | null): LayoutNode | null => {
+        this.pendingReveal = node;
+        return node;
+      };
+      const option = selectedOptionIn(scope);
+      if (option && this.isFocusable(option)) return reveal(option);
+      // Nothing chosen yet: the FIRST option, never nothing. A menu the player
+      // opened is a menu they are in, and one that starts with no focus cannot be
+      // walked with the arrows at all — the keyboard would have nowhere to step
+      // from. (Only a popover does this: everywhere else "no autofocus" honestly
+      // means the author asked for none.)
+      return reveal(
+        autofocusIn(scope, (node) => this.isFocusable(node)) ??
+          this.collectFocusables(scope)[0] ??
+          null,
+      );
+    }
     return autofocusIn(scope, (node) => this.isFocusable(node));
   }
 
@@ -1965,8 +2033,14 @@ class WebView {
   private requestDismiss(overlay: LayoutNode): void {
     const spec = overlaySpec(overlay);
     if (spec === null) return;
-    const path = this.writePath(overlay, (overlay.ir as AnyNode).visible);
-    if (path !== null) this.writeData(path, false);
+    // A popover's open state is the SDK's, so closing it is a flag and NOT a write
+    // into the game's data: `visible` never held it open in the first place.
+    if (isPressTriggered(overlay)) {
+      overlay.popoverOpen = false;
+    } else {
+      const path = this.writePath(overlay, (overlay.ir as AnyNode).visible);
+      if (path !== null) this.writeData(path, false);
+    }
     if (spec.onDismiss) this.onAction?.(spec.onDismiss, this.contextOf(overlay));
     this.render();
   }
@@ -2055,15 +2129,59 @@ class WebView {
     if (spec.trigger === "manual") return true;
     // Hover lights up exactly the focusable set (decision 2026-08-11, ZAB-36), so
     // an anchor that takes no input is never hovered NOR focused and the hint
-    // would simply never appear. Say so instead of staying dark.
+    // would simply never appear. A popover has the same problem for the same
+    // reason: a node that takes no press can never be pressed to open it.
     if (!this.isFocusable(anchor) && !this.warnedAnchors.has(spec.id)) {
       this.warnedAnchors.add(spec.id);
       console.warn(
         `[zabloo] Overlay anchor "${spec.id}" is a ${anchor.ir.type}, which takes no ` +
-          `hover or focus: a trigger:"hover" overlay anchored to it never shows.`,
+          `input: a trigger:"${spec.trigger}" overlay anchored to it never shows.`,
       );
     }
+    // A popover is up while the SDK's own open flag says so — the one piece of
+    // overlay state that is not `visible` (decision 2026-08-12, ZAB-25).
+    if (spec.trigger === "press") return node.popoverOpen;
     return anchor.hovered || anchor.focused;
+  }
+
+  // --- popovers (`anchor.trigger: "press"` — decision 2026-08-12, ZAB-25) ---
+
+  /**
+   * The popovers a node anchors, whatever their `visible` says right now: the
+   * press toggles the flag, and the layer predicate decides what that means. Any
+   * number of them, because `anchor.id` is a plain reference and nothing stops two
+   * overlays from hanging off one button.
+   */
+  private popoversOf(anchor: LayoutNode): LayoutNode[] {
+    const id = (anchor.ir as AnyNode).id;
+    if (id === undefined) return [];
+    const found: LayoutNode[] = [];
+    this.eachOverlay(this.root, (overlay) => {
+      const spec = anchorSpec(overlay);
+      if (spec?.trigger === "press" && spec.id === id) found.push(overlay);
+    });
+    return found;
+  }
+
+  /**
+   * Pressing the anchor toggles its popovers — the same press that opens a
+   * dropdown closes it, so a trigger button behaves like one. Returns whether it
+   * had any, so the caller knows the press meant something beyond its action.
+   */
+  private togglePopovers(anchor: LayoutNode): boolean {
+    const popovers = this.popoversOf(anchor);
+    for (const popover of popovers) popover.popoverOpen = !popover.popoverOpen;
+    return popovers.length > 0;
+  }
+
+  /** Closes the popover this node lives in, if any — what a selection inside does. */
+  private closeEnclosingPopover(node: LayoutNode): void {
+    for (let current: LayoutNode | null = node; current; current = current.parent) {
+      if (current.ir.type === "Overlay" && isPressTriggered(current)) {
+        current.popoverOpen = false;
+        return;
+      }
+    }
   }
 
   /**
@@ -2820,6 +2938,13 @@ class WebView {
       measure(overlay, this.measureLeaf, width);
       this.arrangeOverlay(overlay, viewRect);
     }
+    // After arrange, where the boxes are final: a popover that just opened scrolls
+    // its list to the option it focused. It only ever writes scroll offsets, so
+    // re-running arrange settles it — and arrange is the only pass an offset feeds.
+    if (this.revealOpenedPopover()) {
+      arrange(this.root, viewRect);
+      for (const overlay of paintLayer) this.arrangeOverlay(overlay, viewRect);
+    }
     // After arrange, where the boxes are final: each field slides its content just
     // enough to keep its caret inside. It reads rects and writes only its own
     // scroll, so it never feeds back into the layout it just ran.
@@ -2833,6 +2958,10 @@ class WebView {
     // it does not inherit the opacity of wherever it was declared, only its own
     // presence: the backdrop and the panel fade in and out together.
     for (const overlay of paintLayer) {
+      // Each entry is a paint root, so it opens its own group: sharing the tree's
+      // would put the tree's glyphs over this panel, since a group draws all its
+      // solids before all its text.
+      geometry.startRoot();
       this.paint(overlay, geometry, this.presence.get(overlay) ?? 1);
     }
     this.gl.draw(geometry.batches(), width, height, this.clearColor);

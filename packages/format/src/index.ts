@@ -328,7 +328,10 @@ interface NodeBase {
  *   semantics) and gives bar button `i` the `selected` state.
  * - `"exclusive-check"` (RadioGroup, decision 2026-08-11): one descendant Toggle is
  *   checked, identified by VALUE rather than by position — `value` on the group is
- *   the selection, `value` on each Toggle is its option.
+ *   the selection, `value` on each Toggle is its option. It also backs the
+ *   `<Select>` dropdown (decision 2026-08-12, ZAB-25), which is this group inside a
+ *   `press`-triggered `Overlay`: the selection is ONE value either way, so the
+ *   dropdown needed no selection mechanism of its own.
  *
  * One behavior governs one state: `open` (Collapse), `selected` (index, Tabs),
  * `checked` (Toggle).
@@ -757,13 +760,45 @@ export type AnchorAt =
  *   reaches a controller without a second mechanism. `visible` still gates it (a
  *   bound `false` turns the hints off), the SDK never writes it back, and
  *   `autoCloseMs` is ignored: what dismisses it is leaving the anchor.
+ * - `press`: the anchor's PRESS opens it, and the SDK owns that open state — the
+ *   POPOVER (decision 2026-08-12, ZAB-25). See the rules below.
  *
- * A hover trigger needs an anchor that takes input (a `Button`, a `Toggle`, a
- * `Slider`, a `Collapse` header): hover lights up exactly the focusable set
- * (decision 2026-08-11, ZAB-36), so anything else is never hovered NOR focused —
- * which is also what keeps the pointer and the gamepad seeing the same hints.
+ * A hover or press trigger needs an anchor that takes input (a `Button`, a
+ * `Toggle`, a `Slider`, a `Collapse` header): hover lights up exactly the focusable
+ * set (decision 2026-08-11, ZAB-36), so anything else is never hovered NOR focused
+ * — which is also what keeps the pointer and the gamepad seeing the same hints.
+ *
+ * **The popover (`press`), normatively.** It is the state no overlay owned before:
+ * `visible` could open one, but nothing in the IR could CLOSE it in response to
+ * something the player did inside it — which is exactly what a dropdown is. So the
+ * SDK owns an open flag per anchored overlay, keyed by the relation, the way it
+ * already owns `Collapse.open` and `Toggle.checked`:
+ *
+ * 1. **Pressing the anchor toggles it** — the press that opens it is the same one
+ *    that closes it, so a trigger button behaves like a trigger button. The
+ *    anchor's own `onClick` still fires: opening is behavior, never a substitute
+ *    for the declared action.
+ * 2. **A dismiss request closes it** — Escape, gamepad B, a tap on the backdrop of
+ *    a `modal` one. The same path `onDismiss` already hangs off.
+ * 3. **A selection inside it closes it.** When a `"exclusive-check"` group inside
+ *    the popover takes a new value, the popover closes: choosing IS the gesture
+ *    that ends it, and it is what makes `<Select>` expressible as a composite over
+ *    a `Button`, an `Overlay` and a radio group rather than as a primitive of its
+ *    own.
+ * 4. **Opening focuses the selection** — the checked option of that group, so the
+ *    list opens where the player left it; failing that, the subtree's `autofocus`.
+ *    Closing gives the focus back to whatever had it, which for a popover opened by
+ *    its anchor is the anchor.
+ *
+ * `visible` still gates it (a bound `false` keeps it shut) and the SDK never writes
+ * `visible` back for a popover — the open state is the SDK's, not the game's data.
+ * `autoCloseMs` is ignored, as with `hover`: a menu is dismissed, not timed out.
+ *
+ * Forward-tolerance: an SDK that predates this value reads an unknown trigger as
+ * `manual`, so the dropdown sits open on the layer where its anchor puts it — a
+ * visible, inert list rather than a control that never appears.
  */
-export type OverlayTrigger = "hover" | "manual";
+export type OverlayTrigger = "hover" | "manual" | "press";
 
 /**
  * An overlay's relation to another node: the rect it is placed against, and
