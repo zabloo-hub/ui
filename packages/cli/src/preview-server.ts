@@ -285,7 +285,19 @@ const PAGE = /* html */ `<!doctype html>
     return envelope;
   }
 
+  // The preview plays the game's role here too (ZAB-37): a mount that refuses the
+  // envelope must show WHY on the page — an uncaught rejection in the reload loop
+  // would leave a canvas that simply stopped updating, which is the worst report
+  // of all. reload() never throws, so this catches the first mount and the fetch.
   async function load(viewId) {
+    try {
+      await loadOrFail(viewId);
+    } catch (error) {
+      log("envelope error: " + (error && error.message ? error.message : error));
+    }
+  }
+
+  async function loadOrFail(viewId) {
     const res = await fetch("/envelope");
     if (!res.ok) return;
     const envelope = await hydrateAssets(await res.json());
