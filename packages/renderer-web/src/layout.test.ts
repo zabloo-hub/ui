@@ -8,6 +8,7 @@ import {
   measure,
   type Rect,
 } from "./layout.js";
+import type { ItemSpan } from "./repeat.js";
 import type { ResolvedValues } from "./transition.js";
 
 /**
@@ -243,6 +244,143 @@ describe("arrange: Slider", () => {
     expect(built.children[1].rect.x).toBe(182);
   });
 });
+
+// --- wrap (ZAB-32): a grid is a row that breaks into lines ---
+
+/** A cell of `width × height`, already resolved. */
+const cell = (width: number, height: number) =>
+  node({ type: "Container", layout: { width, height } }, { width, height });
+
+function grid(layout: Layout, cells: LayoutNode[], offer: number | null = null): LayoutNode {
+  const built = node({ type: "Container", layout }, resolvedOf(layout), cells);
+  built.resolved.gap = (layout.gap as number | undefined) ?? 0;
+  measure(built, noLeaf, offer);
+  return built;
+}
+
+describe("wrap", () => {
+  it("breaks the row into lines that fit the offered width", () => {
+    // 4 × 72 + 3 × 8 = 312: four per line, and the fifth starts a new one.
+    const built = grid(
+      { direction: "row", wrap: true, gap: 8, width: 312 },
+      Array.from({ length: 5 }, () => cell(72, 40)),
+    );
+    expect(built.measured).toEqual({ x: 312, y: 88 }); // two lines of 40 + the gap
+    arrange(built, { x: 0, y: 0, width: 312, height: 88 });
+    expect(built.children[3].rect).toEqual({ x: 240, y: 0, width: 72, height: 40 });
+    expect(built.children[4].rect).toEqual({ x: 0, y: 48, width: 72, height: 40 });
+  });
+
+  it("stays on one line without the flag — what every node emitted before assumes", () => {
+    const built = grid(
+      { direction: "row", gap: 8, width: 312 },
+      Array.from({ length: 5 }, () => cell(72, 40)),
+    );
+    expect(built.measured).toEqual({ x: 312, y: 40 });
+    arrange(built, { x: 0, y: 0, width: 312, height: 40 });
+    expect(built.children[4].rect.x).toBe(320); // it overflows; no content is lost
+  });
+
+  it("gives every child a line of its own when none of them fits", () => {
+    const built = grid({ direction: "row", wrap: true, gap: 0, width: 50 }, [
+      cell(80, 10),
+      cell(80, 10),
+    ]);
+    // Two lines of 10 — the declared width still stands, the cells overflow it.
+    expect(built.measured).toEqual({ x: 50, y: 20 });
+  });
+
+  it("justifies and aligns WITHIN a line, and stacks the lines from the start", () => {
+    const built = grid(
+      { direction: "row", wrap: true, gap: 0, width: 200, justify: "center", align: "end" },
+      [cell(80, 40), cell(80, 20), cell(80, 30)],
+    );
+    arrange(built, { x: 0, y: 0, width: 200, height: 200 });
+    // Line 1 (160 wide) centered in 200 → 20px lead; the short cell sits at the
+    // bottom of ITS line (40 tall), not at the bottom of the node.
+    expect(built.children[0].rect).toMatchObject({ x: 20, y: 0 });
+    expect(built.children[1].rect).toMatchObject({ x: 100, y: 20 });
+    // Line 2 has a single cell, centered on its own line, right below line 1.
+    expect(built.children[2].rect).toMatchObject({ x: 60, y: 40 });
+  });
+
+  it("shares the leftovers of a line between the children ON that line", () => {
+    const growing = () => {
+      const built = node({ type: "Container", layout: { width: 60, grow: 1 } }, { width: 60 });
+      return built;
+    };
+    const built = grid({ direction: "row", wrap: true, gap: 0, width: 100 }, [
+      growing(),
+      growing(),
+      growing(),
+    ]);
+    arrange(built, { x: 0, y: 0, width: 100, height: 100 });
+    // Two per line: the first line splits its 100 - 120 (nothing to share), the
+    // last one takes the 40 it has left over on its own.
+    expect(built.children[2].rect.width).toBe(100);
+  });
+});
+
+// --- virtualized Repeat (ZAB-31): reserved space and the realized window ---
+
+function virtualized(layout: Layout, span: ItemSpan, cells: LayoutNode[]): LayoutNode {
+  const built = node(
+    { type: "Repeat", ...({ items: { bind: "x" } } as object), layout },
+    resolvedOf(layout),
+    cells,
+  );
+  built.resolved.gap = (layout.gap as number | undefined) ?? 0;
+  built.virtual = span;
+  measure(built, noLeaf, 300);
+  return built;
+}
+
+describe("virtualized Repeat", () => {
+  it("measures the whole array, not the realized window", () => {
+    const built = virtualized(
+      { direction: "column", gap: 10 },
+      { first: 10, count: 5, lead: 500, reserved: 4990, perLine: 1 },
+      Array.from({ length: 5 }, () => cell(200, 40)),
+    );
+    expect(built.measured.y).toBe(4990);
+  });
+
+  it("places the realized window at the position of its first item", () => {
+    const built = virtualized(
+      { direction: "column", gap: 10 },
+      { first: 10, count: 5, lead: 500, reserved: 4990, perLine: 1 },
+      Array.from({ length: 5 }, () => cell(200, 40)),
+    );
+    arrange(built, { x: 0, y: 0, width: 300, height: 4990 });
+    expect(built.children[0].rect.y).toBe(500);
+    expect(built.children[1].rect.y).toBe(550);
+  });
+
+  it("reserves the CROSS axis when it wraps — a grid stacks its lines there", () => {
+    const built = virtualized(
+      { direction: "row", wrap: true, gap: 8, width: 312 },
+      { first: 8, count: 8, lead: 136, reserved: 1692, perLine: 4 },
+      Array.from({ length: 8 }, () => cell(72, 60)),
+    );
+    expect(built.measured).toEqual({ x: 312, y: 1692 });
+    arrange(built, { x: 0, y: 0, width: 312, height: 1692 });
+    expect(built.children[0].rect).toMatchObject({ x: 0, y: 136 });
+    expect(built.children[4].rect).toMatchObject({ x: 0, y: 204 }); // next line
+  });
+
+  it("breaks exactly where the window assumed it would, whatever the width allows", () => {
+    // The offer would fit five per line; the window was computed for four.
+    const built = virtualized(
+      { direction: "row", wrap: true, gap: 8, width: 400 },
+      { first: 0, count: 8, lead: 0, reserved: 136, perLine: 4 },
+      Array.from({ length: 8 }, () => cell(72, 60)),
+    );
+    arrange(built, { x: 0, y: 0, width: 400, height: 136 });
+    expect(built.children[4].rect).toMatchObject({ x: 0, y: 68 });
+  });
+});
+
+// --- Toggle (ZAB-36): the indicator slots share one box ---
 
 /** The shape `<Checkbox>`/`<Switch>` emit: two indicator slots and a label. */
 function toggle(checkedSize = 30, uncheckedSize = 30) {

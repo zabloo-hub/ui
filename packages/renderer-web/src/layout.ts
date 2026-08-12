@@ -9,8 +9,9 @@
  * writes its interpolated dims. Layout is pure geometry over resolved inputs.
  */
 
-import type { Layout, ScrollAxis, SliderAxis, ZNode } from "@zabloo/format";
+import type { ItemScope, Layout, ScrollAxis, SliderAxis, ZNode } from "@zabloo/format";
 import { fillRect } from "./progress.js";
+import type { ItemSpan } from "./repeat.js";
 import { clamp, resolveScrollMax } from "./scroll.js";
 import { fractionOf, growsUpward, resolveRange, sliderGeometry } from "./slider.js";
 import type { TextBlock } from "./text.js";
@@ -22,6 +23,29 @@ export interface Rect {
   y: number;
   width: number;
   height: number;
+}
+
+/**
+ * A `Repeat`'s runtime state (ZAB-31) — the instances it has realized, keyed by
+ * the identity of the item they show, plus the uniform size the virtualization
+ * assumes. Owned by the view; layout only ever reads `virtual`.
+ */
+export interface RepeatState {
+  /** Live template instances, by `itemIdentity` — this is what reordering moves. */
+  instances: Map<string, LayoutNode>;
+  /** The empty-state slot (`children[1..]`), built once and kept out of layout. */
+  empty: LayoutNode[];
+  /** One line's measured size on the stacking axis, or null until a frame measured it. */
+  extent: number | null;
+  /** One item's measured size on the main axis — what decides how many fit per line. */
+  itemMain: number | null;
+  /** The width those two were measured at: another one means they are stale. */
+  measuredWidth: number | null;
+  /** Elements in the bound array on the last expansion. */
+  itemCount: number;
+  /** The window that expansion realized — what the next frame's plan is compared against. */
+  first: number;
+  count: number;
 }
 
 /** A layout-ready tree node (built by the view from IR nodes). */
@@ -137,6 +161,20 @@ export interface LayoutNode {
   textBlock: TextBlock | null;
   /** Tweens in flight for this node. Rebuilding the tree drops them, so a reload snaps. */
   anim: NodeAnim;
+  /**
+   * The item scopes in effect for this node, innermost last (decision 2026-08-11,
+   * ZAB-29) — empty outside a `Repeat` template. Every binding of the node resolves
+   * against it, which is what makes `{bind: "item.name"}` an address into the array.
+   */
+  scopes: readonly ItemScope[];
+  /** `Repeat` only: its instances and the geometry they are windowed by. */
+  repeat: RepeatState | null;
+  /**
+   * `Repeat` only: the realized window and the space that stands in for the rest.
+   * Null when the node is not virtualized (no scroller to window against, or an
+   * array short enough to realize whole), and then it lays out like any container.
+   */
+  virtual: ItemSpan | null;
 }
 
 /**
@@ -181,8 +219,14 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
     resolved: {},
     textBlock: null,
     anim: createNodeAnim(),
+    scopes: NO_SCOPES,
+    repeat: null,
+    virtual: null,
   };
 }
+
+/** The scopes of a node outside every template — shared, and never written to. */
+const NO_SCOPES: readonly ItemScope[] = [];
 
 export function inLayout(node: LayoutNode): boolean {
   return node.visibleFlag && node.sectionShown;
@@ -262,6 +306,88 @@ function childWidth(node: LayoutNode, inner: number | null): number | null {
 }
 
 /**
+ * Whether a node breaks its children into several lines (decision 2026-08-11,
+ * ZAB-32 — a grid IS a row that wraps). `wrap` only takes effect on a ROW: the
+ * measure pass carries a width offer and nothing else, so a column has no length
+ * to break against and lays its children out on one line — the same degradation
+ * an SDK that predates the flag gives.
+ */
+export function wrapsLines(node: LayoutNode): boolean {
+  const layout = layoutOf(node);
+  return layout?.wrap === true && layout.direction === "row";
+}
+
+/**
+ * Groups children into the lines they lay out on, greedy first-fit — the same
+ * rule `itemsPerLine` computes ahead of time for a virtualized grid, which is why
+ * a realized window breaks exactly where its window assumed it would (a
+ * virtualized node caps the line at `virtual.perLine` so the two can never drift).
+ * Without `wrap` there is a single line: what every node emitted before ZAB-32
+ * assumes, and the reason nothing else in the pass had to change.
+ */
+function breakLines(
+  node: LayoutNode,
+  mains: readonly number[],
+  contentMain: number | null,
+  gap: number,
+): number[][] {
+  const cap = node.virtual?.perLine ?? null;
+  if (!wrapsLines(node) || (contentMain === null && cap === null)) {
+    return [mains.map((_, index) => index)];
+  }
+  const lines: number[][] = [];
+  let line: number[] = [];
+  let used = 0;
+  for (let index = 0; index < mains.length; index++) {
+    const needed = line.length === 0 ? mains[index] : used + gap + mains[index];
+    const full = cap !== null && line.length >= cap;
+    if (line.length > 0 && (full || (contentMain !== null && needed > contentMain))) {
+      lines.push(line);
+      line = [];
+      used = 0;
+    }
+    used = line.length === 0 ? mains[index] : used + gap + mains[index];
+    line.push(index);
+  }
+  if (line.length > 0) lines.push(line);
+  return lines;
+}
+
+/**
+ * The size the children take as a whole: the longest line on the main axis, the
+ * lines stacked on the cross one. A virtualized `Repeat` overrides the axis its
+ * lines stack on with the space of the WHOLE array — the realized window is a
+ * fraction of it, and the scroll bounds must not depend on how much is realized.
+ */
+function flowSize(
+  node: LayoutNode,
+  lines: readonly number[][],
+  mains: readonly number[],
+  crosses: readonly number[],
+  gap: number,
+): { main: number; cross: number } {
+  let main = 0;
+  let cross = 0;
+  for (const line of lines) {
+    let lineMain = gap * Math.max(0, line.length - 1);
+    let lineCross = 0;
+    for (const index of line) {
+      lineMain += mains[index];
+      lineCross = Math.max(lineCross, crosses[index]);
+    }
+    main = Math.max(main, lineMain);
+    cross += lineCross;
+  }
+  cross += gap * Math.max(0, lines.length - 1);
+  const span = node.virtual;
+  if (span) {
+    if (wrapsLines(node)) cross = span.reserved;
+    else main = span.reserved;
+  }
+  return { main, cross };
+}
+
+/**
  * Bottom-up measure. `measureLeaf` sizes childless nodes (Text, Image).
  *
  * `availableWidth` is the width the parent offers (the view's own width at the root,
@@ -295,21 +421,24 @@ export function measure(
     const gap = node.resolved.gap ?? 0;
     const offer = childWidth(node, inner);
     const items = flowItems(node);
-    let main = 0;
-    let cross = 0;
+    const mains: number[] = [];
+    const crosses: number[] = [];
     for (const item of items) {
       // Every member is measured; a shared box takes the largest of them.
       let itemMain = 0;
+      let itemCross = 0;
       for (const child of item) {
         const cs = measure(child, measureLeaf, offer);
         itemMain = Math.max(itemMain, row ? cs.x : cs.y);
-        cross = Math.max(cross, row ? cs.y : cs.x);
+        itemCross = Math.max(itemCross, row ? cs.y : cs.x);
       }
-      main += itemMain;
+      mains.push(itemMain);
+      crosses.push(itemCross);
     }
-    main += gap * Math.max(0, items.length - 1) + padding * 2;
-    cross += padding * 2;
-    size = row ? { x: main, y: cross } : { x: cross, y: main };
+    const flow = flowSize(node, breakLines(node, mains, inner, gap), mains, crosses, gap);
+    size = row
+      ? { x: flow.main + padding * 2, y: flow.cross + padding * 2 }
+      : { x: flow.cross + padding * 2, y: flow.main + padding * 2 };
   }
 
   // What the content asks for, kept before any override replaces it: the
@@ -357,87 +486,115 @@ export function arrange(node: LayoutNode, rect: Rect): void {
   const contentMain = row ? content.width : content.height;
   const contentCross = row ? content.height : content.width;
 
-  // Main sizes: measured + grow share of the remaining space. A shared box takes
-  // the larger member's size and the FIRST member's `grow` — the slots of a
-  // Toggle are one item, so they can only ever grow as one.
-  const mains = new Array<number>(count);
-  let totalMain = gap * (count - 1);
-  let totalGrow = 0;
+  // Sizes per ITEM: a shared box takes the largest of the nodes in it.
+  const measuredMains = new Array<number>(count);
+  const measuredCrosses = new Array<number>(count);
   for (let i = 0; i < count; i++) {
-    mains[i] = itemSize(items[i], row);
-    totalMain += mains[i];
-    totalGrow += items[i][0].ir.layout?.grow ?? 0;
+    measuredMains[i] = itemSize(items[i], row);
+    measuredCrosses[i] = itemSize(items[i], !row);
   }
-  let remaining = contentMain - totalMain;
-  if (remaining > 0 && totalGrow > 0) {
-    for (let i = 0; i < count; i++) {
-      const grow = items[i][0].ir.layout?.grow ?? 0;
-      mains[i] += remaining * (grow / totalGrow);
-    }
-    remaining = 0;
-  }
-
-  // Justify: distribute leftover main-axis space.
-  let lead = 0;
-  let between = gap;
-  const leftover = Math.max(0, remaining);
-  switch (l?.justify) {
-    case "center":
-      lead = leftover * 0.5;
-      break;
-    case "end":
-      lead = leftover;
-      break;
-    case "space-between":
-      if (count > 1) between = gap + leftover / (count - 1);
-      break;
-  }
+  const lines = breakLines(node, measuredMains, contentMain, gap);
 
   const isScrollView = node.ir.type === "ScrollView";
   if (isScrollView) {
-    let maxNaturalCross = 0;
-    for (const item of items) {
-      maxNaturalCross = Math.max(maxNaturalCross, itemSize(item, !row));
-    }
-    const direction = row ? "row" : "column";
-    const mainOverflow = totalMain - contentMain;
-    const crossOverflow = maxNaturalCross - contentCross;
+    const flow = flowSize(node, lines, measuredMains, measuredCrosses, gap);
     const axis = (node.ir as { axis?: ScrollAxis }).axis;
-    node.scrollMax = resolveScrollMax(direction, axis, mainOverflow, crossOverflow);
+    node.scrollMax = resolveScrollMax(
+      row ? "row" : "column",
+      axis,
+      flow.main - contentMain,
+      flow.cross - contentCross,
+    );
     node.scrollOffset = {
       x: clamp(node.scrollOffset.x, 0, node.scrollMax.x),
       y: clamp(node.scrollOffset.y, 0, node.scrollMax.y),
     };
   }
 
-  let cursor = (row ? content.x : content.y) + lead;
-  for (let i = 0; i < count; i++) {
-    const item = items[i];
-    let crossSize = itemSize(item, !row);
-    let crossOffset = 0;
-    switch (l?.align) {
+  // A virtualized node starts its flow past the lines it did not realize, on the
+  // axis those lines stack on — which is the cross axis when it wraps.
+  const wrapping = wrapsLines(node);
+  const span = node.virtual;
+  let crossCursor = (row ? content.y : content.x) + (wrapping && span ? span.lead : 0);
+  const mainLead = (row ? content.x : content.y) + (!wrapping && span ? span.lead : 0);
+
+  for (const line of lines) {
+    // Main sizes: measured + grow share of the space left ON THIS LINE (`grow` is
+    // per line — the leftovers of a line are shared between the items on it), and
+    // a shared box grows by its FIRST member's `grow`: the slots of a Toggle are
+    // one item, so they can only ever grow as one.
+    const mains = new Array<number>(line.length);
+    let totalMain = gap * (line.length - 1);
+    let totalGrow = 0;
+    for (let i = 0; i < line.length; i++) {
+      mains[i] = measuredMains[line[i]];
+      totalMain += mains[i];
+      totalGrow += items[line[i]][0].ir.layout?.grow ?? 0;
+    }
+    let remaining = contentMain - totalMain;
+    if (remaining > 0 && totalGrow > 0) {
+      for (let i = 0; i < line.length; i++) {
+        const grow = items[line[i]][0].ir.layout?.grow ?? 0;
+        mains[i] += remaining * (grow / totalGrow);
+      }
+      remaining = 0;
+    }
+
+    // Justify: distribute leftover main-axis space, within the line.
+    let lead = 0;
+    let between = gap;
+    const leftover = Math.max(0, remaining);
+    switch (l?.justify) {
       case "center":
-        crossOffset = (contentCross - crossSize) * 0.5;
+        lead = leftover * 0.5;
         break;
       case "end":
-        crossOffset = contentCross - crossSize;
+        lead = leftover;
         break;
-      case "stretch":
-        crossSize = contentCross;
+      case "space-between":
+        if (line.length > 1) between = gap + leftover / (line.length - 1);
         break;
     }
-    const crossPos = (row ? content.y : content.x) + crossOffset;
 
-    const childRect: Rect = row
-      ? { x: cursor, y: crossPos, width: mains[i], height: crossSize }
-      : { x: crossPos, y: cursor, width: crossSize, height: mains[i] };
-    if (isScrollView) {
-      childRect.x -= node.scrollOffset.x;
-      childRect.y -= node.scrollOffset.y;
+    // A single line owns the whole cross axis (`align: stretch` fills the node);
+    // wrapped lines own only what their tallest item takes, and stack from the
+    // start — how the lines themselves distribute is out of the subset (ZAB-32).
+    let lineCross = contentCross;
+    if (wrapping) {
+      lineCross = 0;
+      for (const index of line) lineCross = Math.max(lineCross, measuredCrosses[index]);
     }
-    // Every member of the item gets the SAME rect: that is what "shared box" means.
-    for (const child of item) arrange(child, childRect);
-    cursor += mains[i] + between;
+
+    let cursor = mainLead + lead;
+    for (let i = 0; i < line.length; i++) {
+      const item = items[line[i]];
+      let crossSize = measuredCrosses[line[i]];
+      let crossOffset = 0;
+      switch (l?.align) {
+        case "center":
+          crossOffset = (lineCross - crossSize) * 0.5;
+          break;
+        case "end":
+          crossOffset = lineCross - crossSize;
+          break;
+        case "stretch":
+          crossSize = lineCross;
+          break;
+      }
+      const crossPos = crossCursor + crossOffset;
+
+      const childRect: Rect = row
+        ? { x: cursor, y: crossPos, width: mains[i], height: crossSize }
+        : { x: crossPos, y: cursor, width: crossSize, height: mains[i] };
+      if (isScrollView) {
+        childRect.x -= node.scrollOffset.x;
+        childRect.y -= node.scrollOffset.y;
+      }
+      // Every member of the item gets the SAME rect: that is what "shared box" means.
+      for (const child of item) arrange(child, childRect);
+      cursor += mains[i] + between;
+    }
+    crossCursor += lineCross + gap;
   }
 }
 
