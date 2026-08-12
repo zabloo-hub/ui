@@ -1,0 +1,586 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.panel": "#1e293b",
+    "color.tab": "#262c3d",
+    "color.tab.active": "#4f46e5",
+    "color.field": "#20242f",
+    "color.track": "#3f3f46",
+    "color.accent": "#4f46e5",
+    "color.border": "#3b4160",
+    "color.text": "#e2e8f0",
+    "color.muted": "#94a3b8",
+    "space.2": 8,
+    "radius.md": 6,
+    "radius.pill": 999
+  },
+  "views": {
+    "settings": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": {
+        "background": "{color.bg}"
+      },
+      "children": [
+        {
+          "type": "Container",
+          "id": "settings-tabs",
+          "group": "exclusive-select",
+          "selected": 0,
+          "layout": {
+            "direction": "column",
+            "align": "start",
+            "gap": "{space.2}"
+          },
+          "children": [
+            {
+              "type": "Container",
+              "id": "tab-bar",
+              "layout": {
+                "direction": "row",
+                "gap": "{space.2}"
+              },
+              "children": [
+                {
+                  "type": "Button",
+                  "id": "tab-general",
+                  "layout": {
+                    "padding": "{space.2}"
+                  },
+                  "style": {
+                    "background": "{color.tab}",
+                    "radius": "{radius.md}"
+                  },
+                  "states": {
+                    "selected": {
+                      "style": {
+                        "background": "{color.tab.active}"
+                      }
+                    },
+                    "focused": {
+                      "style": {
+                        "borderWidth": 2,
+                        "borderColor": "#ffffff"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "tab-general-label",
+                      "text": "General",
+                      "style": {
+                        "color": "{color.text}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Button",
+                  "id": "tab-audio",
+                  "layout": {
+                    "padding": "{space.2}"
+                  },
+                  "style": {
+                    "background": "{color.tab}",
+                    "radius": "{radius.md}"
+                  },
+                  "states": {
+                    "selected": {
+                      "style": {
+                        "background": "{color.tab.active}"
+                      }
+                    },
+                    "focused": {
+                      "style": {
+                        "borderWidth": 2,
+                        "borderColor": "#ffffff"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "tab-audio-label",
+                      "text": "Audio",
+                      "style": {
+                        "color": "{color.text}"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "panel-general",
+              "layout": {
+                "direction": "column",
+                "align": "stretch",
+                "width": 300,
+                "padding": "{space.2}",
+                "gap": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}",
+                "borderWidth": 1,
+                "borderColor": "{color.border}"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "quality-label",
+                  "text": "Calidad",
+                  "style": {
+                    "color": "{color.muted}"
+                  }
+                },
+                {
+                  "type": "Button",
+                  "id": "quality",
+                  "layout": {
+                    "direction": "row",
+                    "align": "center",
+                    "width": 284,
+                    "padding": "{space.2}"
+                  },
+                  "style": {
+                    "background": "{color.field}",
+                    "radius": "{radius.md}",
+                    "borderWidth": 1,
+                    "borderColor": "{color.border}"
+                  },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "quality-value",
+                      "text": {
+                        "bind": "settings.quality"
+                      },
+                      "style": {
+                        "color": "{color.text}"
+                      }
+                    },
+                    {
+                      "type": "Overlay",
+                      "id": "quality-popover",
+                      "modal": true,
+                      "anchor": {
+                        "id": "quality",
+                        "at": "bottom",
+                        "trigger": "press"
+                      },
+                      "layout": {
+                        "direction": "row",
+                        "justify": "center",
+                        "align": "end",
+                        "padding": "{space.2}"
+                      },
+                      "children": [
+                        {
+                          "type": "ScrollView",
+                          "id": "quality-list",
+                          "layout": {
+                            "width": 284,
+                            "height": 96,
+                            "padding": 4,
+                            "align": "stretch"
+                          },
+                          "style": {
+                            "background": "{color.field}",
+                            "radius": "{radius.md}",
+                            "borderWidth": 1,
+                            "borderColor": "{color.border}"
+                          },
+                          "children": [
+                            {
+                              "type": "Container",
+                              "id": "quality-options",
+                              "group": "exclusive-check",
+                              "value": {
+                                "bind": "settings.quality"
+                              },
+                              "layout": {
+                                "direction": "column",
+                                "align": "stretch"
+                              },
+                              "children": [
+                                {
+                                  "type": "Toggle",
+                                  "id": "quality-baja",
+                                  "value": "Baja",
+                                  "layout": {
+                                    "direction": "row",
+                                    "align": "center",
+                                    "gap": "{space.2}",
+                                    "padding": "{space.2}"
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "Container",
+                                      "id": "quality-baja-on",
+                                      "layout": {
+                                        "width": 12,
+                                        "height": 12
+                                      },
+                                      "style": {
+                                        "background": "{color.accent}",
+                                        "radius": "{radius.pill}"
+                                      }
+                                    },
+                                    {
+                                      "type": "Container",
+                                      "id": "quality-baja-off",
+                                      "layout": {
+                                        "width": 12,
+                                        "height": 12
+                                      },
+                                      "style": {
+                                        "background": "{color.track}",
+                                        "radius": "{radius.pill}"
+                                      }
+                                    },
+                                    {
+                                      "type": "Text",
+                                      "id": "quality-baja-label",
+                                      "text": "Baja",
+                                      "style": {
+                                        "color": "{color.text}"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "Toggle",
+                                  "id": "quality-media",
+                                  "value": "Media",
+                                  "layout": {
+                                    "direction": "row",
+                                    "align": "center",
+                                    "gap": "{space.2}",
+                                    "padding": "{space.2}"
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "Container",
+                                      "id": "quality-media-on",
+                                      "layout": {
+                                        "width": 12,
+                                        "height": 12
+                                      },
+                                      "style": {
+                                        "background": "{color.accent}",
+                                        "radius": "{radius.pill}"
+                                      }
+                                    },
+                                    {
+                                      "type": "Container",
+                                      "id": "quality-media-off",
+                                      "layout": {
+                                        "width": 12,
+                                        "height": 12
+                                      },
+                                      "style": {
+                                        "background": "{color.track}",
+                                        "radius": "{radius.pill}"
+                                      }
+                                    },
+                                    {
+                                      "type": "Text",
+                                      "id": "quality-media-label",
+                                      "text": "Media",
+                                      "style": {
+                                        "color": "{color.text}"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "Toggle",
+                                  "id": "quality-alta",
+                                  "value": "Alta",
+                                  "layout": {
+                                    "direction": "row",
+                                    "align": "center",
+                                    "gap": "{space.2}",
+                                    "padding": "{space.2}"
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "Container",
+                                      "id": "quality-alta-on",
+                                      "layout": {
+                                        "width": 12,
+                                        "height": 12
+                                      },
+                                      "style": {
+                                        "background": "{color.accent}",
+                                        "radius": "{radius.pill}"
+                                      }
+                                    },
+                                    {
+                                      "type": "Container",
+                                      "id": "quality-alta-off",
+                                      "layout": {
+                                        "width": 12,
+                                        "height": 12
+                                      },
+                                      "style": {
+                                        "background": "{color.track}",
+                                        "radius": "{radius.pill}"
+                                      }
+                                    },
+                                    {
+                                      "type": "Text",
+                                      "id": "quality-alta-label",
+                                      "text": "Alta",
+                                      "style": {
+                                        "color": "{color.text}"
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "fullscreen",
+                  "checked": {
+                    "bind": "settings.fullscreen"
+                  },
+                  "onChange": "fullscreen-changed",
+                  "layout": {
+                    "direction": "row",
+                    "align": "center",
+                    "gap": "{space.2}",
+                    "height": 24
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fullscreen-on",
+                      "layout": {
+                        "width": 36,
+                        "height": 20,
+                        "justify": "end",
+                        "align": "center"
+                      },
+                      "style": {
+                        "background": "{color.accent}",
+                        "radius": "{radius.pill}"
+                      },
+                      "children": [
+                        {
+                          "type": "Container",
+                          "id": "fullscreen-knob-on",
+                          "layout": {
+                            "width": 16,
+                            "height": 16
+                          },
+                          "style": {
+                            "background": "#ffffff",
+                            "radius": "{radius.pill}"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Container",
+                      "id": "fullscreen-off",
+                      "layout": {
+                        "width": 36,
+                        "height": 20,
+                        "justify": "start",
+                        "align": "center"
+                      },
+                      "style": {
+                        "background": "{color.track}",
+                        "radius": "{radius.pill}"
+                      },
+                      "children": [
+                        {
+                          "type": "Container",
+                          "id": "fullscreen-knob-off",
+                          "layout": {
+                            "width": 16,
+                            "height": 16
+                          },
+                          "style": {
+                            "background": "#94a3b8",
+                            "radius": "{radius.pill}"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "Text",
+                      "id": "fullscreen-label",
+                      "text": "Pantalla completa",
+                      "style": {
+                        "color": "{color.text}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Slider",
+                  "id": "brightness",
+                  "value": {
+                    "bind": "settings.brightness"
+                  },
+                  "min": 0,
+                  "max": 100,
+                  "step": 10,
+                  "onCommit": "brightness-apply",
+                  "layout": {
+                    "width": 284,
+                    "height": 6
+                  },
+                  "style": {
+                    "background": "{color.track}",
+                    "radius": "{radius.pill}"
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "brightness-fill",
+                      "style": {
+                        "background": "{color.accent}",
+                        "radius": "{radius.pill}"
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "brightness-thumb",
+                      "layout": {
+                        "width": 16,
+                        "height": 16
+                      },
+                      "style": {
+                        "background": "#ffffff",
+                        "radius": "{radius.pill}"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "TextInput",
+                  "id": "player-name",
+                  "value": {
+                    "bind": "profile.name"
+                  },
+                  "placeholder": "Tu nombre",
+                  "maxLength": 16,
+                  "onSubmit": "name-accept",
+                  "layout": {
+                    "width": 284,
+                    "padding": "{space.2}"
+                  },
+                  "style": {
+                    "background": "{color.field}",
+                    "radius": "{radius.md}",
+                    "color": "{color.text}",
+                    "borderWidth": 0,
+                    "borderColor": "{color.accent}"
+                  },
+                  "states": {
+                    "empty": {
+                      "style": {
+                        "color": "{color.muted}"
+                      }
+                    },
+                    "focused": {
+                      "style": {
+                        "borderWidth": 2
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "panel-audio",
+              "layout": {
+                "direction": "column",
+                "align": "stretch",
+                "width": 300,
+                "padding": "{space.2}",
+                "gap": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}",
+                "borderWidth": 1,
+                "borderColor": "{color.border}"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "volume-label",
+                  "text": "Volumen",
+                  "style": {
+                    "color": "{color.muted}"
+                  }
+                },
+                {
+                  "type": "Slider",
+                  "id": "volume",
+                  "value": {
+                    "bind": "settings.volume"
+                  },
+                  "onChange": "volume-preview",
+                  "onCommit": "volume-apply",
+                  "layout": {
+                    "width": 284,
+                    "height": 6
+                  },
+                  "style": {
+                    "background": "{color.track}",
+                    "radius": "{radius.pill}"
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "volume-fill",
+                      "style": {
+                        "background": "{color.accent}",
+                        "radius": "{radius.pill}"
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "volume-thumb",
+                      "layout": {
+                        "width": 16,
+                        "height": 16
+                      },
+                      "style": {
+                        "background": "#ffffff",
+                        "radius": "{radius.pill}"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
