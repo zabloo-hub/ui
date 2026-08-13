@@ -40,7 +40,7 @@ import {
   type ZNode,
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
-import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
+import { type Clip, intersectClip, isEmptyClip } from "./clip.js";
 import { closedHeight, collapseTarget } from "./collapse.js";
 import { CARET, FieldEditor, type FieldHost } from "./controls/field.js";
 import { affects, DataStore } from "./data.js";
@@ -48,11 +48,11 @@ import { loadEnvelope } from "./envelope.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary, type GlyphAtlas } from "./glyphs.js";
-import { childClip, effectiveClip } from "./hit.js";
+import { childClip } from "./hit.js";
 import { PadController, type PadHost } from "./input/pad.js";
+import { PointerHandler, type PointerHost, type SliderGesture } from "./input/pointer.js";
 import {
   arrange,
-  contains,
   createLayoutNode,
   inFlow,
   inLayout,
@@ -69,7 +69,6 @@ import {
   focusScope,
   isPressTriggered,
   type Point,
-  resolveHit,
   selectedOptionIn,
   topModal,
 } from "./overlay.js";
@@ -171,17 +170,6 @@ interface AnyNode {
   maxLength?: number;
 }
 
-/** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
-interface ScrollDrag {
-  node: LayoutNode;
-  startPoint: { x: number; y: number };
-  lastPoint: { x: number; y: number };
-  moved: boolean;
-}
-
-/** Below this many px of pointer travel, a gesture still counts as a click/tap. */
-const DRAG_THRESHOLD = 4;
-
 /**
  * The parts of a `keydown` the view reads. A real `KeyboardEvent` satisfies it as
  * it comes, and the gamepad synthesizes one (ZAB-47) — which is what lets a d-pad
@@ -208,16 +196,6 @@ function arrowIntent(key: string): KeyIntent {
     repeat: false,
     preventDefault() {},
   };
-}
-
-/**
- * A Slider gesture in flight (pointer or held arrow key). `from` is the value it
- * started at: `onCommit` is "the value the player settled on", so a gesture that
- * ends where it began fires nothing.
- */
-interface SliderGesture {
-  node: LayoutNode;
-  from: number;
 }
 
 /**
@@ -335,7 +313,6 @@ class WebView {
    */
   private readonly bound = new Set<LayoutNode>();
   private readonly data = new DataStore();
-  private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
   /**
    * The node a just-opened popover focused, to be revealed once this frame's
@@ -344,18 +321,12 @@ class WebView {
    * exactly one pass instead of by one frame. See `revealOpenedPopover`.
    */
   private pendingReveal: LayoutNode | null = null;
-  /** Node under the mouse, if any — the only state the pointer owns by itself. */
-  private hoveredNode: LayoutNode | null = null;
-  private scrollDrag: ScrollDrag | null = null;
-  /** Slider being dragged with the pointer, and the one being nudged with the keyboard. */
-  private sliderDrag: SliderGesture | null = null;
+  /** Slider being nudged with the keyboard (the pointer's drag lives in `input/pointer.ts`). */
   private sliderKeys: SliderGesture | null = null;
-  /** TextInput whose selection the pointer is dragging out. */
-  private textDrag: LayoutNode | null = null;
   /** The focused TextInput's buffer, caret and hidden field (ZAB-26) — wiring in `controls/field.ts`. */
   private readonly field = new FieldEditor(this.fieldHost());
-  /** Overlay whose backdrop took the pointer down, pending a release on it. */
-  private backdropPress: LayoutNode | null = null;
+  /** The canvas listeners and the gestures that span them — wiring in `input/pointer.ts`. */
+  private readonly pointer = new PointerHandler(this.pointerHost(), this.field, this.overlays);
   /** Pending self-scheduled frame, while a transition is in flight. */
   private frame: number | null = null;
   /** The gamepad's poll loop and edge state (ZAB-47) — wiring in `input/pad.ts`. */
@@ -476,14 +447,9 @@ class WebView {
     if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
     this.byId = new Map();
     this.bound.clear();
-    this.pressedNode = null;
     this.focusedNode = null;
-    this.hoveredNode = null;
-    this.scrollDrag = null;
-    this.sliderDrag = null;
     this.sliderKeys = null;
-    this.textDrag = null;
-    this.backdropPress = null;
+    this.pointer.reset();
     // The tree is new, so every node identity the layer state referenced is gone.
     this.layer = [];
     this.overlays.reset();
@@ -884,11 +850,8 @@ class WebView {
     const id = (node.ir as AnyNode).id;
     if (id !== undefined && this.byId.get(id) === node) this.byId.delete(id);
     if (this.focusedNode === node) this.focusedNode = null;
-    if (this.pressedNode === node) this.pressedNode = null;
-    if (this.backdropPress === node) this.backdropPress = null;
-    if (this.scrollDrag?.node === node) this.scrollDrag = null;
-    if (this.sliderDrag?.node === node) this.sliderDrag = null;
     if (this.sliderKeys?.node === node) this.sliderKeys = null;
+    this.pointer.forget(node);
     for (const child of node.children) this.release(child);
   }
 
@@ -1668,104 +1631,38 @@ class WebView {
     };
   }
 
-  // --- input (pointer → hit test on layout rects) ---
+  // --- input (pointer → hit test on layout rects, in `input/pointer.ts`) ---
+  // The pointer's listeners and gestures live in `input/pointer.ts`; the
+  // keyboard and the gamepad wire up here, and all three resolve to the same
+  // handlers (focus, press, scroll, slider, caret).
+
+  private pointerHost(): PointerHost {
+    const view = this;
+    return {
+      get canvas() {
+        return view.canvas;
+      },
+      root: () => this.root,
+      layer: () => this.layer,
+      radiusOf: (node) => this.radiusOf(node),
+      isFocusable: (node) => this.isFocusable(node),
+      isCollapseHeader: (node) => isCollapseHeader(node),
+      setFocus: (node) => this.setFocus(node),
+      activate: (node) => this.activate(node),
+      setCollapseOpen: (node, open) => this.setCollapseOpen(node, open),
+      setSliderValue: (node, value) => this.setSliderValue(node, value),
+      valueAtPoint: (node, point) => this.valueAtPoint(node, point),
+      commitSlider: (gesture) => this.commitSlider(gesture),
+      setScrollOffset: (node, x, y) => this.setScrollOffset(node, x, y),
+      addDisposer: (dispose) => {
+        this.disposers.push(dispose);
+      },
+      render: () => this.render(),
+    };
+  }
 
   private listen(): void {
-    const down = (event: PointerEvent) => {
-      const point = this.eventPoint(event);
-      const resolved = this.hitTest(point);
-      if (resolved.kind === "backdrop") {
-        // A tap on a modal's backdrop: dismissed on release, like a button click.
-        this.backdropPress = resolved.overlay;
-        this.canvas.setPointerCapture(event.pointerId);
-        return;
-      }
-      const hit = resolved.kind === "node" ? resolved.node : null;
-      // Sliders take the pointer first: the gesture starts on the press (the
-      // thumb jumps to the finger) and the control lives inside scrollable
-      // screens, where the drag must move the value, not the list.
-      const slider = hit && this.findUp(hit, (n) => n.ir.type === "Slider");
-      if (slider) {
-        this.sliderDrag = { node: slider, from: slider.sliderValue };
-        slider.pressed = true;
-        this.setFocus(slider);
-        this.canvas.setPointerCapture(event.pointerId);
-        this.setSliderValue(slider, this.valueAtPoint(slider, point));
-        this.render();
-        return;
-      }
-      // A text field takes the pointer for the same reason a Slider does: the press
-      // places the caret and the drag selects, and neither may become a scroll of
-      // the screen the field sits in.
-      const field = hit && this.findUp(hit, (n) => n.ir.type === "TextInput");
-      if (field) {
-        this.textDrag = field;
-        this.setFocus(field);
-        this.field.focusEditor(field); // the canvas press blurs the hidden field: take it back
-        this.canvas.setPointerCapture(event.pointerId);
-        this.field.setSelection(field, caretAt(this.field.textIndexAt(field, point)));
-        return;
-      }
-      const pressable =
-        hit && this.findUp(hit, (n) => n.ir.type === "Button" || n.ir.type === "Toggle");
-      if (pressable) {
-        pressable.pressed = true;
-        this.pressedNode = pressable;
-        this.setFocus(pressable); // pointer and directional nav share one focus
-        this.canvas.setPointerCapture(event.pointerId);
-        this.render();
-        return;
-      }
-      // Not yet a scroll gesture — held back until the drag threshold clears
-      // it, so a plain tap still reaches the Collapse-toggle handling in `up`.
-      const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
-      if (scrollable) {
-        this.scrollDrag = {
-          node: scrollable,
-          startPoint: point,
-          lastPoint: point,
-          moved: false,
-        };
-        this.canvas.setPointerCapture(event.pointerId);
-      }
-    };
-    const move = (event: PointerEvent) => {
-      // Hover is a MOUSE state: a finger that taps and leaves would otherwise
-      // keep a control lit up with nothing over it.
-      if (event.pointerType === "" || event.pointerType === "mouse") {
-        if (this.setHover(this.hoverableAt(this.eventPoint(event)))) this.render();
-      }
-      const slider = this.sliderDrag;
-      if (slider) {
-        // No drag threshold: a slider follows the finger from the first pixel
-        // (there is no tap-vs-drag ambiguity — the press already set a value).
-        this.setSliderValue(slider.node, this.valueAtPoint(slider.node, this.eventPoint(event)));
-        return;
-      }
-      const field = this.textDrag;
-      if (field) {
-        // The anchor stays where the press landed and the focus follows the
-        // pointer — the same `{anchor, focus}` a shift+arrow moves.
-        this.field.setSelection(field, {
-          anchor: field.selection.anchor,
-          focus: this.field.textIndexAt(field, this.eventPoint(event)),
-        });
-        return;
-      }
-      const drag = this.scrollDrag;
-      if (!drag) return;
-      const point = this.eventPoint(event);
-      if (!drag.moved) {
-        const dx = point.x - drag.startPoint.x;
-        const dy = point.y - drag.startPoint.y;
-        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-        drag.moved = true;
-      }
-      const dx = point.x - drag.lastPoint.x;
-      const dy = point.y - drag.lastPoint.y;
-      drag.lastPoint = point;
-      this.setScrollOffset(drag.node, drag.node.scrollOffset.x - dx, drag.node.scrollOffset.y - dy);
-    };
+    this.pointer.listen();
     const keydown = (event: KeyboardEvent) => {
       // A focused text field owns the keys that edit it; everything it does not
       // claim (the cross-axis arrows, Escape) falls through to the usual handling.
@@ -1804,67 +1701,6 @@ class WebView {
         this.commitSlider(gesture);
       }
     };
-    const up = (event: PointerEvent) => {
-      const point = this.eventPoint(event);
-      if (this.textDrag) {
-        this.textDrag = null;
-        return;
-      }
-      const slider = this.sliderDrag;
-      if (slider) {
-        this.sliderDrag = null;
-        slider.node.pressed = false;
-        this.render();
-        this.commitSlider(slider);
-        return;
-      }
-      const pressed = this.pressedNode;
-      if (pressed) {
-        pressed.pressed = false;
-        this.pressedNode = null;
-        this.render();
-        // Released over the control it pressed — and still inside the clip, so
-        // scrolling the button out from under the finger cancels the tap.
-        if (this.reachableAt(pressed, point)) this.activate(pressed);
-        return;
-      }
-      const backdrop = this.backdropPress;
-      this.backdropPress = null;
-      if (backdrop) {
-        const resolved = this.hitTest(point);
-        if (resolved.kind === "backdrop" && resolved.overlay === backdrop) {
-          this.overlays.requestDismiss(backdrop);
-        }
-        return;
-      }
-      const drag = this.scrollDrag;
-      this.scrollDrag = null;
-      if (drag?.moved) return; // a scroll gesture, not a tap
-      // Collapse header toggle (the <details>/<summary> model).
-      const resolved = this.hitTest(point);
-      const hit = resolved.kind === "node" ? resolved.node : null;
-      const header = hit && this.findUp(hit, isCollapseHeader);
-      if (header?.parent) this.setCollapseOpen(header.parent, !header.parent.open);
-    };
-    const wheel = (event: WheelEvent) => {
-      const resolved = this.hitTest(this.eventPoint(event));
-      if (resolved.kind === "backdrop") {
-        event.preventDefault(); // the modal captures the wheel: nothing below scrolls
-        return;
-      }
-      const hit = resolved.kind === "node" ? resolved.node : null;
-      const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
-      if (!scrollable) return;
-      event.preventDefault();
-      this.setScrollOffset(
-        scrollable,
-        scrollable.scrollOffset.x + event.deltaX,
-        scrollable.scrollOffset.y + event.deltaY,
-      );
-    };
-    const leave = () => {
-      if (this.setHover(null)) this.render();
-    };
     const resize = () => this.resize();
     // Connect/disconnect is all the Gamepad API pushes — the buttons are polled.
     // A pad that was already announced before this view mounted is picked up by
@@ -1872,22 +1708,12 @@ class WebView {
     const padChanged = () => this.pad.sync();
     this.pad.sync();
 
-    this.canvas.addEventListener("pointerdown", down);
-    this.canvas.addEventListener("pointermove", move);
-    this.canvas.addEventListener("pointerup", up);
-    this.canvas.addEventListener("pointerleave", leave);
-    this.canvas.addEventListener("wheel", wheel, { passive: false });
     globalThis.addEventListener("keydown", keydown);
     globalThis.addEventListener("keyup", keyup);
     globalThis.addEventListener("resize", resize);
     globalThis.addEventListener("gamepadconnected", padChanged);
     globalThis.addEventListener("gamepaddisconnected", padChanged);
     this.disposers.push(() => {
-      this.canvas.removeEventListener("pointerdown", down);
-      this.canvas.removeEventListener("pointermove", move);
-      this.canvas.removeEventListener("pointerup", up);
-      this.canvas.removeEventListener("pointerleave", leave);
-      this.canvas.removeEventListener("wheel", wheel);
       globalThis.removeEventListener("keydown", keydown);
       globalThis.removeEventListener("keyup", keyup);
       globalThis.removeEventListener("resize", resize);
@@ -1895,57 +1721,6 @@ class WebView {
       globalThis.removeEventListener("gamepaddisconnected", padChanged);
       this.pad.stop();
     });
-  }
-
-  private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
-    const bounds = this.canvas.getBoundingClientRect();
-    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-  }
-
-  /** The overlay layer first (top-down, a modal captures), then the tree — clipped subtrees excluded. */
-  private hitTest(point: Point) {
-    return resolveHit(this.root, this.layer, point, this.radiusOf);
-  }
-
-  /**
-   * The control the pointer is over, if any. Hoverable is the same set as
-   * focusable — what takes input is what may look different under the pointer —
-   * so hover and directional navigation light up exactly the same nodes, and a
-   * modal's backdrop (which captures input) lights up nothing below it.
-   */
-  private hoverableAt(point: Point): LayoutNode | null {
-    const resolved = this.hitTest(point);
-    if (resolved.kind !== "node") return null;
-    return this.findUp(resolved.node, (node) => this.isFocusable(node));
-  }
-
-  /** Moves the hover, returning whether anything changed (the caller repaints). */
-  private setHover(node: LayoutNode | null): boolean {
-    if (this.hoveredNode === node) return false;
-    if (this.hoveredNode) this.hoveredNode.hovered = false;
-    this.hoveredNode = node;
-    if (node) node.hovered = true;
-    return true;
-  }
-
-  /** Is this node's own rect reachable at that point, given its ancestors' clips? */
-  private reachableAt(node: LayoutNode, point: Point): boolean {
-    return contains(node.rect, point) && clipContains(effectiveClip(node, this.radiusOf), point);
-  }
-
-  /**
-   * Nearest ancestor matching `predicate`, stopping at an `Overlay`: a layer
-   * entry is the top of its own input scope, so a gesture inside a modal never
-   * reaches the ScrollView or Collapse it happens to be declared inside.
-   */
-  private findUp(node: LayoutNode, predicate: (n: LayoutNode) => boolean): LayoutNode | null {
-    let current: LayoutNode | null = node;
-    while (current) {
-      if (current.ir.type === "Overlay") return null;
-      if (predicate(current)) return current;
-      current = current.parent;
-    }
-    return null;
   }
 
   // --- tokens / style resolution ---
@@ -2100,7 +1875,7 @@ class WebView {
     transition: ResolvedTransition | null,
     now: number,
   ): void {
-    const gesturing = this.sliderDrag?.node === node || this.sliderKeys?.node === node;
+    const gesturing = this.pointer.isSliderDragging(node) || this.sliderKeys?.node === node;
     const stepped = stepValue(
       node.anim,
       "value",
@@ -2329,7 +2104,7 @@ class WebView {
     this.overlays.syncAutoClose();
     // A control that left layout under the pointer (a tab panel switching, a
     // Collapse closing) must not keep wearing the hover state on its way back.
-    if (this.hoveredNode && !inLayout(this.hoveredNode)) this.setHover(null);
+    this.pointer.pruneHover();
 
     // The resolve pass walks the whole tree, overlay subtrees included: a node in
     // the layer tweens like any other, it just gets laid out and painted apart.
@@ -2509,8 +2284,8 @@ class WebView {
         presence: this.overlays.presenceOf(overlay),
       })),
       focused: this.focusedNode,
-      hovered: this.hoveredNode,
-      pressed: this.pressedNode,
+      hovered: this.pointer.hovered(),
+      pressed: this.pointer.pressed(),
       radiusOf: this.radiusOf,
       textOf: (node) => {
         const placed = this.placeText(node);
