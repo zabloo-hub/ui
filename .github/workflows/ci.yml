@@ -27,3 +27,9 @@ jobs:
       - run: pnpm test
 
       - run: pnpm lint
+
+      # The publish dry run: pack the packages and install them into a clean
+      # consumer outside the workspace. Catches what only breaks once pnpm's
+      # symlinks are gone — a file `files` left out, an entry point that does
+      # not resolve, a bin without its shebang.
+      - run: pnpm verify:pack
