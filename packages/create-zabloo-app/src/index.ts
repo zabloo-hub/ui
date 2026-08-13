@@ -4,11 +4,13 @@
  * Flutter/RN-style project DX). The generated project ships the full loop out
  * of the box: `pnpm dev` (web preview + engine push) and `pnpm build` (export
  * the versioned IR envelope).
+ *
+ * This is the command: argv in, messages out. What it writes to disk lives in
+ * `scaffold.ts`, which is where the tests get at it.
  */
 
-import { cp, mkdir, readdir, rename, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
+import { ScaffoldError, scaffold } from "./scaffold.js";
 
 const HELP = `Usage: create-zabloo-app <project-directory> [--workspace]
 
@@ -28,50 +30,16 @@ async function main(): Promise<void> {
   }
 
   const dir = resolve(target);
-  const name = basename(dir);
-  if (!/^[a-z0-9][a-z0-9._-]*$/.test(name)) {
-    fail(`"${name}" is not a valid package name (lowercase letters, digits, ".", "_", "-").`);
+  let name: string;
+  try {
+    name = await scaffold(dir, { workspace });
+  } catch (error) {
+    // Anything that is not a ScaffoldError is a bug, and keeps its stack.
+    if (!(error instanceof ScaffoldError)) throw error;
+    console.error(`create-zabloo-app: ${error.message}`);
+    process.exitCode = 1;
     return;
   }
-
-  await mkdir(dir, { recursive: true });
-  if ((await readdir(dir)).length > 0) {
-    fail(`Directory ${dir} is not empty.`);
-    return;
-  }
-
-  // Copy the template, then materialize the generated bits.
-  const templates = fileURLToPath(new URL("../templates/default", import.meta.url));
-  await cp(templates, dir, { recursive: true });
-  await rename(join(dir, "gitignore"), join(dir, ".gitignore"));
-
-  const zablooVersion = workspace ? "workspace:*" : "^0.1.0";
-  const pkg = {
-    name,
-    private: true,
-    type: "module",
-    scripts: {
-      dev: "zabloo dev",
-      "dev:unity": "zabloo dev --unity",
-      build: "zabloo export",
-      typecheck: "tsc --noEmit",
-    },
-    dependencies: {
-      "@zabloo/react": zablooVersion,
-      react: "^19.0.0",
-    },
-    devDependencies: {
-      "@types/react": "^19.0.0",
-      "@zabloo/cli": zablooVersion,
-      typescript: "^5.6.0",
-    },
-  };
-  await writeFile(join(dir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
-
-  const readmePath = join(dir, "README.md");
-  const { readFile } = await import("node:fs/promises");
-  const readme = await readFile(readmePath, "utf8");
-  await writeFile(readmePath, readme.replace(/__PROJECT_NAME__/g, name));
 
   console.log(`
   Scaffolded ${name} in ${dir}
@@ -83,11 +51,6 @@ async function main(): Promise<void> {
     pnpm dev:unity  # + push each save to the Unity editor (menu Zabloo → Dev Mode)
     pnpm build      # export → dist/zabloo.ir.json
 `);
-}
-
-function fail(message: string): void {
-  console.error(`create-zabloo-app: ${message}`);
-  process.exitCode = 1;
 }
 
 await main();

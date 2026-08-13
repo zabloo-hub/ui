@@ -14,6 +14,6 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --clean --sourcemap",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   }
 }

@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsup src/cli.ts --format esm --clean --sourcemap",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "@zabloo/format": "workspace:*",
