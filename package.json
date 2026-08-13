@@ -11,6 +11,7 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
+    "smoke:external": "node scripts/smoke-external.mjs",
     "format": "biome format --write .",
     "changeset": "changeset"
   },
