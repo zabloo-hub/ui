@@ -83,6 +83,19 @@ export interface GoldenView {
   /** Types into the focused TextInput through the hidden field, as a browser does. */
   type(text: string): void;
   /**
+   * An IME composition against the hidden field, in its three moments. While one
+   * is in flight the field SHOWS what is being composed but the game is not told
+   * (half a syllable is not a value); `end` is what commits it. Separate calls so
+   * a test can put something else — a reload — in between.
+   */
+  compose: {
+    start(): void;
+    update(text: string): void;
+    end(): void;
+  };
+  /** Whether the hidden field is the one holding the keyboard right now. */
+  focusedEditor(): boolean;
+  /**
    * Steps the clock `ms` forward and runs the frames the view scheduled for that
    * span — the only way time passes here, so a transition is measured at the
    * instant the test names instead of whenever the machine got around to it.
@@ -190,6 +203,12 @@ export async function mountGolden(
       dom.dispatch("keyup", keyEvent(key));
     },
     type: (text) => dom.typeIntoEditor(text),
+    compose: {
+      start: () => dom.dispatchOnEditor("compositionstart"),
+      update: (text) => dom.typeIntoEditor(text, "compositionupdate"),
+      end: () => dom.dispatchOnEditor("compositionend"),
+    },
+    focusedEditor: () => dom.editor !== null && dom.activeElement === dom.editor,
     advance: (ms) => dom.advance(ms),
     // A resize to the same size: the view re-renders, which is all this asks for.
     settle: () => dom.dispatch("resize", {}),
@@ -553,9 +572,8 @@ class FakeDom {
    * an `input` event follows — which is the only path that exercises the
    * renderer's real editing model (`maxLength`, the single-line rule, the caret).
    */
-  typeIntoEditor(text: string): void {
-    const editor = this.editor;
-    if (!editor) throw new Error("golden harness: nothing is focused on a TextInput");
+  typeIntoEditor(text: string, event: "input" | "compositionupdate" = "input"): void {
+    const editor = this.requireEditor();
     const start = editor.selectionStart;
     const end = editor.selectionEnd;
     editor.value = editor.value.slice(0, start) + text + editor.value.slice(end);
@@ -563,7 +581,18 @@ class FakeDom {
     editor.selectionStart = caret;
     editor.selectionEnd = caret;
     editor.selectionDirection = "forward";
-    editor.dispatch("input", {});
+    editor.dispatch(event, {});
+  }
+
+  /** The composition events, which carry no value of their own — the field holds it. */
+  dispatchOnEditor(event: string): void {
+    this.requireEditor().dispatch(event, {});
+  }
+
+  private requireEditor(): FakeTextArea {
+    const editor = this.editor;
+    if (!editor) throw new Error("golden harness: nothing is focused on a TextInput");
+    return editor;
   }
 }
 

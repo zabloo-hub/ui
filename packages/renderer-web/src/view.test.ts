@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mountCase, readCorpus } from "./golden.js";
+import { mountCase, readCorpus, readEnvelope } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode, type NodeSnapshot, type ViewSnapshot } from "./snapshot.js";
 
@@ -578,6 +578,60 @@ describe("text fields", () => {
     expect(view.actions).toEqual([
       { action: "guest-confirmed", context: { path: "form.guests.0", key: "ana", index: 0 } },
     ]);
+  });
+
+  it("keeps the game out of it until a composition settles", async () => {
+    view = await mountCase(CORPUS.textinput);
+    const target = center(view.snapshot(), "search");
+
+    view.pointer.click(target.x, target.y);
+    view.compose.start();
+    view.compose.update("にほn");
+
+    // The field shows what is being composed; half a syllable is not a value.
+    expect(node(view.snapshot(), "search").field?.text).toBe("にほn");
+    expect(view.actions).toEqual([]);
+
+    view.compose.end();
+    expect(view.actions).toEqual([{ action: "search-changed" }]);
+  });
+});
+
+/**
+ * The dev loop reloads on every save (ZAB-57), so anything that outlives a
+ * `build()` is not a one-off: it accumulates until something reaches into a node
+ * nobody is showing any more. The hidden `<textarea>` is the one input device
+ * that genuinely outlives the tree — it belongs to the canvas, not to the
+ * document drawn on it.
+ */
+describe("hot reload", () => {
+  it("drops an IME composition the reload interrupted", async () => {
+    view = await mountCase(CORPUS.textinput);
+    const target = center(view.snapshot(), "search");
+    view.pointer.click(target.x, target.y);
+    view.compose.start();
+    view.compose.update("にほn");
+
+    view.handle.reload(readEnvelope(CORPUS.textinput.envelope));
+    view.compose.end();
+
+    // Without the reset the commit lands on the node from the tree that was
+    // thrown away, and the game hears an `onChange` for a field nobody is
+    // showing — from text the player was still writing when they saved.
+    expect(view.actions).toEqual([]);
+    expect(node(view.snapshot(), "search").field?.text).toBe("");
+  });
+
+  it("hands the keyboard back, so the field is not still holding it", async () => {
+    view = await mountCase(CORPUS.textinput);
+    const target = center(view.snapshot(), "search");
+    view.pointer.click(target.x, target.y);
+
+    view.handle.reload(readEnvelope(CORPUS.textinput.envelope));
+
+    // A rebuild focuses nothing until the first render settles `autofocus`.
+    expect(states(view.snapshot(), "search")).not.toContain("focused");
+    expect(view.focusedEditor()).toBe(false);
   });
 });
 

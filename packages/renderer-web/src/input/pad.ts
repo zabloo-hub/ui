@@ -96,6 +96,20 @@ export class PadController {
 
   constructor(private readonly host: PadHost) {}
 
+  /**
+   * There is deliberately no `reset()` here, unlike the pointer and the overlay
+   * layer (checked in ZAB-57). Everything above is DEVICE state — which way the
+   * stick is pushed, which buttons were down on the previous poll — and none of
+   * it names a node, so a rebuild leaves nothing stale to drop.
+   *
+   * Clearing it would be the actual bug: `press` is what turns a held button
+   * into an edge, so zeroing it mid-hold would make the very next poll read A as
+   * newly pressed and press whatever the new tree focused — a control the player
+   * never aimed at. Held across a reload it stays held, and the node-keyed half
+   * of a press (`focusedNode`, `pressed`, `sliderKeys`) is reset by `build()`,
+   * which is what makes the release land on nothing.
+   */
+
   /** The pads the browser reports, with the stale entries of an unplugged one dropped. */
   private pads(): readonly (PadSnapshot | null)[] {
     if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return [];
