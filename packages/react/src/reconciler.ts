@@ -11,7 +11,11 @@
 import type { ZNode } from "@zabloo/format";
 import { createContext, type ReactNode } from "react";
 import Reconciler from "react-reconciler";
-import { DefaultEventPriority, LegacyRoot } from "react-reconciler/constants";
+// Extension included on purpose: `react-reconciler` ships no `exports` map, so
+// Node's ESM resolver needs the real filename. Without it the published bundle
+// is unimportable from Node (`ERR_MODULE_NOT_FOUND`) even though Vitest's
+// bundler-style resolver — and our `moduleResolution: "Bundler"` — accept it.
+import { DefaultEventPriority, LegacyRoot } from "react-reconciler/constants.js";
 import {
   createHostInstance,
   type HostContainer,
