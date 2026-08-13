@@ -38,8 +38,11 @@
   },
   "textinput": {
     "envelope": "textinput.json",
-    "about": "Field geometry, the placeholder's empty state, a bound value and content that overflows its box.",
-    "data": { "form.city": "Barcelona" }
+    "about": "Field geometry, the placeholder's empty state, a bound value, content that overflows its box, and a field bound inside a Repeat item.",
+    "data": {
+      "form.city": "Barcelona",
+      "form.guests": [{ "id": "ana", "name": "Ana" }, { "id": "bo", "name": "Bo" }]
+    }
   },
   "transitions": {
     "envelope": "transitions.json",
