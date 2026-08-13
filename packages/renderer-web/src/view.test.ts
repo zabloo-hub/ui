@@ -454,6 +454,35 @@ describe("text fields", () => {
 
     expect(node(view.snapshot(), "name").field).toMatchObject({ anchor: 0, focus: 0 });
   });
+
+  it("writes a field inside a Repeat into the item's own slot", async () => {
+    view = await mountCase(CORPUS.textinput);
+    // The second guest: instances wear the template's id, so the ref is its path.
+    const target = center(view.snapshot(), "4.1");
+
+    view.pointer.click(target.x, target.y);
+    view.keyDown("End");
+    view.type("!");
+
+    expect(node(view.snapshot(), "4.1").field?.text).toBe("Bo!");
+    // The scope resolves the write — `guest.name` is not a slot of the store.
+    expect(view.writes).toEqual([{ path: "form.guests.1.name", value: "Bo!" }]);
+    expect(view.actions).toEqual([
+      { action: "guest-renamed", context: { path: "form.guests.1", key: "bo", index: 1 } },
+    ]);
+  });
+
+  it("says WHICH item a submit came from", async () => {
+    view = await mountCase(CORPUS.textinput);
+    const target = center(view.snapshot(), "4.0");
+
+    view.pointer.click(target.x, target.y);
+    view.keyDown("Enter");
+
+    expect(view.actions).toEqual([
+      { action: "guest-confirmed", context: { path: "form.guests.0", key: "ana", index: 0 } },
+    ]);
+  });
 });
 
 describe("transitions", () => {

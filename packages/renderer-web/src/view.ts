@@ -1306,9 +1306,10 @@ class WebView {
     // though the silent frames already put it in the buffer.
     if ((changed || commit) && !silent) {
       const any = node.ir as AnyNode;
-      const path = bindPath(any.value);
+      // Inside an item this resolves to `shop.items.3.name`, like Toggle/Slider.
+      const path = this.writePath(node, any.value);
       if (path !== null) this.writeData(path, edit.text);
-      if (any.onChange) this.onAction?.(any.onChange);
+      if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
     }
     this.render();
   }
@@ -1810,7 +1811,7 @@ class WebView {
       case "Enter": {
         event.preventDefault();
         const action = (node.ir as AnyNode).onSubmit;
-        if (action && !event.repeat) this.onAction?.(action);
+        if (action && !event.repeat) this.onAction?.(action, this.contextOf(node));
         return true;
       }
       case "Tab":
