@@ -12,14 +12,17 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/cli.ts --format esm --clean --sourcemap",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "build": "tsup src/cli.ts --format esm --clean --sourcemap && tsup src/preview-client.ts --format esm --platform browser --sourcemap",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.browser.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@zabloo/format": "workspace:*",
     "@zabloo/renderer-web": "workspace:*",
     "commander": "^15.0.0",
     "jiti": "^2.7.0"
+  },
+  "devDependencies": {
+    "jsdom": "^28.1.0"
   }
 }

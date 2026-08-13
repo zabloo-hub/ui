@@ -88,6 +88,20 @@ export class FieldEditor {
 
   constructor(private readonly host: FieldHost) {}
 
+  /**
+   * A rebuild: the tree is new, so the node this was editing is gone (ZAB-57).
+   *
+   * The hidden field OUTLIVES the tree — it belongs to the canvas, not to the
+   * document on it — so without this a `compositionend` arriving after a hot
+   * reload would commit half a syllable into a node nobody is showing any more.
+   * It also gives the keyboard back: a rebuild focuses nothing until the first
+   * render settles `autofocus`, and the field must not be holding it meanwhile.
+   */
+  reset(): void {
+    this.composing = null;
+    this.editor?.blur();
+  }
+
   /** The buffer and the state derived from it — `empty` is what styles the placeholder. */
   setNodeText(node: LayoutNode, text: string): void {
     node.text = text;

@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,iife --global-name ZablooRenderer --dts --clean --sourcemap",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "bench": "BENCH=1 vitest run bench.test.ts --disable-console-intercept"
   },
   "dependencies": {

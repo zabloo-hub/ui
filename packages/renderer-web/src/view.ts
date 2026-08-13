@@ -487,7 +487,16 @@ class WebView {
     this.bound.clear();
     this.focusedNode = null;
     this.sliderKeys = null;
+    // Every render that sets this consumes it before returning, so it is only
+    // ever null here — but this is the list of "references to the tree that just
+    // died", and leaving one out is how the next one gets forgotten too.
+    this.pendingReveal = null;
     this.pointer.reset();
+    // The hidden field OUTLIVES the tree: it belongs to the canvas, not to the
+    // document on it, so a composition in flight has to be dropped with the node
+    // it was editing (ZAB-57). The pad needs nothing — see the note in
+    // `input/pad.ts` for why resetting it would be the bug.
+    this.field.reset();
     // The tree is new, so every node identity the layer state referenced is gone.
     this.layer = [];
     this.overlays.reset();

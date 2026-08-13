@@ -7,11 +7,16 @@
  * without the inlined bytes and `/asset/<hash>` serves each blob once, so a save
  * only re-transfers what actually changed. The page re-inserts the bytes before
  * mounting — the renderer always receives a complete envelope.
+ *
+ * This is the server half only: what the page DOES lives in `preview-client.ts`,
+ * served here as `/preview.js` (ZAB-57). Everything left below is HTML, CSS and
+ * routes.
  */
 
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { createServer, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { type AssetBlob, splitEnvelope } from "./preview-assets.js";
 
 export interface PreviewServer {
@@ -39,6 +44,9 @@ export async function startPreviewServer(port: number): Promise<PreviewServer> {
       const path = require.resolve("@zabloo/renderer-web/global");
       res.writeHead(200, { "content-type": "text/javascript" });
       res.end(await readFile(path));
+    } else if (url === "/preview.js") {
+      res.writeHead(200, { "content-type": "text/javascript" });
+      res.end(await readFile(await previewClientPath()));
     } else if (url === "/envelope") {
       if (thin === null) {
         res.writeHead(503);
@@ -117,6 +125,39 @@ export async function startPreviewServer(port: number): Promise<PreviewServer> {
   };
 }
 
+/**
+ * The page's own script (`preview-client.ts`), built by tsup next to this file.
+ * Bundled it sits beside `cli.js` in `dist/`; running from `src` (the tests) it
+ * is one directory over, in the `dist/` of the same package.
+ */
+async function previewClientPath(): Promise<string> {
+  const candidates = ["./preview-client.js", "../dist/preview-client.js"];
+  for (const candidate of candidates) {
+    const path = fileURLToPath(new URL(candidate, import.meta.url));
+    try {
+      await access(path);
+      return path;
+    } catch {}
+  }
+  throw new Error("zabloo dev: preview client not built — run `pnpm build` in @zabloo/cli");
+}
+
+/**
+ * The page's markup. Exported so the client's tests wire themselves to the SAME
+ * ids the page serves: `start()` looks these up by name, and a rename that only
+ * happened on one side has to fail somewhere.
+ */
+export const PREVIEW_BODY = /* html */ `<header>
+  <b>zabloo</b> preview
+  <select id="views"></select>
+  <span id="status" title="live connection"></span>
+  <span id="pad" class="off" title="d-pad/stick: focus · A: press · B: back · right stick: scroll">🎮 gamepad</span>
+  <span id="hint">console: <code>zabloo.setData("player.gold", 900)</code></span>
+</header>
+<canvas id="canvas"></canvas>
+<div id="log"></div>
+<div id="data" class="empty"><h3>data bindings</h3><div id="fields"></div></div>`;
+
 const PAGE = /* html */ `<!doctype html>
 <html lang="en">
 <head>
@@ -153,203 +194,11 @@ const PAGE = /* html */ `<!doctype html>
 </style>
 </head>
 <body>
-<header>
-  <b>zabloo</b> preview
-  <select id="views"></select>
-  <span id="status" title="live connection"></span>
-  <span id="pad" class="off" title="d-pad/stick: focus · A: press · B: back · right stick: scroll">🎮 gamepad</span>
-  <span id="hint">console: <code>zabloo.setData("player.gold", 900)</code></span>
-</header>
-<canvas id="canvas"></canvas>
-<div id="log"></div>
-<div id="data" class="empty"><h3>data bindings</h3><div id="fields"></div></div>
+${PREVIEW_BODY}
 <script src="/renderer.js"></script>
-<script>
-  const canvas = document.getElementById("canvas");
-  const views = document.getElementById("views");
-  const status = document.getElementById("status");
-  const logBox = document.getElementById("log");
-  let handle = null;
-
-  function log(message) {
-    const line = document.createElement("div");
-    line.textContent = message;
-    logBox.prepend(line);
-    setTimeout(() => line.remove(), 6000);
-  }
-
-  // The preview page plays the role of "the game": it discovers the envelope's
-  // data-path bindings and offers inputs to push values (zabloo.setData). The
-  // traffic runs both ways — controls write their value back (onDataChanged),
-  // and the field shows it, which is the whole point of a two-way binding.
-  const dataValues = new Map();
-  const dataInputs = new Map();
-
-  function collectBindPaths(node, paths) {
-    if (node === null || typeof node !== "object") return;
-    if (typeof node.bind === "string") paths.add(node.bind);
-    if (node.type === "Repeat") {
-      // Inside a template the paths are RELATIVE to the item ("item.name"): they
-      // are addresses into the array, not values the game pushes. The array is —
-      // and so is whatever the empty state binds.
-      collectBindPaths(node.items, paths);
-      for (const child of (node.children ?? []).slice(1)) collectBindPaths(child, paths);
-      return;
-    }
-    for (const value of Object.values(node)) collectBindPaths(value, paths);
-  }
-
-  // Arrays and objects are values like any other since ZAB-29: a list is fed by
-  // pushing its array (paste JSON here, or use the console for a big one).
-  function coerce(text) {
-    const trimmed = text.trim();
-    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
-      try {
-        return JSON.parse(trimmed);
-      } catch {
-        return text;
-      }
-    }
-    if (text === "true") return true;
-    if (text === "false") return false;
-    if (trimmed !== "" && !Number.isNaN(Number(text))) return Number(text);
-    return text;
-  }
-
-  function show(value) {
-    return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
-  }
-
-  function buildDataPanel(envelope) {
-    const paths = new Set();
-    collectBindPaths(envelope, paths);
-    const panel = document.getElementById("data");
-    const fields = document.getElementById("fields");
-    panel.classList.toggle("empty", paths.size === 0);
-    fields.innerHTML = "";
-    dataInputs.clear();
-    for (const path of [...paths].sort()) {
-      const label = document.createElement("label");
-      label.textContent = path;
-      const input = document.createElement("input");
-      input.placeholder = "value or JSON…";
-      if (dataValues.has(path)) input.value = dataValues.get(path);
-      input.addEventListener("input", () => {
-        dataValues.set(path, input.value);
-        handle.setData(path, coerce(input.value));
-      });
-      dataInputs.set(path, input);
-      fields.append(label, input);
-    }
-  }
-
-  // A control wrote its own value: keep it for the next reload and show it. From
-  // inside a repeated item the path addresses the element ("shop.items.3.fav") —
-  // same channel, no per-component API (ZAB-29).
-  function onDataChanged(path, value) {
-    const text = show(value);
-    dataValues.set(path, text);
-    const input = dataInputs.get(path);
-    if (input) input.value = text;
-    log(path + " = " + text);
-  }
-
-  function replayData() {
-    for (const [path, value] of dataValues) handle.setData(path, coerce(value));
-  }
-
-  // Assets arrive apart from the tree: the page keeps the bytes it has already
-  // fetched (keyed by content hash — they never change) and pastes them back into
-  // the manifest, so the renderer always gets a complete envelope.
-  const assetData = new Map();
-
-  async function hydrateAssets(envelope) {
-    const entries = Object.values(envelope.assets ?? {});
-    await Promise.all(entries.map(async (entry) => {
-      if (typeof entry.data === "string") {
-        assetData.set(entry.hash, entry.data);
-        return;
-      }
-      let data = assetData.get(entry.hash);
-      if (data === undefined) {
-        const res = await fetch("/asset/" + entry.hash);
-        if (!res.ok) {
-          log("asset unavailable: " + entry.hash.slice(0, 8));
-          return;
-        }
-        data = await res.text();
-        assetData.set(entry.hash, data);
-      }
-      entry.data = data;
-    }));
-    return envelope;
-  }
-
-  // The preview plays the game's role here too (ZAB-37): a mount that refuses the
-  // envelope must show WHY on the page — an uncaught rejection in the reload loop
-  // would leave a canvas that simply stopped updating, which is the worst report
-  // of all. reload() never throws, so this catches the first mount and the fetch.
-  async function load(viewId) {
-    try {
-      await loadOrFail(viewId);
-    } catch (error) {
-      log("envelope error: " + (error && error.message ? error.message : error));
-    }
-  }
-
-  async function loadOrFail(viewId) {
-    const res = await fetch("/envelope");
-    if (!res.ok) return;
-    const envelope = await hydrateAssets(await res.json());
-    const json = JSON.stringify(envelope);
-    buildDataPanel(envelope);
-    if (handle && viewId === undefined) {
-      handle.reload(json);
-      replayData();
-      return;
-    }
-    if (handle) handle.dispose();
-    handle = ZablooRenderer.mount(canvas, json, {
-      view: viewId,
-      // An action from inside a row carries the item it fired from (ZAB-29).
-      onAction: (action, context) =>
-        log(context ? action + " → " + context.path + " (#" + context.index + ")" : "action: " + action),
-      onDataChanged,
-    });
-    window.zabloo = handle;
-    replayData();
-    if (views.options.length !== handle.viewIds.length) {
-      views.innerHTML = "";
-      for (const id of handle.viewIds) {
-        const option = document.createElement("option");
-        option.value = option.textContent = id;
-        views.append(option);
-      }
-    }
-  }
-
-  views.addEventListener("change", () => load(views.value));
-
-  // Gamepad indicator (ZAB-47). The renderer polls the pad itself; the page only
-  // says whether there is one, so console navigation can be told apart from a
-  // controller the browser has not seen yet — it reports none until the first
-  // button press, which is the API's own rule, not a bug in the preview.
-  const padBadge = document.getElementById("pad");
-  function syncPad() {
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const connected = [...pads].some((pad) => pad && pad.connected);
-    padBadge.classList.toggle("off", !connected);
-  }
-  window.addEventListener("gamepadconnected", syncPad);
-  window.addEventListener("gamepaddisconnected", syncPad);
-  syncPad();
-
-  const events = new EventSource("/events");
-  events.onopen = () => status.classList.add("ok");
-  events.onerror = () => status.classList.remove("ok");
-  events.onmessage = () => load();
-
-  load();
+<script type="module">
+  import { start } from "/preview.js";
+  start();
 </script>
 </body>
 </html>
