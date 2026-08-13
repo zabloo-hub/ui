@@ -3,14 +3,41 @@
   "version": "0.1.0",
   "description": "Scaffold a zabloo/ui project: author game UI in React, export versioned IR, render it in-engine",
   "license": "MIT",
+  "keywords": [
+    "zabloo",
+    "create",
+    "scaffold",
+    "starter",
+    "react",
+    "game-ui",
+    "gamedev",
+    "ui",
+    "engine-agnostic"
+  ],
+  "homepage": "https://github.com/zabloo-hub/ui/tree/main/packages/create-zabloo-app#readme",
+  "bugs": "https://github.com/zabloo-hub/ui/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zabloo-hub/ui.git",
+    "directory": "packages/create-zabloo-app"
+  },
   "type": "module",
   "bin": {
     "create-zabloo-app": "./dist/index.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "templates"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --clean --sourcemap",
     "typecheck": "tsc --noEmit",
