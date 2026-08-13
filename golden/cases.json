@@ -71,6 +71,10 @@
       ]
     }
   },
+  "anchors": {
+    "envelope": "anchors.json",
+    "about": "Every AnchorAt placement with room around it, the flip at each viewport edge, the slide that keeps a wide bubble on screen, and an anchor below a ScrollView's fold whose overlay leaves the layer."
+  },
   "overlays": {
     "envelope": "overlays.json",
     "about": "The layer in (z, document order), a modal taking the focus with it, and a hover-triggered tooltip that is absent until its anchor lights up.",

@@ -204,6 +204,31 @@ describe("the overlay layer", () => {
   });
 });
 
+describe("anchored overlays and scrolling", () => {
+  it("keeps an overlay in the layer exactly while its anchor is on screen", async () => {
+    view = await mountCase(CORPUS.anchors);
+    const refs = () => (view as GoldenView).snapshot().layer.map((entry) => entry.ref);
+    expect(refs()).toContain("in-scroller-tip");
+    // Its twin's anchor sits below the scroller's fold: nothing to point at.
+    expect(refs()).not.toContain("below-fold-tip");
+
+    // Scroll to the end: the first row leaves the viewport and the folded one
+    // arrives. The layer reads the rects of the frame already laid out, so the
+    // swap shows on the next one.
+    view.handle.setScroll("anchor-scroller", 0, 76);
+    view.settle();
+
+    expect(refs()).not.toContain("in-scroller-tip");
+    expect(refs()).toContain("below-fold-tip");
+    // And the bubble hangs off the row's SCROLLED rect, not the one it had.
+    const anchor = node(view.snapshot(), "below-fold").rect;
+    const bubble = node(view.snapshot(), "below-fold-bubble").rect;
+    if (!anchor || !bubble) throw new Error("the anchored pair is not in layout");
+    expect(bubble.x).toBeCloseTo(anchor.x + anchor.width + 8, 3);
+    expect(bubble.y + bubble.height / 2).toBeCloseTo(anchor.y + anchor.height / 2, 3);
+  });
+});
+
 describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
   // The settings case declares the whole flow: a Button anchor, a press-triggered
   // modal Overlay, and an exclusive-check list inside a ScrollView too short for
