@@ -17,4 +17,4 @@ export {
   type TextSnapshot,
   type ViewSnapshot,
 } from "./snapshot.js";
-export { type MountOptions, mount, type ZablooHandle } from "./view.js";
+export { type FrameStats, type MountOptions, mount, type ZablooHandle } from "./view.js";

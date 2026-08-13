@@ -55,7 +55,7 @@ import {
   stepRepeat,
 } from "./gamepad.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
-import { GLRenderer } from "./gl.js";
+import { type Batch, GLRenderer } from "./gl.js";
 import { FontLibrary, type GlyphAtlas } from "./glyphs.js";
 import { childClip, effectiveClip } from "./hit.js";
 import {
@@ -288,6 +288,25 @@ export interface MountOptions {
   background?: string;
 }
 
+/**
+ * What the last painted frame cost, in renderer terms (ZAB-55). Perf telemetry
+ * for the web target only — none of it is cross-target metrics, so it lives
+ * beside `snapshot()` instead of inside it. It is what the performance budgets
+ * are asserted against.
+ */
+export interface FrameStats {
+  /** Draw calls submitted (batches with geometry in them). */
+  drawCalls: number;
+  /** Vertices across those batches. */
+  vertices: number;
+  /** Indices across those batches. */
+  indices: number;
+  /** Live glyph atlases — one GPU texture and one CPU canvas each. */
+  atlases: number;
+  /** CPU-side bytes of those atlas bitmaps (RGBA); the GPU copies mirror them. */
+  atlasBytes: number;
+}
+
 export interface ZablooHandle {
   readonly viewIds: string[];
   /**
@@ -324,6 +343,8 @@ export interface ZablooHandle {
    * (ZAB-48/ZAB-38) and what a canvas overlaying this view draws against.
    */
   snapshot(): ViewSnapshot;
+  /** What the last painted frame cost — see `FrameStats`. */
+  stats(): FrameStats;
   dispose(): void;
 }
 
@@ -434,6 +455,14 @@ class WebView {
   private padTime = 0;
   /** Set by the resolve pass when any node still has a tween running. */
   private animating = false;
+  /** What the last painted frame cost — recomputed at the end of `render()`. */
+  private lastStats: FrameStats = {
+    drawCalls: 0,
+    vertices: 0,
+    indices: 0,
+    atlases: 0,
+    atlasBytes: 0,
+  };
   /** Our TTF rasterizer, once its WASM has loaded (see `loadRasterizer`). */
   private font: StbFont | null = null;
   /** Settles when that rasterizer is in and the view has repainted with it. */
@@ -529,6 +558,7 @@ class WebView {
       setText: (id, text) => this.setText(id, text),
       setScroll: (id, x, y) => this.setScroll(id, x, y),
       snapshot: () => this.snapshot(),
+      stats: () => ({ ...this.lastStats }),
       dispose: () => {
         this.disposed = true;
         this.cancelFrame();
@@ -2964,10 +2994,31 @@ class WebView {
       geometry.startRoot();
       this.paint(overlay, geometry, this.presence.get(overlay) ?? 1);
     }
-    this.gl.draw(geometry.batches(), width, height, this.clearColor);
+    const batches = geometry.batches();
+    this.gl.draw(batches, width, height, this.clearColor);
+    this.lastStats = this.frameStats(batches);
 
     // A tween in flight owns the clock: keep painting until everything settles.
     if (this.animating) this.scheduleFrame();
+  }
+
+  private frameStats(batches: Batch[]): FrameStats {
+    let drawCalls = 0;
+    let vertices = 0;
+    let indices = 0;
+    for (const batch of batches) {
+      if (batch.indices.length === 0) continue;
+      drawCalls++;
+      vertices += batch.vertices.length / 8;
+      indices += batch.indices.length;
+    }
+    let atlases = 0;
+    let atlasBytes = 0;
+    for (const atlas of this.fonts.all()) {
+      atlases++;
+      atlasBytes += atlas.canvas.width * atlas.canvas.height * 4;
+    }
+    return { drawCalls, vertices, indices, atlases, atlasBytes };
   }
 
   /**
