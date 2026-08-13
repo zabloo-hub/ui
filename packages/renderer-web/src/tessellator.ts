@@ -8,7 +8,7 @@
 import type { ImageFit } from "@zabloo/format";
 import type { ImageAsset } from "./assets.js";
 import type { Clip } from "./clip.js";
-import type { Batch } from "./gl.js";
+import type { Batch, TextureSource } from "./gl.js";
 import type { GlyphAtlas } from "./glyphs.js";
 import type { Rect } from "./layout.js";
 
@@ -20,15 +20,31 @@ const CORNER_SEGMENTS = 6;
 const UNTINTED: Color = [1, 1, 1, 1];
 
 /**
+ * The mutable store behind one batch: growable typed buffers plus write
+ * cursors, kept and reused across frames (ZAB-55) — `batches()` hands out
+ * views over the live region, so a steady-state frame reallocates nothing.
+ */
+interface BatchStore {
+  texture: TextureSource | null;
+  clip: Clip | null;
+  vertices: Float32Array;
+  /** Floats written so far (8 per vertex). */
+  floats: number;
+  indices: Uint16Array;
+  /** Indices written so far. */
+  count: number;
+}
+
+/**
  * Everything painted under one clipping region, in one contiguous run of the
  * paint pass. Batching is per group rather than per frame: a clip is GL state,
  * so geometry under different clips can't share a draw call.
  */
 interface ClipGroup {
   clip: Clip | null;
-  solid: Batch;
-  images: Map<ImageAsset, Batch>;
-  texts: Map<GlyphAtlas, Batch>;
+  solid: BatchStore;
+  images: Map<ImageAsset, BatchStore>;
+  texts: Map<GlyphAtlas, BatchStore>;
 }
 
 /** How an Image node paints — the resolved style the view hands down. */
@@ -44,10 +60,58 @@ export interface ImagePaint {
 export class GeometryBuilder {
   private readonly groups: ClipGroup[] = [];
   private group: ClipGroup;
+  /** Retired stores/groups waiting for the next frame — buffers kept (ZAB-55). */
+  private readonly batchPool: BatchStore[] = [];
+  private readonly groupPool: ClipGroup[] = [];
 
   /** `dpr` lets glyph quads snap to the physical pixel grid (crisp text). */
-  constructor(private readonly dpr: number = 1) {
+  constructor(private dpr: number = 1) {
     this.group = this.openGroup(null);
+  }
+
+  /**
+   * Rewinds for a new frame, keeping every buffer: the view holds ONE builder
+   * for its whole life, so a steady animation frame writes into last frame's
+   * arrays instead of reallocating the scene's geometry (ZAB-55).
+   */
+  reset(dpr: number = this.dpr): this {
+    this.dpr = dpr;
+    for (const group of this.groups) {
+      this.recycle(group.solid);
+      for (const batch of group.images.values()) this.recycle(batch);
+      for (const batch of group.texts.values()) this.recycle(batch);
+      group.images.clear();
+      group.texts.clear();
+      this.groupPool.push(group);
+    }
+    this.groups.length = 0;
+    this.group = this.openGroup(null);
+    return this;
+  }
+
+  private recycle(batch: BatchStore): void {
+    batch.texture = null;
+    batch.clip = null;
+    batch.floats = 0;
+    batch.count = 0;
+    this.batchPool.push(batch);
+  }
+
+  private acquire(texture: TextureSource | null, clip: Clip | null): BatchStore {
+    const pooled = this.batchPool.pop();
+    if (pooled) {
+      pooled.texture = texture;
+      pooled.clip = clip;
+      return pooled;
+    }
+    return {
+      texture,
+      clip,
+      vertices: new Float32Array(1024),
+      floats: 0,
+      indices: new Uint16Array(512),
+      count: 0,
+    };
   }
 
   /**
@@ -76,12 +140,14 @@ export class GeometryBuilder {
   }
 
   private openGroup(clip: Clip | null): ClipGroup {
-    const group: ClipGroup = {
+    const group = this.groupPool.pop() ?? {
       clip,
-      solid: { texture: null, vertices: [], indices: [], clip },
-      images: new Map(),
-      texts: new Map(),
+      solid: undefined as unknown as BatchStore,
+      images: new Map<ImageAsset, BatchStore>(),
+      texts: new Map<GlyphAtlas, BatchStore>(),
     };
+    group.clip = clip;
+    group.solid = this.acquire(null, clip);
     this.groups.push(group);
     return group;
   }
@@ -91,11 +157,17 @@ export class GeometryBuilder {
    * render under images, and glyphs on top of both. Each distinct image is its
    * own texture, hence its own draw call: the single-batch invariant only ever
    * held for solids + glyph atlas.
+   *
+   * Each `Batch` is a VIEW over this frame's live region of a reused buffer:
+   * valid until the next `reset`, which is one whole frame — exactly the life
+   * the GL submission and the stats need.
    */
   batches(): Batch[] {
     const out: Batch[] = [];
     for (const group of this.groups) {
-      out.push(group.solid, ...group.images.values(), ...group.texts.values());
+      out.push(liveView(group.solid));
+      for (const batch of group.images.values()) out.push(liveView(batch));
+      for (const batch of group.texts.values()) out.push(liveView(batch));
     }
     return out;
   }
@@ -104,24 +176,28 @@ export class GeometryBuilder {
     if (!(rect.width > 0) || !(rect.height > 0)) return;
     const r = Math.min(radius, rect.width * 0.5, rect.height * 0.5);
     const batch = this.group.solid;
-    const base = batch.vertices.length / 8;
+    const base = batch.floats / 8;
 
     if (r <= 0.01) {
       pushVertex(batch, rect.x, rect.y, 0, 0, color);
       pushVertex(batch, rect.x + rect.width, rect.y, 0, 0, color);
       pushVertex(batch, rect.x + rect.width, rect.y + rect.height, 0, 0, color);
       pushVertex(batch, rect.x, rect.y + rect.height, 0, 0, color);
-      batch.indices.push(base, base + 1, base + 2, base + 2, base + 3, base);
+      pushQuadIndices(batch, base);
       return;
     }
 
     // Perimeter: 4 corner arcs traversed clockwise on screen (y down), fan
     // around the centroid — identical to the SDK.
     pushVertex(batch, rect.x + rect.width / 2, rect.y + rect.height / 2, 0, 0, color);
-    const points = perimeter(rect, r);
-    for (const [x, y] of points) pushVertex(batch, x, y, 0, 0, color);
-    for (let i = 0; i < points.length; i++) {
-      batch.indices.push(base, base + 1 + i, base + 1 + ((i + 1) % points.length));
+    fillPerimeter(rect, r);
+    for (let i = 0; i < PERIMETER_POINTS; i++) {
+      pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
+    }
+    for (let i = 0; i < PERIMETER_POINTS; i++) {
+      pushIndex(batch, base);
+      pushIndex(batch, base + 1 + i);
+      pushIndex(batch, base + 1 + ((i + 1) % PERIMETER_POINTS));
     }
   }
 
@@ -147,26 +223,30 @@ export class GeometryBuilder {
       height: rect.height - width * 2,
     };
     const batch = this.group.solid;
-    const base = batch.vertices.length / 8;
+    const base = batch.floats / 8;
 
-    // Outer then inner perimeter, same parametrization → stitch quads.
-    // (radius 0 degenerates corner arcs to repeated points — harmless.)
-    const outer = perimeter(rect, r);
-    const innerPts = perimeter(inner, Math.max(0, r - width));
-    for (const [x, y] of outer) pushVertex(batch, x, y, 0, 0, color);
-    for (const [x, y] of innerPts) pushVertex(batch, x, y, 0, 0, color);
+    // Outer then inner perimeter, same parametrization → stitch quads. The
+    // scratch is refilled between the two loops, so each is consumed before
+    // the other lands. (radius 0 degenerates corner arcs to repeated points —
+    // harmless.)
+    fillPerimeter(rect, r);
+    for (let i = 0; i < PERIMETER_POINTS; i++) {
+      pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
+    }
+    fillPerimeter(inner, Math.max(0, r - width));
+    for (let i = 0; i < PERIMETER_POINTS; i++) {
+      pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
+    }
 
-    const count = outer.length;
+    const count = PERIMETER_POINTS;
     for (let i = 0; i < count; i++) {
       const next = (i + 1) % count;
-      batch.indices.push(
-        base + i,
-        base + next,
-        base + count + next,
-        base + count + next,
-        base + count + i,
-        base + i,
-      );
+      pushIndex(batch, base + i);
+      pushIndex(batch, base + next);
+      pushIndex(batch, base + count + next);
+      pushIndex(batch, base + count + next);
+      pushIndex(batch, base + count + i);
+      pushIndex(batch, base + i);
     }
   }
 
@@ -191,7 +271,7 @@ export class GeometryBuilder {
     if (quad === null) return;
 
     const batch = this.imageBatchFor(asset);
-    const base = batch.vertices.length / 8;
+    const base = batch.floats / 8;
     const color = paint.color ?? UNTINTED;
     const { rect: box, uv } = quad;
     const r = Math.min(paint.radius ?? 0, box.width * 0.5, box.height * 0.5);
@@ -206,34 +286,34 @@ export class GeometryBuilder {
       pushVertex(batch, x1, box.y, u1, uv.y, color);
       pushVertex(batch, x1, y1, u1, v1, color);
       pushVertex(batch, box.x, y1, uv.x, v1, color);
-      batch.indices.push(base, base + 1, base + 2, base + 2, base + 3, base);
+      pushQuadIndices(batch, base);
       return;
     }
 
     // Rounded: same fan as a rounded-rect background, sampling the texture at
     // each vertex's relative position inside the painted box.
-    const uvAt = (x: number, y: number): [number, number] => [
-      uv.x + ((x - box.x) / box.width) * uv.width,
-      uv.y + ((y - box.y) / box.height) * uv.height,
-    ];
+    const uAt = (x: number): number => uv.x + ((x - box.x) / box.width) * uv.width;
+    const vAt = (y: number): number => uv.y + ((y - box.y) / box.height) * uv.height;
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
-    const [cu, cv] = uvAt(cx, cy);
-    pushVertex(batch, cx, cy, cu, cv, color);
-    const points = perimeter(box, r);
-    for (const [x, y] of points) {
-      const [u, v] = uvAt(x, y);
-      pushVertex(batch, x, y, u, v, color);
+    pushVertex(batch, cx, cy, uAt(cx), vAt(cy), color);
+    fillPerimeter(box, r);
+    for (let i = 0; i < PERIMETER_POINTS; i++) {
+      const x = perimeterX[i];
+      const y = perimeterY[i];
+      pushVertex(batch, x, y, uAt(x), vAt(y), color);
     }
-    for (let i = 0; i < points.length; i++) {
-      batch.indices.push(base, base + 1 + i, base + 1 + ((i + 1) % points.length));
+    for (let i = 0; i < PERIMETER_POINTS; i++) {
+      pushIndex(batch, base);
+      pushIndex(batch, base + 1 + i);
+      pushIndex(batch, base + 1 + ((i + 1) % PERIMETER_POINTS));
     }
   }
 
-  private imageBatchFor(asset: ImageAsset): Batch {
+  private imageBatchFor(asset: ImageAsset): BatchStore {
     let batch = this.group.images.get(asset);
     if (!batch) {
-      batch = { texture: asset, vertices: [], indices: [], clip: this.group.clip };
+      batch = this.acquire(asset, this.group.clip);
       this.group.images.set(asset, batch);
     }
     return batch;
@@ -261,22 +341,22 @@ export class GeometryBuilder {
         const y0 = Math.round((baseline - glyph.maxY) * this.dpr) / this.dpr;
         const x1 = x0 + (glyph.maxX - glyph.minX);
         const y1 = y0 + (glyph.maxY - glyph.minY);
-        const base = batch.vertices.length / 8;
+        const base = batch.floats / 8;
         // Atlas v grows downward (texImage2D row order) → v0 = glyph top.
         pushVertex(batch, x0, y0, glyph.u0, glyph.v0, color);
         pushVertex(batch, x1, y0, glyph.u1, glyph.v0, color);
         pushVertex(batch, x1, y1, glyph.u1, glyph.v1, color);
         pushVertex(batch, x0, y1, glyph.u0, glyph.v1, color);
-        batch.indices.push(base, base + 1, base + 2, base + 2, base + 3, base);
+        pushQuadIndices(batch, base);
       }
       pen += glyph.advance;
     }
   }
 
-  private batchFor(atlas: GlyphAtlas): Batch {
+  private batchFor(atlas: GlyphAtlas): BatchStore {
     let batch = this.group.texts.get(atlas);
     if (!batch) {
-      batch = { texture: atlas, vertices: [], indices: [], clip: this.group.clip };
+      batch = this.acquire(atlas, this.group.clip);
       this.group.texts.set(atlas, batch);
     }
     return batch;
@@ -343,29 +423,95 @@ export function fade(color: Color, opacity: number): Color {
   return opacity >= 1 ? color : [color[0], color[1], color[2], color[3] * opacity];
 }
 
-function pushVertex(batch: Batch, x: number, y: number, u: number, v: number, color: Color): void {
-  batch.vertices.push(x, y, u, v, color[0], color[1], color[2], color[3]);
+/** The live region of a store, in the `Batch` shape the GL layer consumes. */
+function liveView(store: BatchStore): Batch {
+  return {
+    texture: store.texture,
+    vertices: store.vertices.subarray(0, store.floats),
+    indices: store.indices.subarray(0, store.count),
+    clip: store.clip,
+  };
+}
+
+function growFloats(array: Float32Array, needed: number): Float32Array {
+  let capacity = array.length * 2;
+  while (capacity < needed) capacity *= 2;
+  const next = new Float32Array(capacity);
+  next.set(array);
+  return next;
+}
+
+function growIndices(array: Uint16Array, needed: number): Uint16Array {
+  let capacity = array.length * 2;
+  while (capacity < needed) capacity *= 2;
+  const next = new Uint16Array(capacity);
+  next.set(array);
+  return next;
+}
+
+function pushVertex(
+  batch: BatchStore,
+  x: number,
+  y: number,
+  u: number,
+  v: number,
+  color: Color,
+): void {
+  if (batch.floats + 8 > batch.vertices.length) {
+    batch.vertices = growFloats(batch.vertices, batch.floats + 8);
+  }
+  const out = batch.vertices;
+  let at = batch.floats;
+  out[at++] = x;
+  out[at++] = y;
+  out[at++] = u;
+  out[at++] = v;
+  out[at++] = color[0];
+  out[at++] = color[1];
+  out[at++] = color[2];
+  out[at++] = color[3];
+  batch.floats = at;
+}
+
+function pushIndex(batch: BatchStore, value: number): void {
+  if (batch.count >= batch.indices.length) {
+    batch.indices = growIndices(batch.indices, batch.count + 1);
+  }
+  batch.indices[batch.count++] = value;
+}
+
+/** The two triangles of the quad whose four vertices start at `base`. */
+function pushQuadIndices(batch: BatchStore, base: number): void {
+  pushIndex(batch, base);
+  pushIndex(batch, base + 1);
+  pushIndex(batch, base + 2);
+  pushIndex(batch, base + 2);
+  pushIndex(batch, base + 3);
+  pushIndex(batch, base);
 }
 
 /**
  * Rounded-rect perimeter: 4 corner arcs traversed clockwise on screen (y down),
  * 4 × (CORNER_SEGMENTS + 1) points — same parametrization as the Unity SDK.
+ * Written into a module scratch (single-threaded, consumed before the next
+ * fill) so a frame full of rounded rects allocates no point arrays (ZAB-55).
  */
-function perimeter(rect: Rect, r: number): Array<[number, number]> {
-  const centers = [
-    [rect.x + r, rect.y + r], // TL: 180 → 270
-    [rect.x + rect.width - r, rect.y + r], // TR: 270 → 360
-    [rect.x + rect.width - r, rect.y + rect.height - r], // BR: 0 → 90
-    [rect.x + r, rect.y + rect.height - r], // BL: 90 → 180
-  ];
-  const points: Array<[number, number]> = [];
+const PERIMETER_POINTS = 4 * (CORNER_SEGMENTS + 1);
+const perimeterX = new Float64Array(PERIMETER_POINTS);
+const perimeterY = new Float64Array(PERIMETER_POINTS);
+
+function fillPerimeter(rect: Rect, r: number): void {
+  let at = 0;
   for (let corner = 0; corner < 4; corner++) {
+    // TL: 180 → 270, TR: 270 → 360, BR: 0 → 90, BL: 90 → 180.
+    const cx = corner === 0 || corner === 3 ? rect.x + r : rect.x + rect.width - r;
+    const cy = corner < 2 ? rect.y + r : rect.y + rect.height - r;
     const start = (180 + corner * 90) * (Math.PI / 180);
     for (let s = 0; s <= CORNER_SEGMENTS; s++) {
       const angle = start + (Math.PI / 2) * (s / CORNER_SEGMENTS);
-      const [cx, cy] = centers[corner];
-      points.push([cx + r * Math.cos(angle), cy + r * Math.sin(angle)]);
+      perimeterX[at] = cx + r * Math.cos(angle);
+      perimeterY[at] = cy + r * Math.sin(angle);
+      at++;
     }
   }
-  return points;
 }

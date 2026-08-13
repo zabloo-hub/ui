@@ -20,7 +20,7 @@
     "build": "tsup src/index.ts --format esm,iife --global-name ZablooRenderer --dts --clean --sourcemap",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "bench": "BENCH=1 NODE_OPTIONS=--expose-gc vitest run bench.test.ts"
+    "bench": "BENCH=1 vitest run bench.test.ts --disable-console-intercept"
   },
   "dependencies": {
     "@zabloo/format": "workspace:*"

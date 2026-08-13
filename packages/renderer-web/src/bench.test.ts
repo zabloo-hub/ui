@@ -9,34 +9,67 @@
  *
  * - The harness fakes `performance.now` (the frame CLOCK), so wall time is
  *   measured with `process.hrtime.bigint()`, which nothing fakes.
- * - "KB/frame" is the heap-growth rate over the run (GC pauses net it down);
- *   it is an indicator of allocation pressure, not an exact count. Run with
- *   `--expose-gc` (the `bench` script does) for a clean baseline per scenario.
+ * - "KB/frame" comes from V8's sampling heap profiler: an estimate of bytes
+ *   ALLOCATED during the loop (`process.memoryUsage` deltas turned out to
+ *   track arena growth, not garbage — they overstated by orders of magnitude).
  */
 
+import { Session } from "node:inspector";
 import { describe, expect, it } from "vitest";
 import { mountCase, readCorpus } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode } from "./snapshot.js";
 
-const FRAMES = 300;
+const FRAMES = 1000;
 
-const gc = (globalThis as { gc?: () => void }).gc;
+interface SamplingProfileNode {
+  selfSize: number;
+  children: SamplingProfileNode[];
+}
 
-/** Wall-clock + heap-growth cost of `frames` ticks, after a warmup. */
-function measure(frames: number, tick: () => void): { ms: number; kb: number } {
+/**
+ * Wall-clock + allocation cost of `frames` ticks, after a warmup. Two separate
+ * loops on purpose: the sampling profiler slows the code it watches, so the
+ * timed loop runs bare and a second, profiled loop counts the allocations.
+ */
+async function measure(frames: number, tick: () => void): Promise<{ ms: number; kb: number }> {
   for (let i = 0; i < 30; i++) tick();
-  gc?.();
-  const heap0 = process.memoryUsage().heapUsed;
+
   const start = process.hrtime.bigint();
   for (let i = 0; i < frames; i++) tick();
   const elapsed = Number(process.hrtime.bigint() - start) / 1e6;
-  const grown = process.memoryUsage().heapUsed - heap0;
-  return { ms: elapsed / frames, kb: grown / 1024 / frames };
+
+  const session = new Session();
+  session.connect();
+  const post = (method: string, params?: object): Promise<unknown> =>
+    new Promise((resolve, reject) =>
+      session.post(method, params, (err, result) => (err ? reject(err) : resolve(result))),
+    );
+  await post("HeapProfiler.enable");
+  // The two flags make this a CHURN measure: without them the profiler drops
+  // the samples the GC collects, and only the retained bytes would show.
+  await post("HeapProfiler.startSampling", {
+    samplingInterval: 2048,
+    includeObjectsCollectedByMajorGC: true,
+    includeObjectsCollectedByMinorGC: true,
+  });
+  for (let i = 0; i < frames; i++) tick();
+  const { profile } = (await post("HeapProfiler.stopSampling")) as {
+    profile: { head: SamplingProfileNode };
+  };
+  session.disconnect();
+  let allocated = 0;
+  const walk = (node: SamplingProfileNode): void => {
+    allocated += node.selfSize;
+    for (const child of node.children) walk(child);
+  };
+  walk(profile.head);
+
+  return { ms: elapsed / frames, kb: allocated / 1024 / frames };
 }
 
 function report(name: string, cost: { ms: number; kb: number }, extra = ""): void {
-  const line = `${cost.ms.toFixed(3)} ms/frame, ${cost.kb.toFixed(1)} KB/frame heap growth`;
+  const line = `${cost.ms.toFixed(3)} ms/frame, ${cost.kb.toFixed(1)} KB/frame allocated`;
   console.log(`[bench] ${name}: ${line}${extra ? ` — ${extra}` : ""}`);
 }
 
@@ -153,10 +186,7 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
     const view = await mountCase(readCorpus().settings);
     // `settle` re-renders without moving the clock: the cost of one whole
     // sync → resolve → measure → arrange → tessellate pass, nothing animating.
-    report(
-      "settings full relayout",
-      measure(FRAMES, () => view.settle()),
-    );
+    report("settings full relayout", await measure(FRAMES, () => view.settle()));
     view.dispose();
   });
 
@@ -165,7 +195,7 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
     focusByClick(view, "player-name");
     view.type("Zabloo");
     // The focused field owns the clock: every 16ms step renders one frame.
-    const cost = measure(FRAMES, () => view.advance(16));
+    const cost = await measure(FRAMES, () => view.advance(16));
     expect(view.snapshot().focus).toBe("player-name");
     report("caret animation frame", cost, JSON.stringify(view.handle.stats()));
     view.dispose();
@@ -179,7 +209,7 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
     const before = opacityOf();
     view.advance(160);
     expect(opacityOf()).not.toBe(before);
-    const cost = measure(FRAMES, () => view.advance(16));
+    const cost = await measure(FRAMES, () => view.advance(16));
     report("spinner animation frame", cost, JSON.stringify(view.handle.stats()));
     view.dispose();
   });
@@ -196,7 +226,7 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
 
     // Steady-state scrolling: every wheel renders (plus any window re-plan the
     // drifted check schedules — that cost belongs to the number).
-    const cost = measure(FRAMES, () => {
+    const cost = await measure(FRAMES, () => {
       view.pointer.wheel(120, 150, 0, 40);
       view.advance(16);
     });

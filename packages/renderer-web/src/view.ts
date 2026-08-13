@@ -455,6 +455,10 @@ class WebView {
   private padTime = 0;
   /** Set by the resolve pass when any node still has a tween running. */
   private animating = false;
+  /** Refilled per node by the resolve pass — see the note there (ZAB-55). */
+  private readonly scratchTargets: ResolvedValues = {};
+  /** The frame's geometry, buffers reused across frames — see `render` (ZAB-55). */
+  private readonly geometry = new GeometryBuilder();
   /** What the last painted frame cost — recomputed at the end of `render()`. */
   private lastStats: FrameStats = {
     drawCalls: 0,
@@ -2662,27 +2666,32 @@ class WebView {
     node.forcedClip = false;
     const style = this.effectiveStyle(node);
     const layout = node.ir.layout;
-    const targets: ResolvedValues = {
-      background: this.optionalColor(style?.background, MISSING_COLOR),
-      // An undeclared border color HOLDS the last one instead of dropping it: the
-      // border it paints is leaving through `borderWidth`, and a focus ring that
-      // loses its color halfway out would flash the missing-color magenta.
-      borderColor:
-        this.optionalColor(style?.borderColor, MISSING_COLOR) ?? node.resolved.borderColor,
-      color: this.optionalColor(style?.color, DEFAULT_TEXT_COLOR),
-      // These have renderer defaults, so both endpoints always resolve and a state
-      // that introduces one still animates (only auto sizes and colors can snap).
-      opacity: Math.min(1, Math.max(0, style?.opacity ?? 1)),
-      radius: this.dim(style?.radius),
-      borderWidth: this.dim(style?.borderWidth),
-      gap: this.dim(layout?.gap),
-      padding: this.dim(layout?.padding),
-      width: this.optionalDim(layout?.width),
-      height: this.optionalDim(layout?.height),
-    };
+    // One scratch object for the whole tree, refilled per node: `stepNode`
+    // consumes it synchronously and never keeps it, so an animation frame does
+    // not allocate a targets object per node (ZAB-55). Every prop is assigned,
+    // `undefined` included — a leftover from the previous node would otherwise
+    // read as a declared value.
+    const targets = this.scratchTargets;
+    targets.background = this.optionalColor(style?.background, MISSING_COLOR);
+    // An undeclared border color HOLDS the last one instead of dropping it: the
+    // border it paints is leaving through `borderWidth`, and a focus ring that
+    // loses its color halfway out would flash the missing-color magenta.
+    targets.borderColor =
+      this.optionalColor(style?.borderColor, MISSING_COLOR) ?? node.resolved.borderColor;
+    targets.color = this.optionalColor(style?.color, DEFAULT_TEXT_COLOR);
+    // These have renderer defaults, so both endpoints always resolve and a state
+    // that introduces one still animates (only auto sizes and colors can snap).
+    targets.opacity = Math.min(1, Math.max(0, style?.opacity ?? 1));
+    targets.radius = this.dim(style?.radius);
+    targets.borderWidth = this.dim(style?.borderWidth);
+    targets.gap = this.dim(layout?.gap);
+    targets.padding = this.dim(layout?.padding);
+    targets.width = this.optionalDim(layout?.width);
+    targets.height = this.optionalDim(layout?.height);
     const transition = this.transitionOf(node);
-    const { values, animating } = stepNode(node.anim, targets, transition, now);
-    node.resolved = values;
+    // The node's own `resolved` is the out-param: the step rewrites it in place,
+    // after the previous frame's values above were already read.
+    const { animating } = stepNode(node.anim, targets, transition, now, node.resolved);
     if (animating) this.animating = true;
     // Behaviors that tween a value of their own, with endpoints they compute
     // (decision 2026-08-11 §5) — they run BEFORE the children, since a Collapse
@@ -2982,7 +2991,9 @@ class WebView {
       if (inLayout(field)) this.syncTextScroll(field);
     });
 
-    const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);
+    // ONE builder for the view's whole life: `reset` rewinds the cursors and
+    // keeps the buffers, so a steady animation frame reallocates no geometry.
+    const geometry = this.geometry.reset(globalThis.devicePixelRatio ?? 1);
     this.paint(this.root, geometry);
     // Then the layer, in `(z, document order)` — each entry is a paint root, so
     // it does not inherit the opacity of wherever it was declared, only its own
@@ -3358,10 +3369,25 @@ function moved(previous: number | null, next: number): boolean {
   return previous === null || Math.abs(previous - next) > 0.5;
 }
 
+/**
+ * Memoized by the literal string: the resolve pass parses every declared color
+ * every frame, and nothing in the renderer ever mutates a `Color` (they are
+ * shared identities already — `MISSING_COLOR`, the token dictionary), so one
+ * array per distinct literal is safe and an animation frame parses nothing.
+ */
+const parsedColors = new Map<string, Color | null>();
+
 function parseColor(hex: string): Color | null {
-  const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
-  if (!match) return null;
-  const rgb = Number.parseInt(match[1], 16);
-  const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
-  return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
+  let color = parsedColors.get(hex);
+  if (color === undefined) {
+    const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
+    if (!match) color = null;
+    else {
+      const rgb = Number.parseInt(match[1], 16);
+      const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
+      color = [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
+    }
+    parsedColors.set(hex, color);
+  }
+  return color;
 }

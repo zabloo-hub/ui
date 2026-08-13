@@ -136,20 +136,25 @@ export function stepNode(
   targets: ResolvedValues,
   transition: ResolvedTransition | null,
   now: number,
+  // The steady-state render loop hands the node's own `resolved` here so a frame
+  // that animates nothing allocates nothing (ZAB-55); every animatable prop is
+  // written each step — `undefined` included — so no stale value survives reuse.
+  out: ResolvedValues = {},
 ): { values: ResolvedValues; animating: boolean } {
-  const values: ResolvedValues = {};
   let animating = false;
 
   for (const prop of ANIMATABLE_PROPS) {
-    const stepped = stepTrack(anim, prop, targets[prop], transition, now);
-    if (stepped.value === undefined) continue;
-    animating ||= stepped.animating;
+    const value = stepTrack(anim, prop, targets[prop], transition, now);
     // One cast for the whole loop: the prop union and the value union are correlated
     // by construction (a ColorProp only ever carries a Color), but TS cannot see it.
-    (values as Record<AnimatableProp, AnimValue>)[prop] = stepped.value;
+    (out as Record<AnimatableProp, AnimValue | undefined>)[prop] = value;
+    // A track still in the map after its step is a tween in flight (a finished
+    // one deletes itself as it lands) — the exact signal the old per-prop return
+    // carried, without an object per prop per frame.
+    if (value !== undefined && anim.tracks.has(prop)) animating = true;
   }
 
-  return { values, animating };
+  return { values: out, animating };
 }
 
 /**
@@ -165,10 +170,10 @@ export function stepValue(
   transition: ResolvedTransition | null,
   now: number,
 ): { value: number; animating: boolean } {
-  const stepped = stepTrack(anim, key, target, transition, now);
+  const value = stepTrack(anim, key, target, transition, now);
   return {
-    value: typeof stepped.value === "number" ? stepped.value : target,
-    animating: stepped.animating,
+    value: typeof value === "number" ? value : target,
+    animating: value !== undefined && anim.tracks.has(key),
   };
 }
 
@@ -179,7 +184,7 @@ function stepTrack(
   target: AnimValue | undefined,
   transition: ResolvedTransition | null,
   now: number,
-): { value: AnimValue | undefined; animating: boolean } {
+): AnimValue | undefined {
   // Sample the tween in flight FIRST, so `current` is the value on screen right
   // now — that is the point a retarget below has to leave from.
   const track = anim.tracks.get(key);
@@ -193,33 +198,28 @@ function stepTrack(
     // Not declared (or auto): no endpoint to tween towards, and nothing to paint.
     anim.tracks.delete(key);
     anim.current.delete(key);
-    return { value: undefined, animating: false };
+    return undefined;
   }
 
   const live = anim.tracks.get(key);
   const current = anim.current.get(key);
   let value: AnimValue;
-  let animating = false;
 
   if (current === undefined) {
     value = target; // mount, or a node coming back into layout
   } else if (live) {
-    if (sameValue(live.to, target)) {
-      value = current; // already heading there
-      animating = true;
-    } else {
-      value = retarget(anim, key, current, target, transition, now);
-      animating = anim.tracks.has(key);
-    }
+    // Already heading there, or retargeted from the value on screen.
+    value = sameValue(live.to, target)
+      ? current
+      : retarget(anim, key, current, target, transition, now);
   } else if (sameValue(current, target)) {
     value = current; // settled
   } else {
     value = retarget(anim, key, current, target, transition, now);
-    animating = anim.tracks.has(key);
   }
 
   anim.current.set(key, value);
-  return { value, animating };
+  return value;
 }
 
 /**
