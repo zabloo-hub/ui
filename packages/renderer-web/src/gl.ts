@@ -19,13 +19,17 @@ export interface TextureSource {
   readonly bitmap: TexImageSource | null;
 }
 
-/** A geometry batch: everything sharing one texture (one draw call). */
+/**
+ * A geometry batch: everything sharing one texture (one draw call). The typed
+ * arrays are VIEWS over the tessellator's reused buffers, live for one frame
+ * (ZAB-55) — the upload below copies them into GPU memory within it.
+ */
 export interface Batch {
   /** Null = solid geometry (bound to a built-in 1×1 white texture). */
   texture: TextureSource | null;
   /** Interleaved: x,y, u,v, r,g,b,a (logical px; colors 0..1). */
-  vertices: number[];
-  indices: number[];
+  vertices: Float32Array;
+  indices: Uint16Array;
   /** Clipping region for this draw call; null = unclipped (decision 2026-08-11). */
   clip?: Clip | null;
 }
@@ -154,9 +158,9 @@ export class GLRenderer {
       }
       gl.bindTexture(gl.TEXTURE_2D, this.textureFor(batch.texture));
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(batch.vertices), gl.DYNAMIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, batch.vertices, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(batch.indices), gl.DYNAMIC_DRAW);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, batch.indices, gl.DYNAMIC_DRAW);
       gl.drawElements(gl.TRIANGLES, batch.indices.length, gl.UNSIGNED_SHORT, 0);
     }
     if (currentClip) this.applyClip(null, dpr);

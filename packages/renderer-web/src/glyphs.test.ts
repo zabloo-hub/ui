@@ -206,6 +206,72 @@ describe("GlyphAtlas without a rasterizer", () => {
   });
 });
 
+describe("GlyphAtlas growth (ZAB-55)", () => {
+  /**
+   * Distinct printable ASCII, from '!'. The shipped TTF has no CJK coverage
+   * (an uncovered code point renders no ink and reserves no room), so the way
+   * to fill the atlas honestly is fewer glyphs at a bigger point size — the
+   * audit's other culprit, an animated/tokened `fontSize`.
+   */
+  function ascii(count: number): string[] {
+    return Array.from({ length: count }, (_, i) => String.fromCharCode(33 + i));
+  }
+
+  it("grows past the first full atlas instead of caching the glyph as blank", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // 200px glyphs ≈ 150² px each incl. padding → ~30 per 1024².
+    const atlas = new GlyphAtlas(200, 1, font);
+    const glyphs = ascii(60).map((char) => atlas.get(char));
+
+    // Every glyph got a quad — nobody was skipped for lack of room.
+    expect(glyphs.every((glyph) => glyph?.hasQuad)).toBe(true);
+    expect(atlas.canvas.width).toBeGreaterThan(1024);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("keeps every UV rect inside the grown surface, and re-rasterizes the old glyphs", () => {
+    const atlas = new GlyphAtlas(200, 1, font);
+    const first = atlas.get("A");
+    for (const char of ascii(60)) atlas.get(char);
+
+    const regrown = atlas.get("A");
+    expect(atlas.canvas.width).toBeGreaterThan(1024);
+    // Same metrics (same font, same size)…
+    expect(regrown?.advance).toBe(first?.advance);
+    expect(regrown?.hasQuad).toBe(true);
+    // …and every UV, old or new, inside the grown surface.
+    for (const char of ["A", ...ascii(60)]) {
+      const glyph = atlas.get(char);
+      for (const uv of [glyph?.u0, glyph?.v0, glyph?.u1, glyph?.v1]) {
+        expect(uv).toBeGreaterThanOrEqual(0);
+        expect(uv).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("bumps the version on growth so the GL layer re-uploads the bigger bitmap", () => {
+    const atlas = new GlyphAtlas(200, 1, font);
+    atlas.get("A");
+    const before = atlas.version;
+    for (const char of ascii(60)) atlas.get(char);
+    expect(atlas.canvas.width).toBeGreaterThan(1024);
+    expect(atlas.version).toBeGreaterThan(before);
+  });
+
+  it("gives up only at the max size, warning once instead of per glyph", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // ~1500px-wide glyphs: two or three per 4096² row, so a dozen overflow the max.
+    const atlas = new GlyphAtlas(2000, 1, font);
+    const glyphs = [..."MWQ@GB#%&8DHK"].map((char) => atlas.get(char));
+
+    expect(atlas.canvas.width).toBe(4096);
+    expect(glyphs.some((glyph) => glyph?.hasQuad === false)).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+});
+
 describe("FontLibrary", () => {
   it("keeps one atlas per point size", () => {
     const library = new FontLibrary(1, font);
@@ -224,5 +290,30 @@ describe("FontLibrary", () => {
     expect(replaced).toEqual([fallback16, fallback24]);
     expect(library.get(16)).not.toBe(fallback16);
     expect(library.get(16).lineHeight).toBeCloseTo(font.metrics(16).lineHeight, 6);
+  });
+
+  it("evicts the least-recently-used atlas past the cap, releasing it to the caller", () => {
+    const evicted: GlyphAtlas[] = [];
+    const library = new FontLibrary(1, font, (atlas) => evicted.push(atlas));
+    const first = library.get(10);
+    for (let size = 11; size <= 18; size++) library.get(size); // 9 sizes: one over the cap
+
+    expect(evicted).toEqual([first]);
+    expect([...library.all()]).toHaveLength(8);
+    // Asking for it again is a fresh atlas, not the evicted one back.
+    expect(library.get(10)).not.toBe(first);
+  });
+
+  it("touching an atlas keeps it alive — recency, not insertion order", () => {
+    const evicted: GlyphAtlas[] = [];
+    const library = new FontLibrary(1, font, (atlas) => evicted.push(atlas));
+    const first = library.get(10);
+    for (let size = 11; size <= 17; size++) library.get(size); // at the cap of 8
+    library.get(10); // touch the oldest…
+    library.get(19); // …so the overflow drops 11, not 10
+
+    expect(evicted).toHaveLength(1);
+    expect(evicted[0]).not.toBe(first);
+    expect(library.get(10)).toBe(first);
   });
 });

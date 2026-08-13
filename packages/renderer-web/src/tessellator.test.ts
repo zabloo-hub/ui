@@ -18,7 +18,7 @@ function asset(width: number, height: number, decoded = true): ImageAsset {
 }
 
 /** Vertices are interleaved x,y,u,v,r,g,b,a — read one back as an object. */
-function vertex(vertices: number[], index: number) {
+function vertex(vertices: Float32Array, index: number) {
   const at = index * 8;
   return {
     x: vertices[at],
@@ -105,7 +105,7 @@ describe("GeometryBuilder.image", () => {
     const batch = geometry.batches().find((b) => b.indices.length > 0);
     if (!batch) throw new Error("expected an image batch");
     expect(batch.vertices).toHaveLength(4 * 8);
-    expect(batch.indices).toEqual([0, 1, 2, 2, 3, 0]);
+    expect(Array.from(batch.indices)).toEqual([0, 1, 2, 2, 3, 0]);
 
     // Fitted rect: 100×50 at (10, 45). UVs span the whole texture, v down.
     expect(vertex(batch.vertices, 0)).toMatchObject({ x: 10, y: 45, u: 0, v: 0 });
@@ -128,13 +128,13 @@ describe("GeometryBuilder.image", () => {
     const untinted = geometry.batches().find((b) => b.indices.length > 0);
     if (!untinted) throw new Error("expected an image batch");
     // r,g,b stay white so the shader's texture × color is the texture itself.
-    expect(untinted.vertices.slice(4, 8)).toEqual([1, 1, 1, 1]);
+    expect(untinted.vertices.slice(4, 8)).toEqual(new Float32Array([1, 1, 1, 1]));
 
     const tinted = new GeometryBuilder();
     tinted.image(RECT, asset(100, 100), { color: [1, 0.8, 0, 0.5] });
     const batch = tinted.batches().find((b) => b.indices.length > 0);
     if (!batch) throw new Error("expected an image batch");
-    expect(batch.vertices.slice(4, 8)).toEqual([1, 0.8, 0, 0.5]);
+    expect(batch.vertices.slice(4, 8)).toEqual(new Float32Array([1, 0.8, 0, 0.5]));
     expect(vertex(batch.vertices, 0).alpha).toBe(0.5);
   });
 
@@ -193,7 +193,7 @@ describe("GeometryBuilder.image", () => {
     expect(drawn).toHaveLength(2);
     expect(drawn.map((b) => b.texture)).toEqual([coin, hero]);
     // The two coin quads share a batch, with indices offset past the first quad.
-    expect(drawn[0].indices).toEqual([0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4]);
+    expect(Array.from(drawn[0].indices)).toEqual([0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4]);
   });
 
   it("orders batches solids → images → text", () => {
@@ -232,6 +232,25 @@ describe("GeometryBuilder.image", () => {
     geometry.roundedRect(RECT, 0, [0, 1, 0, 1]);
 
     expect(geometry.batches().filter((b) => b.indices.length > 0)).toHaveLength(2);
+  });
+
+  it("reset rewinds for a new frame, reusing the buffers without leaking the old one", () => {
+    const geometry = new GeometryBuilder();
+    geometry.roundedRect(RECT, 0, [1, 0, 0, 1]);
+    geometry.text(0, 0, "", { version: 1, bitmap: {} } as unknown as GlyphAtlas, [1, 1, 1, 1]);
+    expect(geometry.batches().filter((b) => b.indices.length > 0)).toHaveLength(1);
+
+    geometry.reset();
+    expect(geometry.batches().every((b) => b.indices.length === 0)).toBe(true);
+
+    geometry.roundedRect(RECT, 0, [0, 1, 0, 1]);
+    const drawn = geometry.batches().filter((b) => b.indices.length > 0);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].vertices).toHaveLength(4 * 8);
+    // The new frame's green, at the cursor's start — not appended after the red.
+    expect(drawn[0].vertices[4]).toBe(0);
+    expect(drawn[0].vertices[5]).toBe(1);
+    expect(Array.from(drawn[0].indices)).toEqual([0, 1, 2, 2, 3, 0]);
   });
 });
 
