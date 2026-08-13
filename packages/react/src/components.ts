@@ -167,7 +167,12 @@ export interface ImageProps extends CommonProps {
   fit?: ImageFit;
 }
 
-/** Props shared by the two-state controls that lower to the `Toggle` primitive. */
+/**
+ * Props shared by the two-state controls that lower to the `Toggle` primitive.
+ * There is no `<Toggle>` component — the authoring layer is `Checkbox`/`Switch`/
+ * `Radio` — but this base type is public on purpose, so a wrapper over any of
+ * them can be typed without copying the prop list (decision 2026-08-13, ZAB-56).
+ */
 export interface ToggleControlProps extends CommonProps {
   /**
    * Initial state, or a READ/WRITE data-path binding (`{ bind: "settings.sfx" }`):
@@ -851,9 +856,12 @@ const FIELD: Style = { background: "#1b1f2e", radius: 6, color: "#ffffff" };
  * what is typed.
  *
  * `onChange` fires on every edit (filter a list as you type) and `onSubmit` when the
- * player presses Enter (run the search, accept the name). One line in v1: the
- * content scrolls horizontally to keep the caret in view and a pasted newline
- * becomes a space.
+ * player presses Enter (run the search, accept the name). There is deliberately no
+ * `onCommit` and no commit-on-blur (decision 2026-08-13, ZAB-56): unlike a `Slider`
+ * drag, a text field has an explicit confirming gesture — Enter — and with
+ * arrow/gamepad navigation focus leaves the field on every pass, so a blur commit
+ * would fire spurious "settled" values. One line in v1: the content scrolls
+ * horizontally to keep the caret in view and a pasted newline becomes a space.
  *
  * ```tsx
  * <TextInput
@@ -1263,7 +1271,12 @@ export interface ItemRef {
 /** An item template: nodes that bind by hand, or a function given the item's paths. */
 export type ItemTemplate = ReactNode | ((item: ItemRef) => ReactNode);
 
-/** Props shared by the two ways of laying repeated items out. */
+/**
+ * Props shared by the two ways of laying repeated items out. There is no
+ * `<Repeat>` component — the authoring layer is `List`/`Grid` over the `Repeat`
+ * primitive — but this base type is public on purpose, so a wrapper over either
+ * can be typed without copying the prop list (decision 2026-08-13, ZAB-56).
+ */
 export interface RepeatProps extends CommonProps {
   /**
    * Data path of the array to repeat, e.g. `"shop.items"`. Always a binding: the
