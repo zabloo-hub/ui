@@ -65,6 +65,19 @@ describe("preview server", () => {
     expect(res.status).toBe(404);
   });
 
+  // The page loads its own code from here (ZAB-57). Like `/renderer.js`, it
+  // serves a build artifact, so it needs `pnpm build` first — CI runs it before
+  // the tests, and an unbuilt tree gets a message that says exactly that.
+  it("serves the preview client the page imports", async () => {
+    const server = await start();
+
+    const res = await fetch(`${server.url}preview.js`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/javascript");
+    expect(await res.text()).toContain("collectBindPaths");
+  });
+
   it("answers 503 until the first export lands", async () => {
     const server = await start();
 
