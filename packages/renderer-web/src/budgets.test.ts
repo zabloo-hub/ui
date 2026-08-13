@@ -6,7 +6,8 @@
  * flakes. ZAB-40 consolidates these numbers with Unity's.
  *
  * The numbers are budgets, not snapshots: comfortably above what the corpus
- * uses today (max observed: 8 draw calls, 940 vertices, 2 atlases), so they
+ * uses today (max observed: 17 draw calls — the anchors scene, where every
+ * anchored overlay is its own paint root — 940 vertices, 2 atlases), so they
  * fail on a REGRESSION — a clip that stops batching, a leak of atlases — and
  * not on an honest new golden case.
  */
@@ -15,8 +16,8 @@ import { describe, expect, it } from "vitest";
 import { mountCase, readCorpus } from "./golden.js";
 
 const BUDGET = {
-  /** One scene draws in a handful of calls: solids + one per atlas/image per clip group. */
-  drawCalls: 12,
+  /** Solids + one per atlas/image per clip group, and each overlay opens a paint root. */
+  drawCalls: 24,
   vertices: 2000,
   /** Point sizes a scene needs at once (the library caps at 8 — see glyphs.ts). */
   atlases: 3,
