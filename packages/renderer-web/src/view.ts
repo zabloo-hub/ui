@@ -1626,9 +1626,25 @@ class WebView {
    */
   private collectFocusables(node = this.scope(), out: LayoutNode[] = []): LayoutNode[] {
     if (!inLayout(node)) return out; // pruned subtrees have stale rects
+    // A closed popover is pruned the same way, but by the LAYER's predicate:
+    // `popoverOpen` is overlay state, not a layout flag, so `inLayout` alone
+    // would offer its options — stale rects included — as candidates (ZAB-53).
+    if (node.ir.type === "Overlay" && !this.layer.includes(node)) return out;
     if (this.isFocusable(node)) out.push(node);
     for (const child of node.children) this.collectFocusables(child, out);
     return out;
+  }
+
+  /**
+   * Whether every Overlay above this node is actually up. A node inside a closed
+   * popover stays `inLayout` — the open flag lives on the overlay, not on the
+   * layout flags — but nothing paints it, so the focus must not rest there.
+   */
+  private onPresentLayer(node: LayoutNode): boolean {
+    for (let current: LayoutNode | null = node; current; current = current.parent) {
+      if (current.ir.type === "Overlay" && !this.layer.includes(current)) return false;
+    }
+    return true;
   }
 
   private scope(): LayoutNode {
@@ -2012,7 +2028,8 @@ class WebView {
 
     const scope = this.scope();
     const current = this.focusedNode;
-    if (current && inLayout(current) && isWithin(current, scope)) return;
+    if (current && inLayout(current) && isWithin(current, scope) && this.onPresentLayer(current))
+      return;
     // Outside the scope (or gone): the restored node if it still qualifies,
     // otherwise the scope's `autofocus` — and nothing at all if neither does,
     // rather than leaving a node under the modal wearing the focused state.

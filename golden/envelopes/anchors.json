@@ -1,0 +1,375 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.anchor": "#334155",
+    "color.tip": "#0b1120",
+    "color.item": "#1e293b",
+    "radius.sm": 4
+  },
+  "views": {
+    "anchors": {
+      "type": "Container",
+      "id": "root",
+      "layout": { "direction": "column", "align": "start", "gap": 40 },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Container",
+          "id": "edge-row",
+          "layout": { "direction": "row", "justify": "space-between", "width": 480, "height": 24 },
+          "children": [
+            {
+              "type": "Container",
+              "id": "edge-left",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            {
+              "type": "Container",
+              "id": "edge-top",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            {
+              "type": "Container",
+              "id": "edge-right",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "row-top",
+          "layout": { "direction": "row", "height": 24 },
+          "children": [
+            { "type": "Container", "id": "sp-top-1", "layout": { "width": 72 } },
+            {
+              "type": "Container",
+              "id": "at-top-left",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            { "type": "Container", "id": "sp-top-2", "layout": { "width": 132 } },
+            {
+              "type": "Container",
+              "id": "at-top",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            { "type": "Container", "id": "sp-top-3", "layout": { "width": 132 } },
+            {
+              "type": "Container",
+              "id": "at-top-right",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "row-middle",
+          "layout": { "direction": "row", "height": 24 },
+          "children": [
+            { "type": "Container", "id": "sp-middle-1", "layout": { "width": 72 } },
+            {
+              "type": "Container",
+              "id": "at-left",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            { "type": "Container", "id": "sp-middle-2", "layout": { "width": 132 } },
+            {
+              "type": "Container",
+              "id": "at-center",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            { "type": "Container", "id": "sp-middle-3", "layout": { "width": 132 } },
+            {
+              "type": "Container",
+              "id": "at-right",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "row-bottom",
+          "layout": { "direction": "row", "height": 24 },
+          "children": [
+            { "type": "Container", "id": "sp-bottom-1", "layout": { "width": 72 } },
+            {
+              "type": "Container",
+              "id": "at-bottom-left",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            { "type": "Container", "id": "sp-bottom-2", "layout": { "width": 132 } },
+            {
+              "type": "Container",
+              "id": "at-bottom",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            },
+            { "type": "Container", "id": "sp-bottom-3", "layout": { "width": 132 } },
+            {
+              "type": "Container",
+              "id": "at-bottom-right",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "scroller-row",
+          "layout": { "direction": "row", "justify": "space-between", "width": 480, "height": 64 },
+          "children": [
+            {
+              "type": "ScrollView",
+              "id": "anchor-scroller",
+              "layout": { "direction": "column", "width": 200, "height": 64, "align": "stretch" },
+              "style": { "background": "{color.item}", "radius": "{radius.sm}" },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "in-scroller",
+                  "layout": { "height": 28 },
+                  "style": { "background": "{color.anchor}" }
+                },
+                { "type": "Container", "id": "filler-1", "layout": { "height": 28 } },
+                { "type": "Container", "id": "filler-2", "layout": { "height": 28 } },
+                {
+                  "type": "Container",
+                  "id": "below-fold",
+                  "layout": { "height": 28 },
+                  "style": { "background": "{color.anchor}" }
+                },
+                { "type": "Container", "id": "filler-3", "layout": { "height": 28 } }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "slide",
+              "layout": { "width": 24, "height": 24 },
+              "style": { "background": "{color.anchor}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-top-tip",
+          "modal": false,
+          "anchor": { "id": "at-top", "at": "top" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-top-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-bottom-tip",
+          "modal": false,
+          "anchor": { "id": "at-bottom", "at": "bottom" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-bottom-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-left-tip",
+          "modal": false,
+          "anchor": { "id": "at-left", "at": "left" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-left-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-right-tip",
+          "modal": false,
+          "anchor": { "id": "at-right", "at": "right" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-right-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-center-tip",
+          "modal": false,
+          "anchor": { "id": "at-center", "at": "center" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-center-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-top-left-tip",
+          "modal": false,
+          "anchor": { "id": "at-top-left", "at": "top-left" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-top-left-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-top-right-tip",
+          "modal": false,
+          "anchor": { "id": "at-top-right", "at": "top-right" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-top-right-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-bottom-left-tip",
+          "modal": false,
+          "anchor": { "id": "at-bottom-left", "at": "bottom-left" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-bottom-left-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "at-bottom-right-tip",
+          "modal": false,
+          "anchor": { "id": "at-bottom-right", "at": "bottom-right" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "at-bottom-right-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "edge-left-tip",
+          "modal": false,
+          "anchor": { "id": "edge-left", "at": "left" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "edge-left-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "edge-top-tip",
+          "modal": false,
+          "anchor": { "id": "edge-top", "at": "top" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "edge-top-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "edge-right-tip",
+          "modal": false,
+          "anchor": { "id": "edge-right", "at": "right" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "edge-right-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "slide-tip",
+          "modal": false,
+          "anchor": { "id": "slide", "at": "top" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "slide-bubble",
+              "layout": { "width": 80, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "in-scroller-tip",
+          "modal": false,
+          "anchor": { "id": "in-scroller", "at": "right" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "in-scroller-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        },
+        {
+          "type": "Overlay",
+          "id": "below-fold-tip",
+          "modal": false,
+          "anchor": { "id": "below-fold", "at": "right" },
+          "children": [
+            {
+              "type": "Container",
+              "id": "below-fold-bubble",
+              "layout": { "width": 36, "height": 16 },
+              "style": { "background": "{color.tip}", "radius": "{radius.sm}" }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

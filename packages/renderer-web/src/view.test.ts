@@ -204,6 +204,102 @@ describe("the overlay layer", () => {
   });
 });
 
+describe("anchored overlays and scrolling", () => {
+  it("keeps an overlay in the layer exactly while its anchor is on screen", async () => {
+    view = await mountCase(CORPUS.anchors);
+    const refs = () => (view as GoldenView).snapshot().layer.map((entry) => entry.ref);
+    expect(refs()).toContain("in-scroller-tip");
+    // Its twin's anchor sits below the scroller's fold: nothing to point at.
+    expect(refs()).not.toContain("below-fold-tip");
+
+    // Scroll to the end: the first row leaves the viewport and the folded one
+    // arrives. The layer reads the rects of the frame already laid out, so the
+    // swap shows on the next one.
+    view.handle.setScroll("anchor-scroller", 0, 76);
+    view.settle();
+
+    expect(refs()).not.toContain("in-scroller-tip");
+    expect(refs()).toContain("below-fold-tip");
+    // And the bubble hangs off the row's SCROLLED rect, not the one it had.
+    const anchor = node(view.snapshot(), "below-fold").rect;
+    const bubble = node(view.snapshot(), "below-fold-bubble").rect;
+    if (!anchor || !bubble) throw new Error("the anchored pair is not in layout");
+    expect(bubble.x).toBeCloseTo(anchor.x + anchor.width + 8, 3);
+    expect(bubble.y + bubble.height / 2).toBeCloseTo(anchor.y + anchor.height / 2, 3);
+  });
+});
+
+describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
+  // The settings case declares the whole flow: a Button anchor, a press-triggered
+  // modal Overlay, and an exclusive-check list inside a ScrollView too short for
+  // its options — bound to `settings.quality`, seeded to "Alta", the LAST option.
+
+  it("opens on the anchor's press, focused on the selected option and scrolled to it", async () => {
+    view = await mountCase(CORPUS.settings);
+    expect(view.snapshot().layer).toEqual([]); // closed until pressed, whatever `visible` says
+
+    const anchor = center(view.snapshot(), "quality");
+    view.pointer.click(anchor.x, anchor.y);
+
+    const open = view.snapshot();
+    expect(open.layer.map((entry) => entry.ref)).toEqual(["quality-popover"]);
+    // ON its selection: the option the group already holds, not the first one.
+    expect(open.focus).toBe("quality-alta");
+    // And SEEN: "Alta" is the last option of a list that does not fit, so the
+    // reveal scrolls the popover's own ScrollView on the very frame it opened.
+    const scroll = node(open, "quality-list").scroll;
+    expect(scroll?.maxY ?? 0).toBeGreaterThan(0);
+    expect(scroll?.y).toBeCloseTo(scroll?.maxY ?? 0, 3);
+  });
+
+  it("chooses on tap: writes the value, closes the menu and gives the focus back", async () => {
+    view = await mountCase(CORPUS.settings);
+    const anchor = center(view.snapshot(), "quality");
+    view.pointer.click(anchor.x, anchor.y);
+
+    const option = center(view.snapshot(), "quality-media");
+    view.pointer.click(option.x, option.y);
+
+    // The choice travels the data channel's return leg, once.
+    expect(view.writes).toEqual([{ path: "settings.quality", value: "Media" }]);
+    // The bound label on the anchor now reads what was chosen.
+    expect(node(view.snapshot(), "quality-value").text?.lines[0].text).toBe("Media");
+    // Choosing is the gesture that ends the menu, and the focus returns to the
+    // anchor the popover interrupted.
+    expect(view.snapshot().layer).toEqual([]);
+    expect(view.snapshot().focus).toBe("quality");
+  });
+
+  it("also closes on the option already selected, without writing anything", async () => {
+    view = await mountCase(CORPUS.settings);
+    const anchor = center(view.snapshot(), "quality");
+    view.pointer.click(anchor.x, anchor.y);
+
+    const option = center(view.snapshot(), "quality-alta");
+    view.pointer.click(option.x, option.y);
+
+    // "I meant this one" is still a choice: the menu must not become a dead end.
+    expect(view.snapshot().layer).toEqual([]);
+    expect(view.writes).toEqual([]);
+    expect(view.actions).toEqual([]);
+  });
+
+  it("activates an option with Enter too — the keyboard and the pointer share the flow", async () => {
+    view = await mountCase(CORPUS.settings);
+    const anchor = center(view.snapshot(), "quality");
+    view.pointer.click(anchor.x, anchor.y);
+    expect(view.snapshot().focus).toBe("quality-alta");
+
+    view.keyDown("ArrowUp");
+    expect(view.snapshot().focus).toBe("quality-media");
+
+    view.press();
+
+    expect(view.writes).toEqual([{ path: "settings.quality", value: "Media" }]);
+    expect(view.snapshot().layer).toEqual([]);
+  });
+});
+
 describe("scrolling", () => {
   it("scrolls with the wheel and clamps at the end of the content", async () => {
     view = await mountCase(CORPUS["scroll-clip"]);
