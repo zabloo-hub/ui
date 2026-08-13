@@ -19,7 +19,7 @@
     },
     "measured": {
       "x": 216,
-      "y": 177.594
+      "y": 262.391
     },
     "style": {
       "background": "#101218",
@@ -119,6 +119,65 @@
           "focus": 50,
           "scroll": 247.102
         }
+      },
+      {
+        "type": "Repeat",
+        "ref": "guest-list",
+        "rect": {
+          "x": 8,
+          "y": 177.594,
+          "width": 200,
+          "height": 76.797
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "TextInput",
+            "ref": "4.0",
+            "rect": {
+              "x": 8,
+              "y": 177.594,
+              "width": 200,
+              "height": 34.398
+            },
+            "style": {
+              "background": "#1e293b",
+              "color": "#e2e8f0",
+              "radius": 6,
+              "padding": 8
+            },
+            "field": {
+              "text": "Ana",
+              "anchor": 3,
+              "focus": 3,
+              "scroll": 0
+            }
+          },
+          {
+            "type": "TextInput",
+            "ref": "4.1",
+            "rect": {
+              "x": 8,
+              "y": 219.992,
+              "width": 200,
+              "height": 34.398
+            },
+            "style": {
+              "background": "#1e293b",
+              "color": "#e2e8f0",
+              "radius": 6,
+              "padding": 8
+            },
+            "field": {
+              "text": "Bo",
+              "anchor": 2,
+              "focus": 2,
+              "scroll": 0
+            }
+          }
+        ]
       }
     ]
   }

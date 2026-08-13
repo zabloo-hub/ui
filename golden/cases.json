@@ -38,8 +38,11 @@
   },
   "textinput": {
     "envelope": "textinput.json",
-    "about": "Field geometry, the placeholder's empty state, a bound value and content that overflows its box.",
-    "data": { "form.city": "Barcelona" }
+    "about": "Field geometry, the placeholder's empty state, a bound value, content that overflows its box, and a field bound inside a Repeat item.",
+    "data": {
+      "form.city": "Barcelona",
+      "form.guests": [{ "id": "ana", "name": "Ana" }, { "id": "bo", "name": "Bo" }]
+    }
   },
   "transitions": {
     "envelope": "transitions.json",
@@ -70,6 +73,10 @@
         { "id": "l", "name": "Mapa" }
       ]
     }
+  },
+  "anchors": {
+    "envelope": "anchors.json",
+    "about": "Every AnchorAt placement with room around it, the flip at each viewport edge, the slide that keeps a wide bubble on screen, and an anchor below a ScrollView's fold whose overlay leaves the layer."
   },
   "overlays": {
     "envelope": "overlays.json",

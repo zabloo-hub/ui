@@ -83,6 +83,31 @@
             "radius": "{radius.md}",
             "color": "{color.text}"
           }
+        },
+        {
+          "type": "Repeat",
+          "id": "guest-list",
+          "items": { "bind": "form.guests" },
+          "as": "guest",
+          "key": "id",
+          "layout": { "direction": "column", "align": "start", "gap": "{space.2}" },
+          "children": [
+            {
+              "type": "TextInput",
+              "id": "guest-name",
+              "value": { "bind": "guest.name" },
+              "placeholder": "Invitado",
+              "onChange": "guest-renamed",
+              "onSubmit": "guest-confirmed",
+              "layout": { "width": 200, "padding": "{space.2}" },
+              "style": {
+                "background": "{color.field}",
+                "radius": "{radius.md}",
+                "color": "{color.text}"
+              },
+              "states": { "empty": { "style": { "color": "{color.placeholder}" } } }
+            }
+          ]
         }
       ]
     }

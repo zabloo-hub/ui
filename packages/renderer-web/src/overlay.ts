@@ -224,6 +224,17 @@ function placement(at: AnchorAt): {
 
 const OPPOSITE = { top: "bottom", bottom: "top", left: "right", right: "left" } as const;
 
+/** A rect's content box: the same inset the measure pass reserved for `padding`. */
+export function deflate(rect: Rect, padding: number): Rect {
+  if (padding <= 0) return rect;
+  return {
+    x: rect.x + padding,
+    y: rect.y + padding,
+    width: Math.max(0, rect.width - padding * 2),
+    height: Math.max(0, rect.height - padding * 2),
+  };
+}
+
 /**
  * Where an anchored overlay's content goes: `at` around `anchor`, `offset` px away,
  * flipped to the opposite side when the preferred one does not fit and the other

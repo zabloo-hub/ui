@@ -15,6 +15,7 @@
  * | `document` + `<textarea>` | The hidden field the browser types into (ZAB-26) |
  * | clock + `requestAnimationFrame` | Time has to step by hand, or a tween is a race |
  * | `createImageBitmap` | An image's LAYOUT comes from the manifest, not from pixels |
+ * | `navigator.getGamepads` | A pad is a STATE the view polls; the stub is the state, the poll loop stays real |
  *
  * Text is the part that could have been faked and deliberately is not: the rig
  * waits for the view's own stb-truetype rasterizer (`handle.ready`) before it
@@ -97,6 +98,11 @@ export interface GoldenView {
    */
   settle(): void;
   resize(width: number, height: number): void;
+  /**
+   * Plugs a pad into the fake `navigator` and announces it, as the browser
+   * does — `gamepadconnected` fires and the view starts its poll loop.
+   */
+  connectGamepad(): GoldenPad;
   dispose(): void;
 }
 
@@ -105,6 +111,20 @@ export interface KeyInit {
   ctrlKey?: boolean;
   metaKey?: boolean;
   repeat?: boolean;
+}
+
+/**
+ * A pad the harness plugged in. The methods mutate the state the view's poll
+ * loop reads on its next frame — nothing happens until `advance()` runs one.
+ * Indices are the standard mapping (0=A, 1=B, 12–15=d-pad, axes 0/1 left stick,
+ * 2/3 right stick), the same numbers `gamepad.ts` documents.
+ */
+export interface GoldenPad {
+  press(index: number): void;
+  release(index: number): void;
+  axis(index: number, value: number): void;
+  /** Pulls the cable: `connected` drops and `gamepaddisconnected` fires. */
+  disconnect(): void;
 }
 
 /** Pointer gestures against the canvas, in logical view coordinates. */
@@ -177,6 +197,7 @@ export async function mountGolden(
       canvas.resize(nextWidth, nextHeight);
       dom.dispatch("resize", {});
     },
+    connectGamepad: () => dom.connectPad(),
     dispose: () => {
       handle.dispose();
       dom.uninstall();
@@ -388,6 +409,7 @@ class FakeDom {
   editor: FakeTextArea | null = null;
   activeElement: unknown = null;
   readonly warnings: string[] = [];
+  private readonly pads: FakePad[] = [];
 
   private readonly window = new FakeTarget();
   private clock = 0;
@@ -448,6 +470,9 @@ class FakeDom {
     // No decoder in Node — and none is needed: an image's layout comes from the
     // manifest's `width`/`height`, so the metrics are complete without pixels.
     this.define("createImageBitmap", () => new Promise(() => {}));
+    // Present from the start, empty until `connectPad`: the view's mount-time
+    // sync must find a working API that reports nothing, not a missing one.
+    this.define("navigator", { getGamepads: () => [...this.pads] });
 
     console.warn = (...args: unknown[]) => {
       this.warnings.push(args.map(String).join(" "));
@@ -493,6 +518,37 @@ class FakeDom {
   }
 
   /**
+   * Plugs in a pad shaped like a real `Gamepad` reports itself: connected, the
+   * standard mapping's 17 buttons and 4 axes, all at rest. The control returned
+   * mutates that state in place — a pad is a state the view POLLS, so a "press"
+   * here is only ever seen by the frame `advance()` runs after it.
+   */
+  connectPad(): GoldenPad {
+    const pad: FakePad = {
+      connected: true,
+      buttons: Array.from({ length: 17 }, () => ({ pressed: false })),
+      axes: [0, 0, 0, 0],
+    };
+    this.pads.push(pad);
+    this.dispatch("gamepadconnected", {});
+    return {
+      press: (index) => {
+        pad.buttons[index].pressed = true;
+      },
+      release: (index) => {
+        pad.buttons[index].pressed = false;
+      },
+      axis: (index, value) => {
+        pad.axes[index] = value;
+      },
+      disconnect: () => {
+        pad.connected = false;
+        this.dispatch("gamepaddisconnected", {});
+      },
+    };
+  }
+
+  /**
    * Types into the hidden field the way a browser does — the value changes and
    * an `input` event follows — which is the only path that exercises the
    * renderer's real editing model (`maxLength`, the single-line rule, the caret).
@@ -509,6 +565,13 @@ class FakeDom {
     editor.selectionDirection = "forward";
     editor.dispatch("input", {});
   }
+}
+
+/** What `view.ts` reads off a `Gamepad`: the connected flag, buttons and axes. */
+interface FakePad {
+  connected: boolean;
+  buttons: { pressed: boolean }[];
+  axes: number[];
 }
 
 function installDom(): FakeDom {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   activePad,
   type Direction,
@@ -11,6 +11,9 @@ import {
   scrollDelta,
   stepRepeat,
 } from "./gamepad.js";
+import { mountCase, readCorpus } from "./golden.js";
+import type { GoldenView } from "./harness.js";
+import { findNode } from "./snapshot.js";
 
 const UP: Direction = [0, -1];
 const DOWN: Direction = [0, 1];
@@ -212,5 +215,214 @@ describe("activePad", () => {
   it("is null while nothing is connected", () => {
     expect(activePad([null, null])).toBeNull();
     expect(activePad([])).toBeNull();
+  });
+});
+
+// --- integration: the poll loop of view.ts, against the corpus (ZAB-53) ---
+// Everything below runs the REAL wiring — `syncPad` on the connect events, the
+// rAF loop, and the handlers each intention lands in — with only the pad itself
+// stubbed. The pure rules are proven above; what these prove is that the loop
+// reads them and that each intention reaches the same handler the keyboard uses.
+
+/** Standard-mapping indices, as the harness pad numbers them. */
+const BTN_A = 0;
+const BTN_B = 1;
+const BTN_DOWN = 13;
+const BTN_RIGHT = 15;
+const AXIS_RIGHT_Y = 3;
+
+/** One poll's worth of time — any frame-sized step reads the pad once. */
+const FRAME_MS = 16;
+
+const CORPUS = readCorpus();
+
+let view: GoldenView | null = null;
+
+afterEach(() => {
+  view?.dispose();
+  view = null;
+});
+
+function states(mounted: GoldenView, ref: string): string[] {
+  return findNode(mounted.snapshot(), ref)?.states ?? [];
+}
+
+/** Press-and-release a d-pad button, polled on both edges — one discrete step. */
+function tap(mounted: GoldenView, padControl: ReturnType<GoldenView["connectGamepad"]>): void {
+  padControl.press(BTN_DOWN);
+  mounted.advance(FRAME_MS);
+  padControl.release(BTN_DOWN);
+  mounted.advance(FRAME_MS);
+}
+
+describe("integration — d-pad navigation", () => {
+  it("moves the focus with the d-pad, through the same spatial step as the arrows", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    expect(view.snapshot().focus).toBe("primary");
+    const pad = view.connectGamepad();
+
+    pad.press(BTN_DOWN);
+    view.advance(FRAME_MS);
+
+    expect(view.snapshot().focus).toBe("secondary");
+    expect(states(view, "secondary")).toContain("focused");
+  });
+
+  it("repeats a held direction on the keyboard's own clock", async () => {
+    view = await mountCase(CORPUS.settings);
+    const pad = view.connectGamepad();
+
+    // The first fire is the press itself, landing the focus somewhere at all.
+    pad.press(BTN_DOWN);
+    view.advance(FRAME_MS);
+    expect(view.snapshot().focus).toBe("tab-general");
+
+    // Held through the delay: not one step early…
+    view.advance(REPEAT_DELAY_MS - 1);
+    expect(view.snapshot().focus).toBe("tab-general");
+
+    // …then one step exactly on the delay, and one per period after it.
+    view.advance(1);
+    expect(view.snapshot().focus).toBe("quality");
+    view.advance(REPEAT_RATE_MS);
+    expect(view.snapshot().focus).toBe("fullscreen");
+  });
+
+  it("stops repeating the instant the pad is unplugged", async () => {
+    view = await mountCase(CORPUS.settings);
+    const pad = view.connectGamepad();
+    pad.press(BTN_DOWN);
+    view.advance(FRAME_MS);
+    expect(view.snapshot().focus).toBe("tab-general");
+
+    pad.disconnect();
+    view.advance(REPEAT_DELAY_MS + REPEAT_RATE_MS);
+
+    expect(view.snapshot().focus).toBe("tab-general");
+  });
+});
+
+describe("integration — A and B", () => {
+  it("presses the focused control with A and activates it on the release edge", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const pad = view.connectGamepad();
+
+    pad.press(BTN_A);
+    view.advance(FRAME_MS);
+    expect(states(view, "primary")).toContain("pressed");
+    expect(view.actions).toEqual([]); // a hold is not a stream, and not a tap yet
+
+    pad.release(BTN_A);
+    view.advance(FRAME_MS);
+    expect(states(view, "primary")).not.toContain("pressed");
+    expect(view.actions).toEqual([{ action: "buy" }]);
+  });
+
+  it("cancels a press when the pad is unplugged mid-hold, like a pointer leaving", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const pad = view.connectGamepad();
+    pad.press(BTN_A);
+    view.advance(FRAME_MS);
+    expect(states(view, "primary")).toContain("pressed");
+
+    pad.disconnect();
+
+    expect(states(view, "primary")).not.toContain("pressed");
+    expect(view.actions).toEqual([]);
+  });
+
+  it("treats B as a dismiss request for the modal that owns the input", async () => {
+    view = await mountCase(CORPUS.overlays);
+    const pad = view.connectGamepad();
+
+    pad.press(BTN_B);
+    view.advance(FRAME_MS);
+
+    expect(view.actions).toEqual([{ action: "close-modal" }]);
+  });
+
+  it("makes B do nothing at all while no overlay is up", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const pad = view.connectGamepad();
+
+    pad.press(BTN_B);
+    view.advance(FRAME_MS);
+    pad.release(BTN_B);
+    view.advance(FRAME_MS);
+
+    expect(view.actions).toEqual([]);
+  });
+});
+
+describe("integration — right-stick scrolling", () => {
+  it("scrolls the ScrollView the focus lives in, in px per second", async () => {
+    view = await mountCase(CORPUS.repeat);
+    const pad = view.connectGamepad();
+    // Land the focus on an item of the virtualized list first.
+    tap(view, pad);
+    const before = findNode(view.snapshot(), "list-scroller")?.scroll;
+    if (!before) throw new Error("the list scroller is not in layout");
+
+    pad.axis(AXIS_RIGHT_Y, 1);
+    view.advance(500);
+
+    const after = findNode(view.snapshot(), "list-scroller")?.scroll;
+    // Full deflection for half a second: SCROLL_SPEED / 2 px, or the end of the
+    // content if that comes first — the same clamp the wheel goes through.
+    const expected = Math.min(before.y + SCROLL_SPEED / 2, before.maxY);
+    expect(after?.y).toBeCloseTo(expected, 3);
+  });
+
+  it("leaves the scroller alone while the stick rests in its dead zone", async () => {
+    view = await mountCase(CORPUS.repeat);
+    const pad = view.connectGamepad();
+    tap(view, pad);
+
+    pad.axis(AXIS_RIGHT_Y, 0.1);
+    view.advance(500);
+
+    expect(findNode(view.snapshot(), "list-scroller")?.scroll?.y).toBe(0);
+  });
+});
+
+describe("integration — sliders", () => {
+  /** Walks the settings focus down to the brightness Slider, one tap per step. */
+  async function focusBrightness(): Promise<
+    [GoldenView, ReturnType<GoldenView["connectGamepad"]>]
+  > {
+    const mounted = await mountCase(CORPUS.settings);
+    const pad = mounted.connectGamepad();
+    for (const stop of ["tab-general", "quality", "fullscreen", "brightness"]) {
+      tap(mounted, pad);
+      expect(mounted.snapshot().focus).toBe(stop);
+    }
+    return [mounted, pad];
+  }
+
+  it("nudges the focused Slider along its axis and commits when the direction lifts", async () => {
+    const [mounted, pad] = await focusBrightness();
+    view = mounted;
+
+    pad.press(BTN_RIGHT);
+    view.advance(FRAME_MS);
+    // One step of 10 over the bound 60, written back on the data channel.
+    expect(view.writes).toContainEqual({ path: "settings.brightness", value: 70 });
+    expect(view.actions).toEqual([]); // still mid-gesture
+
+    pad.release(BTN_RIGHT);
+    view.advance(FRAME_MS);
+    expect(view.actions).toEqual([{ action: "brightness-apply" }]);
+  });
+
+  it("still settles the gesture when the pad is unplugged mid-nudge", async () => {
+    const [mounted, pad] = await focusBrightness();
+    view = mounted;
+    pad.press(BTN_RIGHT);
+    view.advance(FRAME_MS);
+
+    pad.disconnect();
+
+    // `onCommit` is "the value the player left it at", and 70 is on screen.
+    expect(view.actions).toEqual([{ action: "brightness-apply" }]);
   });
 });
