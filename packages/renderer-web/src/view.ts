@@ -1167,9 +1167,10 @@ class WebView {
       contentBox: (node) => deflate(node.rect, node.resolved.padding ?? 0),
       textEdited: (node) => {
         const any = node.ir as AnyNode;
-        const path = bindPath(any.value);
+        // Inside an item this resolves to `shop.items.3.name`, like Toggle/Slider.
+        const path = this.writePath(node, any.value);
         if (path !== null) this.writeData(path, node.text);
-        if (any.onChange) this.onAction?.(any.onChange);
+        if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
       },
       attachEditor: (editor) => {
         (this.canvas.parentElement ?? document.body).appendChild(editor);
@@ -1326,6 +1327,10 @@ class WebView {
    */
   private collectFocusables(node = this.scope(), out: LayoutNode[] = []): LayoutNode[] {
     if (!inLayout(node)) return out; // pruned subtrees have stale rects
+    // A closed popover is pruned the same way, but by the LAYER's predicate:
+    // `popoverOpen` is overlay state, not a layout flag, so `inLayout` alone
+    // would offer its options — stale rects included — as candidates (ZAB-53).
+    if (node.ir.type === "Overlay" && !this.layer.includes(node)) return out;
     if (this.isFocusable(node)) out.push(node);
     for (const child of node.children) this.collectFocusables(child, out);
     return out;
@@ -1511,7 +1516,7 @@ class WebView {
       case "Enter": {
         event.preventDefault();
         const action = (node.ir as AnyNode).onSubmit;
-        if (action && !event.repeat) this.onAction?.(action);
+        if (action && !event.repeat) this.onAction?.(action, this.contextOf(node));
         return true;
       }
       case "Tab":

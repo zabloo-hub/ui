@@ -143,7 +143,8 @@ export class OverlayLayer {
 
     const scope = this.host.scope();
     const current = this.host.focused();
-    if (current && inLayout(current) && isWithin(current, scope)) return;
+    if (current && inLayout(current) && isWithin(current, scope) && this.onPresentLayer(current))
+      return;
     // Outside the scope (or gone): the restored node if it still qualifies,
     // otherwise the scope's `autofocus` — and nothing at all if neither does,
     // rather than leaving a node under the modal wearing the focused state.
@@ -152,6 +153,18 @@ export class OverlayLayer {
         ? restored
         : this.host.autofocus(scope);
     this.host.setFocus(candidate);
+  }
+
+  /**
+   * Whether every Overlay above this node is actually up. A node inside a closed
+   * popover stays `inLayout` — the open flag lives on the overlay, not on the
+   * layout flags — but nothing paints it, so the focus must not rest there.
+   */
+  private onPresentLayer(node: LayoutNode): boolean {
+    for (let current: LayoutNode | null = node; current; current = current.parent) {
+      if (current.ir.type === "Overlay" && !this.host.layer().includes(current)) return false;
+    }
+    return true;
   }
 
   /**
