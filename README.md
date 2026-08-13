@@ -99,6 +99,18 @@ Then import the envelope with the engine SDK (Unity first) and it renders in-gam
 Content can also be delivered and **hot-updated** from the zabloo platform without
 recompiling or re-shipping through stores — the dev loop uses that exact path.
 
+## Documentation
+
+The reference for the IR and the component catalog lives in [`docs/`](docs/README.md):
+
+- [The envelope](docs/format/envelope.md) — version, tokens, views, assets.
+- [Layout](docs/format/layout.md) · [Style](docs/format/style.md) · [Input & focus](docs/format/input.md) ·
+  [Bindings & actions](docs/format/bindings.md) · [Motion](docs/format/motion.md)
+- [Loading](docs/format/loading.md) and [Versioning](docs/format/versioning.md) — how content
+  older or newer than the SDK degrades, and what an SDK refuses.
+- [Component catalog](docs/components/README.md) — one page per node type, with the
+  `@zabloo/react` components that emit it.
+
 ## Repository layout
 
 ```

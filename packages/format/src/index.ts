@@ -1019,11 +1019,14 @@ export function itemIdentity(key: string | number | undefined, index: number): s
  * "a fraction of my parent": `Layout` dims are px and are not bindable, and `grow`
  * is neither. The fraction is exactly the capability this primitive adds.
  *
- * **Geometry (normative).** Along `layout.direction` (`"row"` = horizontal, the
- * default; `"column"` = vertical) the SDK sizes the fill at `contentMain * value`,
- * where `contentMain` is the track's main axis minus its padding, and stretches it
- * across the whole cross axis. `layout.justify` anchors it: `"start"` (default)
- * grows from the left/top, `"end"` from the right/bottom. The fill's OWN
+ * **Geometry (normative).** Along `layout.direction` (`"row"` = horizontal,
+ * `"column"` = vertical — the format's own default, like every other node; it is
+ * `@zabloo/react`'s `<ProgressBar>` that defaults to a row) the SDK sizes the fill
+ * at `contentMain * value`, where `contentMain` is the track's main axis minus its
+ * padding, and stretches it across the whole cross axis. `layout.justify` anchors
+ * it: `"start"` (default) grows from the left/top, `"end"` from the right/bottom
+ * and `"center"` from the middle out (`"space-between"` has no meaning for a
+ * single child and lands on the start). The fill's OWN
  * `layout.width`/`height`/`grow` on the main axis are ignored — the SDK owns that
  * number. `children[1..]` are reserved: v1 lays out nothing else inside the track
  * (a label on top of the bar needs overlapping placement, which v1 does not have).
