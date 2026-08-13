@@ -3,14 +3,40 @@
   "version": "0.1.0",
   "description": "zabloo/ui CLI: export React projects as versioned IR envelopes",
   "license": "MIT",
+  "keywords": [
+    "zabloo",
+    "cli",
+    "game-ui",
+    "gamedev",
+    "ui",
+    "export",
+    "dev-server",
+    "engine-agnostic"
+  ],
+  "homepage": "https://github.com/zabloo-hub/ui/tree/main/packages/cli#readme",
+  "bugs": "https://github.com/zabloo-hub/ui/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zabloo-hub/ui.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
     "zabloo": "./dist/cli.js",
     "zb": "./dist/cli.js"
   },
+  "exports": {
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/cli.ts --format esm --clean --sourcemap && tsup src/preview-client.ts --format esm --platform browser --sourcemap",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.browser.json",

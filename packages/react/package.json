@@ -3,6 +3,23 @@
   "version": "0.1.0",
   "description": "React bindings for zabloo/ui: JSX that emits the zabloo IR via a custom reconciler",
   "license": "MIT",
+  "keywords": [
+    "zabloo",
+    "react",
+    "react-reconciler",
+    "jsx",
+    "game-ui",
+    "gamedev",
+    "ui",
+    "engine-agnostic"
+  ],
+  "homepage": "https://github.com/zabloo-hub/ui/tree/main/packages/react#readme",
+  "bugs": "https://github.com/zabloo-hub/ui/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zabloo-hub/ui.git",
+    "directory": "packages/react"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,11 +27,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --sourcemap",
     "typecheck": "tsc --noEmit",
