@@ -63,23 +63,17 @@ import {
   wrapsLines,
 } from "./layout.js";
 import {
-  ANCHOR_OFFSET,
-  anchorBox,
-  anchorSpec,
   autofocusIn,
   collectLayer,
+  deflate,
   focusScope,
-  isModal,
-  isOnScreen,
   isPressTriggered,
-  isWithin,
-  overlaySpec,
   type Point,
   resolveHit,
   selectedOptionIn,
-  stepPresence,
   topModal,
 } from "./overlay.js";
+import { type OverlayHost, OverlayLayer } from "./overlays/layer.js";
 import {
   emptySlots,
   INITIAL_WINDOW,
@@ -121,9 +115,7 @@ import {
 import { isSelected, nextChecked, slotOpacity } from "./toggle.js";
 import {
   clearNodeAnim,
-  createNodeAnim,
   loopPhase,
-  type NodeAnim,
   type ResolvedTransition,
   type ResolvedValues,
   stepNode,
@@ -328,24 +320,9 @@ class WebView {
   private layer: LayoutNode[] = [];
   /** The layer the last frame PAINTED — the live one plus whatever was fading out. */
   private paintLayer: readonly LayoutNode[] = [];
-  /** Open modals, innermost last, each with the focus it interrupted. */
-  private readonly modalStack: Array<{ overlay: LayoutNode; previousFocus: LayoutNode | null }> =
-    [];
-  /** Live `autoCloseMs` timers, keyed by the overlay they will dismiss. */
-  private readonly autoCloseTimers = new Map<LayoutNode, ReturnType<typeof setTimeout>>();
-  /**
-   * The enter/exit fade of each Overlay, kept OUT of the node's own `NodeAnim`:
-   * the resolve pass drops that one when a node leaves layout, and an exit whose
-   * starting point is erased by the exit itself would never animate.
-   */
-  private readonly overlayAnim = new Map<LayoutNode, NodeAnim>();
-  /** This frame's presence per overlay (absent = 0, nothing to paint). */
-  private readonly presence = new Map<LayoutNode, number>();
-  /** Overlays already out of the live layer but still fading — pixels, never input. */
-  private readonly exiting = new Set<LayoutNode>();
+  /** The layer's frame-to-frame state (ZAB-19/ZAB-46/ZAB-25) — wiring in `overlays/layer.ts`. */
+  private readonly overlays = new OverlayLayer(this.overlayHost());
   private byId = new Map<string, LayoutNode>();
-  /** Anchor ids already reported as missing — the warning is per author error, not per frame. */
-  private warnedAnchors = new Set<string>();
   /**
    * Nodes whose STATE comes from data — a bound `visible`, `checked`, group
    * `value`, Slider `value` or TextInput `value`. They are re-derived when a write
@@ -484,7 +461,7 @@ class WebView {
         this.disposed = true;
         this.cancelFrame();
         for (const dispose of this.disposers) dispose();
-        this.clearAutoClose();
+        this.overlays.clearAutoClose();
         this.images.dispose();
         this.font?.dispose();
         this.gl.dispose();
@@ -499,7 +476,6 @@ class WebView {
     if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
     this.byId = new Map();
     this.bound.clear();
-    this.warnedAnchors = new Set();
     this.pressedNode = null;
     this.focusedNode = null;
     this.hoveredNode = null;
@@ -510,12 +486,7 @@ class WebView {
     this.backdropPress = null;
     // The tree is new, so every node identity the layer state referenced is gone.
     this.layer = [];
-    this.modalStack.length = 0;
-    this.clearAutoClose();
-    // Presence dies with the document, like every other tween: a reload snaps.
-    this.overlayAnim.clear();
-    this.presence.clear();
-    this.exiting.clear();
+    this.overlays.reset();
     this.root = this.buildNode(rootIr, null, NO_SCOPES);
     // Initial focus (`autofocus`) is settled by the first render, together with
     // the overlay layer — a modal that starts open owns the focus from frame one.
@@ -909,7 +880,7 @@ class WebView {
    */
   private release(node: LayoutNode): void {
     this.bound.delete(node);
-    this.overlayAnim.delete(node);
+    this.overlays.forget(node);
     const id = (node.ir as AnyNode).id;
     if (id !== undefined && this.byId.get(id) === node) this.byId.delete(id);
     if (this.focusedNode === node) this.focusedNode = null;
@@ -918,10 +889,6 @@ class WebView {
     if (this.scrollDrag?.node === node) this.scrollDrag = null;
     if (this.sliderDrag?.node === node) this.sliderDrag = null;
     if (this.sliderKeys?.node === node) this.sliderKeys = null;
-    for (let i = this.modalStack.length - 1; i >= 0; i--) {
-      if (this.modalStack[i].overlay === node) this.modalStack.splice(i, 1);
-      else if (this.modalStack[i].previousFocus === node) this.modalStack[i].previousFocus = null;
-    }
     for (const child of node.children) this.release(child);
   }
 
@@ -1038,7 +1005,7 @@ class WebView {
     if (tab) this.setSelected(tab.group, tab.index);
     // Opening a popover is behavior on top of the action, never instead of it: a
     // `<Select>` trigger is an ordinary Button that happens to be an anchor.
-    if (this.togglePopovers(node)) this.render();
+    if (this.overlays.togglePopovers(node)) this.render();
   }
 
   private enforceGroup(opened: LayoutNode): void {
@@ -1108,7 +1075,7 @@ class WebView {
       // Choosing is the gesture that ends the menu (decision 2026-08-12, ZAB-25),
       // and it ends it even when the choice is the option already selected — a
       // dropdown that stayed open on "I meant this one" would be a dead end.
-      this.closeEnclosingPopover(node);
+      this.overlays.closeEnclosingPopover(node);
       if (node.checked) {
         this.render();
         return;
@@ -1657,7 +1624,7 @@ class WebView {
       },
       dismissTopModal: () => {
         const modal = topModal(this.layer);
-        if (modal) this.requestDismiss(modal);
+        if (modal) this.overlays.requestDismiss(modal);
       },
       scrollFocusedBy: (delta) => {
         const focused = this.focusedNode;
@@ -1673,268 +1640,32 @@ class WebView {
   }
 
   // --- overlay layer (decision 2026-08-11, ZAB-19) ---
+  // `overlay.ts` owns the pure rules and `overlays/layer.ts` the state that
+  // runs them frame to frame; this is the slice of the view they read.
 
-  /**
-   * Keeps focus inside the layer's rules across relayouts: an opening modal
-   * remembers the focus it interrupts and hands it to its `autofocus`, and a
-   * closing one gives that focus back. Runs on every render — the single funnel
-   * every state change already goes through — so it never misses an overlay
-   * opened by a binding, a reload or the game.
-   */
-  private syncModalFocus(): void {
-    const modals = this.layer.filter(isModal);
-
-    // Gone from the layer (closed or hidden): the OUTERMOST one that left owns
-    // the restore, so closing a whole stack returns to what preceded all of it.
-    let restored: LayoutNode | null = null;
-    for (let i = this.modalStack.length - 1; i >= 0; i--) {
-      if (modals.includes(this.modalStack[i].overlay)) continue;
-      restored = this.modalStack[i].previousFocus;
-      this.modalStack.splice(i, 1);
-    }
-    for (const modal of modals) {
-      if (this.modalStack.some((entry) => entry.overlay === modal)) continue;
-      this.modalStack.push({ overlay: modal, previousFocus: this.focusedNode });
-      restored = null; // opening wins over closing: the new modal owns the focus
-    }
-
-    const scope = this.scope();
-    const current = this.focusedNode;
-    if (current && inLayout(current) && isWithin(current, scope)) return;
-    // Outside the scope (or gone): the restored node if it still qualifies,
-    // otherwise the scope's `autofocus` — and nothing at all if neither does,
-    // rather than leaving a node under the modal wearing the focused state.
-    const candidate =
-      restored && inLayout(restored) && this.isFocusable(restored) && isWithin(restored, scope)
-        ? restored
-        : this.autofocus(scope);
-    this.setFocus(candidate);
-  }
-
-  /**
-   * A dismiss request — Escape, a tap on the backdrop, an `autoCloseMs` timeout.
-   * Closing is the renderer's default behavior: it writes `false` into the bound
-   * `visible` path (the read/write binding mechanism of decision 2026-08-11,
-   * which also notifies the game) and fires the declared `onDismiss` action.
-   * With a static `visible` there is nothing to write — only the action fires,
-   * and closing is the game's call.
-   */
-  private requestDismiss(overlay: LayoutNode): void {
-    const spec = overlaySpec(overlay);
-    if (spec === null) return;
-    // A popover's open state is the SDK's, so closing it is a flag and NOT a write
-    // into the game's data: `visible` never held it open in the first place.
-    if (isPressTriggered(overlay)) {
-      overlay.popoverOpen = false;
-    } else {
-      const path = this.writePath(overlay, (overlay.ir as AnyNode).visible);
-      if (path !== null) this.writeData(path, false);
-    }
-    if (spec.onDismiss) this.onAction?.(spec.onDismiss, this.contextOf(overlay));
-    this.render();
-  }
-
-  /**
-   * The layer's enter/exit fade: one presence tween per Overlay of the view,
-   * whether it is up or not — a hidden one has to sit at 0 so that opening it is a
-   * change to animate from, instead of the snap a first observation would give.
-   *
-   * The tween runs on the overlay's OWN `transition`, so this adds no IR surface:
-   * without one, presence jumps and the frame looks exactly like it did before F7.
-   */
-  private syncPresence(now: number): void {
-    this.presence.clear();
-    this.exiting.clear();
-    this.eachOverlay(this.root, (overlay) => {
-      let anim = this.overlayAnim.get(overlay);
-      if (!anim) {
-        anim = createNodeAnim();
-        this.overlayAnim.set(overlay, anim);
-      }
-      const live = this.layer.includes(overlay);
-      const stepped = stepPresence(anim, live, this.transitionOf(overlay), now);
-      if (stepped.animating) this.animating = true;
-      // Recorded even at 0 — the frame an overlay opens on starts there, and a
-      // missing entry would paint it fully opaque for exactly that frame, which
-      // reads as a flash right before the fade in.
-      this.presence.set(overlay, stepped.value);
-      // Out of the live layer but still visible: it paints, and nothing else. It
-      // takes no input, traps no focus and re-arms no timer, because every one of
-      // those reads `this.layer`, which it already left.
-      if (!live && stepped.value > 0) this.exiting.add(overlay);
-    });
-  }
-
-  /** Every Overlay of the tree, hidden ones included — presence is tracked for all. */
-  private eachOverlay(node: LayoutNode, visit: (overlay: LayoutNode) => void): void {
-    if (node.ir.type === "Overlay") visit(node);
-    for (const child of node.children) this.eachOverlay(child, visit);
-  }
-
-  // --- anchoring (decision 2026-08-11, ZAB-46) ---
-
-  /**
-   * The node an overlay is anchored to. An `id` that resolves to nothing is
-   * authoring error, not runtime state: it warns once (repeating it every frame
-   * would bury the console) and the overlay falls back to the layer placement it
-   * still carries, so a typo shows a v1 tooltip instead of nothing at all.
-   */
-  private anchorNode(id: string): LayoutNode | null {
-    const node = this.byId.get(id);
-    if (node) return node;
-    if (!this.warnedAnchors.has(id)) {
-      this.warnedAnchors.add(id);
-      console.warn(`[zabloo] Overlay anchor "${id}" matches no node in this view`);
-    }
-    return null;
-  }
-
-  /**
-   * Whether an anchored overlay may be in the layer this frame — everything else
-   * is unconditionally allowed, so this composes with `inLayout` as the layer's
-   * predicate.
-   *
-   * Two rules, both from the relation: an overlay whose anchor is off screen has
-   * nothing to point at and leaves (fading out like any other close), and a
-   * hover-triggered one is up exactly while its anchor is hovered or focused — the
-   * pointer and the gamepad answer of the same question. `visible` still gates
-   * both, since it gates entry into the layer in the first place.
-   */
-  /**
-   * The layer's predicate: in layout, and — for an anchored overlay — with its
-   * anchor still on screen and, when it rides its hover, under the pointer or the
-   * focus. Everything the layer owns (input, focus, timers, the presence tween's
-   * target) reads it through `this.layer`, so the two capabilities of ZAB-46 need
-   * no wiring of their own anywhere else.
-   */
-  private layerPresent = (node: LayoutNode): boolean => inLayout(node) && this.anchorAllows(node);
-
-  private anchorAllows(node: LayoutNode): boolean {
-    const spec = anchorSpec(node);
-    if (spec === null) return true;
-    const anchor = this.anchorNode(spec.id);
-    if (anchor === null) return true;
-    if (!isOnScreen(anchor, this.radiusOf)) return false;
-    if (spec.trigger === "manual") return true;
-    // Hover lights up exactly the focusable set (decision 2026-08-11, ZAB-36), so
-    // an anchor that takes no input is never hovered NOR focused and the hint
-    // would simply never appear. A popover has the same problem for the same
-    // reason: a node that takes no press can never be pressed to open it.
-    if (!this.isFocusable(anchor) && !this.warnedAnchors.has(spec.id)) {
-      this.warnedAnchors.add(spec.id);
-      console.warn(
-        `[zabloo] Overlay anchor "${spec.id}" is a ${anchor.ir.type}, which takes no ` +
-          `input: a trigger:"${spec.trigger}" overlay anchored to it never shows.`,
-      );
-    }
-    // A popover is up while the SDK's own open flag says so — the one piece of
-    // overlay state that is not `visible` (decision 2026-08-12, ZAB-25).
-    if (spec.trigger === "press") return node.popoverOpen;
-    return anchor.hovered || anchor.focused;
-  }
-
-  // --- popovers (`anchor.trigger: "press"` — decision 2026-08-12, ZAB-25) ---
-
-  /**
-   * The popovers a node anchors, whatever their `visible` says right now: the
-   * press toggles the flag, and the layer predicate decides what that means. Any
-   * number of them, because `anchor.id` is a plain reference and nothing stops two
-   * overlays from hanging off one button.
-   */
-  private popoversOf(anchor: LayoutNode): LayoutNode[] {
-    const id = (anchor.ir as AnyNode).id;
-    if (id === undefined) return [];
-    const found: LayoutNode[] = [];
-    this.eachOverlay(this.root, (overlay) => {
-      const spec = anchorSpec(overlay);
-      if (spec?.trigger === "press" && spec.id === id) found.push(overlay);
-    });
-    return found;
-  }
-
-  /**
-   * Pressing the anchor toggles its popovers — the same press that opens a
-   * dropdown closes it, so a trigger button behaves like one. Returns whether it
-   * had any, so the caller knows the press meant something beyond its action.
-   */
-  private togglePopovers(anchor: LayoutNode): boolean {
-    const popovers = this.popoversOf(anchor);
-    for (const popover of popovers) popover.popoverOpen = !popover.popoverOpen;
-    return popovers.length > 0;
-  }
-
-  /** Closes the popover this node lives in, if any — what a selection inside does. */
-  private closeEnclosingPopover(node: LayoutNode): void {
-    for (let current: LayoutNode | null = node; current; current = current.parent) {
-      if (current.ir.type === "Overlay" && isPressTriggered(current)) {
-        current.popoverOpen = false;
-        return;
-      }
-    }
-  }
-
-  /**
-   * Lays one layer entry out. Unanchored, the entry IS the view: its own flex
-   * places the content anywhere on the layer. Anchored, the content goes where
-   * `anchorBox` puts it around the anchor, while the entry's own rect stays the
-   * view's — that is what keeps a modal popover dimming and capturing the whole
-   * screen while its panel hangs off a button.
-   *
-   * The content is sized from `natural`, so `layout.width`/`height` on an Overlay
-   * stay ignored (a layer is not sized — size the child), and `padding` keeps
-   * meaning "margin from the view's edges": it is taken out of the box and given
-   * back around it, so the same number does the same job anchored or not.
-   */
-  private arrangeOverlay(overlay: LayoutNode, viewRect: Rect): void {
-    const spec = anchorSpec(overlay);
-    const anchor = spec === null ? null : this.anchorNode(spec.id);
-    if (spec === null || anchor === null) {
-      arrange(overlay, viewRect);
-      return;
-    }
-    const padding = overlay.resolved.padding ?? 0;
-    const box = anchorBox(
-      anchor.rect,
-      { x: overlay.natural.x - padding * 2, y: overlay.natural.y - padding * 2 },
-      spec.at,
-      this.dim(spec.offset, ANCHOR_OFFSET),
-      deflate(viewRect, padding),
-    );
-    arrange(overlay, {
-      x: box.x - padding,
-      y: box.y - padding,
-      width: box.width + padding * 2,
-      height: box.height + padding * 2,
-    });
-    overlay.rect = viewRect;
-  }
-
-  /**
-   * Arms `autoCloseMs` while an overlay is in the layer; disarms it when it leaves.
-   * Never for a hover-triggered one: what dismisses that is leaving the anchor, and
-   * a timer would take the hint away from under a pointer still resting on it.
-   */
-  private syncAutoClose(): void {
-    for (const [overlay, timer] of this.autoCloseTimers) {
-      if (this.layer.includes(overlay)) continue;
-      clearTimeout(timer);
-      this.autoCloseTimers.delete(overlay);
-    }
-    for (const overlay of this.layer) {
-      const ms = overlaySpec(overlay)?.autoCloseMs;
-      if (ms === undefined || this.autoCloseTimers.has(overlay)) continue;
-      if (anchorSpec(overlay)?.trigger === "hover") continue;
-      const timer = setTimeout(() => {
-        this.autoCloseTimers.delete(overlay);
-        this.requestDismiss(overlay);
-      }, ms);
-      this.autoCloseTimers.set(overlay, timer);
-    }
-  }
-
-  private clearAutoClose(): void {
-    for (const timer of this.autoCloseTimers.values()) clearTimeout(timer);
-    this.autoCloseTimers.clear();
+  private overlayHost(): OverlayHost {
+    return {
+      root: () => this.root,
+      layer: () => this.layer,
+      focused: () => this.focusedNode,
+      nodeById: (id) => this.byId.get(id),
+      scope: () => this.scope(),
+      isFocusable: (node) => this.isFocusable(node),
+      autofocus: (scope) => this.autofocus(scope),
+      setFocus: (node) => this.setFocus(node),
+      closeVisible: (overlay) => {
+        const path = this.writePath(overlay, (overlay.ir as AnyNode).visible);
+        if (path !== null) this.writeData(path, false);
+      },
+      dismissed: (overlay, action) => this.onAction?.(action, this.contextOf(overlay)),
+      transitionOf: (node) => this.transitionOf(node),
+      markAnimating: () => {
+        this.animating = true;
+      },
+      radiusOf: (node) => this.radiusOf(node),
+      dim: (value, fallback) => this.dim(value, fallback),
+      render: () => this.render(),
+    };
   }
 
   // --- input (pointer → hit test on layout rects) ---
@@ -2059,7 +1790,7 @@ class WebView {
         const modal = topModal(this.layer);
         if (modal) {
           event.preventDefault();
-          this.requestDismiss(modal);
+          this.overlays.requestDismiss(modal);
         }
       }
     };
@@ -2102,7 +1833,7 @@ class WebView {
       if (backdrop) {
         const resolved = this.hitTest(point);
         if (resolved.kind === "backdrop" && resolved.overlay === backdrop) {
-          this.requestDismiss(backdrop);
+          this.overlays.requestDismiss(backdrop);
         }
         return;
       }
@@ -2311,7 +2042,7 @@ class WebView {
    * rects never feed back into their own input (decision 2026-08-11 §4).
    */
   private resolve(node: LayoutNode, now: number): void {
-    if (!inLayout(node) && !this.exiting.has(node)) {
+    if (!inLayout(node) && !this.overlays.isExiting(node)) {
       // Out of layout: nothing to paint, and no honest previous value for the day
       // it comes back — dropping the state makes that return snap, like a mount.
       // An overlay mid-exit is the exception: it is still on screen this frame.
@@ -2593,9 +2324,9 @@ class WebView {
     // frame's resolve pass — otherwise `states.focused` would land one frame late.
     // An anchored entry is the one thing here that reads rects, and it reads the
     // ones already laid out (see `isOnScreen`).
-    this.layer = collectLayer(this.root, this.layerPresent);
-    this.syncModalFocus();
-    this.syncAutoClose();
+    this.layer = collectLayer(this.root, this.overlays.layerPresent);
+    this.overlays.syncModalFocus();
+    this.overlays.syncAutoClose();
     // A control that left layout under the pointer (a tab panel switching, a
     // Collapse closing) must not keep wearing the hover state on its way back.
     if (this.hoveredNode && !inLayout(this.hoveredNode)) this.setHover(null);
@@ -2606,7 +2337,7 @@ class WebView {
     const frameTime = now();
     // Before resolve: a closing overlay is still painted for one transition, and
     // that is what keeps the resolve pass from dropping its subtree mid-fade.
-    this.syncPresence(frameTime);
+    this.overlays.syncPresence(frameTime);
     this.resolve(this.root, frameTime);
 
     // The view's own width is the offer the constraint chain starts from — that is
@@ -2618,21 +2349,23 @@ class WebView {
     // The painted layer is the live one plus whatever is still fading out, in the
     // same `(z, document order)` — a closing modal keeps its place under the toast
     // that was above it.
-    const paintLayer =
-      this.exiting.size === 0
-        ? this.layer
-        : collectLayer(this.root, (node) => this.layerPresent(node) || this.exiting.has(node));
+    const paintLayer = !this.overlays.anyExiting()
+      ? this.layer
+      : collectLayer(
+          this.root,
+          (node) => this.overlays.layerPresent(node) || this.overlays.isExiting(node),
+        );
     this.paintLayer = paintLayer;
     for (const overlay of paintLayer) {
       measure(overlay, this.measureLeaf, width);
-      this.arrangeOverlay(overlay, viewRect);
+      this.overlays.arrangeOverlay(overlay, viewRect);
     }
     // After arrange, where the boxes are final: a popover that just opened scrolls
     // its list to the option it focused. It only ever writes scroll offsets, so
     // re-running arrange settles it — and arrange is the only pass an offset feeds.
     if (this.revealOpenedPopover()) {
       arrange(this.root, viewRect);
-      for (const overlay of paintLayer) this.arrangeOverlay(overlay, viewRect);
+      for (const overlay of paintLayer) this.overlays.arrangeOverlay(overlay, viewRect);
     }
     // After arrange, where the boxes are final: each field slides its content just
     // enough to keep its caret inside. It reads rects and writes only its own
@@ -2651,7 +2384,7 @@ class WebView {
       // would put the tree's glyphs over this panel, since a group draws all its
       // solids before all its text.
       geometry.startRoot();
-      this.paint(overlay, geometry, this.presence.get(overlay) ?? 1);
+      this.paint(overlay, geometry, this.overlays.presenceOf(overlay));
     }
     this.gl.draw(geometry.batches(), width, height, this.clearColor);
 
@@ -2673,7 +2406,7 @@ class WebView {
     parentOpacity = 1,
     clip: Clip | null = null,
   ): void {
-    if (!inLayout(node) && !this.exiting.has(node)) return;
+    if (!inLayout(node) && !this.overlays.isExiting(node)) return;
     const values = node.resolved;
 
     // Opacity inherits multiplicatively down the subtree (per-vertex alpha;
@@ -2773,7 +2506,7 @@ class WebView {
       root: this.root,
       layer: this.paintLayer.map((overlay) => ({
         node: overlay,
-        presence: this.presence.get(overlay) ?? 1,
+        presence: this.overlays.presenceOf(overlay),
       })),
       focused: this.focusedNode,
       hovered: this.hoveredNode,
@@ -2926,17 +2659,6 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-}
-
-/** A rect's content box: the same inset the measure pass reserved for `padding`. */
-function deflate(rect: Rect, padding: number): Rect {
-  if (padding <= 0) return rect;
-  return {
-    x: rect.x + padding,
-    y: rect.y + padding,
-    width: Math.max(0, rect.width - padding * 2),
-    height: Math.max(0, rect.height - padding * 2),
-  };
 }
 
 function bindPath(value: unknown): string | null {
