@@ -40,27 +40,19 @@ import {
   type ZNode,
 } from "@zabloo/format";
 import { ImageLibrary } from "./assets.js";
-import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
+import { type Clip, intersectClip, isEmptyClip } from "./clip.js";
 import { closedHeight, collapseTarget } from "./collapse.js";
+import { CARET, FieldEditor, type FieldHost } from "./controls/field.js";
 import { affects, DataStore } from "./data.js";
 import { loadEnvelope } from "./envelope.js";
-import {
-  activePad,
-  type Direction,
-  type PadIntent,
-  type RepeatState as PadRepeat,
-  type PadSnapshot,
-  readPad,
-  scrollDelta,
-  stepRepeat,
-} from "./gamepad.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary, type GlyphAtlas } from "./glyphs.js";
-import { childClip, effectiveClip } from "./hit.js";
+import { childClip } from "./hit.js";
+import { PadController, type PadHost } from "./input/pad.js";
+import { PointerHandler, type PointerHost, type SliderGesture } from "./input/pointer.js";
 import {
   arrange,
-  contains,
   createLayoutNode,
   inFlow,
   inLayout,
@@ -71,23 +63,16 @@ import {
   wrapsLines,
 } from "./layout.js";
 import {
-  ANCHOR_OFFSET,
-  anchorBox,
-  anchorSpec,
   autofocusIn,
   collectLayer,
+  deflate,
   focusScope,
-  isModal,
-  isOnScreen,
   isPressTriggered,
-  isWithin,
-  overlaySpec,
   type Point,
-  resolveHit,
   selectedOptionIn,
-  stepPresence,
   topModal,
 } from "./overlay.js";
+import { type OverlayHost, OverlayLayer } from "./overlays/layer.js";
 import {
   emptySlots,
   INITIAL_WINDOW,
@@ -113,39 +98,23 @@ import { snapshotView, type ViewSnapshot } from "./snapshot.js";
 import { beadOpacity, DEFAULT_PERIOD } from "./spinner.js";
 import { effectiveStyle } from "./states.js";
 import { type Color, fade, GeometryBuilder } from "./tessellator.js";
-import {
-  layoutText,
-  type PlacedLine,
-  placeLines,
-  type TextLayoutOptions,
-  type TextMetrics,
-} from "./text.js";
+import { layoutText, type PlacedLine, placeLines, type TextLayoutOptions } from "./text.js";
 import {
   caretAt,
   caretVisible,
   caretX,
   clampSelection,
-  codePointIndex,
-  type Edit,
   hasSelection,
-  indexAtX,
-  insert,
   length,
   moveCaret,
   moveToEdge,
-  remove,
-  type Selection,
-  scrollFor,
   selectAll,
   span,
-  utf16Offset,
 } from "./textinput.js";
 import { isSelected, nextChecked, slotOpacity } from "./toggle.js";
 import {
   clearNodeAnim,
-  createNodeAnim,
   loopPhase,
-  type NodeAnim,
   type ResolvedTransition,
   type ResolvedValues,
   stepNode,
@@ -201,17 +170,6 @@ interface AnyNode {
   maxLength?: number;
 }
 
-/** In-progress pointer drag on a ScrollView, before the click-vs-drag threshold resolves it. */
-interface ScrollDrag {
-  node: LayoutNode;
-  startPoint: { x: number; y: number };
-  lastPoint: { x: number; y: number };
-  moved: boolean;
-}
-
-/** Below this many px of pointer travel, a gesture still counts as a click/tap. */
-const DRAG_THRESHOLD = 4;
-
 /**
  * The parts of a `keydown` the view reads. A real `KeyboardEvent` satisfies it as
  * it comes, and the gamepad synthesizes one (ZAB-47) — which is what lets a d-pad
@@ -241,32 +199,12 @@ function arrowIntent(key: string): KeyIntent {
 }
 
 /**
- * A Slider gesture in flight (pointer or held arrow key). `from` is the value it
- * started at: `onCommit` is "the value the player settled on", so a gesture that
- * ends where it began fires nothing.
- */
-interface SliderGesture {
-  node: LayoutNode;
-  from: number;
-}
-
-/**
  * Overlay scrollbar (spec 2026-08-11): painted by the SDK inside the
  * ScrollView's rect, on the edge of its axis. Not in layout, not hit-testable
  * in F1 — it indicates the position, it doesn't take input. Styling it is a
  * deferred, compatible extension (`scrollbar` boolean → object).
  */
 const SCROLLBAR = { thickness: 4, margin: 2, minLength: 16, color: [1, 1, 1, 0.35] as Color };
-
-/**
- * The caret and the selection highlight a focused TextInput paints (ZAB-26).
- * Both derive from the field's own `style.color` — the "color of this node's
- * content" that already tints glyphs and images — so nothing new enters `Style`.
- * The blink is renderer behavior, like the Spinner's loop: it is not authored,
- * and styling either of them is a compatible extension, exactly as it is for the
- * ScrollView's scrollbar.
- */
-const CARET = { width: 2, blinkMs: 1060, selectionAlpha: 0.3 };
 
 export interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
@@ -360,24 +298,9 @@ class WebView {
   private layer: LayoutNode[] = [];
   /** The layer the last frame PAINTED — the live one plus whatever was fading out. */
   private paintLayer: readonly LayoutNode[] = [];
-  /** Open modals, innermost last, each with the focus it interrupted. */
-  private readonly modalStack: Array<{ overlay: LayoutNode; previousFocus: LayoutNode | null }> =
-    [];
-  /** Live `autoCloseMs` timers, keyed by the overlay they will dismiss. */
-  private readonly autoCloseTimers = new Map<LayoutNode, ReturnType<typeof setTimeout>>();
-  /**
-   * The enter/exit fade of each Overlay, kept OUT of the node's own `NodeAnim`:
-   * the resolve pass drops that one when a node leaves layout, and an exit whose
-   * starting point is erased by the exit itself would never animate.
-   */
-  private readonly overlayAnim = new Map<LayoutNode, NodeAnim>();
-  /** This frame's presence per overlay (absent = 0, nothing to paint). */
-  private readonly presence = new Map<LayoutNode, number>();
-  /** Overlays already out of the live layer but still fading — pixels, never input. */
-  private readonly exiting = new Set<LayoutNode>();
+  /** The layer's frame-to-frame state (ZAB-19/ZAB-46/ZAB-25) — wiring in `overlays/layer.ts`. */
+  private readonly overlays = new OverlayLayer(this.overlayHost());
   private byId = new Map<string, LayoutNode>();
-  /** Anchor ids already reported as missing — the warning is per author error, not per frame. */
-  private warnedAnchors = new Set<string>();
   /**
    * Nodes whose STATE comes from data — a bound `visible`, `checked`, group
    * `value`, Slider `value` or TextInput `value`. They are re-derived when a write
@@ -390,7 +313,6 @@ class WebView {
    */
   private readonly bound = new Set<LayoutNode>();
   private readonly data = new DataStore();
-  private pressedNode: LayoutNode | null = null;
   private focusedNode: LayoutNode | null = null;
   /**
    * The node a just-opened popover focused, to be revealed once this frame's
@@ -399,39 +321,16 @@ class WebView {
    * exactly one pass instead of by one frame. See `revealOpenedPopover`.
    */
   private pendingReveal: LayoutNode | null = null;
-  /** Node under the mouse, if any — the only state the pointer owns by itself. */
-  private hoveredNode: LayoutNode | null = null;
-  private scrollDrag: ScrollDrag | null = null;
-  /** Slider being dragged with the pointer, and the one being nudged with the keyboard. */
-  private sliderDrag: SliderGesture | null = null;
+  /** Slider being nudged with the keyboard (the pointer's drag lives in `input/pointer.ts`). */
   private sliderKeys: SliderGesture | null = null;
-  /** TextInput whose selection the pointer is dragging out. */
-  private textDrag: LayoutNode | null = null;
-  /** TextInput with an IME composition in flight — its text is not final yet. */
-  private composing: LayoutNode | null = null;
-  /**
-   * The hidden field the browser types into while a TextInput has the focus. It is
-   * what buys real IME composition, the clipboard and the mobile keyboard — none of
-   * which a canvas can get from raw `keydown` (decision 2026-08-11, ZAB-26).
-   */
-  private editor: HTMLTextAreaElement | null = null;
-  /** Overlay whose backdrop took the pointer down, pending a release on it. */
-  private backdropPress: LayoutNode | null = null;
+  /** The focused TextInput's buffer, caret and hidden field (ZAB-26) — wiring in `controls/field.ts`. */
+  private readonly field = new FieldEditor(this.fieldHost());
+  /** The canvas listeners and the gestures that span them — wiring in `input/pointer.ts`. */
+  private readonly pointer = new PointerHandler(this.pointerHost(), this.field, this.overlays);
   /** Pending self-scheduled frame, while a transition is in flight. */
   private frame: number | null = null;
-  /**
-   * The gamepad's own frame loop (ZAB-47). The Gamepad API is polled, never
-   * pushed, and the view otherwise paints on change only — so a pad needs a loop
-   * of its own, alive exactly while one is connected.
-   */
-  private padPoll: number | null = null;
-  /** The pad's state on the previous poll: what turns a held button into an edge. */
-  private padHeld: Direction | null = null;
-  private padRepeat: PadRepeat | null = null;
-  private padPress = false;
-  private padBack = false;
-  /** When the previous poll ran — the scroll stick moves px per SECOND, not per frame. */
-  private padTime = 0;
+  /** The gamepad's poll loop and edge state (ZAB-47) — wiring in `input/pad.ts`. */
+  private readonly pad = new PadController(this.padHost());
   /** Set by the resolve pass when any node still has a tween running. */
   private animating = false;
   /** Our TTF rasterizer, once its WASM has loaded (see `loadRasterizer`). */
@@ -533,7 +432,7 @@ class WebView {
         this.disposed = true;
         this.cancelFrame();
         for (const dispose of this.disposers) dispose();
-        this.clearAutoClose();
+        this.overlays.clearAutoClose();
         this.images.dispose();
         this.font?.dispose();
         this.gl.dispose();
@@ -548,23 +447,12 @@ class WebView {
     if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
     this.byId = new Map();
     this.bound.clear();
-    this.warnedAnchors = new Set();
-    this.pressedNode = null;
     this.focusedNode = null;
-    this.hoveredNode = null;
-    this.scrollDrag = null;
-    this.sliderDrag = null;
     this.sliderKeys = null;
-    this.textDrag = null;
-    this.backdropPress = null;
+    this.pointer.reset();
     // The tree is new, so every node identity the layer state referenced is gone.
     this.layer = [];
-    this.modalStack.length = 0;
-    this.clearAutoClose();
-    // Presence dies with the document, like every other tween: a reload snaps.
-    this.overlayAnim.clear();
-    this.presence.clear();
-    this.exiting.clear();
+    this.overlays.reset();
     this.root = this.buildNode(rootIr, null, NO_SCOPES);
     // Initial focus (`autofocus`) is settled by the first render, together with
     // the overlay layer — a modal that starts open owns the focus from frame one.
@@ -688,11 +576,11 @@ class WebView {
       // never what the data holds (decision 2026-08-11, ZAB-26).
       const value = bound ? this.readBind(bound) : any.value;
       const text = typeof value === "string" ? value : formatValue(value);
-      this.setNodeText(node, text);
+      this.field.setNodeText(node, text);
       node.selection = settle
         ? caretAt(length(text))
         : clampSelection(node.selection, length(text));
-      this.syncEditor(node);
+      this.field.syncEditor(node);
     }
     // Inside an exclusive-check group a Toggle's state is derived from the group's
     // value, never stored per option.
@@ -958,19 +846,12 @@ class WebView {
    */
   private release(node: LayoutNode): void {
     this.bound.delete(node);
-    this.overlayAnim.delete(node);
+    this.overlays.forget(node);
     const id = (node.ir as AnyNode).id;
     if (id !== undefined && this.byId.get(id) === node) this.byId.delete(id);
     if (this.focusedNode === node) this.focusedNode = null;
-    if (this.pressedNode === node) this.pressedNode = null;
-    if (this.backdropPress === node) this.backdropPress = null;
-    if (this.scrollDrag?.node === node) this.scrollDrag = null;
-    if (this.sliderDrag?.node === node) this.sliderDrag = null;
     if (this.sliderKeys?.node === node) this.sliderKeys = null;
-    for (let i = this.modalStack.length - 1; i >= 0; i--) {
-      if (this.modalStack[i].overlay === node) this.modalStack.splice(i, 1);
-      else if (this.modalStack[i].previousFocus === node) this.modalStack[i].previousFocus = null;
-    }
+    this.pointer.forget(node);
     for (const child of node.children) this.release(child);
   }
 
@@ -1087,7 +968,7 @@ class WebView {
     if (tab) this.setSelected(tab.group, tab.index);
     // Opening a popover is behavior on top of the action, never instead of it: a
     // `<Select>` trigger is an ordinary Button that happens to be an anchor.
-    if (this.togglePopovers(node)) this.render();
+    if (this.overlays.togglePopovers(node)) this.render();
   }
 
   private enforceGroup(opened: LayoutNode): void {
@@ -1157,7 +1038,7 @@ class WebView {
       // Choosing is the gesture that ends the menu (decision 2026-08-12, ZAB-25),
       // and it ends it even when the choice is the option already selected — a
       // dropdown that stayed open on "I meant this one" would be a dead end.
-      this.closeEnclosingPopover(node);
+      this.overlays.closeEnclosingPopover(node);
       if (node.checked) {
         this.render();
         return;
@@ -1272,213 +1153,33 @@ class WebView {
     return true;
   }
 
-  // --- TextInput: the buffer, the caret and the two hooks (ZAB-26) ---
+  // --- TextInput (ZAB-26) ---
+  // `textinput.ts` owns the editing model; `controls/field.ts` owns the buffer,
+  // the caret and the hidden field that run it. This is the slice of the view
+  // they read: the focus, the metrics, and the return leg of the data channel.
 
-  /** The buffer and the state derived from it — `empty` is what styles the placeholder. */
-  private setNodeText(node: LayoutNode, text: string): void {
-    node.text = text;
-    node.empty = text.length === 0;
-  }
-
-  /** The metrics this field measures with — the caret and the paint share them. */
-  private textMetrics(node: LayoutNode): TextMetrics {
-    return this.fonts.get(this.fontSize(this.effectiveStyle(node)));
-  }
-
-  /** The box a node's content lives in: its rect minus its padding. */
-  private contentBox(node: LayoutNode): Rect {
-    return deflate(node.rect, node.resolved.padding ?? 0);
-  }
-
-  /**
-   * Single state-mutation path for the text (typing, IME, paste, delete,
-   * `setText`): writes the buffer, writes the new value into the bound path — the
-   * return leg of the data channel — and fires the live `onChange`. The caret moves
-   * with it, and its blink restarts so it stays solid while the player types.
-   */
-  private applyEdit(node: LayoutNode, edit: Edit, silent = false, commit = false): void {
-    const changed = edit.text !== node.text;
-    this.setNodeText(node, edit.text);
-    node.selection = clampSelection(edit.selection, length(edit.text));
-    node.caretSince = now();
-    // `silent` is a composition in flight (the field shows it, the game is not told
-    // yet); `commit` is the end of one, where the settled text must go out even
-    // though the silent frames already put it in the buffer.
-    if ((changed || commit) && !silent) {
-      const any = node.ir as AnyNode;
-      // Inside an item this resolves to `shop.items.3.name`, like Toggle/Slider.
-      const path = this.writePath(node, any.value);
-      if (path !== null) this.writeData(path, edit.text);
-      if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
-    }
-    this.render();
-  }
-
-  /** Moves the caret (or the selection) without touching the text. */
-  private setSelection(node: LayoutNode, selection: Selection): void {
-    node.selection = clampSelection(selection, length(node.text));
-    node.caretSince = now();
-    this.syncEditor(node);
-    this.render();
-  }
-
-  private deleteText(node: LayoutNode, forward: boolean): void {
-    this.applyEdit(node, remove(node.text, node.selection, forward));
-    this.syncEditor(node);
-  }
-
-  /** The caret index a point selects, in the field's own content coordinates. */
-  private textIndexAt(node: LayoutNode, point: Point): number {
-    const box = this.contentBox(node);
-    return indexAtX(node.text, point.x - box.x + node.textScroll, this.textMetrics(node));
-  }
-
-  /**
-   * Keeps the caret inside the box after a change — the field's own horizontal
-   * scroll, the counterpart of the ScrollView's offset (never authored). It runs
-   * after arrange, where the rect is final, and it is idempotent.
-   */
-  private syncTextScroll(node: LayoutNode): void {
-    const metrics = this.textMetrics(node);
-    const box = this.contentBox(node);
-    node.textScroll = scrollFor(
-      node.textScroll,
-      caretX(node.text, node.selection.focus, metrics),
-      box.width,
-      caretX(node.text, length(node.text), metrics),
-      CARET.width,
-    );
-  }
-
-  // --- TextInput: the hidden field the browser types into ---
-  //
-  // A canvas receives keystrokes but not TEXT: IME composition, the clipboard and
-  // the mobile keyboard all belong to a real editable element. So one lives
-  // off-screen, mirroring the focused field both ways — we push our buffer into it
-  // and fold whatever the browser did back into ours. It is the same trick Figma
-  // and Docs use, and it stays entirely inside the web renderer (the Unity SDK
-  // will have its own answer).
-
-  private ensureEditor(): HTMLTextAreaElement | null {
-    if (this.editor) return this.editor;
-    if (typeof document === "undefined") return null;
-    const editor = document.createElement("textarea");
-    // Off-screen but REAL: `display:none` or `visibility:hidden` would take no
-    // focus, and without focus there is no composition and no virtual keyboard.
-    Object.assign(editor.style, {
-      position: "fixed",
-      top: "0",
-      left: "0",
-      width: "1px",
-      height: "1px",
-      padding: "0",
-      border: "0",
-      outline: "none",
-      resize: "none",
-      opacity: "0",
-      zIndex: "-1",
-      pointerEvents: "none",
-    });
-    editor.setAttribute("autocomplete", "off");
-    editor.setAttribute("autocapitalize", "off");
-    editor.setAttribute("autocorrect", "off");
-    editor.setAttribute("aria-hidden", "true");
-    editor.spellcheck = false;
-    editor.tabIndex = -1;
-
-    const input = () => {
-      const node = this.focusedNode;
-      if (node?.ir.type !== "TextInput") return;
-      // Mid-composition the field shows what is being composed but the game is not
-      // told yet: half a syllable is not a value. `compositionend` commits it.
-      this.readEditor(node, this.composing === node);
-    };
-    const compositionstart = () => {
-      const node = this.focusedNode;
-      if (node?.ir.type === "TextInput") this.composing = node;
-    };
-    const compositionend = () => {
-      const node = this.composing;
-      this.composing = null;
-      if (node) this.readEditor(node, false, true);
-    };
-    editor.addEventListener("input", input);
-    editor.addEventListener("compositionstart", compositionstart);
-    editor.addEventListener("compositionupdate", input);
-    editor.addEventListener("compositionend", compositionend);
-
-    (this.canvas.parentElement ?? document.body).appendChild(editor);
-    this.editor = editor;
-    this.disposers.push(() => {
-      editor.removeEventListener("input", input);
-      editor.removeEventListener("compositionstart", compositionstart);
-      editor.removeEventListener("compositionupdate", input);
-      editor.removeEventListener("compositionend", compositionend);
-      editor.remove();
-      this.editor = null;
-    });
-    return editor;
-  }
-
-  /** Pushes our buffer and caret into the hidden field, so the browser edits THIS. */
-  private syncEditor(node: LayoutNode): void {
-    const editor = this.editor;
-    if (!editor || this.focusedNode !== node || this.composing === node) return;
-    if (editor.value !== node.text) editor.value = node.text;
-    const { start, end } = span(node.selection, length(node.text));
-    const backward = node.selection.anchor > node.selection.focus;
-    editor.setSelectionRange(
-      utf16Offset(node.text, start),
-      utf16Offset(node.text, end),
-      backward ? "backward" : "forward",
-    );
-  }
-
-  /**
-   * Folds the hidden field back into ours. Everything the browser can do to text —
-   * typing, composing, pasting, cutting, autocorrect — arrives here as "this is the
-   * new value and this is where the caret is", so the whole value is run through the
-   * editing model as one replacement: that is what applies `maxLength` and the
-   * single-line rule here exactly as it applies them to a keystroke on a target that
-   * feeds characters in one at a time.
-   */
-  private readEditor(node: LayoutNode, silent: boolean, commit = false): void {
-    const editor = this.editor;
-    if (!editor) return;
-    const limited = insert(
-      node.text,
-      selectAll(node.text),
-      editor.value,
-      (node.ir as AnyNode).maxLength,
-    ).text;
-    // The caret is the browser's, not the model's: it knows where the edit landed.
-    const backward = editor.selectionDirection === "backward";
-    const start = codePointIndex(limited, editor.selectionStart ?? 0);
-    const end = codePointIndex(limited, editor.selectionEnd ?? 0);
-    this.applyEdit(
-      node,
-      {
-        text: limited,
-        selection: backward ? { anchor: end, focus: start } : { anchor: start, focus: end },
+  private fieldHost(): FieldHost {
+    return {
+      focused: () => this.focusedNode,
+      // The metrics this field measures with — the caret and the paint share them.
+      metrics: (node) => this.fonts.get(this.fontSize(this.effectiveStyle(node))),
+      // The box a node's content lives in: its rect minus its padding.
+      contentBox: (node) => deflate(node.rect, node.resolved.padding ?? 0),
+      textEdited: (node) => {
+        const any = node.ir as AnyNode;
+        // Inside an item this resolves to `shop.items.3.name`, like Toggle/Slider.
+        const path = this.writePath(node, any.value);
+        if (path !== null) this.writeData(path, node.text);
+        if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
       },
-      silent,
-      commit,
-    );
-    // Truncated, or a newline folded away: the browser's copy is no longer ours.
-    if (limited !== editor.value) this.syncEditor(node);
-  }
-
-  /** Hands the keyboard to the hidden field, or takes it back when focus leaves. */
-  private focusEditor(node: LayoutNode | null): void {
-    if (node?.ir.type !== "TextInput") {
-      this.composing = null;
-      this.editor?.blur();
-      return;
-    }
-    const editor = this.ensureEditor();
-    if (!editor) return;
-    this.syncEditor(node);
-    if (document.activeElement !== editor) editor.focus({ preventScroll: true });
+      attachEditor: (editor) => {
+        (this.canvas.parentElement ?? document.body).appendChild(editor);
+      },
+      addDisposer: (dispose) => {
+        this.disposers.push(dispose);
+      },
+      render: () => this.render(),
+    };
   }
 
   /** The game/page channel for text fields — the `setValue` counterpart. */
@@ -1490,8 +1191,8 @@ class WebView {
     }
     // The whole field is replaced, so the caret goes to the end — where a player
     // handed a prefilled value would start typing.
-    this.applyEdit(node, { text: String(text), selection: caretAt(length(String(text))) });
-    this.syncEditor(node);
+    this.field.applyEdit(node, { text: String(text), selection: caretAt(length(String(text))) });
+    this.field.syncEditor(node);
     return true;
   }
 
@@ -1635,18 +1336,6 @@ class WebView {
     return out;
   }
 
-  /**
-   * Whether every Overlay above this node is actually up. A node inside a closed
-   * popover stays `inLayout` — the open flag lives on the overlay, not on the
-   * layout flags — but nothing paints it, so the focus must not rest there.
-   */
-  private onPresentLayer(node: LayoutNode): boolean {
-    for (let current: LayoutNode | null = node; current; current = current.parent) {
-      if (current.ir.type === "Overlay" && !this.layer.includes(current)) return false;
-    }
-    return true;
-  }
-
   private scope(): LayoutNode {
     return focusScope(this.root, this.layer);
   }
@@ -1691,7 +1380,7 @@ class WebView {
     }
     // The keyboard follows the focus: into the hidden field when a TextInput has
     // it, back out to the canvas for everything else.
-    this.focusEditor(node);
+    this.field.focusEditor(node);
   }
 
   /** Moves focus in a direction (unit axis): the console-UI spatial algorithm. */
@@ -1781,12 +1470,12 @@ class WebView {
     if (shortcut) {
       if (event.key === "a" || event.key === "A") {
         event.preventDefault();
-        this.setSelection(node, selectAll(node.text));
+        this.field.setSelection(node, selectAll(node.text));
         return true;
       }
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
-        this.setSelection(
+        this.field.setSelection(
           node,
           moveToEdge(node.text, node.selection, event.key === "ArrowRight", event.shiftKey)
             .selection,
@@ -1808,13 +1497,13 @@ class WebView {
         );
         if (step.atBoundary) return false; // nothing left to walk: navigate out
         event.preventDefault();
-        this.setSelection(node, step.selection);
+        this.field.setSelection(node, step.selection);
         return true;
       }
       case "Home":
       case "End":
         event.preventDefault();
-        this.setSelection(
+        this.field.setSelection(
           node,
           moveToEdge(node.text, node.selection, event.key === "End", event.shiftKey).selection,
         );
@@ -1822,7 +1511,7 @@ class WebView {
       case "Backspace":
       case "Delete":
         event.preventDefault();
-        this.deleteText(node, event.key === "Delete");
+        this.field.deleteText(node, event.key === "Delete");
         return true;
       case "Enter": {
         event.preventDefault();
@@ -1872,498 +1561,113 @@ class WebView {
   // One more source of input over the machinery that already exists: the pad
   // resolves to the intentions the keyboard produces (a direction, a press, a
   // dismiss, a scroll) and feeds them into the very same handlers. `gamepad.ts`
-  // owns the rules; this owns the loop that runs them and where they land.
+  // owns the rules; `input/pad.ts` owns the loop that runs them; this is where
+  // each intention lands.
 
-  /** The pads the browser reports, with the stale entries of an unplugged one dropped. */
-  private pads(): readonly (PadSnapshot | null)[] {
-    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return [];
-    return navigator.getGamepads().map((pad) => (pad?.connected ? pad : null));
-  }
-
-  /** Starts or stops the poll loop to match what is plugged in. */
-  private syncPad(): void {
-    if (activePad(this.pads())) this.startPad();
-    else this.stopPad();
-  }
-
-  /**
-   * The Gamepad API is polled, never pushed: a held button is a state, not an
-   * event, so the only way to read one is a frame. Hence a loop of its own —
-   * separate from `scheduleFrame`, which exists to finish a transition and stops
-   * as soon as one ends. It runs exactly while a pad is connected: a preview with
-   * no pad schedules nothing and costs what it always did.
-   */
-  private startPad(): void {
-    if (this.padPoll !== null || typeof globalThis.requestAnimationFrame !== "function") return;
-    this.padTime = now();
-    const poll = () => {
-      this.padPoll = globalThis.requestAnimationFrame(poll);
-      this.pollPad();
+  private padHost(): PadHost {
+    const view = this;
+    return {
+      get disposed() {
+        return view.disposed;
+      },
+      moveFocus: (dx, dy) => this.moveFocus(dx, dy),
+      pressFocused: (down) => this.pressFocused(down),
+      editArrowKey: (key) => this.editKey(arrowIntent(key)),
+      nudgeFocusedSlider: (dx, dy) => {
+        const focused = this.focusedNode;
+        if (!this.sliderAxisKey(focused, dx)) return false;
+        this.nudgeSlider(focused, dx, dy);
+        return true;
+      },
+      settleSliderKeys: () => {
+        const gesture = this.sliderKeys;
+        if (!gesture) return;
+        this.sliderKeys = null;
+        this.commitSlider(gesture);
+      },
+      cancelFocusedPress: () => {
+        if (!this.focusedNode?.pressed) return;
+        this.focusedNode.pressed = false;
+        this.render();
+      },
+      dismissTopModal: () => {
+        const modal = topModal(this.layer);
+        if (modal) this.overlays.requestDismiss(modal);
+      },
+      scrollFocusedBy: (delta) => {
+        const focused = this.focusedNode;
+        const scroller = focused && inLayout(focused) ? this.scrollerOf(focused) : null;
+        if (!scroller) return;
+        this.setScrollOffset(
+          scroller,
+          scroller.scrollOffset.x + delta.x,
+          scroller.scrollOffset.y + delta.y,
+        );
+      },
     };
-    this.padPoll = globalThis.requestAnimationFrame(poll);
-  }
-
-  private stopPad(): void {
-    if (this.padPoll === null) return;
-    globalThis.cancelAnimationFrame(this.padPoll);
-    this.padPoll = null;
-    // A pad unplugged mid-press CANCELS it, the way a pointer that leaves the
-    // control does: pulling a cable is not how a player buys something.
-    if (this.padPress && this.focusedNode?.pressed) {
-      this.focusedNode.pressed = false;
-      this.render();
-    }
-    // A slider being nudged when the pad went away still settles: `onCommit` is
-    // "the value the player left it at", and that value is on screen.
-    if (this.padRepeat && this.sliderKeys) {
-      const gesture = this.sliderKeys;
-      this.sliderKeys = null;
-      this.commitSlider(gesture);
-    }
-    this.padHeld = null;
-    this.padRepeat = null;
-    this.padPress = false;
-    this.padBack = false;
-  }
-
-  /** One poll: read the pad, then hand each intention to the handler that owns it. */
-  private pollPad(): void {
-    if (this.disposed) return;
-    const time = now();
-    const elapsed = time - this.padTime;
-    this.padTime = time;
-    const pad = activePad(this.pads());
-    if (!pad) return;
-    const intent = readPad(pad, this.padHeld);
-    this.padHeld = intent.direction;
-    this.padDirection(intent, time);
-    this.padButtons(intent);
-    this.padScroll(intent, elapsed);
-  }
-
-  /**
-   * A held direction on the repeat clock. The browser gives the arrow keys their
-   * repeat for free; a pad has to be told, which is the whole of `stepRepeat`.
-   */
-  private padDirection(intent: PadIntent, time: number): void {
-    const step = stepRepeat(this.padRepeat, intent.direction, time);
-    const released = this.padRepeat !== null && step.state === null;
-    this.padRepeat = step.state;
-    // Letting go of the direction ends a Slider gesture, the same commit the
-    // `keyup` of an arrow fires — both ways of moving a slider settle alike.
-    if (released && this.sliderKeys) {
-      const gesture = this.sliderKeys;
-      this.sliderKeys = null;
-      this.commitSlider(gesture);
-    }
-    if (!step.fire || !step.state) return;
-    const [dx, dy] = step.state.direction;
-    // The keyboard's own cascade, in the same order: the focused field's caret
-    // first (it gives the key back at the end of the text, so the player leaves
-    // it with the d-pad instead of being trapped — decision 2026-08-11, ZAB-26),
-    // then a Slider's own axis, and only then the focus itself.
-    if (this.editKey(arrowIntent(arrowKey(step.state.direction)))) return;
-    const focused = this.focusedNode;
-    if (this.sliderAxisKey(focused, dx)) {
-      this.nudgeSlider(focused, dx, dy);
-      return;
-    }
-    this.moveFocus(dx, dy);
-  }
-
-  /** A (press the focused node) and B (back), on their edges — a hold is not a stream. */
-  private padButtons(intent: PadIntent): void {
-    if (intent.press !== this.padPress) {
-      this.padPress = intent.press;
-      this.pressFocused(intent.press);
-    }
-    if (intent.back !== this.padBack) {
-      this.padBack = intent.back;
-      // B is Escape: a dismiss request for the modal that owns input, and
-      // nothing at all when no overlay is up.
-      const modal = intent.back ? topModal(this.layer) : null;
-      if (modal) this.requestDismiss(modal);
-    }
-  }
-
-  /** The right stick scrolls the ScrollView the focus lives in — px per second, not per frame. */
-  private padScroll(intent: PadIntent, elapsed: number): void {
-    if (intent.scroll.x === 0 && intent.scroll.y === 0) return;
-    const focused = this.focusedNode;
-    const scroller = focused && inLayout(focused) ? this.scrollerOf(focused) : null;
-    if (!scroller) return;
-    const delta = scrollDelta(intent.scroll, elapsed);
-    this.setScrollOffset(
-      scroller,
-      scroller.scrollOffset.x + delta.x,
-      scroller.scrollOffset.y + delta.y,
-    );
   }
 
   // --- overlay layer (decision 2026-08-11, ZAB-19) ---
+  // `overlay.ts` owns the pure rules and `overlays/layer.ts` the state that
+  // runs them frame to frame; this is the slice of the view they read.
 
-  /**
-   * Keeps focus inside the layer's rules across relayouts: an opening modal
-   * remembers the focus it interrupts and hands it to its `autofocus`, and a
-   * closing one gives that focus back. Runs on every render — the single funnel
-   * every state change already goes through — so it never misses an overlay
-   * opened by a binding, a reload or the game.
-   */
-  private syncModalFocus(): void {
-    const modals = this.layer.filter(isModal);
-
-    // Gone from the layer (closed or hidden): the OUTERMOST one that left owns
-    // the restore, so closing a whole stack returns to what preceded all of it.
-    let restored: LayoutNode | null = null;
-    for (let i = this.modalStack.length - 1; i >= 0; i--) {
-      if (modals.includes(this.modalStack[i].overlay)) continue;
-      restored = this.modalStack[i].previousFocus;
-      this.modalStack.splice(i, 1);
-    }
-    for (const modal of modals) {
-      if (this.modalStack.some((entry) => entry.overlay === modal)) continue;
-      this.modalStack.push({ overlay: modal, previousFocus: this.focusedNode });
-      restored = null; // opening wins over closing: the new modal owns the focus
-    }
-
-    const scope = this.scope();
-    const current = this.focusedNode;
-    if (current && inLayout(current) && isWithin(current, scope) && this.onPresentLayer(current))
-      return;
-    // Outside the scope (or gone): the restored node if it still qualifies,
-    // otherwise the scope's `autofocus` — and nothing at all if neither does,
-    // rather than leaving a node under the modal wearing the focused state.
-    const candidate =
-      restored && inLayout(restored) && this.isFocusable(restored) && isWithin(restored, scope)
-        ? restored
-        : this.autofocus(scope);
-    this.setFocus(candidate);
+  private overlayHost(): OverlayHost {
+    return {
+      root: () => this.root,
+      layer: () => this.layer,
+      focused: () => this.focusedNode,
+      nodeById: (id) => this.byId.get(id),
+      scope: () => this.scope(),
+      isFocusable: (node) => this.isFocusable(node),
+      autofocus: (scope) => this.autofocus(scope),
+      setFocus: (node) => this.setFocus(node),
+      closeVisible: (overlay) => {
+        const path = this.writePath(overlay, (overlay.ir as AnyNode).visible);
+        if (path !== null) this.writeData(path, false);
+      },
+      dismissed: (overlay, action) => this.onAction?.(action, this.contextOf(overlay)),
+      transitionOf: (node) => this.transitionOf(node),
+      markAnimating: () => {
+        this.animating = true;
+      },
+      radiusOf: (node) => this.radiusOf(node),
+      dim: (value, fallback) => this.dim(value, fallback),
+      render: () => this.render(),
+    };
   }
 
-  /**
-   * A dismiss request — Escape, a tap on the backdrop, an `autoCloseMs` timeout.
-   * Closing is the renderer's default behavior: it writes `false` into the bound
-   * `visible` path (the read/write binding mechanism of decision 2026-08-11,
-   * which also notifies the game) and fires the declared `onDismiss` action.
-   * With a static `visible` there is nothing to write — only the action fires,
-   * and closing is the game's call.
-   */
-  private requestDismiss(overlay: LayoutNode): void {
-    const spec = overlaySpec(overlay);
-    if (spec === null) return;
-    // A popover's open state is the SDK's, so closing it is a flag and NOT a write
-    // into the game's data: `visible` never held it open in the first place.
-    if (isPressTriggered(overlay)) {
-      overlay.popoverOpen = false;
-    } else {
-      const path = this.writePath(overlay, (overlay.ir as AnyNode).visible);
-      if (path !== null) this.writeData(path, false);
-    }
-    if (spec.onDismiss) this.onAction?.(spec.onDismiss, this.contextOf(overlay));
-    this.render();
+  // --- input (pointer → hit test on layout rects, in `input/pointer.ts`) ---
+  // The pointer's listeners and gestures live in `input/pointer.ts`; the
+  // keyboard and the gamepad wire up here, and all three resolve to the same
+  // handlers (focus, press, scroll, slider, caret).
+
+  private pointerHost(): PointerHost {
+    const view = this;
+    return {
+      get canvas() {
+        return view.canvas;
+      },
+      root: () => this.root,
+      layer: () => this.layer,
+      radiusOf: (node) => this.radiusOf(node),
+      isFocusable: (node) => this.isFocusable(node),
+      isCollapseHeader: (node) => isCollapseHeader(node),
+      setFocus: (node) => this.setFocus(node),
+      activate: (node) => this.activate(node),
+      setCollapseOpen: (node, open) => this.setCollapseOpen(node, open),
+      setSliderValue: (node, value) => this.setSliderValue(node, value),
+      valueAtPoint: (node, point) => this.valueAtPoint(node, point),
+      commitSlider: (gesture) => this.commitSlider(gesture),
+      setScrollOffset: (node, x, y) => this.setScrollOffset(node, x, y),
+      addDisposer: (dispose) => {
+        this.disposers.push(dispose);
+      },
+      render: () => this.render(),
+    };
   }
-
-  /**
-   * The layer's enter/exit fade: one presence tween per Overlay of the view,
-   * whether it is up or not — a hidden one has to sit at 0 so that opening it is a
-   * change to animate from, instead of the snap a first observation would give.
-   *
-   * The tween runs on the overlay's OWN `transition`, so this adds no IR surface:
-   * without one, presence jumps and the frame looks exactly like it did before F7.
-   */
-  private syncPresence(now: number): void {
-    this.presence.clear();
-    this.exiting.clear();
-    this.eachOverlay(this.root, (overlay) => {
-      let anim = this.overlayAnim.get(overlay);
-      if (!anim) {
-        anim = createNodeAnim();
-        this.overlayAnim.set(overlay, anim);
-      }
-      const live = this.layer.includes(overlay);
-      const stepped = stepPresence(anim, live, this.transitionOf(overlay), now);
-      if (stepped.animating) this.animating = true;
-      // Recorded even at 0 — the frame an overlay opens on starts there, and a
-      // missing entry would paint it fully opaque for exactly that frame, which
-      // reads as a flash right before the fade in.
-      this.presence.set(overlay, stepped.value);
-      // Out of the live layer but still visible: it paints, and nothing else. It
-      // takes no input, traps no focus and re-arms no timer, because every one of
-      // those reads `this.layer`, which it already left.
-      if (!live && stepped.value > 0) this.exiting.add(overlay);
-    });
-  }
-
-  /** Every Overlay of the tree, hidden ones included — presence is tracked for all. */
-  private eachOverlay(node: LayoutNode, visit: (overlay: LayoutNode) => void): void {
-    if (node.ir.type === "Overlay") visit(node);
-    for (const child of node.children) this.eachOverlay(child, visit);
-  }
-
-  // --- anchoring (decision 2026-08-11, ZAB-46) ---
-
-  /**
-   * The node an overlay is anchored to. An `id` that resolves to nothing is
-   * authoring error, not runtime state: it warns once (repeating it every frame
-   * would bury the console) and the overlay falls back to the layer placement it
-   * still carries, so a typo shows a v1 tooltip instead of nothing at all.
-   */
-  private anchorNode(id: string): LayoutNode | null {
-    const node = this.byId.get(id);
-    if (node) return node;
-    if (!this.warnedAnchors.has(id)) {
-      this.warnedAnchors.add(id);
-      console.warn(`[zabloo] Overlay anchor "${id}" matches no node in this view`);
-    }
-    return null;
-  }
-
-  /**
-   * Whether an anchored overlay may be in the layer this frame — everything else
-   * is unconditionally allowed, so this composes with `inLayout` as the layer's
-   * predicate.
-   *
-   * Two rules, both from the relation: an overlay whose anchor is off screen has
-   * nothing to point at and leaves (fading out like any other close), and a
-   * hover-triggered one is up exactly while its anchor is hovered or focused — the
-   * pointer and the gamepad answer of the same question. `visible` still gates
-   * both, since it gates entry into the layer in the first place.
-   */
-  /**
-   * The layer's predicate: in layout, and — for an anchored overlay — with its
-   * anchor still on screen and, when it rides its hover, under the pointer or the
-   * focus. Everything the layer owns (input, focus, timers, the presence tween's
-   * target) reads it through `this.layer`, so the two capabilities of ZAB-46 need
-   * no wiring of their own anywhere else.
-   */
-  private layerPresent = (node: LayoutNode): boolean => inLayout(node) && this.anchorAllows(node);
-
-  private anchorAllows(node: LayoutNode): boolean {
-    const spec = anchorSpec(node);
-    if (spec === null) return true;
-    const anchor = this.anchorNode(spec.id);
-    if (anchor === null) return true;
-    if (!isOnScreen(anchor, this.radiusOf)) return false;
-    if (spec.trigger === "manual") return true;
-    // Hover lights up exactly the focusable set (decision 2026-08-11, ZAB-36), so
-    // an anchor that takes no input is never hovered NOR focused and the hint
-    // would simply never appear. A popover has the same problem for the same
-    // reason: a node that takes no press can never be pressed to open it.
-    if (!this.isFocusable(anchor) && !this.warnedAnchors.has(spec.id)) {
-      this.warnedAnchors.add(spec.id);
-      console.warn(
-        `[zabloo] Overlay anchor "${spec.id}" is a ${anchor.ir.type}, which takes no ` +
-          `input: a trigger:"${spec.trigger}" overlay anchored to it never shows.`,
-      );
-    }
-    // A popover is up while the SDK's own open flag says so — the one piece of
-    // overlay state that is not `visible` (decision 2026-08-12, ZAB-25).
-    if (spec.trigger === "press") return node.popoverOpen;
-    return anchor.hovered || anchor.focused;
-  }
-
-  // --- popovers (`anchor.trigger: "press"` — decision 2026-08-12, ZAB-25) ---
-
-  /**
-   * The popovers a node anchors, whatever their `visible` says right now: the
-   * press toggles the flag, and the layer predicate decides what that means. Any
-   * number of them, because `anchor.id` is a plain reference and nothing stops two
-   * overlays from hanging off one button.
-   */
-  private popoversOf(anchor: LayoutNode): LayoutNode[] {
-    const id = (anchor.ir as AnyNode).id;
-    if (id === undefined) return [];
-    const found: LayoutNode[] = [];
-    this.eachOverlay(this.root, (overlay) => {
-      const spec = anchorSpec(overlay);
-      if (spec?.trigger === "press" && spec.id === id) found.push(overlay);
-    });
-    return found;
-  }
-
-  /**
-   * Pressing the anchor toggles its popovers — the same press that opens a
-   * dropdown closes it, so a trigger button behaves like one. Returns whether it
-   * had any, so the caller knows the press meant something beyond its action.
-   */
-  private togglePopovers(anchor: LayoutNode): boolean {
-    const popovers = this.popoversOf(anchor);
-    for (const popover of popovers) popover.popoverOpen = !popover.popoverOpen;
-    return popovers.length > 0;
-  }
-
-  /** Closes the popover this node lives in, if any — what a selection inside does. */
-  private closeEnclosingPopover(node: LayoutNode): void {
-    for (let current: LayoutNode | null = node; current; current = current.parent) {
-      if (current.ir.type === "Overlay" && isPressTriggered(current)) {
-        current.popoverOpen = false;
-        return;
-      }
-    }
-  }
-
-  /**
-   * Lays one layer entry out. Unanchored, the entry IS the view: its own flex
-   * places the content anywhere on the layer. Anchored, the content goes where
-   * `anchorBox` puts it around the anchor, while the entry's own rect stays the
-   * view's — that is what keeps a modal popover dimming and capturing the whole
-   * screen while its panel hangs off a button.
-   *
-   * The content is sized from `natural`, so `layout.width`/`height` on an Overlay
-   * stay ignored (a layer is not sized — size the child), and `padding` keeps
-   * meaning "margin from the view's edges": it is taken out of the box and given
-   * back around it, so the same number does the same job anchored or not.
-   */
-  private arrangeOverlay(overlay: LayoutNode, viewRect: Rect): void {
-    const spec = anchorSpec(overlay);
-    const anchor = spec === null ? null : this.anchorNode(spec.id);
-    if (spec === null || anchor === null) {
-      arrange(overlay, viewRect);
-      return;
-    }
-    const padding = overlay.resolved.padding ?? 0;
-    const box = anchorBox(
-      anchor.rect,
-      { x: overlay.natural.x - padding * 2, y: overlay.natural.y - padding * 2 },
-      spec.at,
-      this.dim(spec.offset, ANCHOR_OFFSET),
-      deflate(viewRect, padding),
-    );
-    arrange(overlay, {
-      x: box.x - padding,
-      y: box.y - padding,
-      width: box.width + padding * 2,
-      height: box.height + padding * 2,
-    });
-    overlay.rect = viewRect;
-  }
-
-  /**
-   * Arms `autoCloseMs` while an overlay is in the layer; disarms it when it leaves.
-   * Never for a hover-triggered one: what dismisses that is leaving the anchor, and
-   * a timer would take the hint away from under a pointer still resting on it.
-   */
-  private syncAutoClose(): void {
-    for (const [overlay, timer] of this.autoCloseTimers) {
-      if (this.layer.includes(overlay)) continue;
-      clearTimeout(timer);
-      this.autoCloseTimers.delete(overlay);
-    }
-    for (const overlay of this.layer) {
-      const ms = overlaySpec(overlay)?.autoCloseMs;
-      if (ms === undefined || this.autoCloseTimers.has(overlay)) continue;
-      if (anchorSpec(overlay)?.trigger === "hover") continue;
-      const timer = setTimeout(() => {
-        this.autoCloseTimers.delete(overlay);
-        this.requestDismiss(overlay);
-      }, ms);
-      this.autoCloseTimers.set(overlay, timer);
-    }
-  }
-
-  private clearAutoClose(): void {
-    for (const timer of this.autoCloseTimers.values()) clearTimeout(timer);
-    this.autoCloseTimers.clear();
-  }
-
-  // --- input (pointer → hit test on layout rects) ---
 
   private listen(): void {
-    const down = (event: PointerEvent) => {
-      const point = this.eventPoint(event);
-      const resolved = this.hitTest(point);
-      if (resolved.kind === "backdrop") {
-        // A tap on a modal's backdrop: dismissed on release, like a button click.
-        this.backdropPress = resolved.overlay;
-        this.canvas.setPointerCapture(event.pointerId);
-        return;
-      }
-      const hit = resolved.kind === "node" ? resolved.node : null;
-      // Sliders take the pointer first: the gesture starts on the press (the
-      // thumb jumps to the finger) and the control lives inside scrollable
-      // screens, where the drag must move the value, not the list.
-      const slider = hit && this.findUp(hit, (n) => n.ir.type === "Slider");
-      if (slider) {
-        this.sliderDrag = { node: slider, from: slider.sliderValue };
-        slider.pressed = true;
-        this.setFocus(slider);
-        this.canvas.setPointerCapture(event.pointerId);
-        this.setSliderValue(slider, this.valueAtPoint(slider, point));
-        this.render();
-        return;
-      }
-      // A text field takes the pointer for the same reason a Slider does: the press
-      // places the caret and the drag selects, and neither may become a scroll of
-      // the screen the field sits in.
-      const field = hit && this.findUp(hit, (n) => n.ir.type === "TextInput");
-      if (field) {
-        this.textDrag = field;
-        this.setFocus(field);
-        this.focusEditor(field); // the canvas press blurs the hidden field: take it back
-        this.canvas.setPointerCapture(event.pointerId);
-        this.setSelection(field, caretAt(this.textIndexAt(field, point)));
-        return;
-      }
-      const pressable =
-        hit && this.findUp(hit, (n) => n.ir.type === "Button" || n.ir.type === "Toggle");
-      if (pressable) {
-        pressable.pressed = true;
-        this.pressedNode = pressable;
-        this.setFocus(pressable); // pointer and directional nav share one focus
-        this.canvas.setPointerCapture(event.pointerId);
-        this.render();
-        return;
-      }
-      // Not yet a scroll gesture — held back until the drag threshold clears
-      // it, so a plain tap still reaches the Collapse-toggle handling in `up`.
-      const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
-      if (scrollable) {
-        this.scrollDrag = {
-          node: scrollable,
-          startPoint: point,
-          lastPoint: point,
-          moved: false,
-        };
-        this.canvas.setPointerCapture(event.pointerId);
-      }
-    };
-    const move = (event: PointerEvent) => {
-      // Hover is a MOUSE state: a finger that taps and leaves would otherwise
-      // keep a control lit up with nothing over it.
-      if (event.pointerType === "" || event.pointerType === "mouse") {
-        if (this.setHover(this.hoverableAt(this.eventPoint(event)))) this.render();
-      }
-      const slider = this.sliderDrag;
-      if (slider) {
-        // No drag threshold: a slider follows the finger from the first pixel
-        // (there is no tap-vs-drag ambiguity — the press already set a value).
-        this.setSliderValue(slider.node, this.valueAtPoint(slider.node, this.eventPoint(event)));
-        return;
-      }
-      const field = this.textDrag;
-      if (field) {
-        // The anchor stays where the press landed and the focus follows the
-        // pointer — the same `{anchor, focus}` a shift+arrow moves.
-        this.setSelection(field, {
-          anchor: field.selection.anchor,
-          focus: this.textIndexAt(field, this.eventPoint(event)),
-        });
-        return;
-      }
-      const drag = this.scrollDrag;
-      if (!drag) return;
-      const point = this.eventPoint(event);
-      if (!drag.moved) {
-        const dx = point.x - drag.startPoint.x;
-        const dy = point.y - drag.startPoint.y;
-        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-        drag.moved = true;
-      }
-      const dx = point.x - drag.lastPoint.x;
-      const dy = point.y - drag.lastPoint.y;
-      drag.lastPoint = point;
-      this.setScrollOffset(drag.node, drag.node.scrollOffset.x - dx, drag.node.scrollOffset.y - dy);
-    };
+    this.pointer.listen();
     const keydown = (event: KeyboardEvent) => {
       // A focused text field owns the keys that edit it; everything it does not
       // claim (the cross-axis arrows, Escape) falls through to the usual handling.
@@ -2388,7 +1692,7 @@ class WebView {
         const modal = topModal(this.layer);
         if (modal) {
           event.preventDefault();
-          this.requestDismiss(modal);
+          this.overlays.requestDismiss(modal);
         }
       }
     };
@@ -2402,148 +1706,26 @@ class WebView {
         this.commitSlider(gesture);
       }
     };
-    const up = (event: PointerEvent) => {
-      const point = this.eventPoint(event);
-      if (this.textDrag) {
-        this.textDrag = null;
-        return;
-      }
-      const slider = this.sliderDrag;
-      if (slider) {
-        this.sliderDrag = null;
-        slider.node.pressed = false;
-        this.render();
-        this.commitSlider(slider);
-        return;
-      }
-      const pressed = this.pressedNode;
-      if (pressed) {
-        pressed.pressed = false;
-        this.pressedNode = null;
-        this.render();
-        // Released over the control it pressed — and still inside the clip, so
-        // scrolling the button out from under the finger cancels the tap.
-        if (this.reachableAt(pressed, point)) this.activate(pressed);
-        return;
-      }
-      const backdrop = this.backdropPress;
-      this.backdropPress = null;
-      if (backdrop) {
-        const resolved = this.hitTest(point);
-        if (resolved.kind === "backdrop" && resolved.overlay === backdrop) {
-          this.requestDismiss(backdrop);
-        }
-        return;
-      }
-      const drag = this.scrollDrag;
-      this.scrollDrag = null;
-      if (drag?.moved) return; // a scroll gesture, not a tap
-      // Collapse header toggle (the <details>/<summary> model).
-      const resolved = this.hitTest(point);
-      const hit = resolved.kind === "node" ? resolved.node : null;
-      const header = hit && this.findUp(hit, isCollapseHeader);
-      if (header?.parent) this.setCollapseOpen(header.parent, !header.parent.open);
-    };
-    const wheel = (event: WheelEvent) => {
-      const resolved = this.hitTest(this.eventPoint(event));
-      if (resolved.kind === "backdrop") {
-        event.preventDefault(); // the modal captures the wheel: nothing below scrolls
-        return;
-      }
-      const hit = resolved.kind === "node" ? resolved.node : null;
-      const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
-      if (!scrollable) return;
-      event.preventDefault();
-      this.setScrollOffset(
-        scrollable,
-        scrollable.scrollOffset.x + event.deltaX,
-        scrollable.scrollOffset.y + event.deltaY,
-      );
-    };
-    const leave = () => {
-      if (this.setHover(null)) this.render();
-    };
     const resize = () => this.resize();
     // Connect/disconnect is all the Gamepad API pushes — the buttons are polled.
     // A pad that was already announced before this view mounted is picked up by
     // the same call, which is why it also runs once here.
-    const padChanged = () => this.syncPad();
-    this.syncPad();
+    const padChanged = () => this.pad.sync();
+    this.pad.sync();
 
-    this.canvas.addEventListener("pointerdown", down);
-    this.canvas.addEventListener("pointermove", move);
-    this.canvas.addEventListener("pointerup", up);
-    this.canvas.addEventListener("pointerleave", leave);
-    this.canvas.addEventListener("wheel", wheel, { passive: false });
     globalThis.addEventListener("keydown", keydown);
     globalThis.addEventListener("keyup", keyup);
     globalThis.addEventListener("resize", resize);
     globalThis.addEventListener("gamepadconnected", padChanged);
     globalThis.addEventListener("gamepaddisconnected", padChanged);
     this.disposers.push(() => {
-      this.canvas.removeEventListener("pointerdown", down);
-      this.canvas.removeEventListener("pointermove", move);
-      this.canvas.removeEventListener("pointerup", up);
-      this.canvas.removeEventListener("pointerleave", leave);
-      this.canvas.removeEventListener("wheel", wheel);
       globalThis.removeEventListener("keydown", keydown);
       globalThis.removeEventListener("keyup", keyup);
       globalThis.removeEventListener("resize", resize);
       globalThis.removeEventListener("gamepadconnected", padChanged);
       globalThis.removeEventListener("gamepaddisconnected", padChanged);
-      this.stopPad();
+      this.pad.stop();
     });
-  }
-
-  private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
-    const bounds = this.canvas.getBoundingClientRect();
-    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
-  }
-
-  /** The overlay layer first (top-down, a modal captures), then the tree — clipped subtrees excluded. */
-  private hitTest(point: Point) {
-    return resolveHit(this.root, this.layer, point, this.radiusOf);
-  }
-
-  /**
-   * The control the pointer is over, if any. Hoverable is the same set as
-   * focusable — what takes input is what may look different under the pointer —
-   * so hover and directional navigation light up exactly the same nodes, and a
-   * modal's backdrop (which captures input) lights up nothing below it.
-   */
-  private hoverableAt(point: Point): LayoutNode | null {
-    const resolved = this.hitTest(point);
-    if (resolved.kind !== "node") return null;
-    return this.findUp(resolved.node, (node) => this.isFocusable(node));
-  }
-
-  /** Moves the hover, returning whether anything changed (the caller repaints). */
-  private setHover(node: LayoutNode | null): boolean {
-    if (this.hoveredNode === node) return false;
-    if (this.hoveredNode) this.hoveredNode.hovered = false;
-    this.hoveredNode = node;
-    if (node) node.hovered = true;
-    return true;
-  }
-
-  /** Is this node's own rect reachable at that point, given its ancestors' clips? */
-  private reachableAt(node: LayoutNode, point: Point): boolean {
-    return contains(node.rect, point) && clipContains(effectiveClip(node, this.radiusOf), point);
-  }
-
-  /**
-   * Nearest ancestor matching `predicate`, stopping at an `Overlay`: a layer
-   * entry is the top of its own input scope, so a gesture inside a modal never
-   * reaches the ScrollView or Collapse it happens to be declared inside.
-   */
-  private findUp(node: LayoutNode, predicate: (n: LayoutNode) => boolean): LayoutNode | null {
-    let current: LayoutNode | null = node;
-    while (current) {
-      if (current.ir.type === "Overlay") return null;
-      if (predicate(current)) return current;
-      current = current.parent;
-    }
-    return null;
   }
 
   // --- tokens / style resolution ---
@@ -2640,7 +1822,7 @@ class WebView {
    * rects never feed back into their own input (decision 2026-08-11 §4).
    */
   private resolve(node: LayoutNode, now: number): void {
-    if (!inLayout(node) && !this.exiting.has(node)) {
+    if (!inLayout(node) && !this.overlays.isExiting(node)) {
       // Out of layout: nothing to paint, and no honest previous value for the day
       // it comes back — dropping the state makes that return snap, like a mount.
       // An overlay mid-exit is the exception: it is still on screen this frame.
@@ -2698,7 +1880,7 @@ class WebView {
     transition: ResolvedTransition | null,
     now: number,
   ): void {
-    const gesturing = this.sliderDrag?.node === node || this.sliderKeys?.node === node;
+    const gesturing = this.pointer.isSliderDragging(node) || this.sliderKeys?.node === node;
     const stepped = stepValue(
       node.anim,
       "value",
@@ -2922,12 +2104,12 @@ class WebView {
     // frame's resolve pass — otherwise `states.focused` would land one frame late.
     // An anchored entry is the one thing here that reads rects, and it reads the
     // ones already laid out (see `isOnScreen`).
-    this.layer = collectLayer(this.root, this.layerPresent);
-    this.syncModalFocus();
-    this.syncAutoClose();
+    this.layer = collectLayer(this.root, this.overlays.layerPresent);
+    this.overlays.syncModalFocus();
+    this.overlays.syncAutoClose();
     // A control that left layout under the pointer (a tab panel switching, a
     // Collapse closing) must not keep wearing the hover state on its way back.
-    if (this.hoveredNode && !inLayout(this.hoveredNode)) this.setHover(null);
+    this.pointer.pruneHover();
 
     // The resolve pass walks the whole tree, overlay subtrees included: a node in
     // the layer tweens like any other, it just gets laid out and painted apart.
@@ -2935,7 +2117,7 @@ class WebView {
     const frameTime = now();
     // Before resolve: a closing overlay is still painted for one transition, and
     // that is what keeps the resolve pass from dropping its subtree mid-fade.
-    this.syncPresence(frameTime);
+    this.overlays.syncPresence(frameTime);
     this.resolve(this.root, frameTime);
 
     // The view's own width is the offer the constraint chain starts from — that is
@@ -2947,27 +2129,29 @@ class WebView {
     // The painted layer is the live one plus whatever is still fading out, in the
     // same `(z, document order)` — a closing modal keeps its place under the toast
     // that was above it.
-    const paintLayer =
-      this.exiting.size === 0
-        ? this.layer
-        : collectLayer(this.root, (node) => this.layerPresent(node) || this.exiting.has(node));
+    const paintLayer = !this.overlays.anyExiting()
+      ? this.layer
+      : collectLayer(
+          this.root,
+          (node) => this.overlays.layerPresent(node) || this.overlays.isExiting(node),
+        );
     this.paintLayer = paintLayer;
     for (const overlay of paintLayer) {
       measure(overlay, this.measureLeaf, width);
-      this.arrangeOverlay(overlay, viewRect);
+      this.overlays.arrangeOverlay(overlay, viewRect);
     }
     // After arrange, where the boxes are final: a popover that just opened scrolls
     // its list to the option it focused. It only ever writes scroll offsets, so
     // re-running arrange settles it — and arrange is the only pass an offset feeds.
     if (this.revealOpenedPopover()) {
       arrange(this.root, viewRect);
-      for (const overlay of paintLayer) this.arrangeOverlay(overlay, viewRect);
+      for (const overlay of paintLayer) this.overlays.arrangeOverlay(overlay, viewRect);
     }
     // After arrange, where the boxes are final: each field slides its content just
     // enough to keep its caret inside. It reads rects and writes only its own
     // scroll, so it never feeds back into the layout it just ran.
     this.eachTextInput(this.root, (field) => {
-      if (inLayout(field)) this.syncTextScroll(field);
+      if (inLayout(field)) this.field.syncTextScroll(field);
     });
 
     const geometry = new GeometryBuilder(globalThis.devicePixelRatio ?? 1);
@@ -2980,7 +2164,7 @@ class WebView {
       // would put the tree's glyphs over this panel, since a group draws all its
       // solids before all its text.
       geometry.startRoot();
-      this.paint(overlay, geometry, this.presence.get(overlay) ?? 1);
+      this.paint(overlay, geometry, this.overlays.presenceOf(overlay));
     }
     this.gl.draw(geometry.batches(), width, height, this.clearColor);
 
@@ -3002,7 +2186,7 @@ class WebView {
     parentOpacity = 1,
     clip: Clip | null = null,
   ): void {
-    if (!inLayout(node) && !this.exiting.has(node)) return;
+    if (!inLayout(node) && !this.overlays.isExiting(node)) return;
     const values = node.resolved;
 
     // Opacity inherits multiplicatively down the subtree (per-vertex alpha;
@@ -3102,11 +2286,11 @@ class WebView {
       root: this.root,
       layer: this.paintLayer.map((overlay) => ({
         node: overlay,
-        presence: this.presence.get(overlay) ?? 1,
+        presence: this.overlays.presenceOf(overlay),
       })),
       focused: this.focusedNode,
-      hovered: this.hoveredNode,
-      pressed: this.pressedNode,
+      hovered: this.pointer.hovered(),
+      pressed: this.pointer.pressed(),
       radiusOf: this.radiusOf,
       textOf: (node) => {
         const placed = this.placeText(node);
@@ -3253,25 +2437,8 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
   ArrowRight: [1, 0],
 };
 
-/** `KEY_DIRECTIONS` the other way round: the arrow a gamepad direction stands in for. */
-function arrowKey([dx, dy]: Direction): string {
-  if (dx !== 0) return dx > 0 ? "ArrowRight" : "ArrowLeft";
-  return dy > 0 ? "ArrowDown" : "ArrowUp";
-}
-
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-}
-
-/** A rect's content box: the same inset the measure pass reserved for `padding`. */
-function deflate(rect: Rect, padding: number): Rect {
-  if (padding <= 0) return rect;
-  return {
-    x: rect.x + padding,
-    y: rect.y + padding,
-    width: Math.max(0, rect.width - padding * 2),
-    height: Math.max(0, rect.height - padding * 2),
-  };
 }
 
 function bindPath(value: unknown): string | null {
