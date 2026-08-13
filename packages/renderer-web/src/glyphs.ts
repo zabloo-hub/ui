@@ -33,21 +33,25 @@ export interface GlyphInfo {
   hasQuad: boolean;
 }
 
-const ATLAS_SIZE = 1024;
+const INITIAL_ATLAS_SIZE = 1024;
+/**
+ * Where growth stops (device px per side). Past this the atlas caches misses as
+ * blank — the pre-ZAB-55 behavior, now 16× the area away instead of the floor.
+ */
+const MAX_ATLAS_SIZE = 4096;
 const PADDING = 2;
 
 /** Arial ≈ Unity's LegacyRuntime metrics, and what the shipped TTF matches. */
 const FALLBACK_FONT_FAMILY = "Arial, Helvetica, sans-serif";
 
 export class GlyphAtlas {
-  readonly canvas: HTMLCanvasElement | OffscreenCanvas;
   readonly lineHeight: number;
   readonly ascent: number;
-  /** UV of the reserved white pixel (center of a 4×4 white block). */
-  readonly whiteU: number;
-  readonly whiteV: number;
 
-  private readonly ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  private _canvas: HTMLCanvasElement | OffscreenCanvas;
+  private ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+  /** Current side in device px — doubles as the atlas fills (see `grow`). */
+  private size = INITIAL_ATLAS_SIZE;
   private readonly glyphs = new Map<string, GlyphInfo>();
   private readonly scale: number; // rasterization scale (devicePixelRatio)
   /** Rasterization size in device px — what the font is asked to scale to. */
@@ -56,15 +60,30 @@ export class GlyphAtlas {
   private penY = PADDING;
   private rowHeight = 0;
   private _version = 0;
+  /** The full-at-max warning fires once per atlas, not once per glyph. */
+  private warnedFull = false;
 
   /** Bumped every time the atlas bitmap changes (the GL layer re-uploads). */
   get version(): number {
     return this._version;
   }
 
+  get canvas(): HTMLCanvasElement | OffscreenCanvas {
+    return this._canvas;
+  }
+
   /** The `TextureSource` side of the atlas — what the GL layer uploads. */
   get bitmap(): TexImageSource {
-    return this.canvas;
+    return this._canvas;
+  }
+
+  /** UV of the reserved white pixel (center of a 4×4 white block). */
+  get whiteU(): number {
+    return 2 / this.size;
+  }
+
+  get whiteV(): number {
+    return 2 / this.size;
   }
 
   constructor(
@@ -75,17 +94,8 @@ export class GlyphAtlas {
   ) {
     this.scale = Math.max(1, scale);
     this.devicePointSize = pointSize * this.scale;
-    this.canvas = createCanvas(ATLAS_SIZE, ATLAS_SIZE);
-    const ctx = this.canvas.getContext("2d") as CanvasRenderingContext2D;
-    ctx.fillStyle = "#ffffff";
-    ctx.textBaseline = "alphabetic";
-    this.ctx = ctx;
-
-    // White block for solid geometry.
-    ctx.fillRect(0, 0, 4, 4);
-    this.whiteU = 2 / ATLAS_SIZE;
-    this.whiteV = 2 / ATLAS_SIZE;
-    this.penX = 8;
+    this._canvas = createCanvas(this.size, this.size);
+    this.ctx = this.prepare(this._canvas);
 
     // Font-wide metrics at the logical point size.
     if (font) {
@@ -93,14 +103,29 @@ export class GlyphAtlas {
       this.ascent = metrics.ascent / this.scale;
       this.lineHeight = metrics.lineHeight / this.scale;
     } else {
-      ctx.font = this.cssFont();
-      const m = ctx.measureText("Mg");
+      this.ctx.font = this.cssFont();
+      const m = this.ctx.measureText("Mg");
       const fontAscent = m.fontBoundingBoxAscent ?? pointSize * this.scale * 0.8;
       const fontDescent = m.fontBoundingBoxDescent ?? pointSize * this.scale * 0.25;
       this.ascent = fontAscent / this.scale;
       this.lineHeight = (fontAscent + fontDescent) / this.scale;
     }
     this._version++;
+  }
+
+  /** Fresh drawing surface: context state, the white block, the pens after it. */
+  private prepare(
+    canvas: HTMLCanvasElement | OffscreenCanvas,
+  ): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D {
+    const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "alphabetic";
+    // White block for solid geometry.
+    ctx.fillRect(0, 0, 4, 4);
+    this.penX = 8;
+    this.penY = PADDING;
+    this.rowHeight = 0;
+    return ctx;
   }
 
   private cssFont(): string {
@@ -168,10 +193,10 @@ export class GlyphAtlas {
       maxX: bitmap.x1 / this.scale,
       maxY: -bitmap.y0 / this.scale,
       minY: -bitmap.y1 / this.scale,
-      u0: spot.x / ATLAS_SIZE,
-      v0: spot.y / ATLAS_SIZE,
-      u1: (spot.x + bitmap.width) / ATLAS_SIZE,
-      v1: (spot.y + bitmap.height) / ATLAS_SIZE,
+      u0: spot.x / this.size,
+      v0: spot.y / this.size,
+      u1: (spot.x + bitmap.width) / this.size,
+      v1: (spot.y + bitmap.height) / this.size,
       hasQuad: true,
     };
   }
@@ -205,29 +230,59 @@ export class GlyphAtlas {
       maxX: right / this.scale,
       maxY: up / this.scale,
       minY: -down / this.scale,
-      u0: spot.x / ATLAS_SIZE,
-      v0: spot.y / ATLAS_SIZE,
-      u1: (spot.x + w) / ATLAS_SIZE,
-      v1: (spot.y + h) / ATLAS_SIZE,
+      u0: spot.x / this.size,
+      v0: spot.y / this.size,
+      u1: (spot.x + w) / this.size,
+      v1: (spot.y + h) / this.size,
       hasQuad: true,
     };
   }
 
-  /** Shelf packing. Null when the atlas has no room left for this glyph. */
+  /**
+   * Shelf packing. A full atlas GROWS (ZAB-55) — the pre-growth behavior cached
+   * the glyph as blank forever — and only at `MAX_ATLAS_SIZE` does it give up:
+   * null then, and the caller caches the blank.
+   */
   private reserve(w: number, h: number, char: string): { x: number; y: number } | null {
-    if (this.penX + w + PADDING > ATLAS_SIZE) {
+    if (this.penX + w + PADDING > this.size) {
       this.penX = PADDING;
       this.penY += this.rowHeight + PADDING;
       this.rowHeight = 0;
     }
-    if (this.penY + h + PADDING > ATLAS_SIZE) {
-      console.warn(`[zabloo] Glyph atlas (${this.pointSize}px) is full — glyph "${char}" skipped.`);
-      return null;
+    while (this.penY + h + PADDING > this.size) {
+      if (!this.grow()) {
+        if (!this.warnedFull) {
+          this.warnedFull = true;
+          console.warn(
+            `[zabloo] Glyph atlas (${this.pointSize}px) is full at ${this.size}px — glyph "${char}" and later ones skipped.`,
+          );
+        }
+        return null;
+      }
     }
     const spot = { x: this.penX, y: this.penY };
     this.penX += w + PADDING;
     this.rowHeight = Math.max(this.rowHeight, h);
     return spot;
+  }
+
+  /**
+   * Doubles the surface and re-rasterizes everything cached so far through the
+   * normal path — same mechanics as `FontLibrary.adopt`, but in place: the atlas
+   * keeps its identity, so the GL layer just re-uploads on the version bump and
+   * every glyph already handed out is re-created before the caller's own lands.
+   * Blanks that were only blank for lack of room become real glyphs here.
+   */
+  private grow(): boolean {
+    if (this.size >= MAX_ATLAS_SIZE) return false;
+    this.size *= 2;
+    this._canvas = createCanvas(this.size, this.size);
+    this.ctx = this.prepare(this._canvas);
+    const cached = [...this.glyphs.keys()];
+    this.glyphs.clear();
+    for (const char of cached) this.get(char);
+    this._version++;
+    return true;
   }
 }
 
@@ -255,6 +310,15 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
   return canvas;
 }
 
+/**
+ * Live atlases the library keeps, LRU (ZAB-55). Each one is a canvas plus a GPU
+ * texture, so an unbounded map — an animated `fontSize`, a token per size —
+ * would grow a 1024²+ surface per distinct size and never let go. Eight covers
+ * a real UI's type scale; a scene cycling through more thrashes gracefully
+ * (evict + re-rasterize) instead of exhausting memory.
+ */
+const MAX_ATLASES = 8;
+
 /** One atlas per requested point size (same shape as the SDK's FontLibrary). */
 export class FontLibrary {
   private readonly atlases = new Map<number, GlyphAtlas>();
@@ -262,13 +326,24 @@ export class FontLibrary {
   constructor(
     private readonly scale: number,
     private font: StbFont | null = null,
+    /** Fires with each atlas the LRU drops, so the caller frees its GPU texture. */
+    private readonly onEvict?: (atlas: GlyphAtlas) => void,
   ) {}
 
   get(pointSize: number): GlyphAtlas {
     let atlas = this.atlases.get(pointSize);
-    if (!atlas) {
-      atlas = new GlyphAtlas(pointSize, this.scale, this.font);
+    if (atlas) {
+      // Map order is the recency order: re-inserting marks it just used.
+      this.atlases.delete(pointSize);
       this.atlases.set(pointSize, atlas);
+      return atlas;
+    }
+    atlas = new GlyphAtlas(pointSize, this.scale, this.font);
+    this.atlases.set(pointSize, atlas);
+    if (this.atlases.size > MAX_ATLASES) {
+      const [oldestSize, oldest] = this.atlases.entries().next().value as [number, GlyphAtlas];
+      this.atlases.delete(oldestSize);
+      this.onEvict?.(oldest);
     }
     return atlas;
   }

@@ -486,7 +486,11 @@ class WebView {
     this.onDataChanged = options.onDataChanged;
     this.clearColor = parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
     this.gl = new GLRenderer(canvas);
-    this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1);
+    // The LRU eviction releases the dropped atlas's GPU texture (ZAB-55) — the
+    // same contract `adopt` already has for the fallback-era atlases.
+    this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1, null, (atlas) =>
+      this.gl.evict(atlas),
+    );
     this.images = new ImageLibrary(envelope.assets ?? {}, {
       // Decoding is async: repaint when a bitmap lands.
       onReady: () => this.render(),
