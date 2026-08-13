@@ -44,20 +44,11 @@ import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
 import { closedHeight, collapseTarget } from "./collapse.js";
 import { affects, DataStore } from "./data.js";
 import { loadEnvelope } from "./envelope.js";
-import {
-  activePad,
-  type Direction,
-  type PadIntent,
-  type RepeatState as PadRepeat,
-  type PadSnapshot,
-  readPad,
-  scrollDelta,
-  stepRepeat,
-} from "./gamepad.js";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { GLRenderer } from "./gl.js";
 import { FontLibrary, type GlyphAtlas } from "./glyphs.js";
 import { childClip, effectiveClip } from "./hit.js";
+import { PadController, type PadHost } from "./input/pad.js";
 import {
   arrange,
   contains,
@@ -419,19 +410,8 @@ class WebView {
   private backdropPress: LayoutNode | null = null;
   /** Pending self-scheduled frame, while a transition is in flight. */
   private frame: number | null = null;
-  /**
-   * The gamepad's own frame loop (ZAB-47). The Gamepad API is polled, never
-   * pushed, and the view otherwise paints on change only — so a pad needs a loop
-   * of its own, alive exactly while one is connected.
-   */
-  private padPoll: number | null = null;
-  /** The pad's state on the previous poll: what turns a held button into an edge. */
-  private padHeld: Direction | null = null;
-  private padRepeat: PadRepeat | null = null;
-  private padPress = false;
-  private padBack = false;
-  /** When the previous poll ran — the scroll stick moves px per SECOND, not per frame. */
-  private padTime = 0;
+  /** The gamepad's poll loop and edge state (ZAB-47) — wiring in `input/pad.ts`. */
+  private readonly pad = new PadController(this.padHost());
   /** Set by the resolve pass when any node still has a tween running. */
   private animating = false;
   /** Our TTF rasterizer, once its WASM has loaded (see `loadRasterizer`). */
@@ -1855,132 +1835,50 @@ class WebView {
   // One more source of input over the machinery that already exists: the pad
   // resolves to the intentions the keyboard produces (a direction, a press, a
   // dismiss, a scroll) and feeds them into the very same handlers. `gamepad.ts`
-  // owns the rules; this owns the loop that runs them and where they land.
+  // owns the rules; `input/pad.ts` owns the loop that runs them; this is where
+  // each intention lands.
 
-  /** The pads the browser reports, with the stale entries of an unplugged one dropped. */
-  private pads(): readonly (PadSnapshot | null)[] {
-    if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") return [];
-    return navigator.getGamepads().map((pad) => (pad?.connected ? pad : null));
-  }
-
-  /** Starts or stops the poll loop to match what is plugged in. */
-  private syncPad(): void {
-    if (activePad(this.pads())) this.startPad();
-    else this.stopPad();
-  }
-
-  /**
-   * The Gamepad API is polled, never pushed: a held button is a state, not an
-   * event, so the only way to read one is a frame. Hence a loop of its own —
-   * separate from `scheduleFrame`, which exists to finish a transition and stops
-   * as soon as one ends. It runs exactly while a pad is connected: a preview with
-   * no pad schedules nothing and costs what it always did.
-   */
-  private startPad(): void {
-    if (this.padPoll !== null || typeof globalThis.requestAnimationFrame !== "function") return;
-    this.padTime = now();
-    const poll = () => {
-      this.padPoll = globalThis.requestAnimationFrame(poll);
-      this.pollPad();
+  private padHost(): PadHost {
+    const view = this;
+    return {
+      get disposed() {
+        return view.disposed;
+      },
+      moveFocus: (dx, dy) => this.moveFocus(dx, dy),
+      pressFocused: (down) => this.pressFocused(down),
+      editArrowKey: (key) => this.editKey(arrowIntent(key)),
+      nudgeFocusedSlider: (dx, dy) => {
+        const focused = this.focusedNode;
+        if (!this.sliderAxisKey(focused, dx)) return false;
+        this.nudgeSlider(focused, dx, dy);
+        return true;
+      },
+      settleSliderKeys: () => {
+        const gesture = this.sliderKeys;
+        if (!gesture) return;
+        this.sliderKeys = null;
+        this.commitSlider(gesture);
+      },
+      cancelFocusedPress: () => {
+        if (!this.focusedNode?.pressed) return;
+        this.focusedNode.pressed = false;
+        this.render();
+      },
+      dismissTopModal: () => {
+        const modal = topModal(this.layer);
+        if (modal) this.requestDismiss(modal);
+      },
+      scrollFocusedBy: (delta) => {
+        const focused = this.focusedNode;
+        const scroller = focused && inLayout(focused) ? this.scrollerOf(focused) : null;
+        if (!scroller) return;
+        this.setScrollOffset(
+          scroller,
+          scroller.scrollOffset.x + delta.x,
+          scroller.scrollOffset.y + delta.y,
+        );
+      },
     };
-    this.padPoll = globalThis.requestAnimationFrame(poll);
-  }
-
-  private stopPad(): void {
-    if (this.padPoll === null) return;
-    globalThis.cancelAnimationFrame(this.padPoll);
-    this.padPoll = null;
-    // A pad unplugged mid-press CANCELS it, the way a pointer that leaves the
-    // control does: pulling a cable is not how a player buys something.
-    if (this.padPress && this.focusedNode?.pressed) {
-      this.focusedNode.pressed = false;
-      this.render();
-    }
-    // A slider being nudged when the pad went away still settles: `onCommit` is
-    // "the value the player left it at", and that value is on screen.
-    if (this.padRepeat && this.sliderKeys) {
-      const gesture = this.sliderKeys;
-      this.sliderKeys = null;
-      this.commitSlider(gesture);
-    }
-    this.padHeld = null;
-    this.padRepeat = null;
-    this.padPress = false;
-    this.padBack = false;
-  }
-
-  /** One poll: read the pad, then hand each intention to the handler that owns it. */
-  private pollPad(): void {
-    if (this.disposed) return;
-    const time = now();
-    const elapsed = time - this.padTime;
-    this.padTime = time;
-    const pad = activePad(this.pads());
-    if (!pad) return;
-    const intent = readPad(pad, this.padHeld);
-    this.padHeld = intent.direction;
-    this.padDirection(intent, time);
-    this.padButtons(intent);
-    this.padScroll(intent, elapsed);
-  }
-
-  /**
-   * A held direction on the repeat clock. The browser gives the arrow keys their
-   * repeat for free; a pad has to be told, which is the whole of `stepRepeat`.
-   */
-  private padDirection(intent: PadIntent, time: number): void {
-    const step = stepRepeat(this.padRepeat, intent.direction, time);
-    const released = this.padRepeat !== null && step.state === null;
-    this.padRepeat = step.state;
-    // Letting go of the direction ends a Slider gesture, the same commit the
-    // `keyup` of an arrow fires — both ways of moving a slider settle alike.
-    if (released && this.sliderKeys) {
-      const gesture = this.sliderKeys;
-      this.sliderKeys = null;
-      this.commitSlider(gesture);
-    }
-    if (!step.fire || !step.state) return;
-    const [dx, dy] = step.state.direction;
-    // The keyboard's own cascade, in the same order: the focused field's caret
-    // first (it gives the key back at the end of the text, so the player leaves
-    // it with the d-pad instead of being trapped — decision 2026-08-11, ZAB-26),
-    // then a Slider's own axis, and only then the focus itself.
-    if (this.editKey(arrowIntent(arrowKey(step.state.direction)))) return;
-    const focused = this.focusedNode;
-    if (this.sliderAxisKey(focused, dx)) {
-      this.nudgeSlider(focused, dx, dy);
-      return;
-    }
-    this.moveFocus(dx, dy);
-  }
-
-  /** A (press the focused node) and B (back), on their edges — a hold is not a stream. */
-  private padButtons(intent: PadIntent): void {
-    if (intent.press !== this.padPress) {
-      this.padPress = intent.press;
-      this.pressFocused(intent.press);
-    }
-    if (intent.back !== this.padBack) {
-      this.padBack = intent.back;
-      // B is Escape: a dismiss request for the modal that owns input, and
-      // nothing at all when no overlay is up.
-      const modal = intent.back ? topModal(this.layer) : null;
-      if (modal) this.requestDismiss(modal);
-    }
-  }
-
-  /** The right stick scrolls the ScrollView the focus lives in — px per second, not per frame. */
-  private padScroll(intent: PadIntent, elapsed: number): void {
-    if (intent.scroll.x === 0 && intent.scroll.y === 0) return;
-    const focused = this.focusedNode;
-    const scroller = focused && inLayout(focused) ? this.scrollerOf(focused) : null;
-    if (!scroller) return;
-    const delta = scrollDelta(intent.scroll, elapsed);
-    this.setScrollOffset(
-      scroller,
-      scroller.scrollOffset.x + delta.x,
-      scroller.scrollOffset.y + delta.y,
-    );
   }
 
   // --- overlay layer (decision 2026-08-11, ZAB-19) ---
@@ -2449,8 +2347,8 @@ class WebView {
     // Connect/disconnect is all the Gamepad API pushes — the buttons are polled.
     // A pad that was already announced before this view mounted is picked up by
     // the same call, which is why it also runs once here.
-    const padChanged = () => this.syncPad();
-    this.syncPad();
+    const padChanged = () => this.pad.sync();
+    this.pad.sync();
 
     this.canvas.addEventListener("pointerdown", down);
     this.canvas.addEventListener("pointermove", move);
@@ -2473,7 +2371,7 @@ class WebView {
       globalThis.removeEventListener("resize", resize);
       globalThis.removeEventListener("gamepadconnected", padChanged);
       globalThis.removeEventListener("gamepaddisconnected", padChanged);
-      this.stopPad();
+      this.pad.stop();
     });
   }
 
@@ -3234,12 +3132,6 @@ const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
   ArrowLeft: [-1, 0],
   ArrowRight: [1, 0],
 };
-
-/** `KEY_DIRECTIONS` the other way round: the arrow a gamepad direction stands in for. */
-function arrowKey([dx, dy]: Direction): string {
-  if (dx !== 0) return dx > 0 ? "ArrowRight" : "ArrowLeft";
-  return dy > 0 ? "ArrowDown" : "ArrowUp";
-}
 
 function center(rect: Rect): { x: number; y: number } {
   return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
