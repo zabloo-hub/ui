@@ -9,6 +9,7 @@ const IDLE: NodeStates = {
   selected: false,
   checked: false,
   empty: false,
+  disabled: false,
 };
 
 /** One override per state, each tagged so the winner is identifiable. */
@@ -19,6 +20,7 @@ const OVERRIDES: Partial<Record<StateName, StateOverride>> = {
   hover: { style: { background: "#hover" } },
   focused: { style: { background: "#focused" } },
   pressed: { style: { background: "#pressed" } },
+  disabled: { style: { background: "#disabled" } },
 };
 
 describe("effectiveStyle", () => {
@@ -59,6 +61,7 @@ describe("effectiveStyle", () => {
       selected: true,
       checked: true,
       empty: true,
+      disabled: false,
     };
     expect(effectiveStyle(undefined, OVERRIDES, active)?.background).toBe("#pressed");
   });
@@ -83,23 +86,40 @@ describe("effectiveStyle", () => {
     expect(style).toEqual({ background: "#base" });
   });
 
-  it("ignores a state the IR declares but the renderer has no runtime state for", () => {
-    // `disabled` is in the IR's state set and nothing switches it on yet: it must
-    // never match, rather than matching some other flag by accident.
+  it("ignores a state name the renderer has no runtime flag for", () => {
+    // Forward tolerance: a state this build never activates is one it must not
+    // match by accident against some other flag.
     const style = effectiveStyle(
       undefined,
-      { disabled: { style: { opacity: 0.4 } } },
-      {
-        ...IDLE,
-        pressed: true,
-        hovered: true,
-        focused: true,
-      },
+      { future: { style: { opacity: 0.4 } } } as Partial<Record<StateName, StateOverride>>,
+      { ...IDLE, pressed: true, hovered: true, focused: true },
     );
     expect(style).toBeUndefined();
   });
 
+  it("gives disabled the last word over the value the control holds", () => {
+    // A disabled Toggle is still checked and a disabled field still empty, so the
+    // one thing `disabled` must outrank is what the control IS (ZAB-63).
+    const active = { ...IDLE, disabled: true, checked: true, selected: true, empty: true };
+    expect(effectiveStyle(undefined, OVERRIDES, active)?.background).toBe("#disabled");
+  });
+
+  it("dresses a node that carries no other state — an inherited disabled", () => {
+    // The label of a disabled section: not focusable, so `disabled` is the only
+    // state it can ever be in.
+    const style = effectiveStyle({ color: "#base" }, OVERRIDES, { ...IDLE, disabled: true });
+    expect(style).toEqual({ color: "#base", background: "#disabled" });
+  });
+
   it("orders every state, least to most specific", () => {
-    expect(STATE_ORDER).toEqual(["empty", "selected", "checked", "hover", "focused", "pressed"]);
+    expect(STATE_ORDER).toEqual([
+      "empty",
+      "selected",
+      "checked",
+      "hover",
+      "focused",
+      "pressed",
+      "disabled",
+    ]);
   });
 });

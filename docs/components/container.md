@@ -20,8 +20,11 @@ intrinsic size and no runtime state — everything it does comes from [layout](.
 | `value` | `Bindable<string \| number>` | absent | Selected value of an `"exclusive-check"` group. Ignored otherwise. |
 | `children` | `ZNode[]` | `[]` | Any nodes. |
 
-**States:** none of its own. A `Container` is not focusable and never hovers, so `states.*`
-on one never applies. (Its children keep theirs.)
+**States:** `disabled` only. A `Container` is not focusable and never hovers, so no other
+`states.*` on one ever applies. (Its children keep theirs.) A `Container` is in fact the
+usual place to *declare* [`disabled`](../format/input.md#disabled-normative): it inherits, so
+one prop here switches off every control in the section — and each of them, labels included,
+still dresses itself through its own `states.disabled`.
 
 **Actions:** none.
 

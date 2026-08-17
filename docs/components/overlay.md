@@ -167,7 +167,9 @@ a control that never appears.
 
 ## Behavior summary
 
-**States:** none of its own. An `Overlay` is not focusable; its children keep their states.
+**States:** `disabled` only, and only its **own** — an `Overlay` is where the inheritance
+stops, being the top of its own input scope, so a modal declared inside a disabled panel
+stays operable and dismissable. It is not focusable; its children keep their states.
 
 **Actions:** `onDismiss`.
 

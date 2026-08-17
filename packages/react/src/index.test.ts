@@ -566,6 +566,25 @@ describe("renderToIR", () => {
     });
   });
 
+  it("serializes disabled, static or bound, on any node (ZAB-63)", () => {
+    expect(renderToIR(h(Button, { disabled: true, onClick: "a" }, h(Text, null, "x")))).toEqual({
+      type: "Button",
+      disabled: true,
+      onClick: "a",
+      children: [{ type: "Text", text: "x" }],
+    });
+
+    // On a container, which is how a whole form section is switched off from data.
+    expect(
+      renderToIR(
+        h(Column, { disabled: { bind: "settings.custom" } }, h(Checkbox, null, h(Text, null, "x"))),
+      ),
+    ).toMatchObject({
+      type: "Container",
+      disabled: { bind: "settings.custom" },
+    });
+  });
+
   it("serializes clip (overflow: hidden on any node)", () => {
     expect(renderToIR(h(Container, { clip: true }, h(Text, null, "x")))).toEqual({
       type: "Container",

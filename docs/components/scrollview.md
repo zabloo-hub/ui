@@ -28,8 +28,11 @@ through.
 
 Two consequences worth stating plainly:
 
-- **Size the viewport yourself.** Give it a `width`/`height` or a growing parent; a
-  `ScrollView` with neither hugs its content, and there is then nothing to scroll.
+- **Size the viewport yourself.** Give it a `width`/`height`; a `ScrollView` without one
+  hugs its content, and there is then nothing to scroll. `grow` alone does not size it
+  either — its measured size is the whole content, so no leftover reaches it. To fill what
+  is left of a parent, zero the base on that axis: `height: 0` with `grow: 1` in a column
+  ([why](../format/layout.md#2-arrange)).
 - **`axis` is not `direction`.** `axis` says which way the content may overflow;
   `layout.direction` says which way the children flow. A horizontal scroller of chips is
   `axis: "horizontal"` **and** `direction: "row"`.
@@ -52,9 +55,14 @@ Input the SDK handles: wheel, drag, the gamepad's right stick, and the
 [auto-reveal](../format/input.md#directional-navigation-normative) that brings a newly
 focused node into view.
 
-**States:** none. A `ScrollView` is not focusable and carries no
-`hover`/`pressed`/`selected`/`checked`, so `states.*` on it never applies. Its children keep
-theirs — scrolling by drag does not turn into a click on the `Button` under the finger.
+**States:** `disabled` only. A `ScrollView` is not focusable and carries no
+`hover`/`pressed`/`selected`/`checked`, so no other `states.*` on it ever applies. Its
+children keep theirs — scrolling by drag does not turn into a click on the `Button` under the
+finger.
+
+**It keeps scrolling while [`disabled`](../format/input.md#disabled-normative)**, its own or
+inherited. Scrolling is not an interaction a control owns, and a panel the player cannot use
+is still one they must be able to read.
 
 **Actions:** none. There is no `onScroll` in v1, and the offset is not bindable. A game
 moves it through the host channel: `SetScroll(id, x, y)`.

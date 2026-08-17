@@ -58,6 +58,17 @@ export type HostType =
 export interface CommonProps {
   id?: string;
   visible?: Bindable<boolean>;
+  /**
+   * Takes this node and everything inside it out of the interaction model: no
+   * focus, no hover, no press, no action (ZAB-63). It **inherits**, so one
+   * `disabled` on a `<Column>` switches off the form in it — and every node of
+   * that subtree, labels included, can dress it through `states.disabled`.
+   *
+   * Bindable, like `visible`: `disabled={{ bind: "settings.custom" }}` lets the
+   * game light half a screen up with a `SetData`. There is no default look — what
+   * a disabled control looks like is `states.disabled.style`.
+   */
+  disabled?: Bindable<boolean>;
   layout?: Layout;
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
@@ -191,10 +202,12 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
 /** Serializes a mounted host instance into an IR node. */
 export function toIR(instance: HostInstance): ZNode {
   // `variant` is intentionally NOT serialized — resolved at authoring time.
-  const { id, visible, layout, style, states, transition, autofocus, clip } = instance.props;
+  const { id, visible, disabled, layout, style, states, transition, autofocus, clip } =
+    instance.props;
   const base = {
     ...(id !== undefined && { id }),
     ...(visible !== undefined && { visible }),
+    ...(disabled !== undefined && { disabled }),
     ...(layout !== undefined && { layout }),
     ...(style !== undefined && { style }),
     ...(states !== undefined && { states }),

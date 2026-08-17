@@ -79,9 +79,12 @@ declared.
 
 ## Behavior
 
-**States:** `hover`, `pressed`, `focused`.
+**States:** `hover`, `pressed`, `focused`, plus `disabled` — its own or inherited. A gesture
+in flight when the game disables it is **cancelled**, never committed: the value never
+settled.
 
-**Focusable:** yes. It **keeps the arrow keys on its own axis** and never gives them back;
+**Focusable:** yes, unless [`disabled`](../format/input.md#disabled-normative). It **keeps the
+arrow keys on its own axis** and never gives them back;
 the cross-axis arrows keep navigating. A continuous slider borrows a step of **5% of its
 range** for the keyboard, so the arrows are usable without forcing authors to declare a
 `step` they do not otherwise want.

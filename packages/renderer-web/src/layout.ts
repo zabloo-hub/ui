@@ -94,6 +94,15 @@ export interface LayoutNode {
   groupValue: unknown;
   /** `visible` value (bound or static) — display:none semantics. */
   visibleFlag: boolean;
+  /** This node's OWN `disabled` value (bound or static) — never an ancestor's. */
+  disabledFlag: boolean;
+  /**
+   * Effective `disabled` (ZAB-63): this node's own value OR any ancestor's, which
+   * is what the interaction model and `states.disabled` both read. Computed
+   * top-down by the resolve pass, like the clip a node inherits — the flag on a
+   * form section is the one that answers for every control inside it.
+   */
+  disabled: boolean;
   /**
    * False while hidden by the parent's state: content of a closed Collapse, an
    * unselected tab panel, or the Toggle indicator slot that is off.
@@ -211,6 +220,8 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
     sliderDisplay: 0,
     groupValue: undefined,
     visibleFlag: true,
+    disabledFlag: false,
+    disabled: false,
     sectionShown: true,
     progress: 0,
     collapseAnimating: false,

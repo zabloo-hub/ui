@@ -432,6 +432,129 @@ describe("sections that enter and leave layout", () => {
   });
 });
 
+describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
+  it("fires nothing when a disabled control is clicked", async () => {
+    view = await mountCase(CORPUS.disabled);
+    const target = center(view.snapshot(), "off");
+
+    view.pointer.click(target.x, target.y);
+
+    expect(view.actions).toEqual([]);
+    expect(states(view.snapshot(), "off")).not.toContain("pressed");
+  });
+
+  it("leaves the navigation: the arrows walk past it", async () => {
+    view = await mountCase(CORPUS.disabled);
+    expect(view.snapshot().focus).toBe("live");
+
+    // `off` sits directly under `live`, and the disabled section under that: the
+    // first candidate downwards is the field, the only live control below.
+    view.keyDown("ArrowDown");
+
+    expect(view.snapshot().focus).not.toBe("off");
+    expect(states(view.snapshot(), "off")).not.toContain("focused");
+  });
+
+  it("never hovers, so a mouse and a pad see the same dead control", async () => {
+    view = await mountCase(CORPUS.disabled);
+    const target = center(view.snapshot(), "off");
+
+    view.pointer.move(target.x, target.y);
+
+    expect(states(view.snapshot(), "off")).not.toContain("hover");
+    expect(view.snapshot().hover).toBeNull();
+  });
+
+  it("inherits: a control inside a disabled section does not answer either", async () => {
+    view = await mountCase(CORPUS.disabled);
+    const toggle = center(view.snapshot(), "section-toggle");
+    expect(states(view.snapshot(), "section-toggle")).toContain("disabled");
+    expect(states(view.snapshot(), "section-toggle")).toContain("checked");
+
+    view.pointer.click(toggle.x, toggle.y);
+
+    // Still on: the value it holds did not move, and the game was not told.
+    expect(states(view.snapshot(), "section-toggle")).toContain("checked");
+    expect(view.actions).toEqual([]);
+    expect(view.writes).toEqual([]);
+  });
+
+  it("does not drag the Slider of a disabled section", async () => {
+    view = await mountCase(CORPUS.disabled);
+    const track = node(view.snapshot(), "section-slider").rect;
+    if (!track) throw new Error("the slider is out of layout");
+    const before = node(view.snapshot(), "section-slider").value;
+
+    view.pointer.down(track.x + track.width * 0.9, track.y + track.height / 2);
+    view.pointer.up(track.x + track.width * 0.9, track.y + track.height / 2);
+
+    expect(node(view.snapshot(), "section-slider").value).toBe(before);
+    expect(view.actions).toEqual([]);
+  });
+
+  it("does not toggle a disabled Collapse from its header", async () => {
+    view = await mountCase(CORPUS.disabled);
+    const header = center(view.snapshot(), "collapse-header");
+    expect(node(view.snapshot(), "collapse-body").out).toBe("section");
+
+    view.pointer.click(header.x, header.y);
+
+    expect(node(view.snapshot(), "collapse-body").out).toBe("section");
+  });
+
+  it("keeps a disabled section READABLE: its ScrollView still scrolls", async () => {
+    view = await mountCase(CORPUS.disabled);
+    const target = center(view.snapshot(), "readable");
+    const max = node(view.snapshot(), "readable").scroll?.maxY ?? 0;
+    expect(max).toBeGreaterThan(0);
+
+    view.pointer.wheel(target.x, target.y, 0, 5);
+    // Scrolling is not an interaction the section owns — a control the player
+    // cannot use is still one they must be able to read.
+    expect(node(view.snapshot(), "readable").scroll?.y).toBeCloseTo(5, 3);
+
+    view.pointer.wheel(target.x, target.y, 0, 10_000);
+    expect(node(view.snapshot(), "readable").scroll?.y).toBeCloseTo(max, 3);
+  });
+
+  it("comes back to life when the data says so, controls included", async () => {
+    view = await mountCase(CORPUS.disabled);
+    expect(states(view.snapshot(), "section-toggle")).toContain("disabled");
+
+    view.handle.setData("settings.custom", false);
+
+    expect(states(view.snapshot(), "section-toggle")).not.toContain("disabled");
+    expect(states(view.snapshot(), "section-label")).not.toContain("disabled");
+
+    const toggle = center(view.snapshot(), "section-toggle");
+    view.pointer.click(toggle.x, toggle.y);
+    expect(view.actions).toEqual([{ action: "toggle-detail" }]);
+  });
+
+  it("releases the focus of a control the game disables under it", async () => {
+    view = await mountCase(CORPUS.disabled);
+    view.handle.setData("settings.custom", false);
+    const field = center(view.snapshot(), "section-field");
+    view.pointer.click(field.x, field.y);
+    expect(view.snapshot().focus).toBe("section-field");
+
+    view.handle.setData("settings.custom", true);
+
+    // Focus goes to NOTHING, not to a neighbour: the player did not ask to move.
+    expect(view.snapshot().focus).toBeNull();
+    expect(states(view.snapshot(), "section-field")).not.toContain("focused");
+  });
+
+  it("carries the state on nodes that are not focusable at all", async () => {
+    view = await mountCase(CORPUS.disabled);
+
+    // What makes "disable the section" a real statement: the labels dim with it.
+    expect(states(view.snapshot(), "section-label")).toContain("disabled");
+    expect(states(view.snapshot(), "off-label")).toContain("disabled");
+    expect(node(view.snapshot(), "off-label").style?.color).toBe("#5b6070");
+  });
+});
+
 describe("the data channel", () => {
   it("re-measures and re-lays out a bound Text when the data moves", async () => {
     view = await mountCase(CORPUS.bindings);

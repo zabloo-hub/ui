@@ -56,12 +56,27 @@ Each node receives a rect and places its children inside the content box (its re
 `padding`):
 
 - **`grow`** distributes the space left on the line, proportionally to each child's
-  `grow`. It is **per line**: a wrapped row shares each line's own leftovers.
+  `grow`. It is **per line**: a wrapped row shares each line's own leftovers. Only a
+  **positive** leftover is ever distributed: there is no `shrink` in the subset, so a
+  child whose measured size is larger than the line has room for keeps that size and
+  overflows.
 - **`justify`** then distributes whatever is still left, along the main axis.
   `space-between` adds the leftover between the children (on top of `gap`), and does
   nothing to a line holding one child.
 - **`align`** places each child across the cross axis. `stretch` makes the child fill the
   line's cross size instead of keeping its measured one.
+
+**Growing from a zero base.** `grow` adds to a child's measured size, it does not replace
+it. A node that must take *exactly* what is left has to declare that size as zero —
+`height: 0` with `grow: 1` in a column, `width: 0` with `grow: 1` in a row. It is the
+subset's equivalent of `flex-basis: 0`: with the base at zero the child adds nothing to
+the line's total, so `grow` becomes its only source of size and the leftover *is* its size.
+
+For a [`ScrollView`](../components/scrollview.md) this is the only way to size the viewport
+from its parent. A scroller measures its children unconstrained on the axis it scrolls, so
+its own measured size is that of the whole content: with `grow: 1` alone there is no
+leftover left to distribute, and the scroller ends up larger than its parent with nothing
+to scroll. Zeroing the base is what makes the column's leftover the viewport.
 
 ## Wrapping
 
@@ -91,6 +106,12 @@ Some nodes measure from their content rather than from their children:
 | [`Image`](../components/image.md) | The source's pixel size, from the asset manifest. |
 | [`TextInput`](../components/textinput.md) | One line of text, at the field's `fontSize`. |
 | [`Slider`](../components/slider.md) | Its own `layout` only — the slots never add to it. |
+
+Every other childless node measures **zero content on both axes**: its size is its
+`padding`, and nothing else. An empty [`Container`](../components/container.md) used as a
+block of colour — a swatch, a rule, a divider — therefore has no size on an axis it was not
+given one for, and paints nothing until it gets an explicit `width`/`height` or its parent
+stretches it with `align: "stretch"`.
 
 ## Nodes that place their own children
 

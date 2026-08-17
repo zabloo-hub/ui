@@ -15,10 +15,13 @@
 // order. Value states first — what the control IS is the baseline — then the
 // interaction ones over them:
 //
-//     base → empty → selected → checked → hover → focused → pressed
+//     base → empty → selected → checked → hover → focused → pressed → disabled
 //
 // `hover` sits under `focused` so a passing mouse never hides a focus ring, and
-// `pressed` wins because it lasts exactly as long as the finger is down.
+// `pressed` wins over those because it lasts exactly as long as the finger is
+// down. `disabled` closes the chain: it is the one state that also changes
+// BEHAVIOUR (the node leaves the interaction model, ZAB-63) and the one that
+// inherits, so it has to outrank whatever value the control is holding.
 
 import {
   Button,
@@ -41,7 +44,16 @@ const SPACES = ["space.1", "space.2", "space.3", "space.4", "space.5"] as const;
 const RADII = ["radius.sm", "radius.md", "radius.lg"] as const;
 
 /** The merge order, drawn as the chain it is. */
-const MERGE_ORDER = ["base", "empty", "selected", "checked", "hover", "focused", "pressed"];
+const MERGE_ORDER = [
+  "base",
+  "empty",
+  "selected",
+  "checked",
+  "hover",
+  "focused",
+  "pressed",
+  "disabled",
+];
 
 function Swatch({ token }: { token: string }) {
   // `align: "stretch"` is what gives the swatch a width: an empty Container
@@ -207,30 +219,27 @@ export default function ThemingView() {
           </Tile>
         </Row>
 
-        {/* `disabled` is declared in StateName from v1 and no component carries it
-            yet: it is not only style — a disabled control has to leave the
-            interaction model (no pointer, no action, and a decision to take about
-            whether it leaves the focus order too). That is ZAB-63; this row is
-            here so the matrix is complete and the gap is visible instead of
-            being silently absent. */}
-        <Row layout={{ gap: "{space.3}", align: "center", width: 700 }}>
-          <Container
-            layout={{ padding: "{space.2}", width: 220, justify: "center", align: "center" }}
-            style={{
-              background: "{color.row}",
-              radius: "{radius.md}",
-              borderWidth: 1,
-              borderColor: "{color.border}",
-              opacity: 0.45,
-            }}
-          >
-            <Text variant="label">disabled</Text>
-          </Container>
-          <Text variant="muted" layout={{ grow: 1 }}>
-            Pending (ZAB-63): `states.disabled` is in the format, but no component carries it — a
-            disabled control also has to leave the interaction model, not just dim. The box on the
-            left is just an opacity, standing in for what the state will paint.
-          </Text>
+        {/* `disabled` is the one state that also changes BEHAVIOUR: the node and
+            its subtree leave the interaction model — no focus, no hover, no
+            press, no action — so these two are inert on purpose. Try to Tab into
+            them: the navigation walks straight past. */}
+        <Row layout={{ gap: "{space.3}", align: "center", wrap: true }}>
+          <Tile label="disabled — declared on the control itself">
+            <Button id="state-disabled" variant="primary" disabled layout={BTN} onClick="never">
+              <Text variant="label">Out of stock</Text>
+            </Button>
+          </Tile>
+          <Tile label="disabled — and it KEEPS the value it holds">
+            <Checkbox
+              id="state-disabled-checked"
+              variant="row"
+              checked
+              disabled
+              layout={{ padding: "{space.2}", width: 220 }}
+            >
+              <Text variant="label">checked · disabled</Text>
+            </Checkbox>
+          </Tile>
         </Row>
       </Section>
 

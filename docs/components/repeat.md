@@ -84,7 +84,8 @@ lets one `onClick: "buy"` in the template say **which** row was bought.
 
 ## Behavior
 
-**States:** none of its own.
+**States:** `disabled` only, and it reaches every instance — one prop switches off a whole
+list of rows.
 
 **Actions:** none of its own.
 

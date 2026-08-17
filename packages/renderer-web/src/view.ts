@@ -134,6 +134,7 @@ interface AnyNode {
   type: string;
   id?: string;
   visible?: unknown;
+  disabled?: unknown;
   layout?: ZNode["layout"];
   style?: Style;
   states?: Record<string, { style?: Style } | undefined>;
@@ -576,7 +577,7 @@ class WebView {
    */
   private stateBinds(node: LayoutNode): unknown[] {
     const any = node.ir as AnyNode;
-    const values: unknown[] = [any.visible];
+    const values: unknown[] = [any.visible, any.disabled];
     if (
       any.type === "Slider" ||
       any.type === "TextInput" ||
@@ -602,6 +603,10 @@ class WebView {
     const visible = this.resolveBind(node, any.visible);
     // Bound visibility: hidden until data says so (same default as the SDK).
     if (visible) node.visibleFlag = isTruthy(this.readBind(visible));
+    // Only this node's OWN value: what an ancestor says is folded in by the
+    // resolve pass, which is the one that walks top-down (ZAB-63).
+    const disabled = this.resolveBind(node, any.disabled);
+    node.disabledFlag = disabled ? isTruthy(this.readBind(disabled)) : any.disabled === true;
     if (any.type === "Container" && any.group === "exclusive-check") {
       const bound = this.resolveBind(node, any.value);
       node.groupValue = bound ? this.readBind(bound) : any.value;
@@ -1003,6 +1008,12 @@ class WebView {
    * Toggle flips, which in an `"exclusive-check"` group means selecting it.
    */
   private activate(node: LayoutNode): void {
+    // The last gate before anything fires. The input paths already refuse a
+    // disabled control, so this catches whatever reaches activation by another
+    // route — a held key, a pad button, a gesture that started before the game
+    // disabled the section. The host API is deliberately NOT gated: the game
+    // writing a value is out-of-band, like a `SetData` on a bound path.
+    if (node.disabled) return;
     if (node.ir.type === "Toggle") {
       this.setToggleChecked(node, nextChecked(node.checked, this.exclusiveGroupOf(node) !== null));
       return;
@@ -1355,7 +1366,15 @@ class WebView {
   // survives relayout/hot-update/Collapse. Focusability derives from component
   // identity (Button, Collapse header); `states.focused` styles the focused node.
 
+  /**
+   * Focusability derives from component identity, with exactly one exception:
+   * `disabled` takes a node out of the interaction model (ZAB-63). Answering
+   * false here is what removes it from navigation AND from hover — the hover set
+   * is defined as the focusable one, so a mouse and a pad see the same dead
+   * control — and the pointer's own press paths carry the same guard.
+   */
   private isFocusable(node: LayoutNode): boolean {
+    if (node.disabled) return false;
     return (
       node.ir.type === "Button" ||
       node.ir.type === "Toggle" ||
@@ -1414,6 +1433,17 @@ class WebView {
       );
     }
     return autofocusIn(scope, (node) => this.isFocusable(node));
+  }
+
+  /**
+   * Releases what a node that has just become disabled was holding: the focus
+   * here, the hover and the gestures in the pointer. Focus goes to NOTHING rather
+   * than to a neighbour — the player did not ask to move, and the next arrow press
+   * starts the walk again from the scope's `autofocus`.
+   */
+  private pruneDisabled(): void {
+    if (this.focusedNode?.disabled) this.setFocus(null);
+    this.pointer.pruneDisabled();
   }
 
   private setFocus(node: LayoutNode | null): void {
@@ -1877,6 +1907,14 @@ class WebView {
       return;
     }
     node.forcedClip = false;
+    // Effective `disabled` BEFORE the style resolves, since it is a state
+    // `effectiveStyle` has to see this very frame (ZAB-63). It inherits from the
+    // parent — one prop on a section answers for every control in it — and an
+    // `Overlay` restarts the chain: a layer entry is the top of its own input
+    // scope, the same boundary `effectiveClip` and the pointer's `findUp` draw, so
+    // a modal declared inside a disabled panel stays operable and dismissable.
+    node.disabled =
+      node.disabledFlag || (node.ir.type !== "Overlay" && node.parent?.disabled === true);
     const style = this.effectiveStyle(node);
     const layout = node.ir.layout;
     // One scratch object for the whole tree, refilled per node: `stepNode`
@@ -2171,6 +2209,12 @@ class WebView {
     // that is what keeps the resolve pass from dropping its subtree mid-fade.
     this.overlays.syncPresence(frameTime);
     this.resolve(this.root, frameTime);
+    // After resolve, because that is the pass that settles the inherited flag: a
+    // control the game just switched off releases the focus, hover and press it
+    // was holding (ZAB-63). Doing it here costs a frame of stale flags, and that
+    // frame is invisible — `disabled` merges last, so its override is already
+    // painting over the focus ring this very frame.
+    this.pruneDisabled();
 
     // The view's own width is the offer the constraint chain starts from — that is
     // what a Text with no explicit width wraps to.

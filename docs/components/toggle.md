@@ -57,9 +57,12 @@ writes its own `value` into the group's binding.
 
 ## Behavior
 
-**States:** `checked`, plus `hover`, `pressed` and `focused`.
+**States:** `checked`, plus `hover`, `pressed` and `focused` — and `disabled`, its own or
+inherited. A disabled toggle **keeps** its `checked` state: what it holds and whether the
+player may change it are two different statements, which is why `disabled` merges last.
 
-**Focusable:** yes. Activated by tap, Enter or gamepad A.
+**Focusable:** yes. Activated by tap, Enter or gamepad A — none of which reach it while it is
+[`disabled`](../format/input.md#disabled-normative).
 
 **Actions:** `onChange`, fired after every change however it was caused — a tap, the game's
 own `SetChecked`, or another option of the group taking the selection.

@@ -29,9 +29,11 @@ flex pass. A button with an icon and a text is a `Button` holding a `Row`.
 ## Behavior
 
 **States:** `hover`, `pressed`, `focused`, and `selected` while it is the chosen button of
-an [`"exclusive-select"` group](container.md#exclusive-select-normative) (a tab).
+an [`"exclusive-select"` group](container.md#exclusive-select-normative) (a tab). Plus
+`disabled`, its own or inherited.
 
-**Focusable:** yes.
+**Focusable:** yes — unless [`disabled`](../format/input.md#disabled-normative), which takes
+it out of the navigation and makes its `onClick` unreachable.
 
 **Activation:** a tap, Enter while focused, or gamepad A. A press that ends **outside** the
 control cancels instead of activating — dragging off a button is how a player takes it

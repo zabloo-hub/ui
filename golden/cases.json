@@ -36,6 +36,11 @@
     "about": "Toggle slots, a radio group by value, both Slider axes with quantization, a bound ProgressBar and the Spinner wave.",
     "data": { "download.progress": 0.35 }
   },
+  "disabled": {
+    "envelope": "disabled.json",
+    "about": "The disabled state: declared on a control, inherited by a whole section from the data, and carried by nodes that are not focusable at all. A ScrollView inside it still scrolls.",
+    "data": { "settings.custom": true }
+  },
   "textinput": {
     "envelope": "textinput.json",
     "about": "Field geometry, the placeholder's empty state, a bound value, content that overflows its box, and a field bound inside a Repeat item.",

@@ -397,6 +397,7 @@ function sanitizeNode(
     dropProp(node, "id", path, ctx, "a non-empty string");
   }
   bindableProp(node, "visible", path, ctx, isBoolean, "a boolean");
+  bindableProp(node, "disabled", path, ctx, isBoolean, "a boolean");
   boolProp(node, "autofocus", path, ctx);
   boolProp(node, "clip", path, ctx);
   sanitizeLayout(node, path, ctx);
@@ -510,8 +511,10 @@ function sanitizeNode(
       break;
     default:
       // Unknown type: rendered as a Container preserving layout/style/visible/
-      // children (normative rule, decision 2026-08-11). Its own props are none of
-      // this reader's business — they belong to a version it does not implement.
+      // disabled/children (normative rule, decision 2026-08-11). Its own props are
+      // none of this reader's business — they belong to a version it does not
+      // implement. `disabled` is in that list because dropping it would turn a
+      // control the author switched off into a live one (ZAB-63).
       break;
   }
 

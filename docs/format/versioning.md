@@ -37,7 +37,7 @@ These changes ship without touching `v`, because [forward-tolerance](loading.md#
 already defines what an older SDK does with them:
 
 - **A new node type.** An SDK that does not know it renders it as a `Container` preserving
-  `layout`, `style`, `visible` and `children`.
+  `layout`, `style`, `visible`, `disabled` and `children`.
 - **A new optional property**, on a node or in `Style`/`Layout`. Unknown properties are
   ignored silently, and absent means "the default", which is what the older SDK applies.
 - **A new value in a closed set** (`Easing`, `ImageFit`, `AnchorAt`, `GroupBehavior`,
