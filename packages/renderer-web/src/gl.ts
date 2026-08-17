@@ -29,7 +29,13 @@ export interface Batch {
   texture: TextureSource | null;
   /** Interleaved: x,y, u,v, r,g,b,a (logical px; colors 0..1). */
   vertices: Float32Array;
-  indices: Uint16Array;
+  /**
+   * 32-bit on purpose (ZAB-68): `UNSIGNED_SHORT` wraps mod 65536 past 65.535
+   * vertices in ONE batch — ≈2.260 rounded rects or ≈16.384 glyphs under a
+   * single clip — and the geometry scrambles with no warning. `UNSIGNED_INT`
+   * is core in WebGL2, so the only cost is the wider index buffer.
+   */
+  indices: Uint32Array;
   /** Clipping region for this draw call; null = unclipped (decision 2026-08-11). */
   clip?: Clip | null;
 }
@@ -81,19 +87,65 @@ void main() {
 
 export class GLRenderer {
   private readonly gl: WebGL2RenderingContext;
-  private readonly program: WebGLProgram;
-  private readonly vbo: WebGLBuffer;
-  private readonly ibo: WebGLBuffer;
-  private readonly uResolution: WebGLUniformLocation;
-  private readonly uClipRect: WebGLUniformLocation;
-  private readonly uClipRadius: WebGLUniformLocation;
-  private readonly whiteTexture: WebGLTexture;
+  private program!: WebGLProgram;
+  private vbo!: WebGLBuffer;
+  private ibo!: WebGLBuffer;
+  private uResolution!: WebGLUniformLocation;
+  private uClipRect!: WebGLUniformLocation;
+  private uClipRadius!: WebGLUniformLocation;
+  private whiteTexture!: WebGLTexture;
   private readonly textures = new Map<TextureSource, { texture: WebGLTexture; version: number }>();
+  /** False while the context is lost (or was already lost at construction). */
+  private ready = false;
+  private disposed = false;
+  private readonly handleLost: (event: Event) => void;
+  private readonly handleRestored: () => void;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  /**
+   * `onRestore` fires after a lost context comes back and its resources are
+   * rebuilt: the view has to repaint, or the canvas stays blank until something
+   * else happens to ask for a frame.
+   */
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly onRestore?: () => void,
+  ) {
     const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false });
     if (!gl) throw new Error("zabloo renderer: WebGL2 is not available");
     this.gl = gl;
+
+    // A tab backgrounded on mobile, a GPU reset or a driver hiccup drops the
+    // context: every GL object dies and every call turns into a no-op, so
+    // without this the canvas stays blank forever (ZAB-68).
+    this.handleLost = (event: Event) => {
+      // Without preventDefault the browser never fires `webglcontextrestored`.
+      event.preventDefault();
+      this.ready = false;
+      // Those textures are gone with the context; forgetting them is what makes
+      // the next draw re-create AND re-upload them (the atlases included).
+      this.textures.clear();
+    };
+    this.handleRestored = () => {
+      if (this.disposed) return;
+      this.initResources();
+      this.onRestore?.();
+    };
+    canvas.addEventListener("webglcontextlost", this.handleLost);
+    canvas.addEventListener("webglcontextrestored", this.handleRestored);
+
+    this.initResources();
+  }
+
+  /**
+   * Builds every GPU object and the state that outlives a frame. Runs in the
+   * constructor and again on every restore: the context comes back EMPTY — the
+   * program, the buffers, the attribute wiring and the textures all have to be
+   * made from scratch. Skipped while the context is lost (a canvas can be
+   * mounted on one already gone), and the restore then picks it up.
+   */
+  private initResources(): void {
+    const gl = this.gl;
+    if (gl.isContextLost()) return;
 
     this.program = createProgram(gl, VERT_SRC, FRAG_SRC);
     this.vbo = gl.createBuffer() as WebGLBuffer;
@@ -128,6 +180,7 @@ export class GLRenderer {
       new Uint8Array([255, 255, 255, 255]),
     );
     setTexParams(gl);
+    this.ready = true;
   }
 
   /** Renders the batches at the given logical size (canvas backing = device px). */
@@ -138,6 +191,10 @@ export class GLRenderer {
     clearColor: [number, number, number, number],
   ): void {
     const gl = this.gl;
+    // Nothing to draw with while the context is down — the frame is dropped and
+    // the restore repaints it. `isContextLost` is checked too: the loss event is
+    // asynchronous, so the flag can still say ready inside the same frame.
+    if (!this.ready || gl.isContextLost()) return;
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     gl.clearColor(...clearColor);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -161,7 +218,7 @@ export class GLRenderer {
       gl.bufferData(gl.ARRAY_BUFFER, batch.vertices, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ibo);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, batch.indices, gl.DYNAMIC_DRAW);
-      gl.drawElements(gl.TRIANGLES, batch.indices.length, gl.UNSIGNED_SHORT, 0);
+      gl.drawElements(gl.TRIANGLES, batch.indices.length, gl.UNSIGNED_INT, 0);
     }
     if (currentClip) this.applyClip(null, dpr);
   }
@@ -189,19 +246,31 @@ export class GLRenderer {
   evict(source: TextureSource): void {
     const entry = this.textures.get(source);
     if (!entry) return;
-    this.gl.deleteTexture(entry.texture);
+    if (this.ready) this.gl.deleteTexture(entry.texture);
     this.textures.delete(source);
   }
 
-  /** Releases every GPU resource this renderer owns (the view's `dispose`). */
+  /**
+   * Releases every GPU resource this renderer owns (the view's `dispose`), and
+   * stops listening: a context that comes back after this must NOT rebuild
+   * anything. Idempotent, and safe on a lost context — there the driver already
+   * dropped every object, so deleting them would be aiming at dead handles.
+   */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.canvas.removeEventListener("webglcontextlost", this.handleLost);
+    this.canvas.removeEventListener("webglcontextrestored", this.handleRestored);
     const gl = this.gl;
-    for (const entry of this.textures.values()) gl.deleteTexture(entry.texture);
+    if (this.ready && !gl.isContextLost()) {
+      for (const entry of this.textures.values()) gl.deleteTexture(entry.texture);
+      gl.deleteTexture(this.whiteTexture);
+      gl.deleteBuffer(this.vbo);
+      gl.deleteBuffer(this.ibo);
+      gl.deleteProgram(this.program);
+    }
     this.textures.clear();
-    gl.deleteTexture(this.whiteTexture);
-    gl.deleteBuffer(this.vbo);
-    gl.deleteBuffer(this.ibo);
-    gl.deleteProgram(this.program);
+    this.ready = false;
   }
 
   /** Uploads (or re-uploads, if the pixels changed) a source's bitmap as a texture. */
@@ -244,22 +313,38 @@ function setTexParams(gl: WebGL2RenderingContext): void {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
 
+/**
+ * The linked program is the only thing kept: the shader objects are dead weight
+ * once the link copied what it needed, and nothing here ever compiles again — so
+ * the `finally` releases them on every path, success or throw (ZAB-68).
+ */
 function createProgram(gl: WebGL2RenderingContext, vertSrc: string, fragSrc: string): WebGLProgram {
   const compile = (type: number, src: string): WebGLShader => {
     const shader = gl.createShader(type) as WebGLShader;
     gl.shaderSource(shader, src);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error(`zabloo renderer: shader error — ${gl.getShaderInfoLog(shader)}`);
+      const log = gl.getShaderInfoLog(shader);
+      gl.deleteShader(shader);
+      throw new Error(`zabloo renderer: shader error — ${log}`);
     }
     return shader;
   };
-  const program = gl.createProgram() as WebGLProgram;
-  gl.attachShader(program, compile(gl.VERTEX_SHADER, vertSrc));
-  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragSrc));
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error(`zabloo renderer: link error — ${gl.getProgramInfoLog(program)}`);
+  const shaders: WebGLShader[] = [];
+  try {
+    shaders.push(compile(gl.VERTEX_SHADER, vertSrc));
+    shaders.push(compile(gl.FRAGMENT_SHADER, fragSrc));
+    const program = gl.createProgram() as WebGLProgram;
+    for (const shader of shaders) gl.attachShader(program, shader);
+    gl.linkProgram(program);
+    for (const shader of shaders) gl.detachShader(program, shader);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const log = gl.getProgramInfoLog(program);
+      gl.deleteProgram(program);
+      throw new Error(`zabloo renderer: link error — ${log}`);
+    }
+    return program;
+  } finally {
+    for (const shader of shaders) gl.deleteShader(shader);
   }
-  return program;
 }
