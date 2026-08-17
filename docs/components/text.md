@@ -10,7 +10,14 @@ sizes it from the font metrics.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `text` | `Bindable<string>` | — | The content, literal or bound. |
+| `text` | `Bindable<string>` | — | The content, literal or bound. `""` is valid content. |
+
+**An empty `text` is a `Text`, an absent one is not** (normative). `""` is what a label
+with nothing to say looks like — a `Select` before a value is chosen, a counter at zero, a
+bound path the game has not filled in yet — so the node loads and paints like any other,
+and [holds its size](#the-empty-text). The field being **absent** is what makes the node
+unloadable: the reader drops it with `invalid-node`, since a `Text` that was never given
+content is a tree nobody meant to author.
 
 Everything else about a `Text` is [style](../format/style.md): `color`, `fontSize`,
 `textAlign`, `textAlignY`, `lineHeight`, `wrap`, `overflow`, `maxLines`. There are no
@@ -96,6 +103,20 @@ that fits, with a minimum of one glyph per line.
 The text properties all snap like `fontSize`: a re-wrap has no meaningful intermediate
 value, so none of them is animatable.
 
+### The empty `Text`
+
+`""` is **one line** — the same rule as the empty paragraph of step 2, applied to the whole
+content — so an empty `Text` measures `0 × lineHeight` and **keeps its height**. It is not a
+special case in the algorithm; it is what the algorithm already says.
+
+That is the behaviour a layout needs. A row of `gap: 8` around a `<Text>` whose binding goes
+blank keeps its slot and its spacing instead of collapsing and shuffling its siblings one
+gap to the left, and a label that empties and refills does not make the block around it jump.
+The width **is** zero: an empty line paints nothing, so nothing reserves horizontal room.
+
+A node that should disappear entirely when it has nothing to say uses `visible` — that is
+the prop for it, and it takes the node out of layout, gap included.
+
 ## Authoring
 
 ```tsx
@@ -115,3 +136,6 @@ Adjacent string and number children are concatenated at authoring time — a tem
 and an interpolated expression both end up as one `text` in the IR. There is no formatting
 and no interpolation *at runtime*: a bound `Text` shows the value as it is, and anything
 that needs composing is composed by the game before it calls `SetData`.
+
+`<Text></Text>` emits `text: ""` — a real node with a real slot, per the rule above. Several
+components lean on it: `<Select>` before a value is chosen, `<Badge>` with no `count`.

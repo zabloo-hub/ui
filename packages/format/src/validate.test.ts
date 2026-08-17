@@ -154,6 +154,26 @@ describe("readEnvelope: views and nodes", () => {
     expect(warning?.message).toContain("node dropped");
   });
 
+  it('keeps a Text whose content is empty — `""` is content, not a broken node', () => {
+    // What `@zabloo/react` emits routinely: a <Select> with no value yet, a <Badge>
+    // with no count, a <Text> with no children. Dropping those left a row missing a
+    // slot and re-spaced around the hole.
+    const { envelope, diagnostics } = readEnvelope(
+      withView({ type: "Container", children: [{ type: "Text", text: "" }] }),
+    );
+    const children = ((envelope?.views.hud as ContainerNode | undefined)?.children ??
+      []) as TextNode[];
+    expect(children.length).toBe(1);
+    expect(children[0]?.text).toBe("");
+    expect(diagnostics).toEqual([]);
+  });
+
+  it("still drops a Text whose `text` is absent — never authored is not the same as empty", () => {
+    const { diagnostics } = read(withView({ type: "Text" }));
+    expect(diagnostics[0]?.code).toBe("invalid-node");
+    expect(diagnostics[0]?.message).toContain("(nothing)");
+  });
+
   it("drops a node whose required field is missing, keeping its siblings", () => {
     const node = view({
       type: "Container",

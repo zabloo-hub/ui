@@ -1,15 +1,18 @@
-import type {
-  ButtonNode,
-  ContainerNode,
-  OverlayNode,
-  ProgressBarNode,
-  RepeatNode,
-  ScrollViewNode,
-  SliderNode,
-  SpinnerNode,
-  TextInputNode,
-  TextNode,
-  ToggleNode,
+import {
+  type ButtonNode,
+  type ContainerNode,
+  IR_VERSION,
+  type OverlayNode,
+  type ProgressBarNode,
+  type RepeatNode,
+  readEnvelope,
+  type ScrollViewNode,
+  type SliderNode,
+  type SpinnerNode,
+  type TextInputNode,
+  type TextNode,
+  type ToggleNode,
+  type ZNode,
 } from "@zabloo/format";
 import { Fragment, createElement as h, useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -1156,5 +1159,52 @@ describe("renderToIR", () => {
     expect(() => renderToIR([h(Text, { key: "a" }, "a"), h(Text, { key: "b" }, "b")])).toThrow(
       /exactly one root/,
     );
+  });
+});
+
+/**
+ * The two packages used to disagree about the empty string (ZAB-65): this side emits
+ * `text: ""` for anything with nothing to say yet, and the reader dropped those nodes as
+ * invalid. Both halves of the contract are asserted from here, on real component output,
+ * because a test that builds the IR by hand would not have caught the disagreement.
+ */
+describe("what renderToIR emits survives readEnvelope", () => {
+  /** Every `Text` of a tree, in document order — the reader's output, post-repair. */
+  function texts(node: ZNode | undefined): TextNode[] {
+    if (!node) return [];
+    if (node.type === "Text") return [node];
+    const children = ("children" in node ? node.children : undefined) ?? [];
+    return children.flatMap(texts);
+  }
+
+  it("keeps the empty labels of Select, Badge and <Text> — every slot survives", () => {
+    const ir = renderToIR(
+      h(
+        Column,
+        null,
+        // A Select whose value is static: its closed button shows no value, so the
+        // label is the empty string and not a binding.
+        h(Select, { id: "lang", key: "select" }, h(Option, { value: "es" }, h(Text, null, "es"))),
+        h(Badge, { key: "badge" }),
+        h(Text, { key: "blank" }),
+      ),
+    );
+    const { envelope, diagnostics } = readEnvelope({
+      v: IR_VERSION,
+      tokens: {},
+      views: { hud: ir },
+    });
+
+    expect(diagnostics).toEqual([]);
+    expect(texts(envelope?.views.hud).filter((t) => t.text === "").length).toBe(3);
+  });
+
+  it("still drops a hand-built Text with no `text` at all", () => {
+    const { diagnostics } = readEnvelope({
+      v: IR_VERSION,
+      tokens: {},
+      views: { hud: { type: "Text" } },
+    });
+    expect(diagnostics[0]?.code).toBe("invalid-node");
   });
 });
