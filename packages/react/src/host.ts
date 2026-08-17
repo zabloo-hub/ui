@@ -387,6 +387,16 @@ export function toIR(instance: HostInstance): ZNode {
       if (!children || children.length === 0) {
         throw new Error("<Spinner> needs at least one child: the beads that pulse.");
       }
+      // The renderer clamps a min outside 0..1, which turns "min={25}" (percent,
+      // not a multiplier) into a wave that never dims — say it at authoring time,
+      // like Slider's range and TextInput's cap.
+      const min = instance.props.min;
+      if (min !== undefined && !(typeof min === "number" && min >= 0 && min <= 1)) {
+        throw new Error(
+          `<Spinner min={${JSON.stringify(min)}}> is the opacity multiplier at the wave's ` +
+            "dimmest, between 0 and 1 (omit it for the default 0.25).",
+        );
+      }
       const node: SpinnerNode = {
         type: "Spinner",
         ...base,
@@ -407,12 +417,31 @@ export function toIR(instance: HostInstance): ZNode {
             "(omit it to keep the overlay up until something closes it).",
         );
       }
+      // Ties break by document order on equal `z`, so a NaN — the usual shape of
+      // `z={Number(props.layer)}` on a missing prop — silently sorts as 0 instead
+      // of the level that was meant.
+      if (z !== undefined && !Number.isFinite(z)) {
+        throw new Error(
+          `<Overlay z={${JSON.stringify(z)}}> must be a finite number: it is the ` +
+            "stacking order inside the layer (omit it for 0).",
+        );
+      }
       // An anchor with no target anchors nothing: the renderer would fall back to
       // the layer placement, which is not what an `anchor` prop reads as.
       if (anchor !== undefined && (typeof anchor.id !== "string" || anchor.id.length === 0)) {
         throw new Error(
           "An anchored overlay needs the `id` of the node it hangs from, e.g. " +
             'anchor="jump-btn" (and that node needs that same `id`).',
+        );
+      }
+      // `offset` is a `Dim`, so a token string is left alone — it is themeable and
+      // only the SDK resolves it. A number, though, is a distance in px: negative
+      // or non-finite it would place the content INSIDE the anchor it points at.
+      const offset = anchor?.offset;
+      if (typeof offset === "number" && !(Number.isFinite(offset) && offset >= 0)) {
+        throw new Error(
+          `<Overlay anchor.offset={${JSON.stringify(offset)}}> is the gap in px between the ` +
+            "anchor's edge and the content: zero or more (omit it for the default 8).",
         );
       }
       const node: OverlayNode = {

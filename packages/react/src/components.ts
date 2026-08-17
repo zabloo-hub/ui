@@ -9,6 +9,7 @@
  */
 
 import type {
+  AnchorAt,
   Bindable,
   Dim,
   Easing,
@@ -109,17 +110,16 @@ export interface OverlayProps extends CommonProps {
   children?: ReactNode;
 }
 
-/** Where an overlay's content sits on the layer — sugar over `justify`/`align`. */
-export type OverlayPosition =
-  | "center"
-  | "top"
-  | "bottom"
-  | "left"
-  | "right"
-  | "top-left"
-  | "top-right"
-  | "bottom-left"
-  | "bottom-right";
+/**
+ * Where an overlay's content sits — on the layer (sugar over `justify`/`align`),
+ * or AROUND the anchor when there is one.
+ *
+ * The format's `AnchorAt` by another name: the nine placements are one vocabulary,
+ * and duplicating the union here gave the same words two public types that could
+ * drift apart (ZAB-72). The alias stays because `position` is what the prop is
+ * called on this side — a placement on the layer is not "an anchor".
+ */
+export type OverlayPosition = AnchorAt;
 
 /** Props shared by the three overlay composites — a modal is always modal, hence the Omit. */
 interface OverlaySugarProps extends Omit<OverlayProps, "modal" | "anchor"> {
@@ -1598,6 +1598,38 @@ function numericDim(value: Dim | undefined, name: string): number {
 
 function isFragment(node: ReactNode): boolean {
   return isValidElement(node) && node.type === Fragment;
+}
+
+/**
+ * The sugar components are plain function declarations, so React falls back to
+ * `fn.name` — which a minifier renames to `t` in the build a game actually ships.
+ * Naming them explicitly is what keeps devtools and React's own error messages
+ * saying `<Modal>` (ZAB-72); `primitive()` already does it for the primitives.
+ */
+for (const [name, component] of Object.entries({
+  Accordion,
+  Badge,
+  Checkbox,
+  Column,
+  Grid,
+  List,
+  Modal,
+  Option,
+  ProgressBar,
+  Radio,
+  RadioGroup,
+  Row,
+  Select,
+  Slider,
+  Spinner,
+  Switch,
+  Tab,
+  Tabs,
+  TextInput,
+  Toast,
+  Tooltip,
+})) {
+  (component as FC).displayName = name;
 }
 
 /** Re-exported prop aliases for user components. */

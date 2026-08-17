@@ -21,6 +21,7 @@
 import {
   type ActionContext,
   clampProgress,
+  type Diagnostic,
   type Dim,
   type Easing,
   type Envelope,
@@ -223,6 +224,17 @@ export interface MountOptions {
    * without polling. Never fires for `setData` — that value came from the game.
    */
   onDataChanged?: (path: string, value: unknown) => void;
+  /**
+   * Where the loading contract's diagnostics go (ZAB-72). Every `warn` the
+   * validator repaired and every `fatal` that refused the payload arrives here as
+   * the STRUCTURED `Diagnostic` — stable `code`, `path` into the envelope — for
+   * both `mount` and `reload`. The fatal ones arrive BEFORE `mount` throws.
+   *
+   * It is what an error overlay, the CLI preview and the future editor show
+   * authoring errors from; without it they would be scraping console lines.
+   * Omitted, the warnings go to the console exactly as they always have.
+   */
+  onDiagnostic?: (diagnostic: Diagnostic) => void;
   /** Canvas clear color (CSS hex). */
   background?: string;
 }
@@ -247,6 +259,12 @@ export interface FrameStats {
 }
 
 export interface ZablooHandle {
+  /**
+   * The envelope's view ids, as of NOW: a hot-update may add, drop or rename
+   * views, so this is read on every access instead of frozen when the handle was
+   * made (ZAB-72). A caller that keeps the array around (a view picker, say) gets
+   * a snapshot of that moment — re-read it after `reload`.
+   */
   readonly viewIds: string[];
   /**
    * Resolves once the view has swapped in its OWN text rasterizer and repainted
@@ -301,7 +319,7 @@ export function mount(
   envelope: string | object,
   options: MountOptions = {},
 ): ZablooHandle {
-  const view = new WebView(canvas, loadEnvelope(envelope), options);
+  const view = new WebView(canvas, loadEnvelope(envelope, options.onDiagnostic), options);
   return view.handle();
 }
 
@@ -314,6 +332,19 @@ class WebView {
   private readonly clearColor: Color;
   private readonly onAction?: (action: string, context?: ActionContext) => void;
   private readonly onDataChanged?: (path: string, value: unknown) => void;
+  private readonly onDiagnostic?: (diagnostic: Diagnostic) => void;
+  /**
+   * Memoized by the literal string: the resolve pass parses every declared color
+   * every frame, and nothing in the renderer ever mutates a `Color` (they are
+   * shared identities already — `MISSING_COLOR`, the token dictionary), so one
+   * array per distinct literal is safe and an animation frame parses nothing.
+   *
+   * Per VIEW, not per module (ZAB-72): a module-level map is shared by every view
+   * the page ever mounts, grows with each distinct literal — an animated color
+   * writes one entry per frame — and nothing ever empties it. This one dies with
+   * the view that filled it.
+   */
+  private readonly parsedColors = new Map<string, Color | null>();
 
   private root!: LayoutNode;
   /** The view's overlays, flattened and ordered — rebuilt on every render. */
@@ -386,7 +417,8 @@ class WebView {
     this.viewId = options.view ?? Object.keys(envelope.views)[0];
     this.onAction = options.onAction;
     this.onDataChanged = options.onDataChanged;
-    this.clearColor = parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
+    this.onDiagnostic = options.onDiagnostic;
+    this.clearColor = this.parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
     // A restored context comes back empty and blank: the repaint is what puts
     // the view back on screen (ZAB-68). The GL layer rebuilds its own resources
     // and re-uploads every atlas and image on that very frame.
@@ -439,8 +471,15 @@ class WebView {
   }
 
   handle(): ZablooHandle {
+    // Every other member is an arrow that closes over `this`; a getter cannot be
+    // one, hence the name for the view it reads from.
+    const view = this;
     return {
-      viewIds: Object.keys(this.envelope.views),
+      // A getter, not a snapshot: `reload` can bring a different set of views and
+      // the caller must not be left listing the old ones (ZAB-72).
+      get viewIds(): string[] {
+        return Object.keys(view.envelope.views);
+      },
       ready: this.ready,
       reload: (input) => {
         if (!this.alive("reload")) return;
@@ -448,10 +487,14 @@ class WebView {
         // (decision 2026-08-12, ZAB-37): it reports and the current envelope stays.
         let next: Envelope;
         try {
-          next = loadEnvelope(input);
+          next = loadEnvelope(input, this.onDiagnostic);
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          console.warn(`[zabloo] reload rejected, keeping the current envelope — ${detail}`);
+          // The sink already heard the fatal diagnostic, with its code and path —
+          // the console line is for the caller that installed no sink.
+          if (!this.onDiagnostic) {
+            const detail = error instanceof Error ? error.message : String(error);
+            console.warn(`[zabloo] reload rejected, keeping the current envelope — ${detail}`);
+          }
           return;
         }
         this.envelope = next;
@@ -490,6 +533,11 @@ class WebView {
         for (const dispose of this.disposers) dispose();
         this.overlays.clearAutoClose();
         this.images.dispose();
+        // The atlases hold a canvas EACH, up to 4096² RGBA: waiting for the GC to
+        // notice a disposed view is how a page that mounts and drops views keeps
+        // hundreds of MB alive (ZAB-72). Their GPU textures die with `gl.dispose`.
+        this.fonts.dispose();
+        this.parsedColors.clear();
         this.font?.dispose();
         this.gl.dispose();
       },
@@ -1898,7 +1946,17 @@ class WebView {
 
   private color(value: unknown, fallback: Color): Color {
     const resolved = this.token(value);
-    return (typeof resolved === "string" && parseColor(resolved)) || fallback;
+    return (typeof resolved === "string" && this.parseColor(resolved)) || fallback;
+  }
+
+  /** `#rrggbb[aa]` → a `Color`, memoized in this view's `parsedColors`. */
+  private parseColor(hex: string): Color | null {
+    let color = this.parsedColors.get(hex);
+    if (color === undefined) {
+      color = parseColorLiteral(hex);
+      this.parsedColors.set(hex, color);
+    }
+    return color;
   }
 
   /** This frame's style: the base plus every active state, in `STATE_ORDER`. */
@@ -2685,25 +2743,11 @@ function moved(previous: number | null, next: number): boolean {
   return previous === null || Math.abs(previous - next) > 0.5;
 }
 
-/**
- * Memoized by the literal string: the resolve pass parses every declared color
- * every frame, and nothing in the renderer ever mutates a `Color` (they are
- * shared identities already — `MISSING_COLOR`, the token dictionary), so one
- * array per distinct literal is safe and an animation frame parses nothing.
- */
-const parsedColors = new Map<string, Color | null>();
-
-function parseColor(hex: string): Color | null {
-  let color = parsedColors.get(hex);
-  if (color === undefined) {
-    const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
-    if (!match) color = null;
-    else {
-      const rgb = Number.parseInt(match[1], 16);
-      const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
-      color = [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
-    }
-    parsedColors.set(hex, color);
-  }
-  return color;
+/** `#rrggbb` / `#rrggbbaa` → normalized RGBA, or null if it is neither. */
+function parseColorLiteral(hex: string): Color | null {
+  const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
+  if (!match) return null;
+  const rgb = Number.parseInt(match[1], 16);
+  const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
+  return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
 }

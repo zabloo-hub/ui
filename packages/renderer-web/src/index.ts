@@ -7,8 +7,12 @@
  * canvas; today it powers the `zabloo dev` live preview.
  */
 
+// The diagnostics `onDiagnostic` hands out are the format's, re-exported so the
+// callback can be typed without importing @zabloo/format for one name.
+export type { Diagnostic, DiagnosticCode, DiagnosticLevel } from "@zabloo/format";
 export {
   type ClipSnapshot,
+  findNode,
   type LayerSnapshot,
   type LineSnapshot,
   type NodeSnapshot,

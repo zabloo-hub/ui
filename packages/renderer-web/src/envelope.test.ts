@@ -1,4 +1,4 @@
-import { type ContainerNode, IR_VERSION } from "@zabloo/format";
+import { type ContainerNode, type Diagnostic, IR_VERSION } from "@zabloo/format";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadEnvelope } from "./envelope.js";
 
@@ -61,5 +61,44 @@ describe("loadEnvelope", () => {
     expect(() => loadEnvelope({ ...valid, views: { hud: { type: "Text" } } })).toThrow(
       "no usable views",
     );
+  });
+});
+
+/**
+ * The diagnostics are STRUCTURED — stable codes, a path into the envelope — and the
+ * console is where that structure died (ZAB-72). A sink gets the objects; the
+ * console lines stay exactly as they were for whoever installs none.
+ */
+describe("loadEnvelope with a diagnostic sink", () => {
+  it("hands over the warnings instead of printing them", () => {
+    const { lines } = captureWarnings();
+    const seen: Diagnostic[] = [];
+    loadEnvelope(
+      { ...valid, views: { hud: { type: "Container", children: [{ type: "Text" }] } } },
+      (diagnostic) => seen.push(diagnostic),
+    );
+    expect(seen.map((d) => d.code)).toEqual(["invalid-node"]);
+    expect(seen[0].level).toBe("warn");
+    expect(seen[0].path).toBe('views["hud"].children[0].text');
+    expect(lines).toEqual([]);
+  });
+
+  it("reports the fatal one BEFORE throwing, with its code and path", () => {
+    const seen: Diagnostic[] = [];
+    expect(() =>
+      loadEnvelope({ ...valid, v: IR_VERSION + 1 }, (diagnostic) => seen.push(diagnostic)),
+    ).toThrow("unsupported major version");
+    expect(seen.map((d) => [d.level, d.code])).toEqual([["fatal", "unsupported-version"]]);
+  });
+
+  it("carries the warnings that led to a fatal, in order", () => {
+    const seen: Diagnostic[] = [];
+    expect(() =>
+      loadEnvelope({ ...valid, views: { hud: { type: "Text" } } }, (diagnostic) =>
+        seen.push(diagnostic),
+      ),
+    ).toThrow("no usable views");
+    expect(seen.map((d) => d.level)).toEqual(["warn", "fatal"]);
+    expect(seen.at(-1)?.code).toBe("no-usable-views");
   });
 });
