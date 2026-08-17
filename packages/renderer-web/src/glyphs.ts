@@ -62,6 +62,16 @@ export class GlyphAtlas {
   private _version = 0;
   /** The full-at-max warning fires once per atlas, not once per glyph. */
   private warnedFull = false;
+  /** Same for the rasterizer-failed warning (ZAB-69). */
+  private warnedRaster = false;
+  /**
+   * Kerning by pair (ZAB-69). Advances are cached with the glyph, but kerning
+   * was crossing into the WASM once per pair PER FRAME, twice over — the wrap
+   * measures the run and the tessellator paints it — which made it the hottest
+   * path left in a text-heavy scene. Sized like `glyphs`: the pairs a scene
+   * actually uses, and the point size it is keyed by never changes.
+   */
+  private readonly kerns = new Map<string, number>();
 
   /** Bumped every time the atlas bitmap changes (the GL layer re-uploads). */
   get version(): number {
@@ -159,12 +169,42 @@ export class GlyphAtlas {
    */
   kern(previous: string, char: string): number {
     if (!this.font) return 0;
-    return this.font.kern(previous, char, this.devicePointSize) / this.scale;
+    const key = previous + char;
+    let value = this.kerns.get(key);
+    if (value === undefined) {
+      value = this.font.kern(previous, char, this.devicePointSize) / this.scale;
+      this.kerns.set(key, value);
+    }
+    return value;
   }
 
-  /** Our rasterizer: stb hands us 8-bit coverage, we own where it lands. */
+  /**
+   * Our rasterizer: stb hands us 8-bit coverage, we own where it lands.
+   *
+   * Everything past the advance runs under a `try` (ZAB-69): rasterizing asks
+   * the WASM heap for `width * height` bytes and `createImageData` for four
+   * times that, and either can fail on a glyph big enough. This is reached from
+   * the measure pass, inside `render()`, from event handlers and from RAF —
+   * nobody up there catches — so a failure degrades to a blank glyph (cached
+   * like any other, so it is not retried every frame) instead of killing the view.
+   */
   private rasterizeStb(char: string, font: StbFont): GlyphInfo {
     const advance = font.advance(char, this.devicePointSize) / this.scale;
+    try {
+      return this.rasterizeStbInto(char, font, advance);
+    } catch (error) {
+      if (!this.warnedRaster) {
+        this.warnedRaster = true;
+        console.warn(
+          `[zabloo] Glyph rasterization failed at ${this.pointSize}px — glyph "${char}" and later failures paint blank.`,
+          error,
+        );
+      }
+      return blank(advance);
+    }
+  }
+
+  private rasterizeStbInto(char: string, font: StbFont, advance: number): GlyphInfo {
     const bitmap = font.render(char, this.devicePointSize);
     if (bitmap.width <= 0 || bitmap.height <= 0) return blank(advance);
 
@@ -244,26 +284,37 @@ export class GlyphAtlas {
    * null then, and the caller caches the blank.
    */
   private reserve(w: number, h: number, char: string): { x: number; y: number } | null {
+    // A glyph bigger than the whole atlas fits on no shelf of it, in EITHER
+    // axis (ZAB-69). Growing for height alone left a too-wide glyph placed
+    // anyway, off the right edge, with UVs past 1 — the sampler then read
+    // whatever the texture wraps to instead of the blank the caller believed
+    // it got. Checked before the shelf, since growing resets the pens.
+    while (w + PADDING * 2 > this.size || h + PADDING * 2 > this.size) {
+      if (!this.grow()) return this.giveUp(char);
+    }
     if (this.penX + w + PADDING > this.size) {
       this.penX = PADDING;
       this.penY += this.rowHeight + PADDING;
       this.rowHeight = 0;
     }
     while (this.penY + h + PADDING > this.size) {
-      if (!this.grow()) {
-        if (!this.warnedFull) {
-          this.warnedFull = true;
-          console.warn(
-            `[zabloo] Glyph atlas (${this.pointSize}px) is full at ${this.size}px — glyph "${char}" and later ones skipped.`,
-          );
-        }
-        return null;
-      }
+      if (!this.grow()) return this.giveUp(char);
     }
     const spot = { x: this.penX, y: this.penY };
     this.penX += w + PADDING;
     this.rowHeight = Math.max(this.rowHeight, h);
     return spot;
+  }
+
+  /** No room at `MAX_ATLAS_SIZE`: warn once per atlas, and the caller blanks the glyph. */
+  private giveUp(char: string): null {
+    if (!this.warnedFull) {
+      this.warnedFull = true;
+      console.warn(
+        `[zabloo] Glyph atlas (${this.pointSize}px) is full at ${this.size}px — glyph "${char}" and later ones skipped.`,
+      );
+    }
+    return null;
   }
 
   /**
@@ -274,7 +325,10 @@ export class GlyphAtlas {
    * Blanks that were only blank for lack of room become real glyphs here.
    */
   private grow(): boolean {
-    if (this.size >= MAX_ATLAS_SIZE) return false;
+    // A disposed atlas has no surface to double (`dispose` leaves the side at 0,
+    // and doubling zero never reaches anything): it grows no more, so the callers
+    // that loop until a glyph fits blank it instead of spinning forever.
+    if (this.size === 0 || this.size >= MAX_ATLAS_SIZE) return false;
     this.size *= 2;
     this._canvas = createCanvas(this.size, this.size);
     this.ctx = this.prepare(this._canvas);
@@ -294,6 +348,7 @@ export class GlyphAtlas {
    */
   dispose(): void {
     this.glyphs.clear();
+    this.kerns.clear();
     this._canvas.width = 0;
     this._canvas.height = 0;
     this.size = 0;

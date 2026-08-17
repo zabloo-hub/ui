@@ -222,6 +222,73 @@ describe("layoutText — truncation", () => {
   });
 });
 
+/**
+ * The cost of the wrap, in the only unit that is the same on every machine: how
+ * many times it asks the font for a metric. Each one is a call across the WASM
+ * boundary in the real renderer (`glyphs.ts`), so counting them IS the budget —
+ * and it does not go flaky on a loaded CI box the way a stopwatch would.
+ */
+function countingFont(): { font: TextMetrics; calls: () => number } {
+  let calls = 0;
+  return {
+    font: {
+      advance: (char) => {
+        calls++;
+        return FONT.advance(char);
+      },
+      kern: (previous, char) => {
+        calls++;
+        return FONT.kern(previous, char);
+      },
+      lineHeight: FONT.lineHeight,
+      ascent: FONT.ascent,
+    },
+    calls: () => calls,
+  };
+}
+
+describe("layoutText — cost (ZAB-69)", () => {
+  /** A single token of 50k glyphs: no break opportunity anywhere in it. */
+  const LONG_WORD = "a".repeat(50_000);
+
+  it("breaks a very long word in one pass over its glyphs", () => {
+    const { font, calls } = countingFont();
+    const block = layoutText(LONG_WORD, font, options({ maxWidth: 100 }));
+
+    // 10px glyphs in a 100px column: 10 per line, and the last one is full too.
+    expect(block.lines).toHaveLength(5000);
+    expect(block.lines[0]).toEqual({ text: "aaaaaaaaaa", width: 100 });
+    expect(block.lines.at(-1)).toEqual({ text: "aaaaaaaaaa", width: 100 });
+    // A handful of lookups per glyph. Re-measuring the remainder per line — what
+    // this used to do — is ~10⁹ for this input, five orders of magnitude away.
+    expect(calls()).toBeLessThan(LONG_WORD.length * 10);
+  });
+
+  it("stops wrapping once maxLines is satisfied", () => {
+    const { font, calls } = countingFont();
+    const block = layoutText(LONG_WORD, font, options({ maxWidth: 100, maxLines: 2 }));
+
+    expect(block.lines).toEqual([
+      { text: "aaaaaaaaaa", width: 100 },
+      { text: "aaaaaaaaaa", width: 100 },
+    ]);
+    expect(block.truncated).toBe(true);
+    // Three lines' worth of glyphs — the two kept plus the one that proves there
+    // was more — and nothing from the other 49.970. Bounded by the cap, not by
+    // the content: the same assertion holds for a word ten times longer.
+    expect(calls()).toBeLessThan(200);
+  });
+
+  it("stops at the paragraph that fills maxLines, whatever follows it", () => {
+    const { font, calls } = countingFont();
+    const block = layoutText(`aa\nbb\n${LONG_WORD}`, font, options({ maxWidth: 100, maxLines: 2 }));
+
+    expect(block.lines.map((line) => line.text)).toEqual(["aa", "bb"]);
+    expect(block.truncated).toBe(true);
+    expect(calls()).toBeLessThan(200);
+  });
+});
+
 describe("placeLines", () => {
   const RECT: Rect = { x: 100, y: 200, width: 80, height: 100 };
   type Align = "start" | "center" | "end";

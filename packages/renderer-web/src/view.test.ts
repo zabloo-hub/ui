@@ -1,5 +1,6 @@
 import type { Diagnostic } from "@zabloo/format";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { GlyphAtlas } from "./glyphs.js";
 import { mountCase, readCorpus, readEnvelope } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode, type NodeSnapshot, type ViewSnapshot } from "./snapshot.js";
@@ -1068,6 +1069,45 @@ describe("repeat recycling × transitions", () => {
     expect(appeared[0].name).not.toBe("item 0");
     expect(appeared).toEqual(appeared.map((row) => ownLook(row.name)));
     expect(settled).toEqual(appeared);
+  });
+});
+
+describe("text size (ZAB-69)", () => {
+  function label(fontSize: number, text = "A"): object {
+    return {
+      v: 1,
+      tokens: {},
+      views: { big: { type: "Text", id: "big", text, style: { fontSize } } },
+    };
+  }
+
+  it("clamps a runaway fontSize instead of rasterizing hundreds of megabytes", async () => {
+    // 20000px asks the rasterizer for a ~14000² coverage buffer (~200 MB) and
+    // then throws "out of WASM memory" — from the measure pass, inside render(),
+    // called from an event handler with nobody to catch it. The clamp is what
+    // stands between an author's animated token and a dead view.
+    const runaway = await mountGolden(label(20_000));
+    const rect = node(runaway.snapshot(), "big").rect;
+    const warnings = [...runaway.warnings];
+    runaway.dispose();
+
+    // Laid out at the ceiling — the same view as if 512 had been declared.
+    view = await mountGolden(label(512));
+    expect(rect).toEqual(node(view.snapshot(), "big").rect);
+    expect(warnings).toEqual([]);
+  });
+
+  it("wraps a Text once and reuses the lines while nothing about it changes", async () => {
+    view = await mountGolden(label(16, "una etiqueta que no cambia"));
+    // The wrap walks the run through the atlas; a frame that reuses the block
+    // does not touch it at all.
+    const advance = vi.spyOn(GlyphAtlas.prototype, "advance");
+
+    view.settle();
+    view.settle();
+
+    expect(advance).not.toHaveBeenCalled();
+    advance.mockRestore();
   });
 });
 
