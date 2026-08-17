@@ -1,0 +1,130 @@
+# Nothing here publishes on its own. Merging to main only opens the "Version
+# Packages" PR; the two jobs that talk to the registry run on manual dispatch,
+# and the one that can actually upload is also behind an environment approval.
+# See docs/releasing.md.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run simulates the publish; publish uploads to npm"
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - publish
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Merging to main opens (or updates) the "Version Packages" PR: changesets
+  # consumed, versions bumped, changelogs written. Nothing is published — that
+  # PR landing is what makes a version releasable, not what releases it.
+  version:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          title: "Version Packages"
+          commit: "Publica las versiones pendientes (changesets)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The rehearsal: everything a real publish does except the upload. Safe by
+  # construction (`--dry-run` cannot reach the registry's write side), so it
+  # needs no environment approval and no token.
+  dry-run:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - name: What would be released
+        run: pnpm changeset status --verbose
+
+      - name: Simulate the publish
+        run: pnpm publish -r --dry-run --no-git-checks
+
+  # The only job that can upload. Two locks: manual dispatch with `publish`
+  # chosen, and the `npm-publish` environment's required reviewer.
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: write
+      # npm provenance: the published package is signed against this workflow run.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # Fail here, before any build, rather than three minutes in with a 401.
+      - name: Require the npm token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error::Secret NPM_TOKEN is not set — see docs/releasing.md." >&2
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      # `changeset publish` publishes only the packages whose version is not on
+      # the registry yet, and tags the release commit for each one.
+      - name: Publish
+        run: pnpm changeset publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

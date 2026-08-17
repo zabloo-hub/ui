@@ -1,0 +1,29 @@
+# The adoption funnel end to end, from outside the monorepo: pack → npx
+# create-zabloo-app → install → typecheck → export. Not on every PR: it packs
+# five packages and does a real install, which is minutes, and what it guards
+# against (a package reaching for something only the workspace provides) moves
+# on the scale of days, not commits.
+name: Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays, 05:00 UTC.
+    - cron: "0 5 * * 1"
+
+jobs:
+  external:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm smoke:external

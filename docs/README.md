@@ -33,6 +33,11 @@ One page per node type. Each page documents the node as it appears in the IR **a
 
 → [Component catalog](components/README.md)
 
+## For maintainers
+
+→ [Releasing](releasing.md) — how a version reaches npm, and the gate that keeps it from
+happening by accident.
+
 ## How to read these pages
 
 **Types.** The IR is JSON. The types used throughout:
