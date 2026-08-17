@@ -16,7 +16,7 @@
 
 import { spawn } from "node:child_process";
 import { watch } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { startPreviewServer } from "./preview-server.js";
 
@@ -25,6 +25,19 @@ export async function devLoop(
   previewPort: number,
   unity: { port: number } | null,
 ): Promise<void> {
+  // Before anything is announced: `watch()` on a missing directory throws from
+  // libuv, and it used to do it AFTER the banner claimed everything was up — a
+  // raw UVException under a success message (ZAB-67).
+  const srcDir = join(root, "src");
+  try {
+    await access(srcDir);
+  } catch {
+    throw new Error(
+      `no src/ directory in ${root} — is this a zabloo project? ` +
+        `(scaffold one: npx create-zabloo-app)`,
+    );
+  }
+
   const unityUrl = unity ? `http://127.0.0.1:${unity.port}/zabloo/envelope` : null;
   const pushToEngine = createPusher(unityUrl);
   const preview = await startPreviewServer(previewPort);
@@ -49,12 +62,17 @@ export async function devLoop(
     }
     running = true;
     try {
-      const outFile = await exportInChild(root);
+      const { outFile, error } = await exportInChild(root);
       if (outFile) {
         const envelope = await readFile(outFile, "utf8");
         preview.setEnvelope(envelope); // tree and asset bytes served apart
         preview.notify(); // browser preview reloads via SSE
         await pushToEngine(envelope); // engine dev mode (no-op without --unity)
+      } else {
+        // The failure goes where you are looking: the page keeps the last good
+        // render, so without this the only report is a terminal line, and "I
+        // saved and nothing happened" is the most confusing state of all (ZAB-67).
+        preview.notifyError(error);
       }
     } finally {
       running = false;
@@ -71,7 +89,7 @@ export async function devLoop(
     timer = setTimeout(() => void run(), 150);
   };
 
-  watch(join(root, "src"), { recursive: true }, schedule);
+  watch(srcDir, { recursive: true }, schedule);
   watch(root, (_event, filename) => {
     if (filename === "zabloo.config.ts") schedule();
   });
@@ -104,27 +122,49 @@ export function createPusher(url: string | null): (body: string) => Promise<void
   };
 }
 
-/** Runs `zabloo export --porcelain` in a child process; resolves to the outFile. */
-function exportInChild(root: string): Promise<string | null> {
+/** What one export attempt produced: the envelope's path, or the message to show. */
+interface ChildExport {
+  outFile: string | null;
+  /** The child's stderr, for the preview overlay; empty while `outFile` is set. */
+  error: string;
+}
+
+/**
+ * Runs `zabloo export --porcelain` in a child process.
+ *
+ * stderr is piped rather than inherited so a failure can be REPORTED (the page's
+ * overlay needs the text), and mirrored to ours as it arrives so the terminal
+ * behaves exactly as before.
+ */
+function exportInChild(root: string): Promise<ChildExport> {
   return new Promise((resolvePromise) => {
     const child = spawn(
       process.execPath,
       [process.argv[1], "export", "--cwd", root, "--porcelain"],
       {
-        stdio: ["ignore", "pipe", "inherit"],
+        stdio: ["ignore", "pipe", "pipe"],
       },
     );
     let stdout = "";
+    let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+      process.stderr.write(chunk);
+    });
     child.on("close", (code) => {
       if (code === 0) {
-        const lines = stdout.trim().split("\n");
-        resolvePromise(lines[lines.length - 1]?.trim() || null);
+        const outFile = stdout.trim().split("\n").at(-1)?.trim();
+        resolvePromise(
+          outFile
+            ? { outFile, error: "" }
+            : { outFile: null, error: "export printed no envelope path" },
+        );
       } else {
         console.error("zabloo dev: export failed — fix the error above and save again.");
-        resolvePromise(null);
+        resolvePromise({ outFile: null, error: stderr.trim() || `export failed (exit ${code})` });
       }
     });
   });

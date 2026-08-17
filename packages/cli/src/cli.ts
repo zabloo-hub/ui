@@ -52,11 +52,18 @@ program
   .action(async (options: { cwd: string; unity?: boolean; port: string; previewPort: string }) => {
     const { resolve } = await import("node:path");
     const { devLoop } = await import("./dev.js");
-    await devLoop(
-      resolve(options.cwd),
-      Number(options.previewPort),
-      options.unity ? { port: Number(options.port) } : null,
-    );
+    // `dev` only ever returns by failing (it watches until Ctrl+C), so what a
+    // person sees when the loop cannot start is this message — not a stack.
+    try {
+      await devLoop(
+        resolve(options.cwd),
+        Number(options.previewPort),
+        options.unity ? { port: Number(options.port) } : null,
+      );
+    } catch (error) {
+      console.error(`zabloo dev: ${error instanceof Error ? error.message : error}`);
+      process.exitCode = 1;
+    }
   });
 
 program.parse();

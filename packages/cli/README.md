@@ -56,10 +56,17 @@ zabloo dev --port 5077         # dev-mode port of the Unity editor (with --unity
 With `--unity`, every save hot-swaps the running view in the editor (Play mode included)
 through the same loading path production hot-updates use.
 
+A save whose export fails is reported **on the page**: the error appears over the view
+that is still on screen and the status dot turns red, so a stale render never passes for
+a fresh one. If the preview port is taken, `dev` moves to the next free one and says so —
+the URL it prints is always the server it actually bound.
+
 ## Configuration
 
-`zabloo.config.ts` at the project root — currently `outDir` (default `dist`). Views come
-from `src/views/`, assets from `src/assets/`, tokens and variants from `src/theme.ts`.
+`zabloo.config.ts` at the project root — currently `outDir` (default `dist`). Both it and
+`src/theme.ts` are optional: without them a project exports to `dist` with no tokens.
+Views come from `src/views/`, assets from `src/assets/`, tokens and variants from
+`src/theme.ts`.
 
 ## Not a library
 
