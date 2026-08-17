@@ -205,6 +205,7 @@
                               "type": "Container",
                               "id": "quality-options",
                               "group": "exclusive-check",
+                              "onChange": "quality-changed",
                               "value": {
                                 "bind": "settings.quality"
                               },

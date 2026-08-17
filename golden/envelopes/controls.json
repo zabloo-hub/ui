@@ -69,12 +69,14 @@
           "id": "radio-group",
           "group": "exclusive-check",
           "value": "medium",
+          "onChange": "difficulty-changed",
           "layout": { "direction": "row", "align": "center", "gap": "{space.2}" },
           "children": [
             {
               "type": "Toggle",
               "id": "radio-low",
               "value": "low",
+              "onChange": "difficulty-low-picked",
               "layout": { "width": 60, "height": 24, "align": "center" },
               "style": { "background": "{color.track}" },
               "states": { "checked": { "style": { "background": "{color.fill}" } } },

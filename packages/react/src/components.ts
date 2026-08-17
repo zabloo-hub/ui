@@ -41,6 +41,11 @@ export interface ContainerProps extends CommonProps {
   selected?: number;
   /** Selected value of an `"exclusive-check"` group — see `<RadioGroup>`. */
   value?: Bindable<string | number>;
+  /**
+   * Named action fired when the selection of an `"exclusive-check"` group moves
+   * (ZAB-64). Ignored on any other `group`, like `value`.
+   */
+  onChange?: string;
   children?: ReactNode;
 }
 
@@ -269,6 +274,12 @@ export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
    * A `<Radio>` is checked while its `value` equals this one.
    */
   value?: Bindable<string | number>;
+  /**
+   * Named action fired when the selection moves — the group's own hook, which is
+   * the one that answers "what did they pick" (a `<Radio onChange>` only says
+   * that THIS option was tapped). Declaring both fires both, option first.
+   */
+  onChange?: string;
 }
 
 export interface SelectProps extends Omit<ContainerProps, "group" | "value"> {
@@ -283,7 +294,11 @@ export interface SelectProps extends Omit<ContainerProps, "group" | "value"> {
    * `<RadioGroup>`, which is the same `"exclusive-check"` group underneath.
    */
   value?: Bindable<string | number>;
-  /** Named action fired after every change, like `<RadioGroup>`'s options. */
+  /**
+   * Named action fired after every change. It lands on the group inside the
+   * dropdown, which is the node that holds the selection — the `<Option>`s have
+   * no hook of their own, and neither does the closed button.
+   */
   onChange?: string;
   /** The `<Option>`s. They live in the dropdown, never in the closed button. */
   children?: ReactNode;
@@ -749,6 +764,10 @@ export function Select({
           {
             group: "exclusive-check",
             value,
+            // The hook belongs to the group for the same reason `value` does:
+            // it is the node that owns the selection. The button never sees the
+            // choice (it only opens the list) and an option only knows its own.
+            ...(onChange !== undefined ? { onChange } : {}),
             // `stretch` is what makes the whole ROW the target: without it each
             // option is only as wide as its label, and the empty half of the row
             // is a click that lands on the list and does nothing.

@@ -204,6 +204,15 @@ describe("readEnvelope: views and nodes", () => {
     expect(node.style).toEqual({ background: "#fff" });
   });
 
+  it("keeps a group's onChange, and drops it when it is not a name", () => {
+    const good = view({ type: "Container", group: "exclusive-check", onChange: "quality-changed" });
+    expect(good.onChange).toBe("quality-changed");
+    // A hook that is not a string is no hook: the group selects as before.
+    const bad = view({ type: "Container", group: "exclusive-check", onChange: 42 });
+    expect("onChange" in bad).toBe(false);
+    expect(bad.group).toBe("exclusive-check");
+  });
+
   it("drops a whole malformed layout/style/states/transition block", () => {
     const node = view({
       type: "Container",

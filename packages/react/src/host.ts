@@ -105,6 +105,11 @@ export interface HostInstance {
     axis?: ScrollAxis;
     scrollbar?: boolean;
     checked?: Bindable<boolean>;
+    /**
+     * The live hook of every node that holds a value — the Toggle, the Slider,
+     * the TextInput, and an `"exclusive-check"` Container, whose value is the
+     * selection of the whole group (ZAB-64).
+     */
     onChange?: string;
     /**
      * Toggle: this option's value in a group. Container: the group's selected
@@ -250,6 +255,7 @@ export function toIR(instance: HostInstance): ZNode {
         ...(instance.props.group !== undefined && { group: instance.props.group }),
         ...(instance.props.selected !== undefined && { selected: instance.props.selected }),
         ...(instance.props.value !== undefined && { value: instance.props.value }),
+        ...(instance.props.onChange !== undefined && { onChange: instance.props.onChange }),
         ...childrenIR(instance),
       };
       return node;

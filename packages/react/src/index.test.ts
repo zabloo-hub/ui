@@ -307,6 +307,20 @@ describe("renderToIR", () => {
     expect(checkedSlot.style?.radius).toBe(11);
   });
 
+  it("hangs the RadioGroup's onChange off the group, next to the value it belongs to", () => {
+    const ir = renderToIR(
+      h(
+        RadioGroup,
+        { value: { bind: "settings.quality" }, onChange: "quality-changed" },
+        h(Radio, { value: "low", onChange: "low-picked" }, h(Text, null, "Baja")),
+      ),
+    ) as ContainerNode;
+    expect(ir.onChange).toBe("quality-changed");
+    // The two hooks are different questions and both survive: the group's says
+    // the selection moved, the option's that this one was tapped.
+    expect(((ir.children ?? []) as ToggleNode[])[0].onChange).toBe("low-picked");
+  });
+
   it("lowers Select to a Button anchoring a modal popover over an exclusive-check group", () => {
     const ir = renderToIR(
       h(
@@ -348,6 +362,31 @@ describe("renderToIR", () => {
     expect(options.map((o) => o.value)).toEqual(["es", "en"]);
     // Both indicator slots, as on every Toggle: the mark, and the space it takes.
     expect((options[0].children ?? []).length).toBe(3);
+  });
+
+  it("lands the Select's onChange on the group — the only node that sees the choice", () => {
+    const ir = renderToIR(
+      h(
+        Select,
+        { id: "lang", value: { bind: "settings.lang" }, onChange: "lang-changed" },
+        h(Option, { value: "es" }, h(Text, null, "es")),
+      ),
+    ) as ButtonNode;
+
+    // Not on the button (it only opens the list) and not on the popover.
+    expect(ir.onClick).toBeUndefined();
+    const popover = (ir.children ?? [])[1] as OverlayNode;
+    const [list] = (popover.children ?? []) as [ScrollViewNode];
+    const [group] = (list.children ?? []) as [ContainerNode];
+    expect(group.onChange).toBe("lang-changed");
+  });
+
+  it("emits no onChange at all when the Select declares none", () => {
+    const ir = renderToIR(h(Select, { id: "lang" }, h(Option, { value: "es" }))) as ButtonNode;
+    const popover = (ir.children ?? [])[1] as OverlayNode;
+    const [list] = (popover.children ?? []) as [ScrollViewNode];
+    const [group] = (list.children ?? []) as [ContainerNode];
+    expect(group).not.toHaveProperty("onChange");
   });
 
   it("opens Select where `position` says, and passes it through to the anchor", () => {

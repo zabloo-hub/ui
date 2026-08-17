@@ -262,6 +262,10 @@ describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
 
     // The choice travels the data channel's return leg, once.
     expect(view.writes).toEqual([{ path: "settings.quality", value: "Media" }]);
+    // And the group's named action fires with it: a `<Select onChange>` is a
+    // real hook, not a documented no-op (ZAB-64). The options have none of their
+    // own, so this is the only thing the game hears.
+    expect(view.actions).toEqual([{ action: "quality-changed" }]);
     // The bound label on the anchor now reads what was chosen.
     expect(node(view.snapshot(), "quality-value").text?.lines[0].text).toBe("Media");
     // Choosing is the gesture that ends the menu, and the focus returns to the
@@ -296,6 +300,8 @@ describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
     view.press();
 
     expect(view.writes).toEqual([{ path: "settings.quality", value: "Media" }]);
+    // Same flow, same hook: the action does not care which input caused it.
+    expect(view.actions).toEqual([{ action: "quality-changed" }]);
     expect(view.snapshot().layer).toEqual([]);
   });
 });
@@ -388,6 +394,30 @@ describe("controls", () => {
 
     expect(states(view.snapshot(), "radio-low")).toContain("checked");
     expect(states(view.snapshot(), "radio-medium")).not.toContain("checked");
+  });
+
+  it("fires the option's hook and then the group's — two questions, both answered", async () => {
+    view = await mountCase(CORPUS.controls);
+    const target = center(view.snapshot(), "radio-low");
+
+    view.pointer.click(target.x, target.y);
+
+    // Inner first: "this one was tapped", then "the selection moved". Neither
+    // carries the value — that is the data channel's leg (ZAB-64).
+    expect(view.actions).toEqual([
+      { action: "difficulty-low-picked" },
+      { action: "difficulty-changed" },
+    ]);
+  });
+
+  it("says nothing when the choice is the option already selected", async () => {
+    view = await mountCase(CORPUS.controls);
+    const target = center(view.snapshot(), "radio-medium");
+
+    view.pointer.click(target.x, target.y);
+
+    expect(states(view.snapshot(), "radio-medium")).toContain("checked");
+    expect(view.actions).toEqual([]);
   });
 });
 

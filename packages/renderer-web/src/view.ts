@@ -1084,11 +1084,13 @@ class WebView {
   /**
    * Single state-mutation path for Toggles (tap, Enter/gamepad, `setChecked`):
    * updates the state, writes the new value into its bound path — the return leg
-   * of the data channel — and fires the node's named action.
+   * of the data channel — and fires the named actions: the option's own, and the
+   * group's when the selection of one moved (ZAB-64).
    */
   private setToggleChecked(node: LayoutNode, checked: boolean): void {
     const any = node.ir as AnyNode;
     const group = this.exclusiveGroupOf(node);
+    let groupAction: string | undefined;
 
     if (group) {
       // A radio only ever turns ON; the group's value is the state that moves.
@@ -1105,6 +1107,10 @@ class WebView {
       this.applyGroupValue(group);
       const path = this.writePath(group, (group.ir as AnyNode).value);
       if (path !== null) this.writeData(path, any.value);
+      // The selection MOVED — the early return above is what keeps re-picking
+      // the current option silent — so the group speaks too. Its hook is the one
+      // a `<Select>` declares: the option only ever says "me".
+      groupAction = (group.ir as AnyNode).onChange;
     } else {
       if (node.checked === checked) return;
       node.checked = checked;
@@ -1114,7 +1120,11 @@ class WebView {
       if (path !== null) this.writeData(path, checked);
     }
 
+    // Inner first, then the group: the same order a press reads, and both carry
+    // the context of the OPTION — inside a `Repeat` that is the item the choice
+    // was made in, which is strictly more than the group could say (ZAB-29).
     if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
+    if (groupAction) this.onAction?.(groupAction, this.contextOf(node));
     this.render();
   }
 
