@@ -181,6 +181,16 @@ describe("measure: Slider", () => {
   it("still measures the slots, so the thumb has a size to travel with", () => {
     expect(slider().children[1].measured).toEqual({ x: 18, y: 18 });
   });
+
+  it("measures the slots IN FLOW only — the resolve pass skipped the others", () => {
+    // A slot out of layout keeps whatever `resolved` the last frame that painted
+    // it left there, so measuring it would be measuring the past.
+    const built = slider({}, 0.5);
+    built.children[1].visibleFlag = false;
+    const { offers, measureLeaf } = recorder();
+    measure(built, measureLeaf, null);
+    expect(offers).toEqual([200]); // the fill's offer, and nothing for the thumb
+  });
 });
 
 describe("arrange: Slider", () => {
@@ -242,6 +252,45 @@ describe("arrange: Slider", () => {
     arrange(built, { x: 0, y: 0, width: 200, height: 6 });
     expect(built.children[0].rect).toEqual({ x: 0, y: 0, width: 0, height: 0 });
     expect(built.children[1].rect.x).toBe(182);
+  });
+
+  it("gives the rail's thickness to a slot whose own height does not resolve", () => {
+    // A `{sizes.thumb}` matching no token: `ir.layout` still reads as declared,
+    // but the resolve pass left `resolved.height` undefined — and that is auto,
+    // which across the rail means the full rail.
+    const built = slider({}, 0.5);
+    const thumb = built.children[1];
+    thumb.ir.layout = { width: 18, height: "{sizes.thumb}" };
+    thumb.resolved = { width: 18 };
+    measure(built, noLeaf, null);
+
+    const { thumb: rect } = laidOut(built);
+    expect(rect.height).toBe(6);
+    expect(rect.y).toBe(0); // centered on a rail it exactly covers
+  });
+});
+
+// --- ScrollView: the reach the offsets are clamped against ---
+
+describe("arrange: ScrollView", () => {
+  const VIEWPORT: Rect = { x: 0, y: 0, width: 200, height: 100 };
+
+  it("forgets the scroll extent when every child leaves the flow", () => {
+    const size = { width: 200, height: 400 };
+    const content = node({ type: "Container", layout: size }, { width: 200, height: 400 });
+    const built = node({ type: "ScrollView", axis: "vertical" }, {}, [content]);
+    measure(built, noLeaf, 200);
+    arrange(built, VIEWPORT);
+    expect(built.scrollMax).toEqual({ x: 0, y: 300 });
+
+    // Scrolled to the bottom, and then the list empties out: the reach has to go
+    // with it, or the view keeps scrolling into nothing.
+    built.scrollOffset = { x: 0, y: 300 };
+    content.visibleFlag = false;
+    measure(built, noLeaf, 200);
+    arrange(built, VIEWPORT);
+    expect(built.scrollMax).toEqual({ x: 0, y: 0 });
+    expect(built.scrollOffset).toEqual({ x: 0, y: 0 });
   });
 });
 

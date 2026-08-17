@@ -89,6 +89,11 @@ since that would pay the cost twice.
   into its summary. What it writes is the **author's** tree, never the repaired one —
   silently dropping a node from the artifact would hide the bug the warning just named.
 
+- **Where they are reported is the host's choice.** The web renderer takes an
+  `onDiagnostic` callback (`mount` and `reload` alike) that receives these objects —
+  code, path and all — so an error overlay, a dev server or an editor can show them
+  where the author is looking. With no callback they go to the console.
+
 Warnings are emitted **once, at load**, not per frame.
 
 ## Forward-tolerance (normative)

@@ -325,7 +325,10 @@ export class GlyphAtlas {
    * Blanks that were only blank for lack of room become real glyphs here.
    */
   private grow(): boolean {
-    if (this.size >= MAX_ATLAS_SIZE) return false;
+    // A disposed atlas has no surface to double (`dispose` leaves the side at 0,
+    // and doubling zero never reaches anything): it grows no more, so the callers
+    // that loop until a glyph fits blank it instead of spinning forever.
+    if (this.size === 0 || this.size >= MAX_ATLAS_SIZE) return false;
     this.size *= 2;
     this._canvas = createCanvas(this.size, this.size);
     this.ctx = this.prepare(this._canvas);
@@ -334,6 +337,21 @@ export class GlyphAtlas {
     for (const char of cached) this.get(char);
     this._version++;
     return true;
+  }
+
+  /**
+   * Releases the bitmap NOW instead of when the GC gets to it (ZAB-72): an atlas
+   * that grew to the cap is 4096² RGBA — 64 MB of backing store — and resizing a
+   * canvas to zero is what frees it in every browser. Only the library's own
+   * `dispose` calls this: an atlas whose canvas is gone can no longer rasterize,
+   * so it must already be unreachable. Its GPU texture belongs to the GL layer.
+   */
+  dispose(): void {
+    this.glyphs.clear();
+    this.kerns.clear();
+    this._canvas.width = 0;
+    this._canvas.height = 0;
+    this.size = 0;
   }
 }
 
@@ -417,5 +435,17 @@ export class FontLibrary {
 
   all(): Iterable<GlyphAtlas> {
     return this.atlases.values();
+  }
+
+  /**
+   * Drops every atlas and its bitmap — the view's `dispose` (ZAB-72). Up to
+   * `MAX_ATLASES` canvases of up to 4096² RGBA hang off this map, so leaving them
+   * to the GC is how a page that mounts and drops views (a preview switching
+   * documents, an editor opening tabs) keeps hundreds of MB alive. The GPU
+   * textures are released by the GL layer's own `dispose`.
+   */
+  dispose(): void {
+    for (const atlas of this.atlases.values()) atlas.dispose();
+    this.atlases.clear();
   }
 }

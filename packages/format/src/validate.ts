@@ -677,15 +677,35 @@ function sanitizeTransition(node: Record<string, unknown>, path: string, ctx: Ct
   node.transition = copy;
 }
 
-/** `min`/`max` that cross leave the Slider its defaults instead of an empty range. */
+/** The unit interval `resolveRange` falls back to for a bound left undeclared. */
+const DEFAULT_RANGE = { min: 0, max: 1 };
+
+/** A bound as the warning names it — the declared number, or the default it took. */
+function bound(declared: number | undefined, effective: number): string {
+  return declared === undefined ? `${effective} by default` : `${effective}`;
+}
+
+/**
+ * `min`/`max` that cross leave the Slider its defaults instead of an empty range.
+ *
+ * Checked against the EFFECTIVE bounds, not only against declared pairs: a lone
+ * `min: 5` crosses the default `max` of 1 just as surely as `{min: 5, max: 1}`
+ * does, and the runtime collapses both to the same fixed slider.
+ */
 function checkRange(node: Record<string, unknown>, path: string, ctx: Ctx): void {
-  const { min, max } = node;
-  if (typeof min !== "number" || typeof max !== "number" || min < max) return;
+  // `numberProp` ran first, so a surviving bound is a finite number; anything
+  // else is already gone and takes its default here.
+  const min = typeof node.min === "number" ? node.min : undefined;
+  const max = typeof node.max === "number" ? node.max : undefined;
+  if (min === undefined && max === undefined) return;
+  const low = min ?? DEFAULT_RANGE.min;
+  const high = max ?? DEFAULT_RANGE.max;
+  if (low < high) return;
   warn(
     ctx,
     "invalid-prop",
     `${path}.min`,
-    `\`min\` (${min}) is not below \`max\` (${max}) — both dropped, the range falls back to 0..1`,
+    `\`min\` (${bound(min, low)}) is not below \`max\` (${bound(max, high)}) — both dropped, the range falls back to 0..1`,
   );
   Reflect.deleteProperty(node, "min");
   Reflect.deleteProperty(node, "max");

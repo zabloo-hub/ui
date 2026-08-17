@@ -68,15 +68,21 @@ function push(event: PreviewEvent): void {
   stream?.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>);
 }
 
-function fakeHandle(envelope: Envelope, viewIds?: string[]): FakeHandle {
+function fakeHandle(envelope: Envelope): FakeHandle {
+  let live = envelope;
   const handle = {
-    viewIds: viewIds ?? Object.keys(envelope.views),
+    // A getter, like the real handle's since ZAB-72: a hot-update can bring a
+    // different set of views, and the page reads it fresh after every reload.
+    get viewIds(): string[] {
+      return Object.keys(live.views);
+    },
     ready: Promise.resolve(),
     data: [] as Array<[string, unknown]>,
     reloads: [] as string[],
     disposed: false,
     reload(json: string | object) {
       handle.reloads.push(String(json));
+      live = (typeof json === "string" ? JSON.parse(json) : json) as Envelope;
     },
     setData(path: string, value: unknown) {
       handle.data.push([path, value]);
@@ -505,6 +511,84 @@ describe("the preview page", () => {
     expect(first.disposed).toBe(true);
     expect(first.reloads).toEqual([]);
     expect(overlay()).toBeNull();
+  });
+
+  /**
+   * The validator's diagnostics used to reach the page as console lines, which a
+   * page cannot read: the export you were looking at could be missing half its
+   * nodes with nothing on screen admitting it (ZAB-72).
+   */
+  it("logs a repaired warning without marking the view stale", async () => {
+    serve(GOLD);
+    await open();
+
+    mounts[0].options.onDiagnostic?.({
+      level: "warn",
+      code: "unknown-token",
+      path: 'views["main"].style.background',
+      message: 'views["main"].style.background: unknown token {color.nope}',
+    });
+
+    // Repaired: what is on the canvas is correct, minus the broken bit — so it
+    // takes a log line, not the overlay that means "this view is stale".
+    expect(logLines()).toEqual([
+      '[unknown-token] views["main"].style.background: unknown token {color.nope}',
+    ]);
+    expect(overlay()).toBeNull();
+    expect(statusDot()).not.toContain("err");
+  });
+
+  it("puts a fatal diagnostic on the overlay, with the dot in red", async () => {
+    serve(GOLD);
+    await open();
+
+    mounts[0].options.onDiagnostic?.({
+      level: "fatal",
+      code: "unsupported-version",
+      path: "",
+      message: "unsupported major version 2",
+    });
+
+    expect(overlay()).toBe("[unsupported-version] unsupported major version 2");
+    expect(statusDot()).toContain("err");
+  });
+
+  it("reports a refused envelope once, by its code and not by the exception too", async () => {
+    serve(GOLD);
+    mountError = Object.assign(new Error("unsupported major version 2"), {});
+    // A real mount reports through the sink and THEN throws; the page must not
+    // say the same thing twice.
+    vi.stubGlobal("ZablooRenderer", {
+      mount(_canvas: HTMLCanvasElement, _json: string, options: MountOptions) {
+        options.onDiagnostic?.({
+          level: "fatal",
+          code: "unsupported-version",
+          path: "",
+          message: "unsupported major version 2",
+        });
+        throw mountError;
+      },
+    });
+
+    await open();
+
+    expect(logLines()).toEqual(["[unsupported-version] unsupported major version 2"]);
+    expect(overlay()).toBe("[unsupported-version] unsupported major version 2");
+  });
+
+  // The picker was filled once, on mount, so a save that added a view left it
+  // invisible until the page was reloaded by hand (ZAB-72).
+  it("follows the envelope's views across a hot-update", async () => {
+    serve(GOLD);
+    const page = await open();
+    const picker = document.getElementById("views") as HTMLSelectElement;
+    expect([...picker.options].map((option) => option.value)).toEqual(["main"]);
+
+    serve({ ...GOLD, views: { ...GOLD.views, settings: { type: "Container" } } });
+    await page.load();
+
+    expect(mounts).toHaveLength(1); // hot-swapped, not remounted
+    expect([...picker.options].map((option) => option.value)).toEqual(["main", "settings"]);
   });
 
   it("shows the gamepad badge only while a pad is connected (ZAB-47)", async () => {

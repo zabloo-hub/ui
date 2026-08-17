@@ -546,6 +546,39 @@ describe("renderToIR", () => {
     });
   });
 
+  it("emits no state whose merge carries no style — an empty override is noise", () => {
+    const theme: ZablooTheme = {
+      variants: {
+        Button: {
+          primary: {
+            states: { hover: {}, pressed: { style: { radius: 4 } } },
+          },
+        },
+      },
+    };
+    const ir = renderToIR(
+      h(
+        ThemeProvider,
+        { theme },
+        h(Button, { variant: "primary", states: { focused: {} }, onClick: "buy" }),
+      ),
+    );
+    // `hover` and `focused` are declared but say nothing: only `pressed` survives.
+    expect(ir).toEqual({
+      type: "Button",
+      onClick: "buy",
+      states: { pressed: { style: { radius: 4 } } },
+    });
+  });
+
+  it("emits no `states` at all when not one override survives", () => {
+    const theme: ZablooTheme = { variants: { Button: { ghost: { states: { hover: {} } } } } };
+    const ir = renderToIR(
+      h(ThemeProvider, { theme }, h(Button, { variant: "ghost", onClick: "buy" })),
+    );
+    expect(ir).toEqual({ type: "Button", onClick: "buy" });
+  });
+
   it("gives every node of a type the theme's motion, with or without a variant", () => {
     const theme: ZablooTheme = {
       transitions: { Button: { duration: "{motion.fast}" } },
@@ -805,6 +838,18 @@ describe("renderToIR", () => {
     expect(() => renderToIR(h("Spinner", { period: 900 }))).toThrow(/at least one child/);
   });
 
+  // `min` is the opacity multiplier at the wave's trough, so 25 means "percent"
+  // to the author and "never dims" to the renderer, which clamps it (ZAB-72).
+  it("rejects a Spinner min outside 0..1, like Slider's range", () => {
+    const bead = h(Text, { key: "a" }, ".");
+    expect(() => renderToIR(h(Spinner, { min: 25 }, bead))).toThrow(/between 0 and 1/);
+    expect(() => renderToIR(h(Spinner, { min: -0.5 }, bead))).toThrow(/between 0 and 1/);
+    expect(() => renderToIR(h(Spinner, { min: Number.NaN }, bead))).toThrow(/between 0 and 1/);
+    // The ends are legal: 0 pulses to fully transparent, 1 does not pulse at all.
+    expect((renderToIR(h(Spinner, { min: 0 }, bead)) as SpinnerNode).min).toBe(0);
+    expect((renderToIR(h(Spinner, { min: 1 }, bead)) as SpinnerNode).min).toBe(1);
+  });
+
   it("flattens Badge to a pill Container plus a bound Text — no IR of its own", () => {
     expect(renderToIR(h(Badge, { count: { bind: "inbox.unread" } }))).toEqual({
       type: "Container",
@@ -864,6 +909,15 @@ describe("renderToIR", () => {
   it("rejects a non-positive autoCloseMs instead of silently never closing", () => {
     expect(() => renderToIR(h(Overlay, { autoCloseMs: 0 }))).toThrow(/positive number/);
     expect(() => renderToIR(h(Overlay, { autoCloseMs: -200 }))).toThrow(/positive number/);
+  });
+
+  // Ties break by document order, so a NaN — `z={Number(props.layer)}` on a prop
+  // that never arrived — sorts as 0 instead of the level that was meant (ZAB-72).
+  it("rejects a non-finite z instead of stacking it as zero", () => {
+    expect(() => renderToIR(h(Overlay, { z: Number.NaN }))).toThrow(/finite number/);
+    expect(() => renderToIR(h(Overlay, { z: Number.POSITIVE_INFINITY }))).toThrow(/finite number/);
+    // Negative is a legal level: below everything else in the layer.
+    expect((renderToIR(h(Overlay, { z: -1 })) as OverlayNode).z).toBe(-1);
   });
 
   it("lowers Modal to a modal Overlay: backdrop by style, content in a centered panel", () => {
@@ -1046,6 +1100,21 @@ describe("renderToIR", () => {
     expect(() => renderToIR(h(Overlay, { anchor: { id: "" } }))).toThrow(/needs the `id`/);
   });
 
+  it("rejects an anchor offset that would place the content inside the anchor", () => {
+    expect(() => renderToIR(h(Overlay, { anchor: { id: "buy", offset: -8 } }))).toThrow(
+      /gap in px/,
+    );
+    expect(() => renderToIR(h(Overlay, { anchor: { id: "buy", offset: Number.NaN } }))).toThrow(
+      /gap in px/,
+    );
+    // Zero is a legal gap (flush), and a token is left alone: `offset` is a `Dim`,
+    // themeable, and only the SDK resolves it.
+    const flush = { id: "buy", offset: 0 } as const;
+    expect((renderToIR(h(Overlay, { anchor: flush })) as OverlayNode).anchor).toEqual(flush);
+    const themed = { id: "buy", offset: "{space.2}" } as const;
+    expect((renderToIR(h(Overlay, { anchor: themed })) as OverlayNode).anchor).toEqual(themed);
+  });
+
   it("lets an explicit layout override the placement sugar", () => {
     const ir = renderToIR(
       h(Modal, { position: "bottom", layout: { align: "center", padding: 0 } }),
@@ -1198,6 +1267,49 @@ describe("renderToIR", () => {
     expect(() => renderToIR([h(Text, { key: "a" }, "a"), h(Text, { key: "b" }, "b")])).toThrow(
       /exactly one root/,
     );
+  });
+});
+
+/**
+ * What devtools and React's own error messages call a component (ZAB-72). The
+ * primitives get it from `primitive()`; the sugar are plain functions, and
+ * `fn.name` is exactly what a minifier renames to `t` in a shipped build.
+ */
+describe("component names", () => {
+  it("names every sugar component, like the primitives", () => {
+    const sugar = {
+      Accordion,
+      Badge,
+      Checkbox,
+      Column,
+      Grid,
+      List,
+      Modal,
+      Option,
+      ProgressBar,
+      Radio,
+      RadioGroup,
+      Row,
+      Select,
+      Slider,
+      Spinner,
+      Switch,
+      Tab,
+      Tabs,
+      TextInput,
+      Toast,
+      Tooltip,
+    };
+    const unnamed = Object.entries(sugar)
+      .filter(([name, component]) => (component as { displayName?: string }).displayName !== name)
+      .map(([name]) => name);
+
+    expect(unnamed).toEqual([]);
+  });
+
+  it("keeps the primitives named after the node type they emit", () => {
+    expect((Container as { displayName?: string }).displayName).toBe("Container");
+    expect((Overlay as { displayName?: string }).displayName).toBe("Overlay");
   });
 });
 
