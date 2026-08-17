@@ -104,8 +104,11 @@ export default function ControlsView() {
         layout={{ direction: "column", align: "stretch", gap: "{space.2}" }}
       >
         <ValueRow label="settings.difficulty" bind="settings.difficulty" />
+        {/* The hook hangs off the GROUP, which is the node that holds the
+            selection: `onChange` on a `<Radio>` fires for that option alone. */}
         <RadioGroup
           value={{ bind: "settings.difficulty" }}
+          onChange="difficulty-changed"
           layout={{ direction: "row", gap: "{space.2}", wrap: true }}
         >
           {["Easy", "Normal", "Hard", "Nightmare"].map((level) => (
@@ -114,7 +117,6 @@ export default function ControlsView() {
               id={`difficulty-${level.toLowerCase()}`}
               variant="row"
               value={level}
-              onChange="difficulty-changed"
               layout={{ padding: "{space.2}" }}
             >
               <Text variant="label">{level}</Text>

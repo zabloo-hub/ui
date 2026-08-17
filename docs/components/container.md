@@ -18,6 +18,7 @@ intrinsic size and no runtime state — everything it does comes from [layout](.
 | `group` | `"exclusive-open" \| "exclusive-select" \| "exclusive-check"` | absent | Cross-child behavior the SDK enforces. See below. |
 | `selected` | `number` | `0` | Initially selected index of an `"exclusive-select"` group. Ignored otherwise. |
 | `value` | `Bindable<string \| number>` | absent | Selected value of an `"exclusive-check"` group. Ignored otherwise. |
+| `onChange` | `string` | absent | Named action fired when the selection of an `"exclusive-check"` group moves. Ignored otherwise. |
 | `children` | `ZNode[]` | `[]` | Any nodes. |
 
 **States:** `disabled` only. A `Container` is not focusable and never hovers, so no other
@@ -26,7 +27,10 @@ usual place to *declare* [`disabled`](../format/input.md#disabled-normative): it
 one prop here switches off every control in the section — and each of them, labels included,
 still dresses itself through its own `states.disabled`.
 
-**Actions:** none.
+**Actions:** `onChange`, and only as an [`"exclusive-check"` group](#exclusive-check-normative)
+— the one thing a `Container` ever holds is that group's selection, so it is the one thing it
+can report. A `Container` has no `onClick`: a box is not pressable, and a pressable box is a
+[`Button`](button.md).
 
 **Degradation:** it *is* the fallback — an unknown node type renders as a `Container`.
 
@@ -82,7 +86,22 @@ position: `value` on the group is the selection, `value` on each `Toggle` is its
 The selection is ONE value, which is why the same behavior backs both a radio group and a
 [dropdown](toggle.md#select) without either needing a mechanism of its own.
 
-Degradation: independent checkboxes, any number of them checked at once.
+**`onChange` is the group's** (decision 2026-08-17). The group owns the value, so it is the
+node that can say *the selection moved*; a `Toggle`'s own `onChange` only ever says *this one
+was tapped*, which is not the question a dropdown asks. Both may be declared, and then both
+fire — the option's first.
+
+It fires on the same edge as the write, right after the new value reaches the bound path, and
+**never** when the player picks the option that was already selected: nothing moved, so
+nothing is reported (the menu still closes — that is the popover's rule). Like every action in
+v1 it carries **no value of its own**: a named hook plus the
+[`ActionContext`](repeat.md#actions-from-inside-an-item) of the item it fired from, which for a
+group is the item its chosen *option* belongs to. The value itself comes back on the data
+channel, the leg that exists for exactly that.
+
+Degradation: independent checkboxes, any number of them checked at once — and an SDK that
+predates `onChange` on a group selects the same way, with the game hearing the change on the
+data channel alone.
 
 ## Authoring
 
@@ -94,7 +113,7 @@ Degradation: independent checkboxes, any number of them checked at once.
 </Container>
 ```
 
-Takes the node base props plus `group`, `selected`, `value` and `children`.
+Takes the node base props plus `group`, `selected`, `value`, `onChange` and `children`.
 
 ### `<Row>` and `<Column>`
 

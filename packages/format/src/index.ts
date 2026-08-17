@@ -360,6 +360,13 @@ interface NodeBase {
  *
  * One behavior governs one state: `open` (Collapse), `selected` (index, Tabs),
  * `checked` (Toggle).
+ *
+ * A group that owns a state also owns the hook for it: `onChange` on an
+ * `"exclusive-check"` Container is the group's own action (decision 2026-08-17,
+ * ZAB-64), not a per-option one. Where the option's `onChange` says "this one was
+ * tapped", the group's says "the selection moved" — which is the question a
+ * `<Select>` asks, and the only node that can answer it is the one that holds the
+ * value.
  */
 export type GroupBehavior = "exclusive-open" | "exclusive-select" | "exclusive-check";
 
@@ -381,6 +388,22 @@ export interface ContainerNode extends NodeBase {
    * `selected` instead: an index, because tabs are positional.)
    */
   value?: Bindable<string | number>;
+  /**
+   * Named action fired when the selection of an `"exclusive-check"` group moves
+   * (decision 2026-08-17, ZAB-64) — the group-level counterpart of the option's
+   * own `onChange`, and what makes `<Select onChange>` more than a documented
+   * prop. Ignored on any other `group`, like `value`.
+   *
+   * It fires on the same edge as the write: after the new value reaches the
+   * bound path, and never when the player re-picks the option already selected
+   * (nothing moved). It carries **no payload of its own** — like every action in
+   * v1, it is a named hook plus the `ActionContext` of the item it fired from;
+   * the value travels the data channel, which is the leg that exists for it.
+   *
+   * Additive and forward-tolerant: an SDK that predates it selects exactly as
+   * before and the game simply hears the change on `onDataChanged`.
+   */
+  onChange?: string;
   children?: ZNode[];
 }
 

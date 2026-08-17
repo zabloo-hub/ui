@@ -461,6 +461,7 @@ function sanitizeNode(
       stringProp(node, "group", path, ctx);
       numberProp(node, "selected", path, ctx);
       bindableProp(node, "value", path, ctx, isStringOrNumber, "a string or a number");
+      stringProp(node, "onChange", path, ctx);
       break;
     case "Button":
       stringProp(node, "onClick", path, ctx);

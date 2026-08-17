@@ -64,8 +64,14 @@ player may change it are two different statements, which is why `disabled` merge
 **Focusable:** yes. Activated by tap, Enter or gamepad A — none of which reach it while it is
 [`disabled`](../format/input.md#disabled-normative).
 
-**Actions:** `onChange`, fired after every change however it was caused — a tap, the game's
-own `SetChecked`, or another option of the group taking the selection.
+**Actions:** `onChange`, fired after every change however it was caused — a tap, Enter, gamepad
+A or the game's own `SetChecked`.
+
+Inside an `"exclusive-check"` group it fires only when this option **takes** the selection: a
+radio never turns itself off, so the one that loses it says nothing (its `checked` is derived,
+and it was not the node that was acted on). What reports the move is the group's own
+[`onChange`](container.md#exclusive-check-normative), which is where a `<Select>` or a
+`<RadioGroup>` hangs its hook; with both declared, the option's fires first.
 
 **Degradation:** as a `Container` — **both** indicator slots show at once, plus the label,
 since nothing is hiding one of them. The control is inert.
@@ -112,7 +118,7 @@ the one place that convention is written down. They share these props (`ToggleCo
 `checked` of its own, because the group owns the selection.
 
 ```tsx
-<RadioGroup value={{ bind: "settings.quality" }} layout={{ gap: 8 }}>
+<RadioGroup value={{ bind: "settings.quality" }} onChange="quality-changed" layout={{ gap: 8 }}>
   <Radio value="low"><Text>Low</Text></Radio>
   <Radio value="high"><Text>High</Text></Radio>
 </RadioGroup>
@@ -121,6 +127,17 @@ the one place that convention is written down. They share these props (`ToggleCo
 `<RadioGroup>` emits a column `Container` with `group: "exclusive-check"` and the selected
 `value` — usually a read/write binding. An older SDK ignores the group and leaves
 independent checkboxes.
+
+| `<RadioGroup>` prop | Type | Default | Description |
+|---|---|---|---|
+| `value` | `Bindable<string \| number>` | absent | The selection. A `<Radio>` is checked while its `value` equals it. |
+| `onChange` | `string` | absent | Named action fired when the selection moves. |
+
+**Put `onChange` on the group.** It is the node that holds the selection, so it is the one
+that can report *what was picked*; a `<Radio onChange>` fires for its own option only, which
+is a different (and rarer) question. Declaring both fires both, the option's first. See
+[the group behavior](container.md#exclusive-check-normative) for what the action carries —
+no value of its own: that comes back on the data channel.
 
 ### `<Select>` and `<Option>` {#select}
 
@@ -144,7 +161,7 @@ close the list.
 |---|---|---|---|
 | `id` | `string` | — | **Required.** The dropdown is anchored to the button by it. |
 | `value` | `Bindable<string \| number>` | absent | The selection, usually a read/write binding. |
-| `onChange` | `string` | absent | Named action fired after every change. |
+| `onChange` | `string` | absent | Named action fired after every change. It lands on the group inside the dropdown. |
 | `width` | `number` | `220` | Width of the closed button and of the dropdown. |
 | `maxHeight` | `number` | `240` | Cap on the dropdown's height; past it the list scrolls. |
 | `position` | placement | `"bottom"` | Which side of the button the list opens on. It flips when it must. |
