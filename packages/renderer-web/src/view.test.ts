@@ -342,6 +342,73 @@ describe("scrolling", () => {
   });
 });
 
+describe("a pointer that is cancelled instead of released (ZAB-70)", () => {
+  it("drops a press without activating it — a cancel is not a click", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const target = center(view.snapshot(), "primary");
+
+    view.pointer.down(target.x, target.y);
+    expect(states(view.snapshot(), "primary")).toContain("pressed");
+
+    view.pointer.cancel();
+
+    // The button comes back up and its action never fires: an interrupted touch
+    // is not how a player buys something.
+    expect(states(view.snapshot(), "primary")).not.toContain("pressed");
+    expect(view.actions).toEqual([]);
+    // And the gesture is really over — a later release presses nothing either.
+    view.pointer.up(target.x, target.y);
+    expect(view.actions).toEqual([]);
+  });
+
+  it("settles a Slider that was mid-drag: the value it left is the value it committed", async () => {
+    view = await mountCase(CORPUS.controls);
+    const track = node(view.snapshot(), "volume").rect;
+    if (!track) throw new Error("the slider is not in layout");
+    const y = track.y + track.height / 2;
+
+    view.pointer.down(track.x + track.width / 2, y);
+    view.pointer.move(track.x + track.width, y);
+    view.pointer.cancel();
+
+    // The value is on screen and was written into its bound path on every move,
+    // so refusing `onCommit` would leave the game without the "apply it" event
+    // for a value the player really did leave there.
+    expect(node(view.snapshot(), "volume").value).toBe(1);
+    expect(view.actions.filter((fired) => fired.action === "volume-committed")).toHaveLength(1);
+    // Nothing is dragging any more: a move that arrives afterwards is not the gesture.
+    view.pointer.move(track.x, y);
+    expect(node(view.snapshot(), "volume").value).toBe(1);
+  });
+
+  it("ends a scroll drag, so the pointer stops dragging the list around", async () => {
+    view = await mountCase(CORPUS["scroll-clip"]);
+    const target = center(view.snapshot(), "vertical");
+
+    view.pointer.down(target.x, target.y);
+    view.pointer.move(target.x, target.y - 30);
+    const scrolled = node(view.snapshot(), "vertical").scroll?.y ?? 0;
+    expect(scrolled).toBeGreaterThan(0);
+
+    view.pointer.cancel();
+    view.pointer.move(target.x, target.y - 90);
+
+    expect(node(view.snapshot(), "vertical").scroll?.y).toBeCloseTo(scrolled, 3);
+  });
+
+  it("does not dismiss the modal whose backdrop it had pressed", async () => {
+    view = await mountCase(CORPUS.overlays);
+    const target = center(view.snapshot(), "under-modal");
+
+    view.pointer.down(target.x, target.y);
+    view.pointer.cancel();
+    view.pointer.up(target.x, target.y);
+
+    expect(view.actions).toEqual([]);
+    expect(view.snapshot().layer.map((entry) => entry.ref)).toContain("modal");
+  });
+});
+
 describe("controls", () => {
   it("sets a Slider from the pointer, reporting every change but committing once", async () => {
     view = await mountCase(CORPUS.controls);
@@ -1067,6 +1134,224 @@ describe("repeat recycling × transitions", () => {
     expect(appeared[0].name).not.toBe("item 0");
     expect(appeared).toEqual(appeared.map((row) => ownLook(row.name)));
     expect(settled).toEqual(appeared);
+  });
+});
+
+/**
+ * Focus × virtualization (ZAB-70): a focusable inside a virtualized row, and an
+ * `autofocus` OUTSIDE the list — which is what makes a teleport visible. Without
+ * the pending focus, scrolling the focused row out of the window would drop the
+ * focus and the next frame would hand it to `away`, at the other end of the view.
+ *
+ * The template is a row with the Button one level down, so restoring the focus
+ * really has to walk the path it recorded and not just re-focus the instance.
+ */
+const VIRTUAL_FOCUS = {
+  v: 1,
+  tokens: {},
+  views: {
+    inventory: {
+      type: "Container",
+      layout: { direction: "column", align: "start" },
+      children: [
+        {
+          type: "Button",
+          id: "away",
+          autofocus: true,
+          onClick: "away",
+          layout: { width: 120, height: 24 },
+        },
+        {
+          type: "ScrollView",
+          id: "scroller",
+          axis: "vertical",
+          layout: { direction: "column", width: 220, height: 100 },
+          children: [
+            {
+              type: "Repeat",
+              items: { bind: "shop.items" },
+              as: "item",
+              key: "id",
+              layout: { direction: "column", align: "start" },
+              children: [
+                {
+                  type: "Container",
+                  layout: { direction: "row", width: 200, height: 40, align: "center" },
+                  children: [
+                    { type: "Text", text: { bind: "item.name" } },
+                    { type: "Button", onClick: "row", layout: { width: 60, height: 24 } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
+/** The Button of the row at that position of the window — `Container` then `children[1]`. */
+const ROW_BUTTON = (index: number) => `1.0.${index}.1`;
+
+async function mountVirtualFocus(): Promise<GoldenView> {
+  const mounted = await mountGolden(VIRTUAL_FOCUS, {
+    data: {
+      "shop.items": Array.from({ length: 30 }, (_, i) => ({ id: `id${i}`, name: `item ${i}` })),
+    },
+  });
+  // The second frame windows the rows the first one measured.
+  mounted.settle();
+  return mounted;
+}
+
+/** Scrolls the list and lets the frame that moves the window run. */
+function wheelList(mounted: GoldenView, delta: number): void {
+  const target = center(mounted.snapshot(), "scroller");
+  mounted.pointer.wheel(target.x, target.y, 0, delta);
+  mounted.advance(16);
+}
+
+describe("focus on a virtualized row (ZAB-70)", () => {
+  it("does not hand the focus to the view's autofocus when the row leaves the window", async () => {
+    const mounted = await mountVirtualFocus();
+    view = mounted;
+    const target = center(mounted.snapshot(), ROW_BUTTON(0));
+    mounted.pointer.click(target.x, target.y);
+    expect(mounted.snapshot().focus).toBe(ROW_BUTTON(0));
+
+    wheelList(mounted, 600);
+
+    // The row really is gone from the window...
+    expect(node(mounted.snapshot(), "1.0").window?.first).toBeGreaterThan(0);
+    // ...and the focus went NOWHERE. Scrolling is not the player giving up the
+    // focus, so it must not travel to a control at the other end of the screen.
+    expect(mounted.snapshot().focus).toBeNull();
+    expect(states(mounted.snapshot(), "away")).not.toContain("focused");
+  });
+
+  it("gives it back to the same item when the row is realized again", async () => {
+    const mounted = await mountVirtualFocus();
+    view = mounted;
+    const target = center(mounted.snapshot(), ROW_BUTTON(1));
+    mounted.pointer.click(target.x, target.y);
+    const name = node(mounted.snapshot(), "1.0.1.0").text?.lines[0]?.text;
+
+    wheelList(mounted, 600);
+    expect(mounted.snapshot().focus).toBeNull();
+    wheelList(mounted, -600);
+
+    // Back at the top, and the focus is on the button of the row showing the very
+    // item it was on — the identity travels, which is what a `key` is for.
+    expect(mounted.snapshot().focus).toBe(ROW_BUTTON(1));
+    expect(node(mounted.snapshot(), "1.0.1.0").text?.lines[0]?.text).toBe(name);
+  });
+
+  it("keeps the right stick scrolling the list the focus was in", async () => {
+    const mounted = await mountVirtualFocus();
+    view = mounted;
+    const target = center(mounted.snapshot(), ROW_BUTTON(0));
+    mounted.pointer.click(target.x, target.y);
+    const pad = mounted.connectGamepad();
+
+    wheelList(mounted, 600);
+    const scrolled = node(mounted.snapshot(), "scroller").scroll?.y ?? 0;
+    pad.axis(3, 1); // right stick down: scroll the ScrollView the focus lives in
+    mounted.advance(16);
+    mounted.advance(16);
+
+    // The gesture that pushed the row off the window is exactly the one that
+    // would have been cut by losing the focus mid-hold.
+    expect(node(mounted.snapshot(), "scroller").scroll?.y ?? 0).toBeGreaterThan(scrolled);
+  });
+
+  it("starts the walk again from `autofocus` when the player presses a direction", async () => {
+    const mounted = await mountVirtualFocus();
+    view = mounted;
+    const target = center(mounted.snapshot(), ROW_BUTTON(0));
+    mounted.pointer.click(target.x, target.y);
+    wheelList(mounted, 600);
+
+    mounted.keyDown("ArrowDown");
+
+    // The player asked to move and there is no rect to move from, so the pending
+    // focus is dropped and the scope's `autofocus` takes it — the rule already
+    // documented for having no focus at all.
+    expect(mounted.snapshot().focus).toBe("away");
+    // And it does not come back when the row is realized again: the question was
+    // settled by a real focus decision.
+    wheelList(mounted, -600);
+    expect(mounted.snapshot().focus).toBe("away");
+  });
+});
+
+/** Two focusables stacked, so an arrow that reached this view is visible in its focus. */
+const TWO_BUTTONS = {
+  v: 1,
+  tokens: {},
+  views: {
+    pair: {
+      type: "Container",
+      layout: { direction: "column", align: "start", gap: 8, padding: 8 },
+      children: [
+        { type: "Button", id: "a", autofocus: true, layout: { width: 80, height: 24 } },
+        { type: "Button", id: "b", layout: { width: 80, height: 24 } },
+      ],
+    },
+  },
+};
+
+describe("two views mounted on one page (ZAB-70)", () => {
+  it("gives the keyboard to the view the player last touched, and to it alone", async () => {
+    const first = await mountGolden(TWO_BUTTONS);
+    view = first;
+    const second = await mountGolden(TWO_BUTTONS, { share: first });
+    try {
+      expect(first.snapshot().focus).toBe("a");
+      expect(second.snapshot().focus).toBe("a");
+
+      // `keydown` is a PAGE event: both views hear it, and only the owner acts.
+      first.keyDown("ArrowDown");
+      expect(first.snapshot().focus).toBe("b");
+      expect(second.snapshot().focus).toBe("a");
+
+      // Touching the other canvas hands input over — pressing nothing in
+      // particular is still using that view.
+      second.pointer.click(1, 1);
+      first.keyDown("ArrowDown");
+
+      expect(first.snapshot().focus).toBe("b");
+      expect(second.snapshot().focus).toBe("b");
+    } finally {
+      second.dispose();
+    }
+  });
+
+  it("lets exactly one view poll the pad, and hands it over with the keyboard", async () => {
+    const first = await mountGolden(TWO_BUTTONS);
+    view = first;
+    const second = await mountGolden(TWO_BUTTONS, { share: first });
+    try {
+      const pad = first.connectGamepad();
+
+      pad.press(13); // d-pad down
+      first.advance(16);
+      expect(first.snapshot().focus).toBe("b");
+      expect(second.snapshot().focus).toBe("a");
+
+      pad.release(13);
+      first.advance(16);
+      second.pointer.click(1, 1);
+      pad.press(13);
+      first.advance(16);
+
+      // `navigator.getGamepads()` belongs to the page, so the stick moves one
+      // focus, not one per canvas.
+      expect(first.snapshot().focus).toBe("b");
+      expect(second.snapshot().focus).toBe("b");
+    } finally {
+      second.dispose();
+    }
   });
 });
 

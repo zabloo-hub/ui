@@ -50,6 +50,14 @@ export interface GoldenOptions {
   height?: number;
   /** Data pushed through `setData` before the first measured frame. */
   data?: Record<string, unknown>;
+  /**
+   * Mount on the stand-in browser of a view that is already up, instead of
+   * installing another one — two canvases on ONE page, which is the only way to
+   * exercise what the keyboard and the pad do when several views are mounted
+   * (ZAB-70). Its `dispose` then tears down this handle alone; the page belongs
+   * to the view that installed it.
+   */
+  share?: GoldenView;
 }
 
 /** An action the view fired, with the item context when it came from a `Repeat`. */
@@ -145,6 +153,12 @@ export interface Pointer {
   down(x: number, y: number): void;
   move(x: number, y: number): void;
   up(x: number, y: number): void;
+  /**
+   * The pointer ENDING without a release — a touch the system interrupted, a
+   * browser gesture taking over. Whatever was in flight has to stop, and none of
+   * it concludes (ZAB-70).
+   */
+  cancel(): void;
   /** Down and up on the same spot — a tap. */
   click(x: number, y: number): void;
   wheel(x: number, y: number, deltaX: number, deltaY: number): void;
@@ -162,7 +176,8 @@ export async function mountGolden(
 ): Promise<GoldenView> {
   const width = options.width ?? GOLDEN_SIZE.width;
   const height = options.height ?? GOLDEN_SIZE.height;
-  const dom = installDom();
+  const shared = options.share ? domOf(options.share) : null;
+  const dom = shared ?? installDom();
   const canvas = new FakeCanvas(width, height, GOLDEN_DPR);
 
   const actions: FiredAction[] = [];
@@ -188,6 +203,7 @@ export async function mountGolden(
       down: (x, y) => canvas.dispatch("pointerdown", pointerEvent(x, y)),
       move: (x, y) => canvas.dispatch("pointermove", pointerEvent(x, y)),
       up: (x, y) => canvas.dispatch("pointerup", pointerEvent(x, y)),
+      cancel: () => canvas.dispatch("pointercancel", pointerEvent(0, 0)),
       click: (x, y) => {
         canvas.dispatch("pointerdown", pointerEvent(x, y));
         canvas.dispatch("pointerup", pointerEvent(x, y));
@@ -219,10 +235,21 @@ export async function mountGolden(
     connectGamepad: () => dom.connectPad(),
     dispose: () => {
       handle.dispose();
-      dom.uninstall();
+      // A shared page outlives this handle: it belongs to the view that installed it.
+      if (shared === null) dom.uninstall();
     },
   };
+  doms.set(view, dom);
   return view;
+}
+
+/** Which stand-in browser a mounted view is running on — see `GoldenOptions.share`. */
+const doms = new WeakMap<GoldenView, FakeDom>();
+
+function domOf(view: GoldenView): FakeDom {
+  const dom = doms.get(view);
+  if (!dom) throw new Error("golden harness: that view was not mounted by this harness");
+  return dom;
 }
 
 function pointerEvent(x: number, y: number): Record<string, unknown> {

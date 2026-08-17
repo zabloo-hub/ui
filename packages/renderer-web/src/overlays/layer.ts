@@ -34,6 +34,12 @@ export interface OverlayHost {
   layer(): readonly LayoutNode[];
   /** The node that owns the keyboard, if any. */
   focused(): LayoutNode | null;
+  /**
+   * Whether the focus is waiting on a virtualized row that is not realized right
+   * now (ZAB-70). There is no node to point at, and the layer must not read that
+   * as "nobody wants the focus".
+   */
+  focusPending(): boolean;
   /** The view's id → node index, for anchors. */
   nodeById(id: string): LayoutNode | undefined;
   /** Where focus may live right now: the top modal's subtree, or the root. */
@@ -135,16 +141,24 @@ export class OverlayLayer {
       restored = this.modalStack[i].previousFocus;
       this.modalStack.splice(i, 1);
     }
+    let opened = false;
     for (const modal of modals) {
       if (this.modalStack.some((entry) => entry.overlay === modal)) continue;
       this.modalStack.push({ overlay: modal, previousFocus: this.host.focused() });
       restored = null; // opening wins over closing: the new modal owns the focus
+      opened = true;
     }
 
     const scope = this.host.scope();
     const current = this.host.focused();
     if (current && inLayout(current) && isWithin(current, scope) && this.onPresentLayer(current))
       return;
+    // Nothing wears the focus because the row that holds it is not realized right
+    // now (ZAB-70): the focus is not free to give away, so nothing happens here —
+    // scrolling a list must never teleport the focus to the view's `autofocus`.
+    // A modal that just opened is the exception: it owns the focus by definition,
+    // and it will hand it back when it closes.
+    if (!opened && this.host.focusPending()) return;
     // Outside the scope (or gone): the restored node if it still qualifies,
     // otherwise the scope's `autofocus` — and nothing at all if neither does,
     // rather than leaving a node under the modal wearing the focused state.
