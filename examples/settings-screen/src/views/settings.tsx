@@ -2,8 +2,8 @@
 // The screen F5 closes on (ZAB-28): everything the batch added — Tabs (ZAB-22),
 // Checkbox/Switch (ZAB-23), Slider (ZAB-24), Select (ZAB-25) and TextInput
 // (ZAB-26) — composed as ONE real settings screen instead of a test bed per
-// control. The per-control beds still live next door (`settings-demo`,
-// `tabs-settings`); this is what a game actually ships.
+// control. Each control on its own, with every prop it takes, is the `showcase`
+// project next door; this is what a game actually ships.
 //
 // Every control is bound, so the preview's data panel plays the part of the
 // game: type a value there and the screen moves; move the screen and the field

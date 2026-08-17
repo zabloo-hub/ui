@@ -439,12 +439,13 @@ components that emit them. Worth a skim before you build a screen: `ScrollView`,
 
 | Project | What it shows |
 |---|---|
+| [`showcase`](../examples/showcase) | The whole catalog, one view per capability: layout, text, controls, lists, overlays, motion, images, theming, navigation. |
 | [`hello-button`](../examples/hello-button) | The vertical slice: a pressable button, a `Collapse`, an `Accordion`, a bound `ProgressBar`. |
 | [`inventory-demo`](../examples/inventory-demo) | Hundreds of rows in a `ScrollView`, keyed identity, two-way writes from inside a list. |
-| [`settings-demo`](../examples/settings-demo) | Tabs, a switch, a slider, a dropdown, a text field — all bound. |
-| [`overlays-demo`](../examples/overlays-demo) | Modals, toasts and anchored tooltips. |
-| [`scroll-demo`](../examples/scroll-demo) | Clipping and scrolling on both axes. |
+| [`settings-screen`](../examples/settings-screen) | Tabs, a switch, a slider, a dropdown, a text field — all bound, composed as one real screen. |
 | [`unity-playground`](../examples/unity-playground) | A Unity project consuming the SDK, with the driver script from step 6. |
+
+Which one to open for what is in [`examples/README.md`](../examples/README.md).
 
 ---
 
