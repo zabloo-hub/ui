@@ -1,4 +1,5 @@
 {
+  "//": "Workspace deps are typechecked against their SOURCES, not their built `dist/*.d.ts` (ZAB-62). Without this, `pnpm typecheck` on a fresh clone fails everywhere with TS2307 until someone runs `pnpm build` first — a trap that CI hides, because CI builds first and whoever clones the repo does not. The shipped `.d.ts` are not left uncovered: `pnpm verify:pack` typechecks a clean consumer against them under `moduleResolution: nodenext`, which is the resolution that actually matters once pnpm's symlinks are gone.",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
@@ -9,6 +10,11 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@zabloo/format": ["./packages/format/src/index.ts"],
+      "@zabloo/react": ["./packages/react/src/index.ts"],
+      "@zabloo/renderer-web": ["./packages/renderer-web/src/index.ts"]
+    }
   }
 }
