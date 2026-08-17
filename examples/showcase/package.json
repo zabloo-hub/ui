@@ -1,8 +1,8 @@
 {
-  "name": "scroll-demo-example",
+  "name": "showcase-example",
   "private": true,
   "type": "module",
-  "description": "ScrollView manual test bed: wheel + drag scroll input, exported as IR and rendered by the web renderer",
+  "description": "The whole catalog, one view per capability: layout, typography, controls, lists, overlays, motion, media, theming and navigation",
   "scripts": {
     "dev": "zabloo dev",
     "dev:unity": "zabloo dev --unity",

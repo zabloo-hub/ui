@@ -145,6 +145,10 @@ The reference for the IR and the component catalog lives in [`docs/`](docs/READM
 - [Component catalog](docs/components/README.md) — one page per node type, with the
   `@zabloo/react` components that emit it.
 
+To see it running rather than written down, [`examples/`](examples/README.md) has the
+`showcase` project: nine views, one per capability, live in the web preview
+(`pnpm --filter showcase-example dev`).
+
 ## Repository layout
 
 ```
@@ -159,14 +163,11 @@ ui/
 │   └── unity/             com.zabloo.sdk — UPM package (UI Toolkit custom geometry)
 ├── docs/                  the format spec + the component catalog
 ├── golden/                golden envelopes: the same input must render the same on every target
-└── examples/
+└── examples/              see examples/README.md for which one to open
+    ├── showcase/          the whole catalog, one view per capability, nine views
     ├── hello-button/      the vertical slice: one pressable Button, React → IR → Unity
-    ├── scroll-demo/       ScrollView: wheel and drag input
     ├── inventory-demo/    a shop with real overflow — list, category strip, nested Collapse
-    ├── tabs-settings/     Tabs: panels entering and leaving layout via `exclusive-select`
-    ├── settings-demo/     Checkbox / Switch / RadioGroup and two-way bindings
     ├── settings-screen/   the whole form catalog composed as one real screen
-    ├── overlays-demo/     Modal / Toast / Tooltip: the layer, dismiss paths, fades
     └── unity-playground/  Unity project consuming the SDK locally
 ```
 
