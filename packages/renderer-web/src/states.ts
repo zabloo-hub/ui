@@ -22,6 +22,12 @@ export interface NodeStates {
   checked: boolean;
   /** A TextInput holding no text — what styles its placeholder (ZAB-26). */
   empty: boolean;
+  /**
+   * Out of the interaction model, its own or an ancestor's (ZAB-63). The only
+   * state a node that is not focusable can be in, which is what lets the labels
+   * of a disabled section dim with the controls in it.
+   */
+  disabled: boolean;
 }
 
 /**
@@ -32,9 +38,14 @@ export interface NodeStates {
  * them because it is the emptiest statement a control makes about its value (a
  * placeholder must lose to anything the author says about a selected or focused
  * field). `hover` sits under `focused` so a focus ring is never hidden by a mouse
- * passing by, and `pressed` wins over everything because it lasts exactly as long
- * as the finger is down. `disabled` is declared in the IR but has no runtime state
- * yet, so it never matches here.
+ * passing by, and `pressed` wins over those because it lasts exactly as long as
+ * the finger is down.
+ *
+ * `disabled` closes the list (ZAB-63). Its place only matters against the VALUE
+ * states — a disabled node takes no input, so hover/focused/pressed can never be
+ * active alongside it, while a disabled Toggle is still `checked` and a disabled
+ * field still `empty`. Last is what lets one override speak for the whole control
+ * whatever value it happens to hold.
  */
 export const STATE_ORDER: readonly StateName[] = [
   "empty",
@@ -43,6 +54,7 @@ export const STATE_ORDER: readonly StateName[] = [
   "hover",
   "focused",
   "pressed",
+  "disabled",
 ];
 
 function isActive(name: StateName, states: NodeStates): boolean {
@@ -59,6 +71,8 @@ function isActive(name: StateName, states: NodeStates): boolean {
       return states.focused;
     case "pressed":
       return states.pressed;
+    case "disabled":
+      return states.disabled;
     default:
       return false;
   }

@@ -68,7 +68,8 @@ Because `period` is a `Dim`, a "reduce motion" theme freezes the spinner by movi
 
 ## Behavior
 
-**States:** none. Not focusable.
+**States:** `disabled` only, inherited. Not focusable, so nothing else applies. It keeps
+spinning: `disabled` is about input, and a spinner takes none either way.
 
 **Actions:** none.
 

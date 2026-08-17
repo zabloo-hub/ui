@@ -55,9 +55,14 @@ Input the SDK handles: wheel, drag, the gamepad's right stick, and the
 [auto-reveal](../format/input.md#directional-navigation-normative) that brings a newly
 focused node into view.
 
-**States:** none. A `ScrollView` is not focusable and carries no
-`hover`/`pressed`/`selected`/`checked`, so `states.*` on it never applies. Its children keep
-theirs — scrolling by drag does not turn into a click on the `Button` under the finger.
+**States:** `disabled` only. A `ScrollView` is not focusable and carries no
+`hover`/`pressed`/`selected`/`checked`, so no other `states.*` on it ever applies. Its
+children keep theirs — scrolling by drag does not turn into a click on the `Button` under the
+finger.
+
+**It keeps scrolling while [`disabled`](../format/input.md#disabled-normative)**, its own or
+inherited. Scrolling is not an interaction a control owns, and a panel the player cannot use
+is still one they must be able to read.
 
 **Actions:** none. There is no `onScroll` in v1, and the offset is not bindable. A game
 moves it through the host channel: `SetScroll(id, x, y)`.

@@ -338,6 +338,7 @@ describe("readEnvelope: bindings", () => {
       withView({
         type: "Container",
         visible: { bind: "ui.hud" },
+        disabled: { bind: "ui.busy" },
         children: [
           { type: "Text", text: { bind: "player.gold" } },
           { type: "Slider", value: { bind: "audio.volume" }, min: 0, max: 1 },
@@ -357,6 +358,25 @@ describe("readEnvelope: bindings", () => {
   it("drops a binding-shaped value that is not one", () => {
     const node = view({ type: "Toggle", checked: { bind: 3 } });
     expect("checked" in node).toBe(false);
+  });
+
+  it("drops a `disabled` that is not a boolean, leaving the control live", () => {
+    // Never the other way round: a repair that guessed `true` would silently
+    // switch off a control the author never disabled (ZAB-63).
+    const node = view({ type: "Button", disabled: "yes" });
+    expect(node.type).toBe("Button");
+    expect("disabled" in node).toBe(false);
+  });
+
+  it("keeps `disabled` on an unknown node type, which degrades to a Container", () => {
+    // A control the author switched off must not come back to life on an SDK that
+    // does not know its type — `disabled` is NodeBase, so it survives the fallback.
+    const node = view({ type: "RadialMenu", disabled: true, layout: { gap: 4 } }) as {
+      type: string;
+      disabled?: unknown;
+    };
+    expect(node.type).toBe("RadialMenu");
+    expect(node.disabled).toBe(true);
   });
 });
 

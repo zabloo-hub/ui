@@ -22,7 +22,7 @@
  * - Style/layout changes may be tweened by a per-node `transition` (duration + easing
  *   from a closed curve set) — no keyframes, no timelines (decision 2026-08-11).
  * - Forward-tolerant: SDKs ignore unknown props, render unknown node types as a
- *   Container preserving `layout`/`style`/`visible`/`children` (normative rule,
+ *   Container preserving `layout`/`style`/`visible`/`disabled`/`children` (normative rule,
  *   decision 2026-08-11), and refuse only on a major-version mismatch.
  *
  * This module holds the TYPES and the normative reference implementations every
@@ -131,18 +131,24 @@ export type ZNode =
  * `empty` the one a `TextInput` carries while it holds no text, which is what
  * styles its placeholder (decision 2026-08-11, ZAB-26).
  *
- * The merge order is NORMATIVE (decision 2026-08-11, ZAB-36 — see the reference
- * implementation in the web renderer's `states.ts`):
+ * The merge order is NORMATIVE (decision 2026-08-11, ZAB-36; `disabled` appended
+ * 2026-08-17, ZAB-63 — see the reference implementation in the web renderer's
+ * `states.ts`):
  *
  * ```
- * base → empty → selected → checked → hover → focused → pressed
+ * base → empty → selected → checked → hover → focused → pressed → disabled
  * ```
  *
  * The *value* states go first — what the control IS is the baseline — and the
  * transient interaction ones paint over them: `hover` under `focused` so a mouse
- * passing by never hides a focus ring, and `pressed` last because it lasts exactly
- * as long as the finger is down. `disabled` is declared from v1 but no component
- * carries it yet.
+ * passing by never hides a focus ring, and `pressed` over those because it lasts
+ * exactly as long as the finger is down.
+ *
+ * `disabled` closes the list, and its place there only matters against the *value*
+ * states: the interaction ones can never be active on a disabled node (it takes no
+ * input at all), while a disabled checkbox is still `checked` and a disabled field
+ * still `empty`. Being last is what lets one override speak for the whole control
+ * whatever it currently holds.
  */
 export type StateName =
   | "hover"
@@ -288,6 +294,25 @@ interface NodeBase {
   id?: string;
   /** Single hiding mechanism — `display:none` semantics (leaves layout). */
   visible?: Bindable<boolean>;
+  /**
+   * Takes this node and its whole subtree OUT of the interaction model (decision
+   * 2026-08-17, ZAB-63): nothing in it is focusable, hoverable or pressable, and
+   * no action of it can fire. It is the only exception to "focusability derives
+   * from component identity" — see `docs/format/input.md`.
+   *
+   * **It inherits.** The effective value is a node's own OR any ancestor's, the
+   * way `clip` intersects down the tree, so one prop on a section disables the
+   * form inside it. That is also what makes `states.disabled` the only state a
+   * NON-focusable node can carry: the labels of a disabled section have to be
+   * able to dim with it, or disabling the section would only reach its controls.
+   *
+   * Bindable, like `visible`: whether half a screen is live is game state, so it
+   * arrives through `SetData` rather than through a reload.
+   *
+   * `disabled` styles nothing by itself — there is no built-in dimmed look, the
+   * same as every other state. What it paints is `states.disabled.style`.
+   */
+  disabled?: Bindable<boolean>;
   layout?: Layout;
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;

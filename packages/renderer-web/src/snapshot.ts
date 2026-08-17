@@ -157,6 +157,9 @@ const STATES: ReadonlyArray<{ name: string; of: (node: LayoutNode) => boolean }>
   { name: "hover", of: (node) => node.hovered },
   { name: "focused", of: (node) => node.focused },
   { name: "pressed", of: (node) => node.pressed },
+  // The EFFECTIVE flag, inherited included: what a second target has to reproduce
+  // is which nodes are out of the interaction model, not which ones declared it.
+  { name: "disabled", of: (node) => node.disabled },
 ];
 
 /** Resolved values worth recording, in a fixed order. Colors serialize as hex. */

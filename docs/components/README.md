@@ -65,9 +65,14 @@ is a leaf, so it has no slot convention to protect.
 ## Props every node has
 
 Every component takes the [node base](../format/envelope.md#the-node-base) props — `id`,
-`visible`, `layout`, `style`, `states`, `transition`, `autofocus`, `clip` — plus `variant`
-in authoring, which is resolved away at export. The pages below document only what is
-specific to each type.
+`visible`, `disabled`, `layout`, `style`, `states`, `transition`, `autofocus`, `clip` — plus
+`variant` in authoring, which is resolved away at export. The pages below document only what
+is specific to each type.
+
+`disabled` is worth singling out: it is the one that **inherits**, so it is declared on a
+control or on the section that owns a whole group of them, and every node it reaches — labels
+included — can dress itself through `states.disabled`. See
+[Input & focus](../format/input.md#disabled-normative).
 
 ## Positional slots
 

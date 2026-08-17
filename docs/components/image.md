@@ -51,8 +51,9 @@ There is **no `loading` state**: the placeholder is authored, not a runtime stat
 
 ## Behavior
 
-**States:** none of its own. An `Image` is not focusable. (Inside a `Button`, the button's
-states can tint it — the style is the button's, the image is just its content.)
+**States:** `disabled` only, inherited — an icon greys out with the control it belongs to.
+An `Image` is not focusable, so nothing else applies. (Inside a `Button`, the button's states
+can tint it — the style is the button's, the image is just its content.)
 
 **Actions:** none.
 

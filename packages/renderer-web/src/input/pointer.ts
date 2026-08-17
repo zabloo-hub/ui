@@ -99,6 +99,26 @@ export class PointerHandler {
     if (this.hoveredNode && !inLayout(this.hoveredNode)) this.setHover(null);
   }
 
+  /**
+   * Releases the hover, the press and any value gesture riding a node the game
+   * has just disabled (ZAB-63). A slider drag is **cancelled**, not committed:
+   * the value never settled, which is the same rule as a press that ends outside
+   * its control. A scroll drag survives on purpose — a disabled section is still
+   * readable, so scrolling it was never an interaction it owned.
+   */
+  pruneDisabled(): void {
+    if (this.hoveredNode?.disabled) this.setHover(null);
+    if (this.pressedNode?.disabled) {
+      this.pressedNode.pressed = false;
+      this.pressedNode = null;
+    }
+    if (this.sliderDrag?.node.disabled) {
+      this.sliderDrag.node.pressed = false;
+      this.sliderDrag = null;
+    }
+    if (this.textDrag?.disabled) this.textDrag = null;
+  }
+
   /** A released node's identity dies with it: any gesture it anchored goes too. */
   forget(node: LayoutNode): void {
     if (this.pressedNode === node) this.pressedNode = null;
@@ -131,7 +151,10 @@ export class PointerHandler {
       // Sliders take the pointer first: the gesture starts on the press (the
       // thumb jumps to the finger) and the control lives inside scrollable
       // screens, where the drag must move the value, not the list.
-      const slider = hit && this.findUp(hit, (n) => n.ir.type === "Slider");
+      // Every control predicate below refuses a disabled node, and refusing means
+      // the press falls THROUGH to what is behind it: a dead button inside a
+      // scroller does not swallow the drag that scrolls the list (ZAB-63).
+      const slider = hit && this.findUp(hit, (n) => n.ir.type === "Slider" && !n.disabled);
       if (slider) {
         this.sliderDrag = { node: slider, from: slider.sliderValue };
         slider.pressed = true;
@@ -144,7 +167,7 @@ export class PointerHandler {
       // A text field takes the pointer for the same reason a Slider does: the press
       // places the caret and the drag selects, and neither may become a scroll of
       // the screen the field sits in.
-      const field = hit && this.findUp(hit, (n) => n.ir.type === "TextInput");
+      const field = hit && this.findUp(hit, (n) => n.ir.type === "TextInput" && !n.disabled);
       if (field) {
         this.textDrag = field;
         this.host.setFocus(field);
@@ -154,7 +177,8 @@ export class PointerHandler {
         return;
       }
       const pressable =
-        hit && this.findUp(hit, (n) => n.ir.type === "Button" || n.ir.type === "Toggle");
+        hit &&
+        this.findUp(hit, (n) => (n.ir.type === "Button" || n.ir.type === "Toggle") && !n.disabled);
       if (pressable) {
         pressable.pressed = true;
         this.pressedNode = pressable;
@@ -259,7 +283,7 @@ export class PointerHandler {
       // Collapse header toggle (the <details>/<summary> model).
       const resolved = this.hitTest(point);
       const hit = resolved.kind === "node" ? resolved.node : null;
-      const header = hit && this.findUp(hit, (n) => this.host.isCollapseHeader(n));
+      const header = hit && this.findUp(hit, (n) => this.host.isCollapseHeader(n) && !n.disabled);
       if (header?.parent) this.host.setCollapseOpen(header.parent, !header.parent.open);
     };
     const wheel = (event: WheelEvent) => {

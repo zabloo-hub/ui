@@ -98,7 +98,7 @@ What an SDK does with content built for a newer version of the format:
 | Situation | Behavior |
 |---|---|
 | **Unknown property** | Ignored, silently. It survives a validation round-trip untouched. |
-| **Unknown node type** | Rendered as a `Container`, preserving `layout`, `style`, `visible` and `children`. |
+| **Unknown node type** | Rendered as a `Container`, preserving `layout`, `style`, `visible`, `disabled` and `children`. |
 | **Unknown value in a closed set** | Falls back to that property's default. |
 | **Unknown `group` behavior** | Ignored — the children lay out as ordinary siblings. |
 | **Incompatible major version** | Refused: `unsupported-version`, fatal. |

@@ -74,6 +74,7 @@ Any `Bindable<T>` prop takes `{ "bind": "some.path" }` in place of a literal.
 | Prop | Node |
 |---|---|
 | `visible` | every node |
+| `disabled` | every node (inherited by its subtree — see [Input & focus](input.md#disabled-normative)) |
 | `text` | `Text` |
 | `value` | `ProgressBar` |
 | `items` | `Repeat` (always a binding — never a literal array) |

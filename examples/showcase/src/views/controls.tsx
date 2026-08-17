@@ -207,6 +207,63 @@ export default function ControlsView() {
         <ValueRow label="profile.name" bind="profile.name" />
       </Section>
 
+      {/* The `disabled` case that matters: half a form switched off from the DATA.
+          The prop is on the Column, not on the controls — it inherits down the
+          subtree — so the game turns the whole block on and off with one
+          `SetData("settings.preset", …)`. Flip it in the preview's data panel and
+          watch the labels dim with the controls: `disabled` is the only state a
+          Text can be in, and that is exactly why it inherits (ZAB-63).
+
+          The knob and the fill keep their colour on purpose, and it is the rule
+          working rather than a gap in it: a state dresses the nodes that DECLARE
+          an override, never their descendants (no cascade). Those two are
+          positional slots, and the sugar styles a slot with a plain `Style` —
+          giving them an off look needs per-slot state styling, which is
+          authoring surface this task did not open. */}
+      <Section
+        title="disabled"
+        note="The one state that also changes behaviour: no focus, no hover, no press, no action — for the node AND its subtree. Declared here on the section, bound to the data, so a preset switches off the block it owns. Tab through: the navigation walks past it."
+        layout={{ direction: "column", align: "stretch", gap: "{space.2}" }}
+      >
+        <Column
+          {...PANEL}
+          disabled={{ bind: "settings.preset" }}
+          layout={{ ...PANEL.layout, width: 420 }}
+        >
+          <Text variant="label">Custom quality</Text>
+          <Switch
+            id="custom-shadows"
+            variant="row"
+            checked={{ bind: "settings.shadows" }}
+            onChange="shadows"
+          >
+            <Text variant="label">Shadows</Text>
+          </Switch>
+          <Field label="Draw distance">
+            <Slider
+              id="custom-distance"
+              variant="setting"
+              value={{ bind: "settings.distance" }}
+              min={0}
+              max={100}
+              step={5}
+              onCommit="distance-committed"
+              length={CONTROL_WIDTH}
+            />
+          </Field>
+          <Field label="Config name">
+            <TextInput
+              id="custom-name"
+              variant="field"
+              value={{ bind: "settings.presetName" }}
+              placeholder="Unnamed"
+              width={CONTROL_WIDTH}
+            />
+          </Field>
+        </Column>
+        <ValueRow label="settings.preset" bind="settings.preset" />
+      </Section>
+
       <Section
         title="Slider"
         note="A number set by pointing. `onChange` follows the finger and `onCommit` fires on release — a live preview and the value actually applied are two different questions."

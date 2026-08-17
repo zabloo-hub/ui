@@ -49,6 +49,44 @@ gamepad see the same set of live controls. This is what lets a
 [`Tooltip`](../components/overlay.md#tooltip) triggered by `hover` reach a controller
 without a second mechanism — on a pad, focus *is* hover.
 
+## `disabled` (normative)
+
+`disabled` is the **one exception** to the rule above: a node that carries it is not
+focusable whatever its type is.
+
+```jsonc
+{ "type": "Container", "disabled": { "bind": "settings.custom" }, "children": [] }
+```
+
+It **inherits**: the effective value of a node is its own `disabled` **or** any ancestor's,
+the way a clip is the intersection of every ancestor's. One prop on a section therefore
+switches off the form inside it — which is the case it exists for — and an `Overlay`
+restarts the chain, because a layer entry is the top of its own input scope. A modal
+declared inside a disabled panel is still operable, and still dismissable.
+
+Everything the interaction model does with it follows from being out of the focusable set:
+
+- **No focus, no hover.** It is not a navigation candidate, so the arrows and the d-pad walk
+  past it, and the pointer lights nothing up.
+- **No press, no action.** Neither a tap nor Enter nor the gamepad's A activates it, so no
+  named action fires and no value moves. A press that lands on it **falls through** to
+  whatever is behind: a dead `Button` inside a `ScrollView` does not swallow the drag that
+  scrolls the list.
+- **What it held, it releases.** A control the game disables while it has the focus, the
+  hover or a finger on it loses all three. The focus goes to *nothing* rather than to a
+  neighbor — the player did not ask to move — and a `Slider` gesture in flight is
+  **cancelled**, not committed: the value never settled.
+- **A disabled section is still readable.** Scrolling is not an interaction a control owns,
+  so a [`ScrollView`](../components/scrollview.md) inside one keeps working. A player who
+  cannot use a panel must still be able to read it.
+- **The game is not blocked.** The host channel is out of band, like a `SetData` on a bound
+  path: `SetValue`/`SetScroll` still reach a disabled node. What `disabled` describes is
+  what the **player** can do.
+
+It styles nothing by itself. There is no built-in dimmed look, exactly as for every other
+state — what a disabled control looks like is `states.disabled.style`, and a node with no
+override declared paints unchanged. See [Style › States](style.md#states).
+
 ## Initial focus
 
 `autofocus: true` marks the node that takes focus when its scope opens. The first one in

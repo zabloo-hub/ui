@@ -63,7 +63,7 @@ declared inputs.
 
 ## Behavior
 
-**States:** none. Not focusable.
+**States:** `disabled` only, inherited. Not focusable, so nothing else applies.
 
 **Actions:** none.
 

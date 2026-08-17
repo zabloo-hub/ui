@@ -82,10 +82,15 @@ like, never when it happens.
 | `hover` | Focusable nodes | The pointer is over it. |
 | `focused` | Focusable nodes | It holds the focus. See [Input & focus](input.md). |
 | `pressed` | `Button`, `Toggle` | A finger or button is down on it. |
-| `disabled` | — | Declared from v1; no component carries it yet. |
+| `disabled` | **Every** node | It — or an ancestor — declares [`disabled`](input.md#disabled-normative), so it is out of the interaction model. |
 
 `hover` lights up exactly the focusable set — what takes input is what may look different
 under the pointer — so a plain `Container` is never hovered.
+
+`disabled` is the one state a node that is **not** focusable can be in, because it is the
+only one that inherits: a disabled section hands it to everything inside, and the labels of
+that section have to be able to dim with the controls or switching the section off would
+only reach half of what the player sees.
 
 ### The merge order is normative
 
@@ -93,15 +98,21 @@ States overlap: a pressed button is usually also hovered and focused. They are m
 one fixed order, least to most specific, later winning field by field:
 
 ```
-base → empty → selected → checked → hover → focused → pressed
+base → empty → selected → checked → hover → focused → pressed → disabled
 ```
 
 The **value** states come first — what the control *is* is the baseline — and the transient
 interaction states paint over them. `empty` opens the list because it is the weakest thing
 a control says about its value: a placeholder color must lose to anything the author says
 about a selected or focused field. `hover` sits under `focused` so a mouse passing by never
-hides a focus ring, and `pressed` wins over everything because it lasts exactly as long as
-the finger is down.
+hides a focus ring, and `pressed` wins over those because it lasts exactly as long as the
+finger is down.
+
+`disabled` closes the list, and its place there only matters against the **value** states: a
+disabled node takes no input at all, so `hover`, `focused` and `pressed` can never be active
+alongside it, while a disabled `Toggle` is still `checked` and a disabled field still
+`empty`. Coming last is what lets one override speak for the whole control, whatever value
+it happens to be holding.
 
 Reference implementation: `STATE_ORDER` in the web renderer's `states.ts`. Every SDK
 reproduces this order exactly.

@@ -125,6 +125,7 @@ fields are documented on each [component page](../components/README.md).
 | `type` | `string` | — | The node's identity. Drives its behavior and its default paint. |
 | `id` | `string` | absent | Addressable name within the view. |
 | `visible` | `Bindable<boolean>` | `true` | The single hiding mechanism, with `display:none` semantics: a hidden node leaves the layout entirely. |
+| `disabled` | `Bindable<boolean>` | `false` | Takes this node **and its subtree** out of the interaction model. See [Input & focus](input.md#disabled-normative). |
 | `layout` | `Layout` | `{}` | See [Layout](layout.md). |
 | `style` | `Style` | `{}` | See [Style](style.md). |
 | `states` | `Partial<Record<StateName, { style?: Style }>>` | `{}` | Per-state style overrides. See [Style › States](style.md#states). |
@@ -137,6 +138,12 @@ fields are documented on each [component page](../components/README.md).
 it from the layout pass, so its siblings close the gap; showing it again brings it back.
 Because it is `Bindable`, the game opens and closes UI by moving a boolean in its own
 data.
+
+**`disabled` is the only prop that inherits.** A node's effective value is its own or any
+ancestor's, so one prop switches a whole form section off; an `Overlay` restarts the chain,
+being the top of its own input scope. It removes focus, hover, press and actions — not
+paint, and not scrolling — and what it *looks* like is `states.disabled`, since the format
+ships no built-in dimmed look.
 
 **`clip` is paint configuration, not runtime state.** A node's effective clipping rect is
 the intersection of its own with every ancestor's, and it cuts input as well as pixels: a

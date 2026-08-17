@@ -17,7 +17,9 @@ Everything else about a `Text` is [style](../format/style.md): `color`, `fontSiz
 `Text`-specific layout props, which is what lets a `variant` theme them and a state
 override them like any other visual input.
 
-**States:** none. `Text` is not focusable and never hovers.
+**States:** `disabled` only, inherited from whatever declared it — which is what lets the
+label of a disabled section dim with it. `Text` is not focusable and never hovers, so no
+other `states.*` applies.
 
 **Actions:** none.
 

@@ -23,6 +23,11 @@ export const tokens = {
   "color.text": "#eceff4",
   "color.muted": "#9aa4b2",
   "color.on-accent": "#ffffff",
+  // The switched-off pair. `disabled` has no built-in look in the format — it is a
+  // state like any other — so "off" is a colour decision the theme makes once and
+  // every variant below reads from here.
+  "color.off": "#262b3a",
+  "color.off.text": "#616a80",
   "radius.sm": 4,
   "radius.md": 8,
   "radius.lg": 16,
@@ -72,6 +77,9 @@ export const variants: ThemeVariants = {
         // Focus ring: an INSET border, so it paints inside the layout rect and
         // never grows the node nor bleeds over a neighbour (decision 2026-08-06).
         focused: { style: { borderWidth: 2, borderColor: "{color.text}" } },
+        // `disabled` merges LAST, so it needs no coordination with the three above:
+        // whatever the control was wearing, this is what wins (ZAB-63).
+        disabled: { style: { background: "{color.off}" } },
       },
     },
     secondary: {
@@ -80,6 +88,7 @@ export const variants: ThemeVariants = {
         hover: { style: { background: "{color.border}" } },
         pressed: { style: { background: "#454c70" } },
         focused: { style: { borderWidth: 2, borderColor: "{color.text}" } },
+        disabled: { style: { background: "{color.off}" } },
       },
     },
     // No fill at rest: the button is its label until you point at it.
@@ -137,6 +146,9 @@ export const variants: ThemeVariants = {
         hover: { style: { background: "{color.row.alt}" } },
         focused: { style: { borderWidth: 2, borderColor: "{color.text}" } },
         pressed: { style: { background: "{color.border}" } },
+        // A disabled toggle KEEPS its `checked` state — what it holds and whether
+        // you may change it are two statements — and this override outranks it.
+        disabled: { style: { background: "{color.off}" } },
       },
     },
   },
@@ -146,6 +158,7 @@ export const variants: ThemeVariants = {
     setting: {
       states: {
         focused: { style: { borderWidth: 2, borderColor: "{color.text}" } },
+        disabled: { style: { background: "{color.off}" } },
       },
     },
   },
@@ -165,6 +178,8 @@ export const variants: ThemeVariants = {
         empty: { style: { color: "{color.muted}" } },
         hover: { style: { borderColor: "{color.muted}" } },
         focused: { style: { borderWidth: 2, borderColor: "{color.accent.hover}" } },
+        // Over `empty` too: a disabled field's placeholder is not a live hint.
+        disabled: { style: { background: "{color.off}", color: "{color.off.text}" } },
       },
     },
   },
@@ -173,7 +188,12 @@ export const variants: ThemeVariants = {
   Text: {
     title: { style: { color: "{color.text}", fontSize: "{text.xl}" } },
     heading: { style: { color: "{color.text}", fontSize: "{text.lg}" } },
-    label: { style: { color: "{color.text}", fontSize: "{text.md}" } },
+    // A label is not focusable, so `disabled` is the ONLY state it can ever be in
+    // — and it gets there by inheritance, from the section that declared it.
+    label: {
+      style: { color: "{color.text}", fontSize: "{text.md}" },
+      states: { disabled: { style: { color: "{color.off.text}" } } },
+    },
     body: {
       style: { color: "{color.text}", fontSize: "{text.md}", lineHeight: "{text.line}" },
     },
