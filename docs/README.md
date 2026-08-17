@@ -13,6 +13,14 @@ live games and can be hot-updated, so an SDK older than the content it receives 
 normal situation the format is designed for — see [Versioning](format/versioning.md) and
 [Loading](format/loading.md).
 
+## Start here
+
+New to zabloo? Everything below is normative reference — precise, and the wrong place to
+begin. Build a screen first:
+
+→ **[Getting started](getting-started.md)** — scaffold a project, author a shop screen, bind
+it to game data, wire a button to C#, and load the envelope in Unity.
+
 ## The format
 
 | Page | What it covers |
