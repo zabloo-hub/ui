@@ -408,7 +408,12 @@ function sanitizeNode(
   // --- per type: required fields first (they can sink the node) ---
   switch (type) {
     case "Text":
-      if (!isBindable(node.text, isNonEmptyString)) {
+      // `isString`, NOT `isNonEmptyString`: an empty string is CONTENT — the label of
+      // a Select with no value yet, a Badge with no count, a bound path the game has
+      // not filled in. The node holds its slot and measures one empty line, so a row
+      // does not re-space itself the frame its text goes blank. What sinks the node
+      // is the field being ABSENT: that is a tree nobody meant to author.
+      if (!isBindable(node.text, isString)) {
         warn(
           ctx,
           "invalid-node",

@@ -567,6 +567,53 @@ describe("the data channel", () => {
     expect(after.rect?.width).toBeGreaterThan(before.rect?.width ?? 0);
   });
 
+  it("keeps the slot and the gaps when a bound Text empties (ZAB-65)", async () => {
+    // A literal "" loads too — the empty string is content, so the reader hands
+    // over four children and the row is spaced for four (decision 2026-08-17).
+    view = await mountGolden(
+      {
+        v: 1,
+        tokens: {},
+        views: {
+          row: {
+            type: "Container",
+            layout: { direction: "row", gap: 8 },
+            children: [
+              { type: "Text", id: "before", text: "A" },
+              { type: "Text", id: "status", text: { bind: "hud.status" } },
+              { type: "Text", id: "blank", text: "" },
+              { type: "Text", id: "after", text: "B" },
+            ],
+          },
+        },
+      },
+      { data: { "hud.status": "listo" } },
+    );
+    expect(view.warnings).toEqual([]);
+    const full = node(view.snapshot(), "status");
+    const lineHeight = full.rect?.height ?? 0;
+    const blank = node(view.snapshot(), "blank");
+    const tail = node(view.snapshot(), "after");
+    // The literal empty one is already a slot: no width, one line of height.
+    expect(blank.rect?.width).toBe(0);
+    expect(blank.rect?.height).toBe(lineHeight);
+
+    view.handle.setData("hud.status", "");
+
+    // The node is still there, still one line tall — which is what stops the row
+    // from re-spacing itself the frame its string goes blank.
+    const empty = node(view.snapshot(), "status");
+    expect(empty.text?.lines.map((line) => line.text)).toEqual([""]);
+    expect(empty.rect?.width).toBe(0);
+    expect(empty.rect?.height).toBe(lineHeight);
+    // Both of its gaps survive with it: everything after moves left by exactly the
+    // width the text lost, and not by one gap more.
+    const lost = full.rect?.width ?? 0;
+    expect(empty.rect?.x).toBe(full.rect?.x);
+    expect(node(view.snapshot(), "blank").rect?.x).toBeCloseTo((blank.rect?.x ?? 0) - lost, 3);
+    expect(node(view.snapshot(), "after").rect?.x).toBeCloseTo((tail.rect?.x ?? 0) - lost, 3);
+  });
+
   it("never reports a setData back to the game as a change", async () => {
     view = await mountCase(CORPUS.bindings);
 
