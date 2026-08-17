@@ -18,7 +18,7 @@ content on top. An explicit paint layer (paths, arcs) is a compatible future ext
 | `borderWidth` | `Dim` | `0` | Stroke thickness, **inset**. |
 | `borderColor` | `ColorValue` | — | Stroke color. |
 | `color` | `ColorValue` | white | Color of the node's **content** — glyphs, image tint, caret and selection. |
-| `fontSize` | `Dim` | `16` | Text size in px. |
+| `fontSize` | `Dim` | `16` | Text size in px, rounded and **clamped to `1..512`**. |
 | `opacity` | `number` | `1` | 0..1, clamped. Multiplies down the subtree. |
 | `textAlign` | `"start" \| "center" \| "end"` | `"start"` | Horizontal alignment of each line inside the rect. |
 | `textAlignY` | `"start" \| "center" \| "end"` | `"start"` | Vertical alignment of the whole text block. |
@@ -31,6 +31,16 @@ The text properties live in `style`, next to `fontSize` and `color`, so they are
 through tokens and overridable per state like every other visual input. They are read from
 a `Text` node and ignored elsewhere. Their exact semantics — including the normative wrap
 algorithm — are on the [`Text`](../components/text.md) page.
+
+### Text size
+
+`fontSize` is resolved per frame — through tokens, through states, through a transition —
+and then **rounded and clamped to `1..512`** before a glyph is asked for. The ceiling is
+normative, not an implementation detail of one renderer: rasterization cost grows with the
+square of the point size, so an unclamped `fontSize` (an animated token overshooting, a
+value that arrives from data) is the difference between a big headline and a hundreds-of-
+megabytes glyph bitmap. Clamping silently is deliberate — the value is re-resolved on
+every frame, so there is no single moment at which to report it.
 
 ### Border
 

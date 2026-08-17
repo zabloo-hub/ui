@@ -21,6 +21,12 @@ namespace Zabloo
         public event Action<string> OnAction;
 
         const int DefaultFontSize = 16;
+        /// <summary>
+        /// The normative ceiling of `fontSize` (ZAB-69) — see docs/format/style.md.
+        /// Rasterizing costs the square of the point size, so an unclamped value
+        /// arriving from a token or a state is a texture nobody meant to ask for.
+        /// </summary>
+        const int MaxFontSize = 512;
 
         enum BindingKind { Text, Visible }
 
@@ -383,7 +389,10 @@ namespace Zabloo
         }
 
         int FontSize(StyleProps style) =>
-            Mathf.Max(1, Mathf.RoundToInt(_tokens.Dim(style?.fontSize, DefaultFontSize)));
+            Mathf.Clamp(
+                Mathf.RoundToInt(_tokens.Dim(style?.fontSize, DefaultFontSize)),
+                1,
+                MaxFontSize);
 
         string ResolveText(Node ir)
         {

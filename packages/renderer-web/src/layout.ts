@@ -14,7 +14,7 @@ import { fillRect } from "./progress.js";
 import type { ItemSpan } from "./repeat.js";
 import { clamp, resolveScrollMax } from "./scroll.js";
 import { fractionOf, growsUpward, resolveRange, sliderGeometry } from "./slider.js";
-import type { TextBlock } from "./text.js";
+import type { TextBlock, TextMetrics } from "./text.js";
 import { caretAt, type Selection } from "./textinput.js";
 import { createNodeAnim, type NodeAnim, type ResolvedValues } from "./transition.js";
 
@@ -23,6 +23,24 @@ export interface Rect {
   y: number;
   width: number;
   height: number;
+}
+
+/**
+ * Everything a laid-out `TextBlock` depends on (ZAB-69). Wrapping is a pure
+ * function of these, so two frames that match here are two frames whose lines
+ * are the same object — and a static label costs one layout, not one per frame.
+ */
+export interface TextKey {
+  /** The resolved content — a bound `Text` can hand a different string each frame. */
+  content: string;
+  /**
+   * The atlas that measured it, BY IDENTITY: the advances live in it, and the
+   * library hands out a new one when the WASM font is adopted or the LRU evicts
+   * a point size, which is exactly when the old lines stop being valid.
+   */
+  metrics: TextMetrics;
+  /** The layout options, flattened — see `textKeyOf` in the view. */
+  options: string;
 }
 
 /**
@@ -176,6 +194,12 @@ export interface LayoutNode {
    * width the flexbox offered). Null on every other node type.
    */
   textBlock: TextBlock | null;
+  /**
+   * `Text` only: what the block in `textBlock` was laid out FROM (ZAB-69), so a
+   * frame that changed none of it reuses the lines instead of breaking them
+   * again. Null until a measure pass fills it in, and on every other node type.
+   */
+  textKey: TextKey | null;
   /** Tweens in flight for this node. Rebuilding the tree drops them, so a reload snaps. */
   anim: NodeAnim;
   /**
@@ -238,6 +262,7 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
     caretSince: null,
     resolved: {},
     textBlock: null,
+    textKey: null,
     anim: createNodeAnim(),
     scopes: NO_SCOPES,
     repeat: null,

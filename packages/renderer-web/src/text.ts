@@ -94,6 +94,27 @@ function widthOf(text: string, metrics: TextMetrics): number {
   return width;
 }
 
+/**
+ * `widthOf`, abandoned as soon as the run passes `limit` — `null` then. Same sum,
+ * in the same order, whenever it does return a number, so a segment that fits is
+ * measured exactly as it always was; a segment that does not is not measured to
+ * the end, because the only thing anyone asks of it is whether it fits.
+ *
+ * Like the rest of the wrap, it takes a glyph to be unable to make a run
+ * narrower (see `breakWord`).
+ */
+function widthUpTo(text: string, metrics: TextMetrics, limit: number): number | null {
+  let width = 0;
+  let previous = "";
+  for (const char of text) {
+    if (previous !== "") width += metrics.kern(previous, char);
+    width += metrics.advance(char);
+    previous = char;
+    if (width > limit) return null;
+  }
+  return width;
+}
+
 /** Last code point of a string — the left half of the kerning pair at a junction. */
 function lastChar(text: string): string {
   return Array.from(text).at(-1) ?? "";
@@ -122,14 +143,23 @@ export function layoutText(
 ): TextBlock {
   const limit = options.maxWidth !== null && options.maxWidth > 0 ? options.maxWidth : null;
   const lines: TextLine[] = [];
+  const maxLines = options.maxLines;
+  /**
+   * Where laying out stops (ZAB-69). ONE line past the cap, not the cap itself:
+   * that extra line is what tells `dropped` something was left behind, and it
+   * is the only thing beyond the cap anyone needs to know. Without it a capped
+   * `Text` still wrapped its whole content — every line of a 50k-char paragraph
+   * measured — only to throw all but the first `maxLines` away.
+   */
+  const budget = maxLines !== null ? Math.max(1, maxLines) + 1 : null;
 
   // Hard breaks first: they are honored whatever the width is.
   for (const paragraph of content.replace(/\r\n?/g, "\n").split("\n")) {
-    if (options.wrap && limit !== null) wrapParagraph(paragraph, metrics, limit, lines);
+    if (budget !== null && lines.length >= budget) break;
+    if (options.wrap && limit !== null) wrapParagraph(paragraph, metrics, limit, lines, budget);
     else lines.push(lineOf(paragraph, metrics));
   }
 
-  const maxLines = options.maxLines;
   const dropped = maxLines !== null && lines.length > maxLines;
   if (dropped) lines.length = Math.max(1, maxLines as number);
 
@@ -160,12 +190,17 @@ export function layoutText(
   };
 }
 
-/** Greedy first-fit wrap of one hard-break-free paragraph, appended to `out`. */
+/**
+ * Greedy first-fit wrap of one hard-break-free paragraph, appended to `out`.
+ * `budget`, when set, is the total number of lines `out` is allowed to reach:
+ * past it nothing is measured, since nothing past it can be painted.
+ */
 function wrapParagraph(
   paragraph: string,
   metrics: TextMetrics,
   limit: number,
   out: TextLine[],
+  budget: number | null,
 ): void {
   const chars = Array.from(paragraph);
   const start = out.length;
@@ -175,6 +210,7 @@ function wrapParagraph(
 
   let i = 0;
   while (i < chars.length) {
+    if (budget !== null && out.length >= budget) return;
     // A segment is a run of spaces plus the word that follows it.
     let spaces = "";
     while (i < chars.length && isBreakSpace(chars[i])) {
@@ -189,29 +225,43 @@ function wrapParagraph(
     if (word === "") break; // trailing spaces: they neither paint nor break
 
     const segment = spaces + word;
-    const segmentWidth = widthOf(segment, metrics);
+    // Measured only as far as it takes to know it does NOT fit (ZAB-69): a token
+    // wider than the whole column is about to be broken glyph by glyph anyway,
+    // and measuring all 50k of it first is the other half of the quadratic.
+    const segmentWidth = widthUpTo(segment, metrics, limit);
 
     if (line === "") {
-      // Spaces that START a line are indentation: they paint, so they count.
-      line = segment;
-      lineWidth = segmentWidth;
-      if (lineWidth > limit) {
-        [line, lineWidth] = breakWord(line, metrics, limit, out);
+      if (segmentWidth === null) {
+        [line, lineWidth] = breakWord(segment, metrics, limit, out, budget);
+      } else {
+        // Spaces that START a line are indentation: they paint, so they count.
+        line = segment;
+        lineWidth = segmentWidth;
       }
-    } else if (lineWidth + metrics.kern(lineLast, segment[0]) + segmentWidth <= limit) {
+    } else if (
+      segmentWidth !== null &&
+      lineWidth + metrics.kern(lineLast, segment[0]) + segmentWidth <= limit
+    ) {
       lineWidth += metrics.kern(lineLast, segment[0]) + segmentWidth;
       line += segment;
     } else {
       // Break here: the line ends, and with it go the spaces at the break and the
       // kerning pair that straddled it.
       out.push({ text: line, width: lineWidth });
-      line = word;
-      lineWidth = widthOf(word, metrics);
-      if (lineWidth > limit) [line, lineWidth] = breakWord(line, metrics, limit, out);
+      const wordWidth = widthUpTo(word, metrics, limit);
+      if (wordWidth === null) {
+        [line, lineWidth] = breakWord(word, metrics, limit, out, budget);
+      } else {
+        line = word;
+        lineWidth = wordWidth;
+      }
     }
     lineLast = lastChar(line);
   }
 
+  // Past the budget the line in hand is one nobody will paint — and, when a long
+  // word ran out of budget mid-break, one whose width was never measured.
+  if (budget !== null && out.length >= budget) return;
   // An empty paragraph still owns a line, so a blank line takes vertical space.
   if (line !== "" || out.length === start) out.push({ text: line, width: lineWidth });
 }
@@ -220,32 +270,51 @@ function wrapParagraph(
  * Splits a word too long for a line of its own between glyphs, emitting the full
  * lines and returning the remainder as the caller's current line. At least one glyph
  * per line, so a `limit` narrower than a single glyph still terminates.
+ *
+ * ONE pass over the word (ZAB-69): each glyph is measured exactly once, in the
+ * same order and from the same starting point as before — every emitted width is
+ * still a fresh left-to-right sum from its own first glyph, never a subtraction —
+ * so the break points and the widths are what they always were. What is gone is
+ * the re-measure of the ENTIRE remainder per line, which made a long token
+ * quadratic: 50k chars in a narrow column was ~10⁹ metric lookups, each one a
+ * call across the WASM boundary.
+ *
+ * The one thing this reads differently is a font where a glyph can make a run
+ * NARROWER (kerning below minus the advance): the old code compared the whole
+ * remainder against the limit, this compares the running prefix. Every real font
+ * — and `clipLine` and `ellipsize` right below, which have always scanned this
+ * way — takes the width of a run to grow with its glyphs.
  */
 function breakWord(
   word: string,
   metrics: TextMetrics,
   limit: number,
   out: TextLine[],
+  budget: number | null,
 ): [string, number] {
-  let rest = word;
-  let restWidth = widthOf(rest, metrics);
-  while (restWidth > limit) {
-    let taken = "";
-    let takenWidth = 0;
+  const chars = Array.from(word);
+  let i = 0;
+  while (i < chars.length) {
+    let width = 0;
     let previous = "";
-    for (const char of rest) {
+    let end = i;
+    while (end < chars.length) {
+      const char = chars[end];
       const step = (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
-      if (taken !== "" && takenWidth + step > limit) break;
-      taken += char;
-      takenWidth += step;
+      if (end > i && width + step > limit) break;
+      width += step;
       previous = char;
+      end++;
     }
-    out.push({ text: taken, width: takenWidth });
-    rest = rest.slice(taken.length);
-    // Re-measured, not subtracted: the pair straddling the break is gone now.
-    restWidth = widthOf(rest, metrics);
+    // Everything left fits: it is the caller's line, not another full one.
+    if (end === chars.length) return [chars.slice(i).join(""), width];
+    out.push({ text: chars.slice(i, end).join(""), width });
+    i = end;
+    // Out of budget: the rest is unpaintable, so it is never measured. The
+    // caller drops the line it gets back rather than pushing it.
+    if (budget !== null && out.length >= budget) break;
   }
-  return [rest, restWidth];
+  return [chars.slice(i).join(""), 0];
 }
 
 /** Longest prefix that fits: the glyph that would cross the boundary is dropped. */

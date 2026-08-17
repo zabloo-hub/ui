@@ -60,6 +60,7 @@ import {
   measure,
   type Rect,
   type RepeatState,
+  type TextKey,
   wrapsLines,
 } from "./layout.js";
 import {
@@ -123,6 +124,16 @@ import {
 import { decodeBase64, loadFont, type StbFont } from "./ttf.js";
 
 const DEFAULT_FONT_SIZE = 16;
+/**
+ * Where a resolved `fontSize` stops (ZAB-69). Rasterizing is quadratic in the
+ * point size — a glyph at 20000px is a ~200 MB coverage buffer, past that the
+ * WASM allocation throws — and the clamp has to live HERE, at resolution time,
+ * because a token or a state can hand any finite number to a `Text` mid-frame.
+ * 512 is a real display size and still leaves several glyphs per row in the
+ * biggest atlas (4096²) at dpr 2. Documented in `docs/format/style.md`; silent
+ * on purpose, since this runs on every node on every frame.
+ */
+const MAX_FONT_SIZE = 512;
 /** Paint fallbacks for a declared color whose token does not resolve (author error). */
 const MISSING_COLOR: Color = [1, 0, 1, 1];
 const DEFAULT_TEXT_COLOR: Color = [1, 1, 1, 1];
@@ -1877,7 +1888,8 @@ class WebView {
   }
 
   private fontSize(style: Style | undefined): number {
-    return Math.max(1, Math.round(this.dim(style?.fontSize, DEFAULT_FONT_SIZE)));
+    const size = Math.round(this.dim(style?.fontSize, DEFAULT_FONT_SIZE));
+    return Math.min(MAX_FONT_SIZE, Math.max(1, size));
   }
 
   /**
@@ -2187,14 +2199,20 @@ class WebView {
     if (ir.type === "Text") {
       // Wrapping happens HERE, once per frame: the block is kept on the node so
       // paint reuses these very lines instead of breaking the text a second time.
+      // And since ZAB-69 the node also keeps WHAT it wrapped, so the frames that
+      // changed none of it — most of them, for the static labels a UI is mostly
+      // made of — reuse the block instead of breaking the text again.
       const style = this.effectiveStyle(node);
       const atlas = this.fonts.get(this.fontSize(style));
-      const block = layoutText(
-        this.resolveText(node),
-        atlas,
-        this.textOptions(style, atlas.lineHeight, availableWidth),
-      );
-      node.textBlock = block;
+      const options = this.textOptions(style, atlas.lineHeight, availableWidth);
+      const content = this.resolveText(node);
+      const key: TextKey = { content, metrics: atlas, options: textOptionsKey(options) };
+      let block = node.textBlock;
+      if (block === null || !sameTextKey(node.textKey, key)) {
+        block = layoutText(content, atlas, options);
+        node.textBlock = block;
+        node.textKey = key;
+      }
       return { x: block.width, y: block.height };
     }
     if (ir.type === "Image") {
@@ -2586,6 +2604,25 @@ function now(): number {
 
 function isCollapseHeader(node: LayoutNode): boolean {
   return node.parent?.ir.type === "Collapse" && node.parent.children[0] === node;
+}
+
+/**
+ * The wrapping inputs that are plain values, as one comparable string — the rest
+ * of the key (the content and the atlas) is compared by value and by identity.
+ * `maxWidth` is in here too: the width the flexbox offered is what the lines were
+ * broken to, so a resize invalidates them like a style change does.
+ */
+function textOptionsKey(options: TextLayoutOptions): string {
+  return `${options.wrap}|${options.maxWidth}|${options.lineHeight}|${options.maxLines}|${options.overflow}`;
+}
+
+function sameTextKey(previous: TextKey | null, next: TextKey): boolean {
+  return (
+    previous !== null &&
+    previous.content === next.content &&
+    previous.metrics === next.metrics &&
+    previous.options === next.options
+  );
 }
 
 const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {

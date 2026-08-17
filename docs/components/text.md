@@ -39,8 +39,10 @@ Text is **self-rendered**: the SDK rasterizes glyphs from the project's TTF into
 atlas and draws them as quads. No engine text element is involved, which is what makes the
 same string break and paint identically on every target.
 
-One consequence to know about: `fontSize` **snaps** — it is the atlas key, so it is never
-tweened by a [transition](../format/motion.md).
+Two consequences to know about: `fontSize` **snaps** — it is the atlas key, so it is never
+tweened by a [transition](../format/motion.md) — and it is **clamped to `1..512`** before
+the atlas is asked for it (see [Style](../format/style.md#text-size)), because a glyph is
+rasterized at the square of its point size.
 
 ## Text layout (normative)
 
