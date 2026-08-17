@@ -329,12 +329,17 @@ export class OverlayLayer {
    * stay ignored (a layer is not sized — size the child), and `padding` keeps
    * meaning "margin from the view's edges": it is taken out of the box and given
    * back around it, so the same number does the same job anchored or not.
+   *
+   * The view rect is CLONED into every entry: one `viewRect` lays the root and
+   * the whole layer out, and handing them all the same object would make each
+   * `node.rect` an alias of the others. Nothing mutates a rect in place today —
+   * this keeps the day one does from moving every overlay at once.
    */
   arrangeOverlay(overlay: LayoutNode, viewRect: Rect): void {
     const spec = anchorSpec(overlay);
     const anchor = spec === null ? null : this.anchorNode(spec.id);
     if (spec === null || anchor === null) {
-      arrange(overlay, viewRect);
+      arrange(overlay, { ...viewRect });
       return;
     }
     const padding = overlay.resolved.padding ?? 0;
@@ -351,7 +356,7 @@ export class OverlayLayer {
       width: box.width + padding * 2,
       height: box.height + padding * 2,
     });
-    overlay.rect = viewRect;
+    overlay.rect = { ...viewRect };
   }
 
   /**
