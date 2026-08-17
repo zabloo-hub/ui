@@ -12,7 +12,7 @@
  * the reconciler share a single React instance.
  */
 
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -136,20 +136,24 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
   };
 }
 
+/**
+ * Imports one of the project's OPTIONAL files (`zabloo.config.ts`, `src/theme.ts`),
+ * or resolves to undefined when it is simply not there — both have defaults
+ * (`outDir ?? "dist"`, `tokens ?? {}`) and a project needs neither to export.
+ *
+ * The absence is decided by looking at the filesystem, not by pattern-matching the
+ * failure: this used to test `code === "ERR_MODULE_NOT_FOUND"`, which jiti's `.ts`
+ * path never throws (it transforms to CJS and throws `MODULE_NOT_FOUND`), so the
+ * fallback was dead code and a project without a config died on a raw stack that
+ * even leaked the internal `__zabloo_export__.mjs` resolution base (ZAB-67).
+ * Asking first also keeps a REAL error inside the file — a broken import, a typo —
+ * from being swallowed as "not there", whatever code it arrives with.
+ */
 async function tryImport(jiti: Jiti, path: string): Promise<unknown> {
   try {
-    return await jiti.import(path);
-  } catch (error) {
-    if (isModuleNotFound(error, path)) return undefined;
-    throw error;
+    await access(path);
+  } catch {
+    return undefined;
   }
-}
-
-function isModuleNotFound(error: unknown, path: string): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as { code?: string }).code === "ERR_MODULE_NOT_FOUND" &&
-    error.message.includes(basename(path))
-  );
+  return await jiti.import(path);
 }

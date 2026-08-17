@@ -16,6 +16,7 @@
 
 import type { ActionContext, AssetEntry, Envelope } from "@zabloo/format";
 import type { MountOptions, ZablooHandle } from "@zabloo/renderer-web";
+import type { PreviewEvent } from "./preview-server.js";
 
 /**
  * The renderer's IIFE build, which the page loads as a classic script (`/renderer.js`)
@@ -139,6 +140,19 @@ export interface PreviewClient {
   stop(): void;
 }
 
+/**
+ * Reads one SSE frame. Anything unrecognizable is treated as "something changed,
+ * go look": a reload is the harmless answer, and a page that ignored a frame it
+ * could not parse would silently stop updating.
+ */
+export function parseEvent(data: string): PreviewEvent {
+  try {
+    const parsed = JSON.parse(data) as PreviewEvent;
+    if (parsed.kind === "error" && typeof parsed.message === "string") return parsed;
+  } catch {}
+  return { kind: "reload" };
+}
+
 function element<T extends HTMLElement>(id: string): T {
   const found = document.getElementById(id);
   if (found === null) throw new Error(`zabloo preview: no #${id} in the page`);
@@ -151,6 +165,7 @@ export function start(): PreviewClient {
   const views = element<HTMLSelectElement>("views");
   const status = element("status");
   const logBox = element("log");
+  const errorBox = element("error");
   const panel = element("data");
   const fields = element("fields");
   const padBadge = element("pad");
@@ -162,6 +177,24 @@ export function start(): PreviewClient {
     line.textContent = message;
     logBox.prepend(line);
     setTimeout(() => line.remove(), LOG_MS);
+  }
+
+  /**
+   * A save that did not make it onto the canvas, said out loud (ZAB-67): the view
+   * on screen is now STALE, and nothing else here would admit it — a log line
+   * fades, and the status dot only knew about the connection. The overlay stays
+   * until an export lands, and the dot goes red meanwhile.
+   */
+  function showError(message: string): void {
+    errorBox.textContent = message;
+    errorBox.classList.remove("empty");
+    status.classList.add("err");
+  }
+
+  function clearError(): void {
+    errorBox.textContent = "";
+    errorBox.classList.add("empty");
+    status.classList.remove("err");
   }
 
   // The preview plays the role of "the game": it discovers the envelope's
@@ -217,7 +250,9 @@ export function start(): PreviewClient {
     try {
       await loadOrFail(viewId);
     } catch (error) {
-      log(`envelope error: ${error instanceof Error ? error.message : String(error)}`);
+      const message = `envelope error: ${error instanceof Error ? error.message : String(error)}`;
+      log(message);
+      showError(message);
     }
   }
 
@@ -230,9 +265,18 @@ export function start(): PreviewClient {
     if (handle && viewId === undefined) {
       handle.reload(json);
       replayData();
+      clearError();
       return;
     }
-    if (handle) handle.dispose();
+    // Dropped BEFORE mounting, not after: a `mount` that throws — a view the
+    // renderer refuses — used to leave `handle` pointing at the view it had just
+    // disposed, and the next SSE reload called `reload()` on the dead one (ZAB-67).
+    // Null means the next load remounts, which is what a broken view needs.
+    if (handle) {
+      handle.dispose();
+      handle = null;
+      window.zabloo = undefined;
+    }
     handle = ZablooRenderer.mount(canvas, json, {
       view: viewId,
       // An action from inside a row carries the item it fired from (ZAB-29).
@@ -242,6 +286,7 @@ export function start(): PreviewClient {
     });
     window.zabloo = handle;
     replayData();
+    clearError();
     if (views.options.length !== handle.viewIds.length) {
       views.innerHTML = "";
       for (const id of handle.viewIds) {
@@ -273,7 +318,12 @@ export function start(): PreviewClient {
   const events = new EventSource("/events");
   events.onopen = () => status.classList.add("ok");
   events.onerror = () => status.classList.remove("ok");
-  events.onmessage = () => {
+  events.onmessage = (event: MessageEvent<string>) => {
+    const payload = parseEvent(event.data);
+    if (payload.kind === "error") {
+      showError(payload.message);
+      return;
+    }
     void load();
   };
 

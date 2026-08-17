@@ -192,9 +192,10 @@ pnpm verify:pack                           # the publish dry run: pack, install 
 ```
 
 `typecheck` and `test` resolve workspace dependencies to their **sources**, so a fresh
-clone needs no build first. One test is the exception and says so when it fails: the dev
-server serves the preview page's own bundle, so `packages/cli` wants `pnpm build` before
-that assertion can pass.
+clone needs no build first. `packages/cli` is the exception, because two of its tests run
+the real thing rather than a stand-in: the dev server serves the preview page's own
+bundle, and the export tests run a project's code through jiti, which resolves
+`@zabloo/react` from that project. Both want `pnpm build` first.
 
 ## License
 

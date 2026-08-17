@@ -22,9 +22,10 @@ import {
   collectBindPaths,
   hydrateAssets,
   type PreviewClient,
+  parseEvent,
   start,
 } from "./preview-client.js";
-import { PREVIEW_BODY } from "./preview-server.js";
+import { PREVIEW_BODY, type PreviewEvent } from "./preview-server.js";
 
 /** A mount, as the page made it — what the renderer would have been asked for. */
 interface Mount {
@@ -52,7 +53,7 @@ let mountError: Error | null = null;
 class FakeEventSource {
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
-  onmessage: (() => void) | null = null;
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
   closed = false;
   constructor(readonly url: string) {
     stream = this;
@@ -60,6 +61,11 @@ class FakeEventSource {
   close(): void {
     this.closed = true;
   }
+}
+
+/** What the dev loop pushes down the stream, as the page receives it. */
+function push(event: PreviewEvent): void {
+  stream?.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>);
 }
 
 function fakeHandle(envelope: Envelope, viewIds?: string[]): FakeHandle {
@@ -112,6 +118,16 @@ function panelInput(path: string): HTMLInputElement {
 
 function logLines(): string[] {
   return [...document.querySelectorAll("#log div")].map((line) => line.textContent ?? "");
+}
+
+/** What the error overlay is showing, or null while it is hidden. */
+function overlay(): string | null {
+  const box = document.getElementById("error") as HTMLElement;
+  return box.classList.contains("empty") ? null : box.textContent;
+}
+
+function statusDot(): string {
+  return (document.getElementById("status") as HTMLElement).className;
 }
 
 /** Types into a field the way a person would: set the value, fire `input`. */
@@ -250,6 +266,21 @@ describe("coerce", () => {
     expect(coerce("Comprar")).toBe("Comprar");
     expect(coerce("")).toBe("");
     expect(coerce("   ")).toBe("   ");
+  });
+});
+
+describe("parseEvent", () => {
+  it("reads a failed export off the stream", () => {
+    expect(parseEvent('{"kind":"error","message":"boom"}')).toEqual({
+      kind: "error",
+      message: "boom",
+    });
+  });
+
+  it("treats anything else as a reload — one wasted fetch beats a page that froze", () => {
+    expect(parseEvent("reload")).toEqual({ kind: "reload" });
+    expect(parseEvent('{"kind":"error"}')).toEqual({ kind: "reload" });
+    expect(parseEvent('{"kind":"whatever-comes-next"}')).toEqual({ kind: "reload" });
   });
 });
 
@@ -396,7 +427,7 @@ describe("the preview page", () => {
     serve(GOLD);
     await open();
 
-    stream?.onmessage?.();
+    push({ kind: "reload" });
     await vi.waitFor(() => expect(mounts[0].handle.reloads).toHaveLength(1));
   });
 
@@ -426,6 +457,54 @@ describe("the preview page", () => {
 
     expect(mounts).toEqual([]);
     expect(logLines()).toEqual([]);
+  });
+
+  // Until ZAB-67 a failed export was invisible here: the page kept the last good
+  // render, the dot stayed green, and the only report was a line in a terminal you
+  // might not be looking at — "I saved and nothing happened".
+  it("shows a failed export over the stale view, with the dot in red", async () => {
+    serve(GOLD);
+    await open();
+
+    push({ kind: "error", message: "zabloo export: main.tsx\n  Unexpected token" });
+
+    expect(overlay()).toBe("zabloo export: main.tsx\n  Unexpected token");
+    expect(statusDot()).toContain("err");
+    // What is on screen is the last good export; nothing was reloaded.
+    expect(mounts[0].handle.reloads).toEqual([]);
+  });
+
+  it("takes the overlay down when an export lands again", async () => {
+    serve(GOLD);
+    await open();
+    push({ kind: "error", message: "boom" });
+
+    push({ kind: "reload" });
+
+    await vi.waitFor(() => expect(overlay()).toBeNull());
+    expect(statusDot()).not.toContain("err");
+  });
+
+  it("remounts after a mount that threw, instead of reloading the view it disposed", async () => {
+    serve({ ...GOLD, views: { ...GOLD.views, broken: { type: "Container" } } });
+    await open();
+    const first = mounts[0].handle;
+    mountError = new Error("unsupported node");
+
+    const picker = document.getElementById("views") as HTMLSelectElement;
+    picker.value = "broken";
+    picker.dispatchEvent(new window.Event("change"));
+    await vi.waitFor(() => expect(overlay()).toContain("unsupported node"));
+
+    mountError = null;
+    push({ kind: "reload" });
+
+    await vi.waitFor(() => expect(mounts).toHaveLength(2));
+    // The handle the failed mount left behind was disposed: reloading THAT is the
+    // bug, and a fresh mount is the only way back.
+    expect(first.disposed).toBe(true);
+    expect(first.reloads).toEqual([]);
+    expect(overlay()).toBeNull();
   });
 
   it("shows the gamepad badge only while a pad is connected (ZAB-47)", async () => {
