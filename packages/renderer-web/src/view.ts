@@ -373,6 +373,8 @@ class WebView {
   private readonly ready: Promise<void>;
   /** Disposed views must not touch GL from work that was already in flight. */
   private disposed = false;
+  /** So a game looping over a dead handle gets one warning, not one per call. */
+  private warnedDisposed = false;
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -385,7 +387,10 @@ class WebView {
     this.onAction = options.onAction;
     this.onDataChanged = options.onDataChanged;
     this.clearColor = parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
-    this.gl = new GLRenderer(canvas);
+    // A restored context comes back empty and blank: the repaint is what puts
+    // the view back on screen (ZAB-68). The GL layer rebuilds its own resources
+    // and re-uploads every atlas and image on that very frame.
+    this.gl = new GLRenderer(canvas, () => this.render());
     // The LRU eviction releases the dropped atlas's GPU texture (ZAB-55) — the
     // same contract `adopt` already has for the fallback-era atlases.
     this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1, null, (atlas) =>
@@ -438,6 +443,7 @@ class WebView {
       viewIds: Object.keys(this.envelope.views),
       ready: this.ready,
       reload: (input) => {
+        if (!this.alive("reload")) return;
         // A corrupt hot-update never takes down a UI that is already on screen
         // (decision 2026-08-12, ZAB-37): it reports and the current envelope stays.
         let next: Envelope;
@@ -458,16 +464,27 @@ class WebView {
         this.build();
         this.render();
       },
-      setData: (path, value) => this.setData(path, value),
-      setOpen: (id, open) => this.setOpen(id, open),
-      setSelectedTab: (id, index) => this.setSelectedTab(id, index),
-      setChecked: (id, checked) => this.setChecked(id, checked),
-      setValue: (id, value) => this.setValue(id, value),
-      setText: (id, text) => this.setText(id, text),
-      setScroll: (id, x, y) => this.setScroll(id, x, y),
+      // Every mutator goes through the same guard: after `dispose` the tree, the
+      // atlases and the GL objects are gone, and driving them would either throw
+      // or paint into a dead context (ZAB-68). The readers below stay open — they
+      // touch no GPU resource and answering with the last known frame is honest.
+      setData: (path, value) => {
+        if (this.alive("setData")) this.setData(path, value);
+      },
+      // The `id` setters answer whether they found the control; on a disposed
+      // view the honest answer is "no, nothing was applied".
+      setOpen: (id, open) => this.alive("setOpen") && this.setOpen(id, open),
+      setSelectedTab: (id, index) => this.alive("setSelectedTab") && this.setSelectedTab(id, index),
+      setChecked: (id, checked) => this.alive("setChecked") && this.setChecked(id, checked),
+      setValue: (id, value) => this.alive("setValue") && this.setValue(id, value),
+      setText: (id, text) => this.alive("setText") && this.setText(id, text),
+      setScroll: (id, x, y) => this.alive("setScroll") && this.setScroll(id, x, y),
       snapshot: () => this.snapshot(),
       stats: () => ({ ...this.lastStats }),
       dispose: () => {
+        // Idempotent: a host that disposes twice (React strict mode does) must
+        // not re-run the teardown over resources that are already released.
+        if (this.disposed) return;
         this.disposed = true;
         this.cancelFrame();
         for (const dispose of this.disposers) dispose();
@@ -477,6 +494,20 @@ class WebView {
         this.gl.dispose();
       },
     };
+  }
+
+  /**
+   * Whether the handle can still act. A call on a disposed view is a no-op and
+   * warns ONCE — a game polling a stale handle every frame would otherwise flood
+   * the console with the same line.
+   */
+  private alive(call: string): boolean {
+    if (!this.disposed) return true;
+    if (!this.warnedDisposed) {
+      this.warnedDisposed = true;
+      console.warn(`[zabloo] ${call}() on a disposed view — ignored`);
+    }
+    return false;
   }
 
   // --- build ---
@@ -2222,6 +2253,10 @@ class WebView {
   }
 
   render(): void {
+    // Work that was already in flight when the view died (an image decode
+    // landing, a restored context, a queued frame) still calls in here — and
+    // painting would submit to GL objects that no longer exist (ZAB-68).
+    if (this.disposed) return;
     const { width, height } = this.logicalSize();
     if (!(width > 0) || !(height > 0)) return;
     const viewRect: Rect = { x: 0, y: 0, width, height };
