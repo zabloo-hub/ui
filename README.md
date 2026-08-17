@@ -42,14 +42,35 @@ render targets** — the Unity SDK (UI Toolkit custom geometry:
 `generateVisualContent` / Mesh API) and a WebGL2 renderer — both running the same
 self-render pipeline: own Flexbox layout pass, own tessellator, own glyph atlases.
 
-What works today:
+### Where each target stands
 
-- **4 primitives on both targets** — `Container`, `Text`, `Button`, `Collapse` — plus
-  `ScrollView`, `Toggle`, `Image` (assets travel inside the envelope), `Overlay`,
-  `ProgressBar` and `Spinner` in the web renderer while the engine SDKs catch up, and
-  authoring-time composites (`Row`/`Column`, `Accordion`, `Tabs`,
-  `Checkbox`/`Switch`/`RadioGroup`, `Badge`, `Modal`/`Toast`/`Tooltip`) that flatten to
-  primitives.
+The IR vocabulary is a closed set of **13 node types**, and `@zabloo/react` exports **28
+authoring components** on top of it (composites like `<Tabs>` or `<Select>` are flattened
+at authoring time and never reach the IR). The two targets are **not** at the same point,
+and it matters if you are picking this up today:
+
+| Target | Node types | Where it is |
+|---|---|---|
+| **Web renderer** (`@zabloo/renderer-web`) | **13 / 13** | Runs the whole catalog: this is where every capability lands first, and what the `zabloo dev` preview and the future visual editor render with. |
+| **Unity SDK** (`sdk/unity`) | **4 / 13** — `Container`, `Text`, `Button`, `Collapse` | Catching up. Everything else degrades through the format's normative rule for unknown types: **rendered as a `Container` keeping its layout, style and children**, with a warning. Content never disappears; it loses the behavior. |
+
+Godot and Unreal render nothing yet — they are *designed* in parallel (every IR decision
+is validated against all three) rather than implemented.
+
+What the system does today — all of it in the web renderer, and in the Unity SDK as far
+as the table above goes:
+
+- **The full node vocabulary** — `Container`, `Text`, `Button`, `Collapse`, `ScrollView`,
+  `Image`, `Overlay`, `Toggle`, `Slider`, `TextInput`, `Repeat`, `ProgressBar`, `Spinner`
+  — and the authoring components that compose it: `Row`/`Column`, `Accordion`, `Tabs`,
+  `Checkbox`/`Switch`/`Radio`/`RadioGroup`, `Select`, `List`/`Grid`, `Badge`,
+  `Modal`/`Toast`/`Tooltip`. One page each in the
+  [component catalog](docs/components/README.md).
+- **Data-driven structure**: a `Repeat` instantiates its template once per element of a
+  bound array, so data decides *how many nodes there are*, not just what they say —
+  `<List>` and `<Grid>` are sugar over it, and the web renderer virtualizes long lists.
+  Paths address into the data (`shop.items.3.name`), so an action fired inside a row
+  carries which row it was.
 - **Overlays**: an `Overlay` is declared where the UI that opens it lives but paints in
   one layer above the whole view — backdrop from its own style, input captured, focus
   trapped and given back on close. `visible` is the only way to open or close one, so a
@@ -75,15 +96,28 @@ What works today:
   offers, hard breaks, alignment on both axes, and `clip`/`ellipsis` truncation, with
   every width kerned like the painted run — one normative algorithm, so both targets
   break in the same places (Unity porting it).
+- **Scrolling and clipping**: a `ScrollView` measures its children unconstrained on the
+  scrolled axis and clips to its own rect (wheel, drag, and a scroll call from the game);
+  `clip` is a paint prop any node can carry, and it cuts paint and hit-testing alike.
+- **Assets**: images travel *inside* the envelope (a content-addressed manifest, base64
+  by default), so one JSON is still the whole payload — the dev loop already ships the
+  tree and the bytes separately, which is the same path a CDN will use.
+- **Forms and input**: `Toggle` (checkbox/switch/radio), `Slider`, `Select` and
+  `TextInput` — with **two-way bindings**: the SDK writes the player's value back into
+  the bound path and tells the game through one callback, instead of every control
+  inventing its own event.
 - **Interactivity**: SDK-owned behavior keyed by component type, named actions surfaced
-  as C# events, data-path bindings (`SetData("player.gold", …)` re-lays out live),
-  automatic spatial focus/navigation (arrows/Enter today, gamepad-ready).
+  as C# events, data-path bindings (`SetData("player.gold", …)` re-lays out live), and
+  automatic spatial focus/navigation computed from the live layout rects. In the web
+  renderer that navigation is driven by **keyboard and gamepad alike** — d-pad/stick move
+  the focus, A activates, B dismisses the top modal, the right stick scrolls, and moving
+  the focus drags the scroll along to reveal it. The Unity SDK is on arrows/Enter today.
 - **Dev loop**: save a `.tsx` → `zabloo dev` re-exports into a live browser preview;
   add `--unity` to also hot-push each save to the Unity editor — through the same
   loading path as production hot-update.
 
-**Unity is the reference SDK for v1**; Godot and Unreal are designed in parallel (every
-IR decision is validated against all three) and come later. Packages are not yet
+**Unity is the reference SDK for v1** — the one engine adapter that gets built out, and
+the one every IR decision is checked against on the engine side. Packages are not yet
 published to npm.
 
 ## How it works
@@ -123,16 +157,43 @@ ui/
 │   └── create-zabloo-app/ project scaffolder
 ├── sdk/
 │   └── unity/             com.zabloo.sdk — UPM package (UI Toolkit custom geometry)
+├── docs/                  the format spec + the component catalog
+├── golden/                golden envelopes: the same input must render the same on every target
 └── examples/
-    ├── hello-button/      the vertical-slice project (React → IR)
+    ├── hello-button/      the vertical slice: one pressable Button, React → IR → Unity
+    ├── scroll-demo/       ScrollView: wheel and drag input
+    ├── inventory-demo/    a shop with real overflow — list, category strip, nested Collapse
+    ├── tabs-settings/     Tabs: panels entering and leaving layout via `exclusive-select`
+    ├── settings-demo/     Checkbox / Switch / RadioGroup and two-way bindings
+    ├── settings-screen/   the whole form catalog composed as one real screen
+    ├── overlays-demo/     Modal / Toast / Tooltip: the layer, dismiss paths, fades
     └── unity-playground/  Unity project consuming the SDK locally
 ```
 
-Planned next: npm publication, the base component library (`components/`), more style
-and component capabilities (images, scrolling/clipping), extraction of the shared core
-(tessellator + IR runtime), and the Godot/Unreal adapters.
+Every example is a runnable authoring project: `pnpm --filter <name>-example dev` opens
+it in the web preview.
+
+Planned next: the Unity SDK catching up to the full catalog, npm publication, extraction
+of the shared core (tessellator + IR runtime), and the Godot/Unreal adapters.
 
 Tooling: pnpm workspaces · TypeScript (ESM) · tsup · Vitest · Biome · Changesets.
+
+## Working in this repo
+
+Node ≥ 22 and pnpm (the repo pins its version through `packageManager`).
+
+```bash
+pnpm install
+pnpm typecheck && pnpm test && pnpm lint   # what CI runs, in any order you like
+pnpm build                                 # bundles every package into dist/
+pnpm verify:pack                           # the publish dry run: pack, install outside
+                                           # the workspace, import and typecheck it
+```
+
+`typecheck` and `test` resolve workspace dependencies to their **sources**, so a fresh
+clone needs no build first. One test is the exception and says so when it fails: the dev
+server serves the preview page's own bundle, so `packages/cli` wants `pnpm build` before
+that assertion can pass.
 
 ## License
 
