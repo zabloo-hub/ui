@@ -546,6 +546,39 @@ describe("renderToIR", () => {
     });
   });
 
+  it("emits no state whose merge carries no style — an empty override is noise", () => {
+    const theme: ZablooTheme = {
+      variants: {
+        Button: {
+          primary: {
+            states: { hover: {}, pressed: { style: { radius: 4 } } },
+          },
+        },
+      },
+    };
+    const ir = renderToIR(
+      h(
+        ThemeProvider,
+        { theme },
+        h(Button, { variant: "primary", states: { focused: {} }, onClick: "buy" }),
+      ),
+    );
+    // `hover` and `focused` are declared but say nothing: only `pressed` survives.
+    expect(ir).toEqual({
+      type: "Button",
+      onClick: "buy",
+      states: { pressed: { style: { radius: 4 } } },
+    });
+  });
+
+  it("emits no `states` at all when not one override survives", () => {
+    const theme: ZablooTheme = { variants: { Button: { ghost: { states: { hover: {} } } } } };
+    const ir = renderToIR(
+      h(ThemeProvider, { theme }, h(Button, { variant: "ghost", onClick: "buy" })),
+    );
+    expect(ir).toEqual({ type: "Button", onClick: "buy" });
+  });
+
   it("gives every node of a type the theme's motion, with or without a variant", () => {
     const theme: ZablooTheme = {
       transitions: { Button: { duration: "{motion.fast}" } },

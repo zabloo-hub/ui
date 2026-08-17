@@ -431,7 +431,11 @@ export function measure(
     // layout props, never the sum of its slots (a 18px thumb must not define a
     // 220px track). The slots are still measured — the thumb's own size is what
     // the value-driven arrange positions — they just do not add up.
-    for (const child of node.children) measure(child, measureLeaf, inner);
+    //
+    // In flow only, like every other branch: the resolve pass returns early for
+    // a node out of layout, so its `resolved` is whatever the last frame that
+    // painted it left there — measuring with those is measuring the past.
+    for (const child of node.children) if (inFlow(child)) measure(child, measureLeaf, inner);
     size = { x: padding * 2, y: padding * 2 };
   } else if (node.children.length === 0) {
     const leaf = measureLeaf(node, inner);
@@ -480,7 +484,16 @@ export function arrange(node: LayoutNode, rect: Rect): void {
   }
   const items = flowItems(node);
   const count = items.length;
-  if (count === 0) return;
+  if (count === 0) {
+    // Nothing in flow, nothing to scroll to: the extent has to fall back to zero
+    // here, or a ScrollView whose children all went `visible:false` keeps the
+    // reach the last populated frame computed and scrolls into nothing.
+    if (node.ir.type === "ScrollView") {
+      node.scrollMax = { x: 0, y: 0 };
+      node.scrollOffset = { x: 0, y: 0 };
+    }
+    return;
+  }
 
   const l = layoutOf(node);
   const row = l?.direction === "row";
@@ -654,7 +667,9 @@ function arrangeSlider(node: LayoutNode, rect: Rect): void {
   const fraction = fractionOf(node.sliderDisplay, resolveRange(ir.min, ir.max, ir.step));
 
   const [fill, thumb] = node.children;
-  const thumbSize = thumb ? Math.min(mainSize(thumb, horizontal), length) : 0;
+  // A thumb out of flow was not measured this frame, so it has no size to read:
+  // the travel is the whole rail, exactly as it is on a slider with no thumb.
+  const thumbSize = thumb && inFlow(thumb) ? Math.min(mainSize(thumb, horizontal), length) : 0;
   const geometry = sliderGeometry(fraction, length, thumbSize);
 
   // `start` runs along the axis from the rail's beginning; on a vertical track
@@ -683,9 +698,15 @@ function mainSize(node: LayoutNode, horizontal: boolean): number {
   return horizontal ? node.measured.x : node.measured.y;
 }
 
-/** A slot's size across the rail — its own if it declared one, else the full rail. */
+/**
+ * A slot's size across the rail — its own if it has one, else the full rail.
+ *
+ * Read from `resolved`, like the whole pass: the declared value is an input the
+ * resolve pass has already collapsed, so a token that does not resolve is auto
+ * (full rail) instead of "declared", and a height mid-tween moves the slot.
+ */
 function crossOf(node: LayoutNode, horizontal: boolean, fallback: number): number {
-  const declared = horizontal ? node.ir.layout?.height : node.ir.layout?.width;
-  if (declared === undefined) return fallback;
+  const resolved = horizontal ? node.resolved.height : node.resolved.width;
+  if (resolved === undefined) return fallback;
   return horizontal ? node.measured.y : node.measured.x;
 }
