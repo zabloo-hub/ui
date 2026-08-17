@@ -76,6 +76,10 @@ virtualization possible.
 
 Without a `key`, identity is positional.
 
+The focus is keyed by that identity too, and it survives a row being **un-realized** by
+virtualization — see
+[Input & focus › Focus in a virtualized list](../format/input.md#focus-in-a-virtualized-list-normative).
+
 ## Actions from inside an item
 
 A named action fired from within a template carries an

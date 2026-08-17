@@ -43,6 +43,8 @@ export interface SliderGesture {
  */
 export interface PointerHost {
   readonly canvas: HTMLCanvasElement;
+  /** The player touched this view: it takes the keyboard and the pad (ZAB-70). */
+  claimInput(): void;
   root(): LayoutNode;
   layer(): readonly LayoutNode[];
   radiusOf(node: LayoutNode): number;
@@ -139,6 +141,9 @@ export class PointerHandler {
 
   listen(): void {
     const down = (event: PointerEvent) => {
+      // Touching a view is what hands it the keyboard and the pad, whatever the
+      // press lands on — pressing nothing is still using this view (ZAB-70).
+      this.host.claimInput();
       const point = this.eventPoint(event);
       const resolved = this.hitTest(point);
       if (resolved.kind === "backdrop") {
@@ -310,16 +315,49 @@ export class PointerHandler {
     canvas.addEventListener("pointerdown", down);
     canvas.addEventListener("pointermove", move);
     canvas.addEventListener("pointerup", up);
+    // The pointer can also END without a release: a touch interrupted by the
+    // system, a browser gesture taking over, a lost `pointerId`. Without this the
+    // gesture would live forever — a Button frozen `pressed`, a Slider still
+    // tracking the next move that reaches the canvas (ZAB-70).
+    canvas.addEventListener("pointercancel", this.cancel);
     canvas.addEventListener("pointerleave", leave);
     canvas.addEventListener("wheel", wheel, { passive: false });
     this.host.addDisposer(() => {
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);
       canvas.removeEventListener("pointerup", up);
+      canvas.removeEventListener("pointercancel", this.cancel);
       canvas.removeEventListener("pointerleave", leave);
       canvas.removeEventListener("wheel", wheel);
     });
   }
+
+  /**
+   * Every gesture ends, and none of them CONCLUDES: no action fires, no backdrop
+   * is dismissed, no Collapse toggles — the same "released outside the control"
+   * rule a pointer that wanders off already follows.
+   *
+   * The Slider is the one exception, and settles: its value is on screen and was
+   * written into its bound path on every move, so refusing `onCommit` would leave
+   * the game without the "apply the expensive thing" event for a value the player
+   * really did leave there. Same reading as a pad unplugged mid-nudge (ZAB-47).
+   */
+  private readonly cancel = (): void => {
+    const slider = this.sliderDrag;
+    if (slider) {
+      this.sliderDrag = null;
+      slider.node.pressed = false;
+    }
+    if (this.pressedNode) {
+      this.pressedNode.pressed = false;
+      this.pressedNode = null;
+    }
+    this.textDrag = null;
+    this.scrollDrag = null;
+    this.backdropPress = null;
+    this.host.render();
+    if (slider) this.host.commitSlider(slider);
+  };
 
   private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
     const bounds = this.host.canvas.getBoundingClientRect();

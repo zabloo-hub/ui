@@ -50,6 +50,13 @@ import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { type Batch, GLRenderer } from "./gl.js";
 import { FontLibrary, type GlyphAtlas } from "./glyphs.js";
 import { childClip } from "./hit.js";
+import {
+  claimInput,
+  type InputView,
+  ownsInput,
+  registerView,
+  unregisterView,
+} from "./input/ownership.js";
 import { PadController, type PadHost } from "./input/pad.js";
 import { PointerHandler, type PointerHost, type SliderGesture } from "./input/pointer.js";
 import {
@@ -199,6 +206,18 @@ interface KeyIntent {
   preventDefault(): void;
 }
 
+/** The identity a `Repeat` keyed an instance by — the reverse of its own map. */
+function identityOf(
+  instances: ReadonlyMap<string, LayoutNode> | undefined,
+  instance: LayoutNode,
+): string | null {
+  if (instances === undefined) return null;
+  for (const [identity, node] of instances) {
+    if (node === instance) return identity;
+  }
+  return null;
+}
+
 /** A synthetic arrow press, for the gamepad directions that reach a focused field. */
 function arrowIntent(key: string): KeyIntent {
   return {
@@ -218,6 +237,18 @@ function arrowIntent(key: string): KeyIntent {
  * deferred, compatible extension (`scrollbar` boolean → object).
  */
 const SCROLLBAR = { thickness: 4, margin: 2, minLength: 16, color: [1, 1, 1, 0.35] as Color };
+
+/**
+ * The focus of a virtualized row that is no longer realized (ZAB-70). It names
+ * the ITEM and not the node, because the node is gone: the `Repeat` it belongs
+ * to, the identity reconciliation keys that item by, and the child-index path
+ * from the instance root down to the node that had the focus.
+ */
+interface PendingFocus {
+  repeat: LayoutNode;
+  identity: string;
+  path: number[];
+}
 
 export interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
@@ -334,7 +365,7 @@ export function mount(
   return view.handle();
 }
 
-class WebView {
+class WebView implements InputView {
   private envelope: Envelope;
   private viewId: string;
   private readonly gl: GLRenderer;
@@ -385,6 +416,13 @@ class WebView {
    * exactly one pass instead of by one frame. See `revealOpenedPopover`.
    */
   private pendingReveal: LayoutNode | null = null;
+  /**
+   * The focus while the row that holds it is not realized (ZAB-70) — see
+   * `rememberFocus`. It is the LOGICAL focus: `focusedNode` is null, nothing
+   * paints focused, and the view refuses to hand the focus to anything else
+   * until this item comes back or the player asks for a move.
+   */
+  private pendingFocus: PendingFocus | null = null;
   /** Slider being nudged with the keyboard (the pointer's drag lives in `input/pointer.ts`). */
   private sliderKeys: SliderGesture | null = null;
   /** The focused TextInput's buffer, caret and hidden field (ZAB-26) — wiring in `controls/field.ts`. */
@@ -582,6 +620,7 @@ class WebView {
     // ever null here — but this is the list of "references to the tree that just
     // died", and leaving one out is how the next one gets forgotten too.
     this.pendingReveal = null;
+    this.pendingFocus = null;
     this.pointer.reset();
     // The hidden field OUTLIVES the tree: it belongs to the canvas, not to the
     // document on it, so a composition in flight has to be dropped with the node
@@ -799,7 +838,12 @@ class WebView {
         ? []
         : windowSlots(items, ir.key, window.first, window.count);
     const { entries, dropped } = reconcileWindow(state.instances, slots);
-    for (const instance of dropped) this.release(instance);
+    for (const instance of dropped) {
+      // Before the release, which is what would forget it: the focus of a row
+      // that leaves the window survives as the ITEM it was on (ZAB-70).
+      this.rememberFocus(node, instance);
+      this.release(instance);
+    }
 
     const alias = ir.as ?? ITEM_ALIAS;
     const instances = new Map<string, LayoutNode>();
@@ -815,6 +859,8 @@ class WebView {
       }
       instances.set(slot.identity, child);
       children.push(child);
+      // Back in the window: the item the focus is waiting on takes it again.
+      this.restoreFocus(node, slot.identity, child);
     }
     state.instances = instances;
     // The empty state is in layout exactly while there is nothing to repeat — the
@@ -908,6 +954,19 @@ class WebView {
     const viewStart = (vertical ? scroller.rect.y : scroller.rect.x) - start - padding;
     const span = visibleSpan(itemCount, { extent, gap, perLine }, viewStart, viewLength);
     return { span, first: span.first, count: span.count };
+  }
+
+  /**
+   * The scroller the right stick moves: the focused node's, or — while the focus
+   * is waiting on an un-realized row — the one the list itself lives in. Without
+   * that second half, pushing a focused row off the window would cut the gesture
+   * that was pushing it (ZAB-70), which is precisely the moment a player is
+   * holding the stick.
+   */
+  private focusedScroller(): LayoutNode | null {
+    const focused = this.focusedNode;
+    if (focused) return inLayout(focused) ? this.scrollerOf(focused) : null;
+    return this.pendingFocus ? this.scrollerOf(this.pendingFocus.repeat) : null;
   }
 
   /** The ScrollView this node scrolls inside, if any — an Overlay is its own scope. */
@@ -1007,6 +1066,9 @@ class WebView {
    * declaring.
    */
   private release(node: LayoutNode): void {
+    // The list itself is going: there is nothing left for a pending focus to
+    // come back to.
+    if (this.pendingFocus?.repeat === node) this.pendingFocus = null;
     this.bound.delete(node);
     this.overlays.forget(node);
     const id = (node.ir as AnyNode).id;
@@ -1015,6 +1077,54 @@ class WebView {
     if (this.sliderKeys?.node === node) this.sliderKeys = null;
     this.pointer.forget(node);
     for (const child of node.children) this.release(child);
+  }
+
+  /**
+   * Keeps the focus of a row that is about to be un-realized, as the ITEM it sat
+   * on (ZAB-70). Scrolling a focused row out of the window is not the player
+   * giving up the focus — it is the renderer recycling a node — so what would
+   * otherwise happen is the worst of both: `release` drops the focus, and the
+   * next frame's `syncModalFocus`, seeing none, hands it to the view's
+   * `autofocus`, which can be at the other end of the screen. Nobody asked for
+   * that, and a wheel, a drag or the right stick all trigger it.
+   *
+   * So the focus becomes LOGICAL: nothing wears it, `syncModalFocus` refuses to
+   * give it away, the pad keeps scrolling the list it was in, and the row takes
+   * it back when it is realized again — which is `restoreFocus`.
+   */
+  private rememberFocus(repeat: LayoutNode, instance: LayoutNode): void {
+    const focused = this.focusedNode;
+    if (focused === null) return;
+    const path: number[] = [];
+    let current: LayoutNode | null = focused;
+    while (current !== instance) {
+      const parent: LayoutNode | null = current.parent;
+      if (parent === null) return; // the focus is not inside this instance
+      path.unshift(parent.children.indexOf(current));
+      current = parent;
+    }
+    const identity = identityOf(repeat.repeat?.instances, instance);
+    if (identity === null) return;
+    this.pendingFocus = { repeat, identity, path };
+    // The hidden field belongs to the canvas and outlives the node it was
+    // editing: a field scrolled out of the window must not keep the keyboard.
+    if (focused.ir.type === "TextInput") this.field.focusEditor(null);
+  }
+
+  /**
+   * Gives the focus back to an item that was realized again. The path is walked
+   * against the new instance — a subtree whose SHAPE changed (a nested list with
+   * another window inside it) simply does not resolve, and the focus is then
+   * honestly nowhere rather than on some other node of the row.
+   */
+  private restoreFocus(repeat: LayoutNode, identity: string, instance: LayoutNode): void {
+    const pending = this.pendingFocus;
+    if (pending === null || pending.repeat !== repeat || pending.identity !== identity) return;
+    // Realized again, whatever comes of the walk: it stops being pending here.
+    this.pendingFocus = null;
+    let target: LayoutNode | undefined = instance;
+    for (const index of pending.path) target = target?.children[index];
+    if (target && this.isFocusable(target)) this.setFocus(target);
   }
 
   // --- behavior (renderer-owned, keyed by component type) ---
@@ -1567,6 +1677,9 @@ class WebView {
   }
 
   private setFocus(node: LayoutNode | null): void {
+    // A real focus decision — a tap, a move, a modal opening — settles the
+    // question a pending one was holding open (ZAB-70).
+    this.pendingFocus = null;
     if (this.focusedNode === node) return;
     if (this.focusedNode) this.focusedNode.focused = false;
     this.focusedNode = node;
@@ -1587,6 +1700,10 @@ class WebView {
 
     const current = this.focusedNode;
     if (!current || !candidates.includes(current)) {
+      // A direction pressed while the focus is waiting on an un-realized row
+      // DROPS it and starts the walk again, which is the rule already documented
+      // for having no focus at all: the player asked to move, and there is no
+      // rect to move from (ZAB-70).
       this.setFocus(this.autofocus() ?? candidates[0]);
       this.render();
       return;
@@ -1761,6 +1878,16 @@ class WebView {
   // owns the rules; `input/pad.ts` owns the loop that runs them; this is where
   // each intention lands.
 
+  /**
+   * Starts or stops the pad's poll loop to match what this view owns (ZAB-70).
+   * `navigator.getGamepads()` is the PAGE's, so exactly one view may read it —
+   * two polling views would each move their own focus with the same stick.
+   */
+  syncPad(): void {
+    if (this.disposed || !ownsInput(this)) this.pad.stop();
+    else this.pad.sync();
+  }
+
   private padHost(): PadHost {
     const view = this;
     return {
@@ -1792,8 +1919,7 @@ class WebView {
         if (modal) this.overlays.requestDismiss(modal);
       },
       scrollFocusedBy: (delta) => {
-        const focused = this.focusedNode;
-        const scroller = focused && inLayout(focused) ? this.scrollerOf(focused) : null;
+        const scroller = this.focusedScroller();
         if (!scroller) return;
         this.setScrollOffset(
           scroller,
@@ -1813,6 +1939,7 @@ class WebView {
       root: () => this.root,
       layer: () => this.layer,
       focused: () => this.focusedNode,
+      focusPending: () => this.pendingFocus !== null,
       nodeById: (id) => this.byId.get(id),
       scope: () => this.scope(),
       isFocusable: (node) => this.isFocusable(node),
@@ -1844,6 +1971,7 @@ class WebView {
       get canvas() {
         return view.canvas;
       },
+      claimInput: () => claimInput(this),
       root: () => this.root,
       layer: () => this.layer,
       radiusOf: (node) => this.radiusOf(node),
@@ -1866,6 +1994,10 @@ class WebView {
   private listen(): void {
     this.pointer.listen();
     const keydown = (event: KeyboardEvent) => {
+      // The keys are a PAGE event, not a canvas one, so a second mounted view
+      // would move its own focus with the same arrow (ZAB-70). Only the view the
+      // player is using reads them.
+      if (!ownsInput(this)) return;
       // A focused text field owns the keys that edit it; everything it does not
       // claim (the cross-axis arrows, Escape) falls through to the usual handling.
       if (this.editKey(event)) return;
@@ -1894,6 +2026,7 @@ class WebView {
       }
     };
     const keyup = (event: KeyboardEvent) => {
+      if (!ownsInput(this)) return;
       if (event.key === "Enter" || event.key === " ") this.pressFocused(false);
       // Releasing an arrow ends the keyboard gesture — the same commit a
       // pointer release fires, so both ways of moving a slider settle alike.
@@ -1907,8 +2040,11 @@ class WebView {
     // Connect/disconnect is all the Gamepad API pushes — the buttons are polled.
     // A pad that was already announced before this view mounted is picked up by
     // the same call, which is why it also runs once here.
-    const padChanged = () => this.pad.sync();
-    this.pad.sync();
+    const padChanged = () => this.syncPad();
+    // Registering may hand this view input (it is the first one mounted), and
+    // that is what starts its pad loop.
+    registerView(this);
+    this.disposers.push(() => unregisterView(this));
 
     globalThis.addEventListener("keydown", keydown);
     globalThis.addEventListener("keyup", keyup);

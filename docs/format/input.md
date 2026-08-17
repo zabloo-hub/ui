@@ -31,6 +31,28 @@ tap in the corner outside a rounded panel falls through to what is behind it.
 Once a node is hit, the event is attributed to the nearest **focusable ancestor** — a tap
 on the `Text` inside a `Button` is a tap on the `Button`.
 
+## Cancelled gestures (normative)
+
+A pointer does not always end in a release: a touch can be interrupted by the system, a
+browser gesture can take the pointer away, a device can be unplugged mid-press. Every
+gesture in flight **ends, and none of them concludes**:
+
+| In flight | On cancel |
+|---|---|
+| A press on a `Button`/`Toggle` | Released without activating — no action, no value moves |
+| A drag on a `ScrollView` | Stops; the offset it reached stays |
+| A selection drag in a `TextInput` | Stops; the selection it reached stays |
+| A press on a modal's backdrop | Nothing is dismissed |
+| A `Slider` drag | **Settles**: `onCommit` fires |
+
+The `Slider` is the one exception because its value is *already* on screen and was written
+into its bound path on every move: refusing the commit would leave the game without the
+"apply the expensive thing" event for a value the player really did leave there. The others
+had produced nothing yet, so producing it now would be inventing an intention.
+
+This is the same rule as a press released outside its control, and it applies to the pad:
+a controller unplugged mid-press cancels it, and a `Slider` it was nudging settles.
+
 ## Focusability
 
 Focusability derives from **component identity**. There is no `focusable` prop:
@@ -137,6 +159,30 @@ tooltip) traps nothing, and its own buttons are ordinary candidates in the view'
 
 Closing an overlay **restores** the focus to whatever held it before.
 
+## Focus in a virtualized list (normative)
+
+A [`Repeat`](../components/repeat.md) only realizes the rows its viewport can show, so
+scrolling a list **destroys** the row that holds the focus. That is the renderer recycling a
+node, not the player giving up the focus, and the two must not be confused: the focus
+becomes **logical** and is remembered as the *item* it sat on — the list, the item's
+identity, and where inside the row it was.
+
+While the row is not realized:
+
+- **Nothing wears the focus.** No node paints focused, and pressing the activation button
+  does nothing — there is no control on screen to activate.
+- **The focus is not given away.** It never falls back to the view's `autofocus`. A focus
+  that jumps to the other end of the screen because the player scrolled a list is a bug, and
+  the wheel, a drag and the right stick all produce it.
+- **The list keeps scrolling.** The stick still moves the `ScrollView` the focus was in, so
+  the gesture that pushed the row out of view is not cut halfway through it.
+
+The row **takes the focus back** when it is realized again, on the same node — identity, so
+with a `key` it follows the item across a reorder. Two things end the wait instead: a
+**direction** (the player asked to move, and there is no rect to move from, so the walk
+starts again from the scope's `autofocus`) and any **real focus decision** — a tap, an
+opening modal, the game.
+
 ## Keyboard
 
 | Key | Effect |
@@ -179,6 +225,27 @@ step every `90 ms`, and a scroll speed of `1100 px/s` at full deflection.
 
 The pointer's cancel gesture applies to the pad as well: a press that ends outside the
 control — including a disconnected pad — cancels instead of activating.
+
+## Several views on one page (normative)
+
+The pointer is scoped to its own surface by construction. The keyboard and the gamepad are
+not — keys are a page event and the pad is a page-wide device — so when more than one view
+is mounted, **exactly one of them owns input**:
+
+- The **first view mounted** owns it, so a page with a single view behaves as if the rule
+  did not exist.
+- **Touching a view hands it over**: a press anywhere on its surface, whatever it lands on.
+  Pressing nothing in particular is still using that view.
+- **Disposing the owner** hands it to the oldest view left.
+
+Everything else stays per view. Each one keeps its own focus, its own hover and its own
+scroll offsets — ownership decides who *hears* the keys and polls the pad, not where the
+focus lives.
+
+Ownership deliberately does not follow the host platform's own focus: a focused text field
+may hand the keyboard to something outside the surface (the web renderer types through a
+hidden field, because a canvas cannot compose IME), so keys legitimately arrive with
+something else focused.
 
 ## What the game drives
 
