@@ -82,18 +82,20 @@ export function useVariant(
   const style: Style | undefined =
     def.style || props.style ? { ...def.style, ...props.style } : undefined;
 
+  // A state whose merge carries no style is not an override: emitting it would
+  // put a `{style:{}}` in the envelope that says nothing and paints nothing.
   let states: VariantDef["states"];
   if (def.states || props.states) {
-    states = {};
+    const merged: NonNullable<VariantDef["states"]> = {};
     const names = new Set([
       ...Object.keys(def.states ?? {}),
       ...Object.keys(props.states ?? {}),
     ] as StateName[]);
     for (const name of names) {
-      const fromVariant = def.states?.[name]?.style;
-      const fromProps = props.states?.[name]?.style;
-      states[name] = { style: { ...fromVariant, ...fromProps } };
+      const style = { ...def.states?.[name]?.style, ...props.states?.[name]?.style };
+      if (Object.keys(style).length > 0) merged[name] = { style };
     }
+    if (Object.keys(merged).length > 0) states = merged;
   }
 
   const transition = props.transition ?? def.transition ?? theme.transitions?.[component];

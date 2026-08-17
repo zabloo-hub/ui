@@ -293,3 +293,51 @@ describe("GeometryBuilder.setClip", () => {
     expect(drawn.map((b) => b.vertices[4])).toEqual([1, 0, 0]); // red, green, blue
   });
 });
+
+describe("index space (ZAB-68)", () => {
+  /** 1 center + 4 × (CORNER_SEGMENTS + 1) perimeter points per rounded rect. */
+  const VERTICES_PER_RECT = 29;
+  /** Three indices per perimeter point — the fan's triangles. */
+  const INDICES_PER_RECT = 28 * 3;
+
+  it("stays addressable past 65.536 vertices in one batch", () => {
+    const geometry = new GeometryBuilder();
+    // ≈2.260 rounded rects fill the 16-bit space; this crosses it comfortably —
+    // a long unvirtualized list under one clip gets here on its own.
+    const COUNT = 2500;
+    for (let i = 0; i < COUNT; i++) {
+      geometry.roundedRect({ x: i, y: 0, width: 10, height: 10 }, 3, [1, 1, 1, 1]);
+    }
+    const [batch] = geometry.batches();
+    const vertexCount = batch.vertices.length / 8;
+    expect(vertexCount).toBe(COUNT * VERTICES_PER_RECT);
+    expect(vertexCount).toBeGreaterThan(65536);
+
+    // 32-bit indices: `UNSIGNED_SHORT` would have wrapped these mod 65536 and
+    // scrambled the geometry with no warning at all.
+    expect(batch.indices).toBeInstanceOf(Uint32Array);
+    let highest = 0;
+    let allInRange = true;
+    for (const index of batch.indices) {
+      if (index >= vertexCount) allInRange = false;
+      if (index > highest) highest = index;
+    }
+    expect(allInRange).toBe(true);
+    expect(highest).toBeGreaterThan(65535);
+  });
+
+  it("keeps the last rect's fan on its own vertices across the boundary", () => {
+    const geometry = new GeometryBuilder();
+    const COUNT = 2500;
+    for (let i = 0; i < COUNT; i++) {
+      geometry.roundedRect({ x: i, y: 0, width: 10, height: 10 }, 3, [1, 1, 1, 1]);
+    }
+    const [batch] = geometry.batches();
+
+    // The fan of the last rect starts at its own center vertex, which sits at the
+    // center of the LAST rect — a wrapped index would land it back in the first ones.
+    const base = (COUNT - 1) * VERTICES_PER_RECT;
+    expect(batch.indices[(COUNT - 1) * INDICES_PER_RECT]).toBe(base);
+    expect(vertex(batch.vertices, base)).toMatchObject({ x: COUNT - 1 + 5, y: 5 });
+  });
+});

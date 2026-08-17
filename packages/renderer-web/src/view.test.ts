@@ -1186,3 +1186,55 @@ describe("the handle's view list", () => {
     expect(handle.viewIds).toEqual(["hud"]);
   });
 });
+
+describe("GPU robustness (ZAB-68)", () => {
+  it("submits nothing while the context is lost, and repaints when it comes back", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const before = view.drawCalls();
+    expect(before).toBeGreaterThan(0);
+
+    view.loseContext();
+    // A frame asked for while the context is down produces no draw call at all —
+    // in a browser those calls are silent no-ops on dead objects.
+    view.settle();
+    expect(view.drawCalls()).toBe(before);
+
+    view.restoreContext();
+
+    // The restored context comes back EMPTY: without this repaint the canvas
+    // would stay blank until something else happened to ask for a frame.
+    expect(view.drawCalls()).toBeGreaterThan(before);
+    expect(view.warnings).toEqual([]);
+  });
+
+  it("keeps taking input after a restore — the tree outlived the context", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const target = center(view.snapshot(), "primary");
+
+    view.loseContext();
+    view.restoreContext();
+    view.pointer.click(target.x, target.y);
+
+    expect(view.actions).toEqual([{ action: "buy" }]);
+  });
+
+  it("ignores calls on a disposed view instead of driving dead GL objects", async () => {
+    const disposed = await mountCase(CORPUS["states-tokens"]);
+    view = disposed;
+    const drawn = disposed.drawCalls();
+    disposed.handle.dispose();
+
+    expect(() => {
+      disposed.handle.setData("player.coins", 1);
+      disposed.handle.setText("primary", "nope");
+      disposed.handle.reload(readEnvelope(CORPUS["states-tokens"].envelope));
+      // A second dispose (React strict mode does exactly this) is a no-op too.
+      disposed.handle.dispose();
+    }).not.toThrow();
+
+    expect(disposed.drawCalls()).toBe(drawn);
+    // Warned ONCE: a game looping over a stale handle must not flood the console.
+    expect(disposed.warnings).toHaveLength(1);
+    expect(disposed.warnings[0]).toContain("disposed view");
+  });
+});

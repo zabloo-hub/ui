@@ -30,7 +30,8 @@ interface BatchStore {
   vertices: Float32Array;
   /** Floats written so far (8 per vertex). */
   floats: number;
-  indices: Uint16Array;
+  /** 32-bit: a batch past 65.535 vertices would wrap 16-bit indices (ZAB-68). */
+  indices: Uint32Array;
   /** Indices written so far. */
   count: number;
 }
@@ -109,7 +110,7 @@ export class GeometryBuilder {
       clip,
       vertices: new Float32Array(1024),
       floats: 0,
-      indices: new Uint16Array(512),
+      indices: new Uint32Array(512),
       count: 0,
     };
   }
@@ -441,10 +442,10 @@ function growFloats(array: Float32Array, needed: number): Float32Array {
   return next;
 }
 
-function growIndices(array: Uint16Array, needed: number): Uint16Array {
+function growIndices(array: Uint32Array, needed: number): Uint32Array {
   let capacity = array.length * 2;
   while (capacity < needed) capacity *= 2;
-  const next = new Uint16Array(capacity);
+  const next = new Uint32Array(capacity);
   next.set(array);
   return next;
 }
