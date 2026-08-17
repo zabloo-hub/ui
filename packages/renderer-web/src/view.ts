@@ -643,7 +643,9 @@ class WebView {
     // Starting ON this data means there is nothing to animate from: the indicator
     // crossfade and the slider's glide settle at once. That is a mount — and also
     // an instance recycled onto another item, which must not slide the state of
-    // the row it was showing into the one it now shows.
+    // the row it was showing into the one it now shows. Landing the value is only
+    // half of that second case: what the tween would leave from lives in
+    // `node.anim`, and dropping it is `resettle`'s half (ZAB-66).
     if (settle) {
       node.checkedProgress = node.checked ? 1 : 0;
       node.sliderDisplay = node.sliderValue;
@@ -747,14 +749,32 @@ class WebView {
     scope.index = index;
     // The subtree now reads another element: everything derived from data has to
     // be derived again (its text follows on its own — it is read at measure time).
-    this.refreshBindings(instance);
+    this.resettle(instance);
   }
 
-  private refreshBindings(node: LayoutNode): void {
-    // `settle`: the subtree is showing another element now, so its states start
-    // there rather than sliding over from the row this instance used to be.
+  /**
+   * Starts a reused instance ON the element it now points at: every value it
+   * derives from data is derived again, and the transition state of every node in
+   * it is dropped so this frame's values are PAINTED instead of tweened towards
+   * (ZAB-66).
+   *
+   * Both halves are needed and neither is enough alone. `applyBindings(settle)`
+   * lands the states a binding drives (a Toggle's crossfade, a Slider's glide),
+   * but the declared props are tweened out of `node.anim`, which still holds the
+   * values of the row this instance used to be: without the clear the very next
+   * resolve pass sees a target that moved, retargets from the old value and
+   * UNDOES the settle. And the clear alone would leave those states derived from
+   * the previous element.
+   *
+   * It walks the whole subtree and not `this.bound` for the same reason: a node
+   * whose look depends on the item without reading data itself — the label of a
+   * row whose `disabled` came from the element, anything under an inherited state
+   * — has nothing to re-derive and everything to snap.
+   */
+  private resettle(node: LayoutNode): void {
     if (this.bound.has(node)) this.applyBindings(node, true);
-    for (const child of node.children) this.refreshBindings(child);
+    this.forgetTweens(node);
+    for (const child of node.children) this.resettle(child);
   }
 
   /**
@@ -2092,6 +2112,16 @@ class WebView {
   }
 
   private forgetAnim(node: LayoutNode): void {
+    this.forgetTweens(node);
+    for (const child of node.children) this.forgetAnim(child);
+  }
+
+  /**
+   * One node's motion, forgotten: the next step snaps, like a mount. Shared by
+   * the two things that ask for exactly that — a subtree leaving layout, and an
+   * item instance reused for another element (`resettle`).
+   */
+  private forgetTweens(node: LayoutNode): void {
     clearNodeAnim(node.anim);
     // A spinner that comes back starts its wave over, like a mount.
     node.loopStartedAt = null;
@@ -2103,7 +2133,6 @@ class WebView {
       node.forcedClip = false;
       this.applyOpen(node);
     }
-    for (const child of node.children) this.forgetAnim(child);
   }
 
   // --- frame loop ---

@@ -1,4 +1,4 @@
-import type { ThemeVariants } from "@zabloo/react";
+import type { ThemeTransitions, ThemeVariants } from "@zabloo/react";
 
 // Design tokens — exported into the IR envelope's flat token dictionary.
 export const tokens = {
@@ -18,6 +18,19 @@ export const tokens = {
   "space.1": 4,
   "space.2": 8,
   "space.4": 16,
+  // Motion, themeable like color: set these to 0 for a "reduce motion" theme.
+  "motion.fast": 120,
+};
+
+// Default motion per component (ZAB-36), keyed by PRIMITIVE like `variants`. It
+// is what makes this screen a test of transitions × recycling (ZAB-66): the
+// favourite Toggle of every row crossfades and the chips and buy buttons fade
+// their states, so a row REUSED for another item would be visible as a
+// crossfade between two items instead of a clean swap. Scroll it fast, or
+// reorder `shop.items` from the console, and nothing should smear.
+export const transitions: ThemeTransitions = {
+  Button: { duration: "{motion.fast}" },
+  Toggle: { duration: "{motion.fast}" },
 };
 
 // Variants — authoring-time style sets (decision 2026-08-03 §6): resolved by

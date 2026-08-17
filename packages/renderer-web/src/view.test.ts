@@ -880,6 +880,196 @@ describe("transitions", () => {
   });
 });
 
+/**
+ * Transitions × recycling (ZAB-66): a virtualized list whose rows LOOK different
+ * per item, which in v1 only happens through the state flags — no style value is
+ * bindable. So `disabled` is bound per element and the row styles itself on it,
+ * its label styles itself on the SAME flag without reading any data (the
+ * inherited-state case, which is not in `this.bound`), and the Toggle carries a
+ * behavior value of its own. Everything declares a transition, so anything that
+ * fails to settle is visible as a tween.
+ *
+ * The template declares no ids: every instance would wear them, so the rows are
+ * addressed by their path (`0.0.<n>`) — see `refMap`.
+ */
+const RECYCLING = {
+  v: 1,
+  tokens: {},
+  views: {
+    list: {
+      type: "Container",
+      layout: { direction: "column", align: "start" },
+      children: [
+        {
+          type: "ScrollView",
+          id: "scroller",
+          axis: "vertical",
+          layout: { direction: "column", width: 220, height: 100 },
+          children: [
+            {
+              type: "Repeat",
+              items: { bind: "shop.items" },
+              as: "item",
+              key: "id",
+              layout: { direction: "column", align: "start" },
+              children: [
+                {
+                  type: "Container",
+                  disabled: { bind: "item.locked" },
+                  transition: { duration: 400, easing: "linear" },
+                  layout: { direction: "row", width: 200, height: 40, align: "center" },
+                  style: { background: "#111111" },
+                  states: { disabled: { style: { background: "#ff0000" } } },
+                  children: [
+                    {
+                      type: "Text",
+                      text: { bind: "item.name" },
+                      transition: { duration: 400, easing: "linear" },
+                      style: { color: "#00ff00" },
+                      states: { disabled: { style: { color: "#0000ff" } } },
+                    },
+                    {
+                      type: "Toggle",
+                      checked: { bind: "item.on" },
+                      transition: { duration: 400, easing: "linear" },
+                      layout: { width: 20, height: 20 },
+                      children: [
+                        { type: "Container", layout: { width: 8, height: 8 } },
+                        { type: "Container", layout: { width: 8, height: 8 } },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
+/** Odd rows are idle, even ones locked and checked — so a reorder is visible. */
+function catalogue(count: number): Array<Record<string, unknown>> {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `id${i}`,
+    name: `item ${i}`,
+    locked: i % 2 === 0,
+    on: i % 2 === 0,
+  }));
+}
+
+/** What one row PAINTED this frame: the two style halves and the behavior value. */
+function painted(
+  snapshot: ViewSnapshot,
+  index: number,
+): {
+  name: string;
+  background?: string | number;
+  labelColor?: string | number;
+  checkedProgress?: number;
+} {
+  const row = node(snapshot, `0.0.${index}`);
+  const label = row.children?.[0];
+  const toggle = row.children?.[1];
+  return {
+    name: label?.text?.lines.map((line) => line.text).join("") ?? "",
+    background: row.style?.background,
+    labelColor: label?.style?.color,
+    checkedProgress: toggle?.value,
+  };
+}
+
+/** What an idle row and a locked one paint — the two looks an item can have. */
+const IDLE = { background: "#111111", labelColor: "#00ff00", checkedProgress: 0 };
+const LOCKED = { background: "#ff0000", labelColor: "#0000ff", checkedProgress: 1 };
+
+/** The look `catalogue` asks for at that item's index: the even ones are locked. */
+function ownLook(name: string): Record<string, unknown> {
+  return { name, ...(Number(name.split(" ")[1]) % 2 === 0 ? LOCKED : IDLE) };
+}
+
+async function mountRecycling(count: number): Promise<GoldenView> {
+  const mounted = await mountGolden(RECYCLING, { data: { "shop.items": catalogue(count) } });
+  // The second frame windows the rows the first one measured; the clock then runs
+  // past the longest duration, so nothing is left in flight from the mount.
+  mounted.settle();
+  mounted.advance(400);
+  return mounted;
+}
+
+describe("repeat recycling × transitions", () => {
+  it("settles a reused instance on the element it now shows, subtree included", async () => {
+    const mounted = await mountRecycling(4);
+    view = mounted;
+    // Same keys reversed, and every element's own flags flipped: each instance
+    // travels with its item to another index — the rescope — and lands on data
+    // that really did move. What it must NOT do is slide there from the row it
+    // was showing a frame ago.
+    const flipped = catalogue(4)
+      .reverse()
+      .map((item) => ({ ...item, locked: !item.locked, on: !item.on }));
+
+    mounted.handle.setData("shop.items", flipped);
+    const first = [0, 1, 2, 3].map((i) => painted(mounted.snapshot(), i));
+    mounted.advance(400);
+    const settled = [0, 1, 2, 3].map((i) => painted(mounted.snapshot(), i));
+
+    // The frame the instances were reused on is already the settled one: nothing
+    // was left tweening — the bound row's own state style, the label's inherited
+    // one and the Toggle's crossfade included.
+    expect(first).toEqual(settled);
+    expect(first.map((row) => row.name)).toEqual(["item 3", "item 2", "item 1", "item 0"]);
+    // "item 3" was idle and its flags flipped, so the row that now shows it is
+    // locked from the very first frame.
+    expect(first[0]).toEqual({ name: "item 3", ...LOCKED });
+    expect(first[1]).toEqual({ name: "item 2", ...IDLE });
+  });
+
+  it("keeps animating when it is the item's OWN data that changed", async () => {
+    const mounted = await mountRecycling(4);
+    view = mounted;
+    // No instance moves — the array keeps its order and its keys — so this is a
+    // value change on the row that is already showing that element, and the CSS
+    // model applies: it tweens (decision 2026-08-11 §4).
+    mounted.handle.setData("shop.items.0.locked", false);
+    mounted.handle.setData("shop.items.0.on", false);
+    const started = painted(mounted.snapshot(), 0);
+    mounted.advance(200);
+    const midway = painted(mounted.snapshot(), 0);
+    mounted.advance(200);
+    const settled = painted(mounted.snapshot(), 0);
+
+    expect(started).toEqual({ name: "item 0", ...LOCKED }); // frame zero: the old values
+    expect(midway.background).not.toBe(started.background);
+    expect(midway.background).not.toBe(settled.background);
+    expect(midway.labelColor).not.toBe(started.labelColor);
+    expect(midway.checkedProgress).toBeGreaterThan(0);
+    expect(midway.checkedProgress).toBeLessThan(1);
+    expect(settled).toEqual({ name: "item 0", ...IDLE });
+  });
+
+  it("shows the rows a scroll brought in with their own values, from the first frame", async () => {
+    const mounted = await mountRecycling(30);
+    view = mounted;
+    const target = center(mounted.snapshot(), "scroller");
+
+    // Several viewports in one gesture: the window is computed from the previous
+    // frame's rects, so the rows it brings in appear on the frame after.
+    mounted.pointer.wheel(target.x, target.y, 0, 600);
+    mounted.advance(16);
+    const appeared = [0, 1, 2, 3].map((i) => painted(mounted.snapshot(), i));
+    mounted.advance(400);
+    const settled = [0, 1, 2, 3].map((i) => painted(mounted.snapshot(), i));
+
+    // The window really moved, and what each row paints on the frame it appears
+    // on is its OWN item — never a crossfade from whatever was at that position.
+    expect(appeared[0].name).not.toBe("item 0");
+    expect(appeared).toEqual(appeared.map((row) => ownLook(row.name)));
+    expect(settled).toEqual(appeared);
+  });
+});
+
 describe("author errors", () => {
   it("warns once about an unknown token and paints the missing-color magenta", async () => {
     view = await mountGolden({
