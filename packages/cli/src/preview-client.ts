@@ -14,7 +14,7 @@
  * Importing this starts nothing: the page calls `start()`, and so do the tests.
  */
 
-import type { ActionContext, AssetEntry, Envelope } from "@zabloo/format";
+import type { ActionContext, AssetEntry, Diagnostic, Envelope } from "@zabloo/format";
 import type { MountOptions, ZablooHandle } from "@zabloo/renderer-web";
 import type { PreviewEvent } from "./preview-server.js";
 
@@ -197,6 +197,32 @@ export function start(): PreviewClient {
     status.classList.remove("err");
   }
 
+  /**
+   * Authoring errors, straight from the validator (ZAB-72). The preview used to
+   * have no access to these at all: they were console lines, and a page cannot
+   * read its own console — so the export you were looking at could be missing
+   * half its nodes with nothing on screen admitting it.
+   *
+   * The two levels get the two presentations the page already has, because they
+   * mean different things: a `warn` was REPAIRED — what is on the canvas is
+   * correct, minus the broken node — so it takes a log line that fades. A `fatal`
+   * means nothing loaded and the view is stale: overlay, and the red dot, the
+   * same report a failed save gets (ZAB-67).
+   */
+  function onDiagnostic(diagnostic: Diagnostic): void {
+    // The message already names the path, the field and the reason; the code is
+    // the stable identity, worth showing next to it.
+    const line = `[${diagnostic.code}] ${diagnostic.message}`;
+    log(line);
+    if (diagnostic.level === "fatal") {
+      sawFatal = true;
+      showError(line);
+    }
+  }
+
+  /** Whether this load already reported a fatal — see the catch in `load`. */
+  let sawFatal = false;
+
   // The preview plays the role of "the game": it discovers the envelope's
   // data-path bindings and offers inputs to push values (zabloo.setData). The
   // traffic runs both ways — controls write their value back (onDataChanged),
@@ -247,9 +273,15 @@ export function start(): PreviewClient {
   // would leave a canvas that simply stopped updating, which is the worst report
   // of all. reload() never throws, so this catches the first mount and the fetch.
   async function load(viewId?: string): Promise<void> {
+    sawFatal = false;
     try {
       await loadOrFail(viewId);
     } catch (error) {
+      // A refused envelope already reported itself through `onDiagnostic`, with
+      // its code — repeating the exception's message would say it twice. This
+      // path still covers what never becomes a diagnostic: the fetch, the JSON of
+      // the response, the asset hydration.
+      if (sawFatal) return;
       const message = `envelope error: ${error instanceof Error ? error.message : String(error)}`;
       log(message);
       showError(message);
@@ -265,7 +297,11 @@ export function start(): PreviewClient {
     if (handle && viewId === undefined) {
       handle.reload(json);
       replayData();
-      clearError();
+      syncViewOptions(handle);
+      // `reload` never throws: a refused hot-update comes back as a fatal
+      // diagnostic and the previous view stays on screen. Clearing the overlay
+      // here would erase the only report of it — the canvas IS stale now.
+      if (!sawFatal) clearError();
       return;
     }
     // Dropped BEFORE mounting, not after: a `mount` that throws — a view the
@@ -283,19 +319,35 @@ export function start(): PreviewClient {
       onAction: (action: string, context?: ActionContext) =>
         log(context ? `${action} → ${context.path} (#${context.index})` : `action: ${action}`),
       onDataChanged,
+      onDiagnostic,
     });
     window.zabloo = handle;
     replayData();
+    syncViewOptions(handle);
     clearError();
-    if (views.options.length !== handle.viewIds.length) {
-      views.innerHTML = "";
-      for (const id of handle.viewIds) {
-        const option = document.createElement("option");
-        option.value = id;
-        option.textContent = id;
-        views.append(option);
-      }
+  }
+
+  /**
+   * The view picker against the envelope on screen. `viewIds` is read fresh here
+   * because a hot-update may add, drop or rename views (ZAB-72) — the picker used
+   * to be filled once, on mount, and a save that added a view left it invisible
+   * until the page was reloaded by hand.
+   */
+  function syncViewOptions(live: ZablooHandle): void {
+    const ids = live.viewIds;
+    const shown = [...views.options].map((option) => option.value);
+    if (shown.length === ids.length && shown.every((id, i) => id === ids[i])) return;
+    const selected = views.value;
+    views.innerHTML = "";
+    for (const id of ids) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      views.append(option);
     }
+    // Keep the view the user picked selected across the rebuild; if the update
+    // dropped it, the renderer already fell back to the first one.
+    if (ids.includes(selected)) views.value = selected;
   }
 
   views.addEventListener("change", () => {

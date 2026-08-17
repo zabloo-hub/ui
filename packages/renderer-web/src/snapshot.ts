@@ -430,7 +430,12 @@ export function walkSnapshot(node: NodeSnapshot, visit: (node: NodeSnapshot) => 
   for (const child of node.children ?? []) walkSnapshot(child, visit);
 }
 
-/** The node with this ref, or null. */
+/**
+ * The node with this ref, or null — how a `ViewSnapshot` is actually read: the
+ * rect, the wrap points or the states of ONE node, addressed by the `id` it was
+ * authored with (the golden assertions, an overlay canvas drawing on top of the
+ * view, a test driving a control).
+ */
 export function findNode(snapshot: ViewSnapshot, ref: string): NodeSnapshot | null {
   let found: NodeSnapshot | null = null;
   walkSnapshot(snapshot.tree, (node) => {

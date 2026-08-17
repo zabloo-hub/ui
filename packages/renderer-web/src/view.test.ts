@@ -1,3 +1,4 @@
+import type { Diagnostic } from "@zabloo/format";
 import { afterEach, describe, expect, it } from "vitest";
 import { mountCase, readCorpus, readEnvelope } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
@@ -1093,5 +1094,95 @@ describe("author errors", () => {
     // The declared-but-unresolvable color still paints the missing-color magenta:
     // an author error is loud on screen, not silently invisible.
     expect(node(view.snapshot(), "broken").style?.background).toBe("#ff00ff");
+  });
+
+  /**
+   * The console is where a structured diagnostic went to die (ZAB-72): the dev
+   * server's overlay, the preview and the editor cannot scrape it, so what the
+   * validator knows — the code, the path — never reached the one place it was
+   * addressed to. `onDiagnostic` is that channel.
+   */
+  it("hands the load's diagnostics to onDiagnostic instead of the console", async () => {
+    const seen: Diagnostic[] = [];
+    view = await mountGolden(
+      {
+        v: 1,
+        tokens: {},
+        views: {
+          broken: {
+            type: "Container",
+            id: "broken",
+            layout: { width: 10, height: 10 },
+            style: { background: "{color.nope}" },
+          },
+        },
+      },
+      { onDiagnostic: (diagnostic) => seen.push(diagnostic) },
+    );
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].level).toBe("warn");
+    expect(seen[0].code).toBe("unknown-token");
+    expect(seen[0].path).toBe('views["broken"].style.background');
+    expect(view.warnings).toEqual([]);
+  });
+
+  it("routes a refused hot-update through onDiagnostic, keeping the view on screen", async () => {
+    const seen: Diagnostic[] = [];
+    view = await mountGolden(ENVELOPE_ONE_VIEW, {
+      onDiagnostic: (diagnostic) => seen.push(diagnostic),
+    });
+
+    view.handle.reload({ ...ENVELOPE_ONE_VIEW, v: 99 });
+
+    // Reported with its code, not swallowed — and the previous UI is untouched:
+    // a bad hot-update costs an update, never a session (ZAB-37).
+    expect(seen.map((d) => [d.level, d.code])).toEqual([["fatal", "unsupported-version"]]);
+    expect(view.warnings).toEqual([]);
+    expect(node(view.snapshot(), "hud")).toBeTruthy();
+  });
+});
+
+/** Two envelopes that share nothing but their shape — the reload swaps view sets. */
+const ENVELOPE_ONE_VIEW = {
+  v: 1,
+  tokens: {},
+  views: { hud: { type: "Container", id: "hud", layout: { width: 10, height: 10 } } },
+};
+
+const ENVELOPE_TWO_VIEWS = {
+  v: 1,
+  tokens: {},
+  views: {
+    menu: { type: "Container", id: "menu", layout: { width: 10, height: 10 } },
+    pause: { type: "Container", id: "pause", layout: { width: 10, height: 10 } },
+  },
+};
+
+describe("the handle's view list", () => {
+  /**
+   * It used to be `Object.keys(...)` evaluated ONCE, when the handle was made, so
+   * a caller that hot-updated kept listing the views of the envelope before the
+   * save — the preview's view picker among them (ZAB-72).
+   */
+  it("follows the envelope across a reload", async () => {
+    view = await mountGolden(ENVELOPE_ONE_VIEW);
+    const { handle } = view;
+    expect(handle.viewIds).toEqual(["hud"]);
+
+    handle.reload(ENVELOPE_TWO_VIEWS);
+
+    expect(handle.viewIds).toEqual(["menu", "pause"]);
+    // And the view on screen is the fallback the reload picked, since "hud" is gone.
+    expect(node(view.snapshot(), "menu")).toBeTruthy();
+  });
+
+  it("keeps the old list when the update was refused", async () => {
+    view = await mountGolden(ENVELOPE_ONE_VIEW);
+    const { handle } = view;
+
+    handle.reload({ ...ENVELOPE_TWO_VIEWS, v: 99 });
+
+    expect(handle.viewIds).toEqual(["hud"]);
   });
 });

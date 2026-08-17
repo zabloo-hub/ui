@@ -316,4 +316,35 @@ describe("FontLibrary", () => {
     expect(evicted[0]).not.toBe(first);
     expect(library.get(10)).toBe(first);
   });
+
+  /**
+   * The library holds up to 8 canvases of up to 4096² RGBA — half a gigabyte in
+   * the worst case, reclaimable only by the GC (ZAB-72). A page that mounts and
+   * drops views (a preview switching documents, an editor opening tabs) has to be
+   * able to give that back at the moment it disposes the view.
+   */
+  it("releases every atlas bitmap on dispose", () => {
+    const library = new FontLibrary(1, font);
+    const atlases = [library.get(16), library.get(24)];
+
+    library.dispose();
+
+    expect([...library.all()]).toEqual([]);
+    // Resizing to zero is what actually frees the backing store; dropping the
+    // reference alone would leave it up to the GC.
+    for (const atlas of atlases) {
+      expect(atlas.canvas.width).toBe(0);
+      expect(atlas.canvas.height).toBe(0);
+    }
+  });
+
+  it("starts over after a dispose, instead of handing back a dead atlas", () => {
+    const library = new FontLibrary(1, font);
+    const before = library.get(16);
+
+    library.dispose();
+
+    expect(library.get(16)).not.toBe(before);
+    expect(library.get(16).canvas.width).toBeGreaterThan(0);
+  });
 });

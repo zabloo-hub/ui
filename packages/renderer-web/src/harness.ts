@@ -28,7 +28,7 @@
  * it never reaches `dist`.
  */
 
-import type { ActionContext, Envelope } from "@zabloo/format";
+import type { ActionContext, Diagnostic, Envelope } from "@zabloo/format";
 import type { ViewSnapshot } from "./snapshot.js";
 import { mount, type ZablooHandle } from "./view.js";
 
@@ -50,6 +50,11 @@ export interface GoldenOptions {
   height?: number;
   /** Data pushed through `setData` before the first measured frame. */
   data?: Record<string, unknown>;
+  /**
+   * Structured diagnostics of the load (ZAB-72). Left out — as every corpus case
+   * does — they go to the console, which is where `warnings` picks them up.
+   */
+  onDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 
 /** An action the view fired, with the item context when it came from a `Repeat`. */
@@ -171,6 +176,7 @@ export async function mountGolden(
     view: options.view,
     onAction: (action, context) => actions.push(context ? { action, context } : { action }),
     onDataChanged: (path, value) => writes.push({ path, value }),
+    ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
   });
 
   // The first frames measured text with the browser's rasterizer; from here on
