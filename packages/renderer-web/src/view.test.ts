@@ -1,4 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import type { Diagnostic } from "@zabloo/format";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { GlyphAtlas } from "./glyphs.js";
 import { mountCase, readCorpus, readEnvelope } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode, type NodeSnapshot, type ViewSnapshot } from "./snapshot.js";
@@ -1355,6 +1357,45 @@ describe("two views mounted on one page (ZAB-70)", () => {
   });
 });
 
+describe("text size (ZAB-69)", () => {
+  function label(fontSize: number, text = "A"): object {
+    return {
+      v: 1,
+      tokens: {},
+      views: { big: { type: "Text", id: "big", text, style: { fontSize } } },
+    };
+  }
+
+  it("clamps a runaway fontSize instead of rasterizing hundreds of megabytes", async () => {
+    // 20000px asks the rasterizer for a ~14000² coverage buffer (~200 MB) and
+    // then throws "out of WASM memory" — from the measure pass, inside render(),
+    // called from an event handler with nobody to catch it. The clamp is what
+    // stands between an author's animated token and a dead view.
+    const runaway = await mountGolden(label(20_000));
+    const rect = node(runaway.snapshot(), "big").rect;
+    const warnings = [...runaway.warnings];
+    runaway.dispose();
+
+    // Laid out at the ceiling — the same view as if 512 had been declared.
+    view = await mountGolden(label(512));
+    expect(rect).toEqual(node(view.snapshot(), "big").rect);
+    expect(warnings).toEqual([]);
+  });
+
+  it("wraps a Text once and reuses the lines while nothing about it changes", async () => {
+    view = await mountGolden(label(16, "una etiqueta que no cambia"));
+    // The wrap walks the run through the atlas; a frame that reuses the block
+    // does not touch it at all.
+    const advance = vi.spyOn(GlyphAtlas.prototype, "advance");
+
+    view.settle();
+    view.settle();
+
+    expect(advance).not.toHaveBeenCalled();
+    advance.mockRestore();
+  });
+});
+
 describe("author errors", () => {
   it("warns once about an unknown token and paints the missing-color magenta", async () => {
     view = await mountGolden({
@@ -1378,5 +1419,147 @@ describe("author errors", () => {
     // The declared-but-unresolvable color still paints the missing-color magenta:
     // an author error is loud on screen, not silently invisible.
     expect(node(view.snapshot(), "broken").style?.background).toBe("#ff00ff");
+  });
+
+  /**
+   * The console is where a structured diagnostic went to die (ZAB-72): the dev
+   * server's overlay, the preview and the editor cannot scrape it, so what the
+   * validator knows — the code, the path — never reached the one place it was
+   * addressed to. `onDiagnostic` is that channel.
+   */
+  it("hands the load's diagnostics to onDiagnostic instead of the console", async () => {
+    const seen: Diagnostic[] = [];
+    view = await mountGolden(
+      {
+        v: 1,
+        tokens: {},
+        views: {
+          broken: {
+            type: "Container",
+            id: "broken",
+            layout: { width: 10, height: 10 },
+            style: { background: "{color.nope}" },
+          },
+        },
+      },
+      { onDiagnostic: (diagnostic) => seen.push(diagnostic) },
+    );
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].level).toBe("warn");
+    expect(seen[0].code).toBe("unknown-token");
+    expect(seen[0].path).toBe('views["broken"].style.background');
+    expect(view.warnings).toEqual([]);
+  });
+
+  it("routes a refused hot-update through onDiagnostic, keeping the view on screen", async () => {
+    const seen: Diagnostic[] = [];
+    view = await mountGolden(ENVELOPE_ONE_VIEW, {
+      onDiagnostic: (diagnostic) => seen.push(diagnostic),
+    });
+
+    view.handle.reload({ ...ENVELOPE_ONE_VIEW, v: 99 });
+
+    // Reported with its code, not swallowed — and the previous UI is untouched:
+    // a bad hot-update costs an update, never a session (ZAB-37).
+    expect(seen.map((d) => [d.level, d.code])).toEqual([["fatal", "unsupported-version"]]);
+    expect(view.warnings).toEqual([]);
+    expect(node(view.snapshot(), "hud")).toBeTruthy();
+  });
+});
+
+/** Two envelopes that share nothing but their shape — the reload swaps view sets. */
+const ENVELOPE_ONE_VIEW = {
+  v: 1,
+  tokens: {},
+  views: { hud: { type: "Container", id: "hud", layout: { width: 10, height: 10 } } },
+};
+
+const ENVELOPE_TWO_VIEWS = {
+  v: 1,
+  tokens: {},
+  views: {
+    menu: { type: "Container", id: "menu", layout: { width: 10, height: 10 } },
+    pause: { type: "Container", id: "pause", layout: { width: 10, height: 10 } },
+  },
+};
+
+describe("the handle's view list", () => {
+  /**
+   * It used to be `Object.keys(...)` evaluated ONCE, when the handle was made, so
+   * a caller that hot-updated kept listing the views of the envelope before the
+   * save — the preview's view picker among them (ZAB-72).
+   */
+  it("follows the envelope across a reload", async () => {
+    view = await mountGolden(ENVELOPE_ONE_VIEW);
+    const { handle } = view;
+    expect(handle.viewIds).toEqual(["hud"]);
+
+    handle.reload(ENVELOPE_TWO_VIEWS);
+
+    expect(handle.viewIds).toEqual(["menu", "pause"]);
+    // And the view on screen is the fallback the reload picked, since "hud" is gone.
+    expect(node(view.snapshot(), "menu")).toBeTruthy();
+  });
+
+  it("keeps the old list when the update was refused", async () => {
+    view = await mountGolden(ENVELOPE_ONE_VIEW);
+    const { handle } = view;
+
+    handle.reload({ ...ENVELOPE_TWO_VIEWS, v: 99 });
+
+    expect(handle.viewIds).toEqual(["hud"]);
+  });
+});
+
+describe("GPU robustness (ZAB-68)", () => {
+  it("submits nothing while the context is lost, and repaints when it comes back", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const before = view.drawCalls();
+    expect(before).toBeGreaterThan(0);
+
+    view.loseContext();
+    // A frame asked for while the context is down produces no draw call at all —
+    // in a browser those calls are silent no-ops on dead objects.
+    view.settle();
+    expect(view.drawCalls()).toBe(before);
+
+    view.restoreContext();
+
+    // The restored context comes back EMPTY: without this repaint the canvas
+    // would stay blank until something else happened to ask for a frame.
+    expect(view.drawCalls()).toBeGreaterThan(before);
+    expect(view.warnings).toEqual([]);
+  });
+
+  it("keeps taking input after a restore — the tree outlived the context", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const target = center(view.snapshot(), "primary");
+
+    view.loseContext();
+    view.restoreContext();
+    view.pointer.click(target.x, target.y);
+
+    expect(view.actions).toEqual([{ action: "buy" }]);
+  });
+
+  it("ignores calls on a disposed view instead of driving dead GL objects", async () => {
+    const disposed = await mountCase(CORPUS["states-tokens"]);
+    view = disposed;
+    const drawn = disposed.drawCalls();
+    disposed.handle.dispose();
+
+    expect(() => {
+      disposed.handle.setData("player.coins", 1);
+      disposed.handle.setText("primary", "nope");
+      disposed.handle.reload(readEnvelope(CORPUS["states-tokens"].envelope));
+      // A second dispose (React strict mode does exactly this) is a no-op too.
+      disposed.handle.dispose();
+    }).not.toThrow();
+
+    expect(disposed.drawCalls()).toBe(drawn);
+    // Warned ONCE: a game looping over a stale handle must not flood the console.
+    expect(disposed.warnings).toHaveLength(1);
+    expect(disposed.warnings[0]).toContain("disposed view");
   });
 });

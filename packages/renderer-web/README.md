@@ -35,6 +35,7 @@ const ui = mount(canvas, envelope, {
     if (context) console.log("fired from item", context.path);
   },
   onDataChanged: (path, value) => console.log("player wrote", path, "=", value),
+  onDiagnostic: (d) => showInEditor(d.level, d.code, d.path, d.message),
 });
 
 await ui.ready; // the view has swapped in its own text rasterizer and repainted
@@ -46,13 +47,37 @@ ui.dispose();
 
 `mount` throws an `EnvelopeError` if the payload is unusable — there is no previous UI to
 protect, and the caller has to hear that its payload never became a view. `reload` never
-throws: a refused hot-update is logged and discarded, and the view on screen stays
-exactly as it is.
+throws: a refused hot-update is discarded and the view on screen stays exactly as it is.
 
 The handle also drives the UI the way a player would (`setOpen`, `setChecked`,
 `setValue`, `setText`, `setSelectedTab`, `setScroll`), exposes the frame's measurements
-via `snapshot()` — rects, wrap points, baselines, clips, layer order, focus/hover/press —
-and its cost via `stats()`.
+via `snapshot()` — rects, wrap points, baselines, clips, layer order, focus/hover/press,
+read a node at a time with `findNode(snapshot, "buy-btn")` — and its cost via `stats()`.
+
+`viewIds` is read from the envelope currently loaded, so a hot-update that adds, drops or
+renames views is reflected the next time you read it — a view picker should re-read it
+after every `reload` rather than keep the array it got at mount.
+
+## Authoring errors
+
+`onDiagnostic` receives every [diagnostic](https://github.com/zabloo-hub/ui/blob/main/docs/format/loading.md)
+the loading contract produces, for both `mount` and `reload`: a `warn` was repaired and
+the envelope loaded without the broken part, a `fatal` means nothing loaded (and arrives
+just before `mount` throws). Each one carries a stable `code` and the `path` into the
+envelope it sits on, so an error overlay, a dev server or an editor can show it where the
+author is looking:
+
+```ts
+mount(canvas, envelope, {
+  onDiagnostic: ({ level, code, path, message }) => {
+    if (level === "fatal") overlay.show(message); // nothing loaded: the view is stale
+    else console.info(`[${code}] ${path}`, message); // repaired: the view is fine
+  },
+});
+```
+
+Without it, warnings go to the console as `[zabloo]` lines — which is exactly what the
+CLI preview stopped relying on: a page cannot read its own console.
 
 ## Script tag
 

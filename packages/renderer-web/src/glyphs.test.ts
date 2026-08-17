@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { FontLibrary, GlyphAtlas } from "./glyphs.js";
 import { layoutText } from "./text.js";
-import { decodeBase64, loadFont, type StbFont } from "./ttf.js";
+import { decodeBase64, type GlyphBitmap, loadFont, type StbFont } from "./ttf.js";
 
 /**
  * Width of a single-line run through the real measuring path: an atlas is the
@@ -272,6 +272,101 @@ describe("GlyphAtlas growth (ZAB-55)", () => {
   });
 });
 
+/**
+ * A rasterizer we control, for the two inputs the real one cannot be talked into
+ * producing cheaply: a glyph bigger than any atlas, and a failure. Structural,
+ * so the cast is what stands in for the class's private WASM state — the atlas
+ * only ever calls these five methods.
+ */
+/** A coverage bitmap of a given size, ink box hanging above the baseline. */
+function bitmap(width: number, height: number): GlyphBitmap {
+  return {
+    width,
+    height,
+    x0: 0,
+    y0: -height,
+    x1: width,
+    y1: 0,
+    coverage: new Uint8Array(width * height),
+  };
+}
+
+function stubFont(render: StbFont["render"]): StbFont {
+  return {
+    metrics: () => ({ ascent: 12, descent: 3, lineGap: 0, lineHeight: 15 }),
+    advance: () => 10,
+    kern: () => 0,
+    has: () => true,
+    glyphIndex: () => 1,
+    render,
+    dispose: () => {},
+  } as unknown as StbFont;
+}
+
+describe("GlyphAtlas hardening (ZAB-69)", () => {
+  it("blanks a glyph wider than the atlas itself instead of writing UVs past 1", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    written = [];
+    // Wider than MAX_ATLAS_SIZE, short enough that only the WIDTH is the problem
+    // — growth by height alone used to place it anyway, off the right edge.
+    const atlas = new GlyphAtlas(
+      16,
+      1,
+      stubFont(() => bitmap(5000, 10)),
+    );
+    const glyph = atlas.get("A");
+
+    expect(glyph?.hasQuad).toBe(false);
+    // The advance survives: the run still reserves the space it always did.
+    expect(glyph?.advance).toBe(10);
+    for (const uv of [glyph?.u0, glyph?.v0, glyph?.u1, glyph?.v1]) {
+      expect(uv).toBeLessThanOrEqual(1);
+    }
+    // Nothing was written into the atlas, at any offset.
+    expect(written).toHaveLength(0);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("degrades to a blank glyph when the rasterizer throws, instead of killing the view", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const atlas = new GlyphAtlas(
+      16,
+      1,
+      stubFont(() => {
+        // What `ttf.ts` throws when `zb_malloc` cannot serve the coverage buffer —
+        // reached from the measure pass, inside render(), with nobody catching.
+        throw new Error("zabloo renderer: out of WASM memory rasterizing a glyph");
+      }),
+    );
+
+    expect(() => atlas.get("A")).not.toThrow();
+    expect(atlas.get("A")?.hasQuad).toBe(false);
+    expect(atlas.get("A")?.advance).toBe(10);
+    // Measuring a run over the broken font still answers, so the frame survives.
+    expect(runWidth(atlas, "AAA")).toBe(30);
+    // Cached like any other glyph: the failure is not retried, and not re-warned.
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("asks the font for each kerning pair once, not once per frame", () => {
+    const kern = vi.fn((_previous: string, _char: string, _pixelSize: number) => -2);
+    const atlas = new GlyphAtlas(16, 1, {
+      ...stubFont(() => bitmap(4, 4)),
+      kern,
+    } as unknown as StbFont);
+
+    // Ten frames measuring the same run — and the real renderer walks it twice a
+    // frame, since the tessellator kerns the paint loop the same way.
+    for (let frame = 0; frame < 10; frame++) expect(runWidth(atlas, "AVAV")).toBe(34);
+
+    // "AVAV" has two distinct pairs, AV and VA. That is the whole cost.
+    expect(kern).toHaveBeenCalledTimes(2);
+    expect(atlas.kern("A", "V")).toBe(-2);
+  });
+});
+
 describe("FontLibrary", () => {
   it("keeps one atlas per point size", () => {
     const library = new FontLibrary(1, font);
@@ -315,5 +410,36 @@ describe("FontLibrary", () => {
     expect(evicted).toHaveLength(1);
     expect(evicted[0]).not.toBe(first);
     expect(library.get(10)).toBe(first);
+  });
+
+  /**
+   * The library holds up to 8 canvases of up to 4096² RGBA — half a gigabyte in
+   * the worst case, reclaimable only by the GC (ZAB-72). A page that mounts and
+   * drops views (a preview switching documents, an editor opening tabs) has to be
+   * able to give that back at the moment it disposes the view.
+   */
+  it("releases every atlas bitmap on dispose", () => {
+    const library = new FontLibrary(1, font);
+    const atlases = [library.get(16), library.get(24)];
+
+    library.dispose();
+
+    expect([...library.all()]).toEqual([]);
+    // Resizing to zero is what actually frees the backing store; dropping the
+    // reference alone would leave it up to the GC.
+    for (const atlas of atlases) {
+      expect(atlas.canvas.width).toBe(0);
+      expect(atlas.canvas.height).toBe(0);
+    }
+  });
+
+  it("starts over after a dispose, instead of handing back a dead atlas", () => {
+    const library = new FontLibrary(1, font);
+    const before = library.get(16);
+
+    library.dispose();
+
+    expect(library.get(16)).not.toBe(before);
+    expect(library.get(16).canvas.width).toBeGreaterThan(0);
   });
 });

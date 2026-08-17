@@ -417,9 +417,33 @@ describe("readEnvelope: numeric coherence", () => {
     expect(node.step).toBe(1);
   });
 
+  it("catches a lone bound that crosses the default it is paired with", () => {
+    // `{min: 5}` is `5..1` at runtime — as inverted as declaring both, and it
+    // used to pass because only ONE of the two was a number.
+    for (const declared of [{ min: 5 }, { max: -3 }, { min: 1 }] as const) {
+      const { codes } = read(withView({ type: "Slider", ...declared }));
+      const node = view({ type: "Slider", ...declared }) as unknown as SliderNode;
+      expect(codes, JSON.stringify(declared)).toEqual(["invalid-prop"]);
+      expect(node.min, JSON.stringify(declared)).toBeUndefined();
+      expect(node.max, JSON.stringify(declared)).toBeUndefined();
+    }
+  });
+
+  it("names the default in the warning, so the crossing bound reads honestly", () => {
+    const { diagnostics } = readEnvelope(withView({ type: "Slider", min: 5 }));
+    expect(diagnostics[0].message).toContain("`min` (5) is not below `max` (1 by default)");
+  });
+
   it("keeps a legitimate range", () => {
     const { diagnostics } = readEnvelope(withView({ type: "Slider", min: 0, max: 100 }));
     expect(diagnostics).toEqual([]);
+  });
+
+  it("keeps a lone bound that still fits inside the defaults", () => {
+    for (const declared of [{ min: 0.2 }, { max: 0.8 }] as const) {
+      const { diagnostics } = readEnvelope(withView({ type: "Slider", ...declared }));
+      expect(diagnostics, JSON.stringify(declared)).toEqual([]);
+    }
   });
 
   it("drops non-finite numbers", () => {

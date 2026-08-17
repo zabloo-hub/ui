@@ -6,6 +6,9 @@
  * never reach the IR — they execute at authoring time and emit zabloo primitives.
  */
 
+// `OverlayPosition` is an alias of this one: the nine placements are one
+// vocabulary, and an author reading either name should land on the same type.
+export type { AnchorAt } from "@zabloo/format";
 export {
   Accordion,
   Badge,

@@ -28,7 +28,7 @@
  * it never reaches `dist`.
  */
 
-import type { ActionContext, Envelope } from "@zabloo/format";
+import type { ActionContext, Diagnostic, Envelope } from "@zabloo/format";
 import type { ViewSnapshot } from "./snapshot.js";
 import { mount, type ZablooHandle } from "./view.js";
 
@@ -58,6 +58,11 @@ export interface GoldenOptions {
    * to the view that installed it.
    */
   share?: GoldenView;
+  /**
+   * Structured diagnostics of the load (ZAB-72). Left out — as every corpus case
+   * does — they go to the console, which is where `warnings` picks them up.
+   */
+  onDiagnostic?: (diagnostic: Diagnostic) => void;
 }
 
 /** An action the view fired, with the item context when it came from a `Repeat`. */
@@ -103,6 +108,16 @@ export interface GoldenView {
   };
   /** Whether the hidden field is the one holding the keyboard right now. */
   focusedEditor(): boolean;
+  /**
+   * The GPU dropping the context under the view — what `WEBGL_lose_context` does
+   * in a browser, and what a backgrounded mobile tab or a driver reset does on
+   * their own (ZAB-68). Every GL call is a no-op until `restoreContext`.
+   */
+  loseContext(): void;
+  /** The context coming back — empty, as the browser hands it back. */
+  restoreContext(): void;
+  /** Draw calls submitted to the fake GL since mount — a repaint bumps it. */
+  drawCalls(): number;
   /**
    * Steps the clock `ms` forward and runs the frames the view scheduled for that
    * span — the only way time passes here, so a transition is measured at the
@@ -186,6 +201,7 @@ export async function mountGolden(
     view: options.view,
     onAction: (action, context) => actions.push(context ? { action, context } : { action }),
     onDataChanged: (path, value) => writes.push({ path, value }),
+    ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
   });
 
   // The first frames measured text with the browser's rasterizer; from here on
@@ -225,6 +241,9 @@ export async function mountGolden(
       end: () => dom.dispatchOnEditor("compositionend"),
     },
     focusedEditor: () => dom.editor !== null && dom.activeElement === dom.editor,
+    loseContext: () => canvas.loseContext(),
+    restoreContext: () => canvas.restoreContext(),
+    drawCalls: () => canvas.drawCalls,
     advance: (ms) => dom.advance(ms),
     // A resize to the same size: the view re-renders, which is all this asks for.
     settle: () => dom.dispatch("resize", {}),
@@ -306,7 +325,7 @@ class FakeCanvas extends FakeTarget {
   clientWidth: number;
   clientHeight: number;
   readonly parentElement = null;
-  private readonly gl = fakeGl();
+  private readonly gl = new FakeGl();
   private readonly ctx2d = new FakeContext2D();
 
   constructor(
@@ -322,7 +341,27 @@ class FakeCanvas extends FakeTarget {
   }
 
   getContext(kind: string): unknown {
-    return kind === "2d" ? this.ctx2d : this.gl;
+    return kind === "2d" ? this.ctx2d : this.gl.context;
+  }
+
+  /** Draw calls the view has submitted since it mounted. */
+  get drawCalls(): number {
+    return this.gl.draws;
+  }
+
+  /**
+   * The context going away and coming back, in the browser's own two moments:
+   * the flag flips FIRST (from that instant every GL call is a no-op) and the
+   * event follows, which is exactly the order a real loss reaches the page.
+   */
+  loseContext(): void {
+    this.gl.lost = true;
+    this.dispatch("webglcontextlost", { preventDefault: () => {} });
+  }
+
+  restoreContext(): void {
+    this.gl.lost = false;
+    this.dispatch("webglcontextrestored", {});
   }
 
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
@@ -385,25 +424,41 @@ class FakeContext2D {
  * uniforms, draw calls), and the two things it reads back — the shader compile
  * and program link status — are exactly the two a real driver reports as `true`
  * on success. Nothing the golden tests assert on passes through here.
+ *
+ * Two members are real, because the renderer's behavior turns on them:
+ * `isContextLost` (the state a test steers, ZAB-68) and the draw-call count
+ * (how a test sees that a frame actually reached the GPU).
  */
-function fakeGl(): unknown {
-  const members = new Map<string, unknown>();
-  return new Proxy(
-    {},
-    {
-      get(_target, prop: string) {
-        let member = members.get(prop);
-        if (member === undefined) {
-          // One object per name, stable across calls: `createBuffer()` handing
-          // out a new identity every time would defeat the texture cache.
-          const handle = { gl: prop };
-          member = () => handle;
-          members.set(prop, member);
-        }
-        return member;
+class FakeGl {
+  lost = false;
+  draws = 0;
+  readonly context: unknown;
+
+  constructor() {
+    const members = new Map<string, unknown>();
+    this.context = new Proxy(
+      {},
+      {
+        get: (_target, prop: string) => {
+          if (prop === "isContextLost") return () => this.lost;
+          if (prop === "drawElements") {
+            return () => {
+              this.draws++;
+            };
+          }
+          let member = members.get(prop);
+          if (member === undefined) {
+            // One object per name, stable across calls: `createBuffer()` handing
+            // out a new identity every time would defeat the texture cache.
+            const handle = { gl: prop };
+            member = () => handle;
+            members.set(prop, member);
+          }
+          return member;
+        },
       },
-    },
-  );
+    );
+  }
 }
 
 /** The hidden `<textarea>` the view routes real typing, IME and paste through. */

@@ -21,6 +21,7 @@
 import {
   type ActionContext,
   clampProgress,
+  type Diagnostic,
   type Dim,
   type Easing,
   type Envelope,
@@ -67,6 +68,7 @@ import {
   measure,
   type Rect,
   type RepeatState,
+  type TextKey,
   wrapsLines,
 } from "./layout.js";
 import {
@@ -130,6 +132,16 @@ import {
 import { decodeBase64, loadFont, type StbFont } from "./ttf.js";
 
 const DEFAULT_FONT_SIZE = 16;
+/**
+ * Where a resolved `fontSize` stops (ZAB-69). Rasterizing is quadratic in the
+ * point size — a glyph at 20000px is a ~200 MB coverage buffer, past that the
+ * WASM allocation throws — and the clamp has to live HERE, at resolution time,
+ * because a token or a state can hand any finite number to a `Text` mid-frame.
+ * 512 is a real display size and still leaves several glyphs per row in the
+ * biggest atlas (4096²) at dpr 2. Documented in `docs/format/style.md`; silent
+ * on purpose, since this runs on every node on every frame.
+ */
+const MAX_FONT_SIZE = 512;
 /** Paint fallbacks for a declared color whose token does not resolve (author error). */
 const MISSING_COLOR: Color = [1, 0, 1, 1];
 const DEFAULT_TEXT_COLOR: Color = [1, 1, 1, 1];
@@ -254,6 +266,17 @@ export interface MountOptions {
    * without polling. Never fires for `setData` — that value came from the game.
    */
   onDataChanged?: (path: string, value: unknown) => void;
+  /**
+   * Where the loading contract's diagnostics go (ZAB-72). Every `warn` the
+   * validator repaired and every `fatal` that refused the payload arrives here as
+   * the STRUCTURED `Diagnostic` — stable `code`, `path` into the envelope — for
+   * both `mount` and `reload`. The fatal ones arrive BEFORE `mount` throws.
+   *
+   * It is what an error overlay, the CLI preview and the future editor show
+   * authoring errors from; without it they would be scraping console lines.
+   * Omitted, the warnings go to the console exactly as they always have.
+   */
+  onDiagnostic?: (diagnostic: Diagnostic) => void;
   /** Canvas clear color (CSS hex). */
   background?: string;
 }
@@ -278,6 +301,12 @@ export interface FrameStats {
 }
 
 export interface ZablooHandle {
+  /**
+   * The envelope's view ids, as of NOW: a hot-update may add, drop or rename
+   * views, so this is read on every access instead of frozen when the handle was
+   * made (ZAB-72). A caller that keeps the array around (a view picker, say) gets
+   * a snapshot of that moment — re-read it after `reload`.
+   */
   readonly viewIds: string[];
   /**
    * Resolves once the view has swapped in its OWN text rasterizer and repainted
@@ -332,7 +361,7 @@ export function mount(
   envelope: string | object,
   options: MountOptions = {},
 ): ZablooHandle {
-  const view = new WebView(canvas, loadEnvelope(envelope), options);
+  const view = new WebView(canvas, loadEnvelope(envelope, options.onDiagnostic), options);
   return view.handle();
 }
 
@@ -345,6 +374,19 @@ class WebView implements InputView {
   private readonly clearColor: Color;
   private readonly onAction?: (action: string, context?: ActionContext) => void;
   private readonly onDataChanged?: (path: string, value: unknown) => void;
+  private readonly onDiagnostic?: (diagnostic: Diagnostic) => void;
+  /**
+   * Memoized by the literal string: the resolve pass parses every declared color
+   * every frame, and nothing in the renderer ever mutates a `Color` (they are
+   * shared identities already — `MISSING_COLOR`, the token dictionary), so one
+   * array per distinct literal is safe and an animation frame parses nothing.
+   *
+   * Per VIEW, not per module (ZAB-72): a module-level map is shared by every view
+   * the page ever mounts, grows with each distinct literal — an animated color
+   * writes one entry per frame — and nothing ever empties it. This one dies with
+   * the view that filled it.
+   */
+  private readonly parsedColors = new Map<string, Color | null>();
 
   private root!: LayoutNode;
   /** The view's overlays, flattened and ordered — rebuilt on every render. */
@@ -411,6 +453,8 @@ class WebView implements InputView {
   private readonly ready: Promise<void>;
   /** Disposed views must not touch GL from work that was already in flight. */
   private disposed = false;
+  /** So a game looping over a dead handle gets one warning, not one per call. */
+  private warnedDisposed = false;
   private readonly disposers: Array<() => void> = [];
 
   constructor(
@@ -422,8 +466,12 @@ class WebView implements InputView {
     this.viewId = options.view ?? Object.keys(envelope.views)[0];
     this.onAction = options.onAction;
     this.onDataChanged = options.onDataChanged;
-    this.clearColor = parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
-    this.gl = new GLRenderer(canvas);
+    this.onDiagnostic = options.onDiagnostic;
+    this.clearColor = this.parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
+    // A restored context comes back empty and blank: the repaint is what puts
+    // the view back on screen (ZAB-68). The GL layer rebuilds its own resources
+    // and re-uploads every atlas and image on that very frame.
+    this.gl = new GLRenderer(canvas, () => this.render());
     // The LRU eviction releases the dropped atlas's GPU texture (ZAB-55) — the
     // same contract `adopt` already has for the fallback-era atlases.
     this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1, null, (atlas) =>
@@ -472,18 +520,30 @@ class WebView implements InputView {
   }
 
   handle(): ZablooHandle {
+    // Every other member is an arrow that closes over `this`; a getter cannot be
+    // one, hence the name for the view it reads from.
+    const view = this;
     return {
-      viewIds: Object.keys(this.envelope.views),
+      // A getter, not a snapshot: `reload` can bring a different set of views and
+      // the caller must not be left listing the old ones (ZAB-72).
+      get viewIds(): string[] {
+        return Object.keys(view.envelope.views);
+      },
       ready: this.ready,
       reload: (input) => {
+        if (!this.alive("reload")) return;
         // A corrupt hot-update never takes down a UI that is already on screen
         // (decision 2026-08-12, ZAB-37): it reports and the current envelope stays.
         let next: Envelope;
         try {
-          next = loadEnvelope(input);
+          next = loadEnvelope(input, this.onDiagnostic);
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          console.warn(`[zabloo] reload rejected, keeping the current envelope — ${detail}`);
+          // The sink already heard the fatal diagnostic, with its code and path —
+          // the console line is for the caller that installed no sink.
+          if (!this.onDiagnostic) {
+            const detail = error instanceof Error ? error.message : String(error);
+            console.warn(`[zabloo] reload rejected, keeping the current envelope — ${detail}`);
+          }
           return;
         }
         this.envelope = next;
@@ -496,25 +556,55 @@ class WebView implements InputView {
         this.build();
         this.render();
       },
-      setData: (path, value) => this.setData(path, value),
-      setOpen: (id, open) => this.setOpen(id, open),
-      setSelectedTab: (id, index) => this.setSelectedTab(id, index),
-      setChecked: (id, checked) => this.setChecked(id, checked),
-      setValue: (id, value) => this.setValue(id, value),
-      setText: (id, text) => this.setText(id, text),
-      setScroll: (id, x, y) => this.setScroll(id, x, y),
+      // Every mutator goes through the same guard: after `dispose` the tree, the
+      // atlases and the GL objects are gone, and driving them would either throw
+      // or paint into a dead context (ZAB-68). The readers below stay open — they
+      // touch no GPU resource and answering with the last known frame is honest.
+      setData: (path, value) => {
+        if (this.alive("setData")) this.setData(path, value);
+      },
+      // The `id` setters answer whether they found the control; on a disposed
+      // view the honest answer is "no, nothing was applied".
+      setOpen: (id, open) => this.alive("setOpen") && this.setOpen(id, open),
+      setSelectedTab: (id, index) => this.alive("setSelectedTab") && this.setSelectedTab(id, index),
+      setChecked: (id, checked) => this.alive("setChecked") && this.setChecked(id, checked),
+      setValue: (id, value) => this.alive("setValue") && this.setValue(id, value),
+      setText: (id, text) => this.alive("setText") && this.setText(id, text),
+      setScroll: (id, x, y) => this.alive("setScroll") && this.setScroll(id, x, y),
       snapshot: () => this.snapshot(),
       stats: () => ({ ...this.lastStats }),
       dispose: () => {
+        // Idempotent: a host that disposes twice (React strict mode does) must
+        // not re-run the teardown over resources that are already released.
+        if (this.disposed) return;
         this.disposed = true;
         this.cancelFrame();
         for (const dispose of this.disposers) dispose();
         this.overlays.clearAutoClose();
         this.images.dispose();
+        // The atlases hold a canvas EACH, up to 4096² RGBA: waiting for the GC to
+        // notice a disposed view is how a page that mounts and drops views keeps
+        // hundreds of MB alive (ZAB-72). Their GPU textures die with `gl.dispose`.
+        this.fonts.dispose();
+        this.parsedColors.clear();
         this.font?.dispose();
         this.gl.dispose();
       },
     };
+  }
+
+  /**
+   * Whether the handle can still act. A call on a disposed view is a no-op and
+   * warns ONCE — a game polling a stale handle every frame would otherwise flood
+   * the console with the same line.
+   */
+  private alive(call: string): boolean {
+    if (!this.disposed) return true;
+    if (!this.warnedDisposed) {
+      this.warnedDisposed = true;
+      console.warn(`[zabloo] ${call}() on a disposed view — ignored`);
+    }
+    return false;
   }
 
   // --- build ---
@@ -2003,7 +2093,17 @@ class WebView implements InputView {
 
   private color(value: unknown, fallback: Color): Color {
     const resolved = this.token(value);
-    return (typeof resolved === "string" && parseColor(resolved)) || fallback;
+    return (typeof resolved === "string" && this.parseColor(resolved)) || fallback;
+  }
+
+  /** `#rrggbb[aa]` → a `Color`, memoized in this view's `parsedColors`. */
+  private parseColor(hex: string): Color | null {
+    let color = this.parsedColors.get(hex);
+    if (color === undefined) {
+      color = parseColorLiteral(hex);
+      this.parsedColors.set(hex, color);
+    }
+    return color;
   }
 
   /** This frame's style: the base plus every active state, in `STATE_ORDER`. */
@@ -2013,7 +2113,8 @@ class WebView implements InputView {
   }
 
   private fontSize(style: Style | undefined): number {
-    return Math.max(1, Math.round(this.dim(style?.fontSize, DEFAULT_FONT_SIZE)));
+    const size = Math.round(this.dim(style?.fontSize, DEFAULT_FONT_SIZE));
+    return Math.min(MAX_FONT_SIZE, Math.max(1, size));
   }
 
   /**
@@ -2323,14 +2424,20 @@ class WebView implements InputView {
     if (ir.type === "Text") {
       // Wrapping happens HERE, once per frame: the block is kept on the node so
       // paint reuses these very lines instead of breaking the text a second time.
+      // And since ZAB-69 the node also keeps WHAT it wrapped, so the frames that
+      // changed none of it — most of them, for the static labels a UI is mostly
+      // made of — reuse the block instead of breaking the text again.
       const style = this.effectiveStyle(node);
       const atlas = this.fonts.get(this.fontSize(style));
-      const block = layoutText(
-        this.resolveText(node),
-        atlas,
-        this.textOptions(style, atlas.lineHeight, availableWidth),
-      );
-      node.textBlock = block;
+      const options = this.textOptions(style, atlas.lineHeight, availableWidth);
+      const content = this.resolveText(node);
+      const key: TextKey = { content, metrics: atlas, options: textOptionsKey(options) };
+      let block = node.textBlock;
+      if (block === null || !sameTextKey(node.textKey, key)) {
+        block = layoutText(content, atlas, options);
+        node.textBlock = block;
+        node.textKey = key;
+      }
       return { x: block.width, y: block.height };
     }
     if (ir.type === "Image") {
@@ -2358,6 +2465,10 @@ class WebView implements InputView {
   }
 
   render(): void {
+    // Work that was already in flight when the view died (an image decode
+    // landing, a restored context, a queued frame) still calls in here — and
+    // painting would submit to GL objects that no longer exist (ZAB-68).
+    if (this.disposed) return;
     const { width, height } = this.logicalSize();
     if (!(width > 0) || !(height > 0)) return;
     const viewRect: Rect = { x: 0, y: 0, width, height };
@@ -2724,6 +2835,25 @@ function isCollapseHeader(node: LayoutNode): boolean {
   return node.parent?.ir.type === "Collapse" && node.parent.children[0] === node;
 }
 
+/**
+ * The wrapping inputs that are plain values, as one comparable string — the rest
+ * of the key (the content and the atlas) is compared by value and by identity.
+ * `maxWidth` is in here too: the width the flexbox offered is what the lines were
+ * broken to, so a resize invalidates them like a style change does.
+ */
+function textOptionsKey(options: TextLayoutOptions): string {
+  return `${options.wrap}|${options.maxWidth}|${options.lineHeight}|${options.maxLines}|${options.overflow}`;
+}
+
+function sameTextKey(previous: TextKey | null, next: TextKey): boolean {
+  return (
+    previous !== null &&
+    previous.content === next.content &&
+    previous.metrics === next.metrics &&
+    previous.options === next.options
+  );
+}
+
 const KEY_DIRECTIONS: Record<string, [number, number] | undefined> = {
   ArrowUp: [0, -1],
   ArrowDown: [0, 1],
@@ -2786,25 +2916,11 @@ function moved(previous: number | null, next: number): boolean {
   return previous === null || Math.abs(previous - next) > 0.5;
 }
 
-/**
- * Memoized by the literal string: the resolve pass parses every declared color
- * every frame, and nothing in the renderer ever mutates a `Color` (they are
- * shared identities already — `MISSING_COLOR`, the token dictionary), so one
- * array per distinct literal is safe and an animation frame parses nothing.
- */
-const parsedColors = new Map<string, Color | null>();
-
-function parseColor(hex: string): Color | null {
-  let color = parsedColors.get(hex);
-  if (color === undefined) {
-    const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
-    if (!match) color = null;
-    else {
-      const rgb = Number.parseInt(match[1], 16);
-      const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
-      color = [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
-    }
-    parsedColors.set(hex, color);
-  }
-  return color;
+/** `#rrggbb` / `#rrggbbaa` → normalized RGBA, or null if it is neither. */
+function parseColorLiteral(hex: string): Color | null {
+  const match = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
+  if (!match) return null;
+  const rgb = Number.parseInt(match[1], 16);
+  const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
+  return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
 }
