@@ -61,6 +61,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `changeset status` diffs against the base branch; a shallow clone
+          # has no history to diff and no `main` to diff against.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -73,8 +77,11 @@ jobs:
 
       - run: pnpm build
 
+      # `--since=origin/main`: the checkout has no local `main` (only the
+      # remote-tracking ref), and changesets resolves the bare branch name from
+      # .changeset/config.json literally.
       - name: What would be released
-        run: pnpm changeset status --verbose
+        run: pnpm changeset status --verbose --since=origin/main
 
       - name: Simulate the publish
         run: pnpm publish -r --dry-run --no-git-checks
