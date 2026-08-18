@@ -79,15 +79,22 @@ jobs:
       - name: Simulate the publish
         run: pnpm publish -r --dry-run --no-git-checks
 
-  # The only job that can upload. Two locks: manual dispatch with `publish`
-  # chosen, and the `npm-publish` environment's required reviewer.
+  # The only job that can upload. Two locks here: manual dispatch with `publish`
+  # chosen, and the `npm-publish` environment's required reviewer. The third
+  # lives on npm: the job authenticates with Trusted Publishing (OIDC), no npm
+  # secret anywhere. GitHub mints a short-lived identity token for this run and
+  # npm exchanges it for a publish token — but only for packages whose Trusted
+  # Publisher names this repo, this workflow file and the `npm-publish`
+  # environment. Provenance comes with it. See docs/releasing.md for the
+  # one-time setup on npmjs.com.
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish'
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
+      # Pushing the release tags.
       contents: write
-      # npm provenance: the published package is signed against this workflow run.
+      # Minting the OIDC token npm exchanges for publish rights.
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -96,21 +103,32 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      # Node 24 (not 22 like every other job) because it ships npm >= 11.5.1,
+      # the first version that knows how to publish with OIDC. `changeset
+      # publish` runs `pnpm publish`, and pnpm hands the upload to whatever
+      # `npm` is on the PATH — so this npm is the one that matters.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
       # Fail here, before any build, rather than three minutes in with a 401.
-      - name: Require the npm token
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Both preconditions of an OIDC publish are checkable up front: the
+      # runner exposes the id-token endpoint only when `id-token: write` was
+      # granted, and npm has to be new enough to use it.
+      - name: Require the OIDC context
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::Secret NPM_TOKEN is not set — see docs/releasing.md." >&2
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            echo "::error::No OIDC token endpoint in this job — needs 'permissions: id-token: write'. See docs/releasing.md." >&2
             exit 1
           fi
+          npm_version="$(npm --version)"
+          if [ "$(printf '%s\n' 11.5.1 "$npm_version" | sort -V | head -n1)" != 11.5.1 ]; then
+            echo "::error::npm $npm_version cannot publish with OIDC — trusted publishing needs npm >= 11.5.1." >&2
+            exit 1
+          fi
+          echo "OIDC endpoint present, npm $npm_version"
 
       - run: pnpm install --frozen-lockfile
 
@@ -121,10 +139,14 @@ jobs:
       - run: pnpm test
 
       # `changeset publish` publishes only the packages whose version is not on
-      # the registry yet, and tags the release commit for each one.
+      # the registry yet, and tags the release commit for each one. npm picks
+      # up the OIDC context on its own: no auth token in the environment, and
+      # no provenance flag — trusted publishing attaches provenance
+      # automatically for a public repo publishing public packages.
       - name: Publish
         run: pnpm changeset publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: "true"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # The tags `changeset publish` created live only on the runner until
+      # pushed. This is what `contents: write` above is for.
+      - name: Push release tags
+        run: git push --tags
