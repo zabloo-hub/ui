@@ -5,7 +5,7 @@ for maintainers; nothing here is needed to *use* zabloo/ui.
 
 > **Nothing is published yet.** The pipeline exists and has been rehearsed dry, but the
 > roadmap decision stands: the SDK is feature-complete *before* anything is published.
-> Publishing is deliberately behind two locks (see [The gate](#the-gate)).
+> Publishing is deliberately behind two locks (see [The publish gate](#the-publish-gate)).
 
 ## The packages
 
@@ -16,15 +16,19 @@ Five packages are published from this repo:
 | `@zabloo/format` | The IR types and the envelope reader/validator. |
 | `@zabloo/react` | The authoring bindings (React reconciler → IR). |
 | `@zabloo/renderer-web` | The WebGL2 renderer used by the preview. |
-| `@zabloo/cli` | `zabloo dev` / `zabloo export`. |
+| `@zabloo/cli` | `zabloo dev` / `export` / `validate` / `preview`. |
 | `create-zabloo-app` | The scaffolder — unscoped, because `npx create-zabloo-app` is the funnel. |
 
-`examples/*` are private and excluded from versioning (`ignore` in `.changeset/config.json`).
+`examples/*` are private and excluded from versioning by `privatePackages: { version: false }`
+in [`.changeset/config.json`](../.changeset/config.json) — their own `"private": true`, not a
+name list. The config used to carry `ignore: ["hello-button-example"]`, which named exactly one
+of the four examples and read as if it were what kept them all out; it never was.
 
 ## The flow
 
 1. **Every change that touches a package carries a changeset**: `pnpm changeset`, pick the
-   packages and the bump, commit the generated file in `.changeset/`.
+   packages and the bump, commit the generated file in `.changeset/`. CI enforces it — see
+   [The changeset gate](#the-changeset-gate).
 2. **Merging to `main`** runs the `version` job of [`release.yml`](../.github/workflows/release.yml),
    which opens or updates the **Version Packages** PR: changesets consumed, versions bumped,
    changelogs written. This publishes nothing.
@@ -35,7 +39,32 @@ Five packages are published from this repo:
    approval, then runs `changeset publish` — which uploads only the packages whose version is not
    on the registry yet, and tags the release commit.
 
-## The gate
+## The changeset gate
+
+A change with no changeset is not a smaller release — it is a release whose changelog does
+not mention it. That is how this repo spent ~10 commits, one of them a behavior change across
+`format`/`react`/`renderer-web`, with `.changeset/` holding nothing but its README: the first
+changelog would have come out empty and nothing would have said so.
+
+[`scripts/changeset-gate.mjs`](../scripts/changeset-gate.mjs) runs on every pull request and
+fails it when a **published** package has a changed file that reaches its tarball and no pending
+changeset names it. Run it locally the same way CI does:
+
+```bash
+node scripts/changeset-gate.mjs --since origin/main
+```
+
+It is deliberately narrower than `changeset status --since`, which asks changesets itself which
+packages moved and counts a `*.test.ts` edit as one — so a PR that adds a test to one package
+and a real fix (with its changeset) to another would be told to write a changeset for the tests.
+What ships is `dist/`, built from `src/`, so tests, `vitest.config.ts` and `CHANGELOG.md` are
+outside the blast radius. Everything outside `packages/` — docs, workflows, `examples/`,
+`golden/`, `scripts/` — needs no changeset at all, and a docs-only PR passes untouched.
+
+The Version Packages PR is skipped by its `changeset-release/` branch prefix: that PR is
+changesets *consuming* the changesets, and demanding new ones there would deadlock the release.
+
+## The publish gate
 
 The publish job cannot run by accident:
 
@@ -112,8 +141,8 @@ pnpm -r build → pnpm pack (5 packages) → npm exec --package=<tarball> create
 
 Add `--keep` to leave the temporary project on disk for inspection.
 
-The one thing it cannot reproduce is the registry: the packed tarballs depend on
-`@zabloo/format@0.1.0`, which is not published, so the scaffolded project's zabloo dependencies are
+The one thing it cannot reproduce is the registry: the packed tarballs depend on a
+`@zabloo/format` version that is not published, so the scaffolded project's zabloo dependencies are
 rewritten to `file:` tarball paths. The *versions* are faked; the package *contents* are not, which
 is what is being tested.
 

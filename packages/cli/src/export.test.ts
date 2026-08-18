@@ -87,6 +87,25 @@ describe("exportProject", () => {
     expect((await readIR(result.outFile)).tokens).toEqual({ "color.primary": "#4f46e5" });
   });
 
+  // `--out` (ZAB-78): one project, several artifacts, from a CI matrix that has
+  // no place to put a config file per row.
+  it("writes where --out says, creating the directory on the way", async () => {
+    const root = await project();
+
+    const result = await exportProject(root, { out: "artifacts/en/ui.json" });
+
+    expect(result.outFile).toBe(join(root, "artifacts", "en", "ui.json"));
+    expect((await readIR(result.outFile)).views.main).toMatchObject({ type: "Text" });
+  });
+
+  it("lets --out win over the config's outDir", async () => {
+    const root = await project({ "zabloo.config.ts": `export default { outDir: "build" };\n` });
+
+    const result = await exportProject(root, { out: "elsewhere/ui.json" });
+
+    expect(result.outFile).toBe(join(root, "elsewhere", "ui.json"));
+  });
+
   // "Optional" means absent, never broken: a theme that throws on import is an
   // authoring error, and swallowing it would export a themeless envelope while
   // the author stares at a file full of tokens.

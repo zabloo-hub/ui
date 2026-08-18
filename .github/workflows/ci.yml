@@ -5,11 +5,30 @@ on:
     branches: [main]
   pull_request:
 
+# A force-push used to leave the run it interrupted going: full builds, tests and
+# `verify:pack` on both platforms, for a commit nobody is looking at any more.
+# `main` is not cancelled — those runs are the record of what landed.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # Game studios are mostly on Windows, and the critical path is full of things
+    # that differ there: recursive `fs.watch`, jiti's `pathToFileURL` resolution
+    # base, path separators, bin shims and shebangs. The code already anticipates
+    # it (`assets.ts` normalizes backslashes) — which is exactly why it deserves a
+    # matrix entry rather than a comment.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The changeset gate diffs this branch against the PR's base commit.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
 
@@ -28,8 +47,21 @@ jobs:
 
       - run: pnpm lint
 
+      # Every change that reaches a tarball carries a changeset, or the first
+      # changelog comes out empty. Skipped on the Version Packages PR, which is
+      # changesets CONSUMING them, and on Linux only — it is a property of the
+      # diff, not of the platform.
+      - name: Changeset gate
+        if: >-
+          runner.os == 'Linux' && github.event_name == 'pull_request' &&
+          !startsWith(github.head_ref, 'changeset-release/')
+        run: node scripts/changeset-gate.mjs --since ${{ github.event.pull_request.base.sha }}
+
       # The publish dry run: pack the packages and install them into a clean
       # consumer outside the workspace. Catches what only breaks once pnpm's
       # symlinks are gone — a file `files` left out, an entry point that does
-      # not resolve, a bin without its shebang.
+      # not resolve, a bin without its shebang. Linux only: it packs five
+      # packages and does a real npm install, and what it guards against is
+      # platform-independent.
       - run: pnpm verify:pack
+        if: runner.os == 'Linux'

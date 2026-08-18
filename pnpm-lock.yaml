@@ -110,7 +110,14 @@ importers:
         specifier: ^28.1.0
         version: 28.1.0
 
-  packages/create-zabloo-app: {}
+  packages/create-zabloo-app:
+    devDependencies:
+      '@zabloo/cli':
+        specifier: workspace:^
+        version: link:../cli
+      '@zabloo/react':
+        specifier: workspace:^
+        version: link:../react
 
   packages/format: {}
 

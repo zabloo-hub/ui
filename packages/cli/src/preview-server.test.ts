@@ -1,7 +1,14 @@
+import { request } from "node:http";
 import { createServer, type Server } from "node:net";
 import type { Envelope } from "@zabloo/format";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type PreviewEvent, type PreviewServer, startPreviewServer } from "./preview-server.js";
+import {
+  hostAllowed,
+  hostnameOf,
+  type PreviewEvent,
+  type PreviewServer,
+  startPreviewServer,
+} from "./preview-server.js";
 
 const ENVELOPE = JSON.stringify({
   v: 1,
@@ -230,5 +237,164 @@ describe("the reload channel", () => {
 
     // Were the failure still held, the replay would arrive before this reload.
     expect(await stream.next()).toEqual({ kind: "reload" });
+  });
+});
+
+/**
+ * The DNS-rebinding guard (ZAB-78). Binding to loopback is not the defence people
+ * assume: an attacker page on `evil.example` whose DNS answers 127.0.0.1 reaches
+ * the preview from INSIDE the loopback, through the developer's own browser, and
+ * reads whatever envelope was being worked on. What tells the two apart is the
+ * `Host` the browser sends — this is the hole Vite closed with `allowedHosts`.
+ */
+describe("host guard", () => {
+  /**
+   * A request as a browser would send it, addressed to `host`.
+   *
+   * Raw `node:http` and not `fetch`: `Host` is a forbidden header name, so undici
+   * silently drops it and every request would arrive addressed to localhost —
+   * which is the one thing this whole guard is about.
+   */
+  function get(
+    server: PreviewServer,
+    path: string,
+    host?: string,
+  ): Promise<{ status: number; body: string }> {
+    return new Promise((done, fail) => {
+      const url = new URL(path, server.url);
+      const req = request(
+        {
+          hostname: "127.0.0.1",
+          port: Number(url.port),
+          path: url.pathname,
+          headers: host === undefined ? {} : { host },
+        },
+        (res) => {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => {
+            body += chunk;
+          });
+          res.on("end", () => done({ status: res.statusCode ?? 0, body }));
+        },
+      );
+      req.on("error", fail);
+      req.end();
+    });
+  }
+
+  it("serves the loopback names a developer actually types", async () => {
+    const server = await start();
+    const port = portOf(server);
+    for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, "[::1]", "LOCALHOST"]) {
+      expect((await get(server, "/", host)).status, host).toBe(200);
+    }
+  });
+
+  it("refuses a hostname that is not ours, and says how to allow it", async () => {
+    const server = await start();
+
+    const res = await get(server, "/", "evil.example");
+
+    expect(res.status).toBe(403);
+    expect(res.body).toContain("--allow-host");
+  });
+
+  it("guards the envelope and the assets, not just the page", async () => {
+    const server = await start();
+    server.setEnvelope(ENVELOPE);
+
+    expect((await get(server, "/envelope", "evil.example")).status).toBe(403);
+    expect((await get(server, "/asset/aaa", "evil.example")).status).toBe(403);
+    expect((await get(server, "/events", "evil.example")).status).toBe(403);
+  });
+
+  it("answers to a host that was explicitly allowed (a Codespace, a tunnel)", async () => {
+    const server = await startPreviewServer(0, { allowedHosts: ["studio.example"] });
+    started.push(server);
+
+    expect((await get(server, "/", "studio.example")).status).toBe(200);
+    expect((await get(server, "/", "other.example")).status).toBe(403);
+  });
+
+  it("turns the guard off entirely for `*`", async () => {
+    const server = await startPreviewServer(0, { allowedHosts: ["*"] });
+    started.push(server);
+
+    expect((await get(server, "/", "anything.example")).status).toBe(200);
+  });
+});
+
+describe("hostAllowed", () => {
+  it("drops the port before comparing, brackets and all", () => {
+    expect(hostnameOf("localhost:5078")).toBe("localhost");
+    expect(hostnameOf("[::1]:5078")).toBe("[::1]");
+    expect(hostnameOf("EXAMPLE.com")).toBe("example.com");
+  });
+
+  it("allows a request with no Host at all", () => {
+    // Rebinding works by a browser sending an attacker's hostname, and every
+    // browser sends one — so a missing header is a script talking to localhost
+    // deliberately, not the attack this guard exists for.
+    expect(hostAllowed(undefined, [])).toBe(true);
+  });
+
+  it("matches allowed hosts case-insensitively", () => {
+    expect(hostAllowed("Studio.Example:5078", ["studio.example"])).toBe(true);
+  });
+});
+
+/**
+ * The SSE keepalive (ZAB-78). On localhost it changes nothing, which is exactly
+ * why it was missing: through any proxy — a Codespace, a tunnel, a corporate box —
+ * an idle stream is dropped after a minute and the page stops live-reloading with
+ * its status dot still green.
+ */
+describe("keepalive", () => {
+  it("pushes a comment frame down an idle stream", async () => {
+    // Only the interval is faked: the socket underneath has to stay real, since
+    // what is on trial is that the bytes reach the far end of the connection.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const server = await start();
+      const abort = new AbortController();
+      streams.push(abort);
+      const res = await fetch(`${server.url}events`, { signal: abort.signal });
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      const decoder = new TextDecoder();
+
+      // The opening `retry:` record, so the next read is the idle stream.
+      await reader.read();
+      vi.advanceTimersByTime(25_000);
+
+      const { value } = await reader.read();
+      // A comment, not an event: `data:`-less records are exactly what EventSource
+      // discards, which is the point — the connection stays warm and the page is
+      // told nothing it would have to act on.
+      expect(decoder.decode(value)).toBe(": ping\n\n");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops pinging a stream the server has closed", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const server = await start();
+      const abort = new AbortController();
+      streams.push(abort);
+      const res = await fetch(`${server.url}events`, { signal: abort.signal });
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      await reader.read(); // the opening `retry:` record
+
+      await server.close();
+      vi.advanceTimersByTime(120_000);
+
+      // The stream is over, not idle: a ping written after the response ended
+      // would be a write on a socket nobody is holding open any more.
+      expect((await reader.read()).done).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

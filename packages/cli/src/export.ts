@@ -12,9 +12,8 @@
  * the reconciler share a single React instance.
  */
 
-import { access, mkdir, readdir, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   type Envelope,
   EnvelopeError,
@@ -23,12 +22,8 @@ import {
   type TokenValue,
   type ZNode,
 } from "@zabloo/format";
-import { createJiti, type Jiti } from "jiti";
 import { collectAssets } from "./assets.js";
-
-interface ZablooConfig {
-  outDir?: string;
-}
+import { createProjectJiti, loadConfig, resolveOutFile, tryImport } from "./config.js";
 
 /** Shapes we need from the project's own copies of react / @zabloo/react. */
 interface ProjectReact {
@@ -53,15 +48,24 @@ export interface ExportResult {
   warnings: string[];
 }
 
-export async function exportProject(rootDir: string): Promise<ExportResult> {
-  const root = resolve(rootDir);
-  // Resolution base inside the project → its node_modules win.
-  const jiti = createJiti(pathToFileURL(join(root, "__zabloo_export__.mjs")).href, {
-    interopDefault: true,
-    jsx: { runtime: "automatic" },
-  });
+export interface ExportOptions {
+  /**
+   * Write the envelope here instead of `<outDir>/zabloo.ir.json`, path and filename
+   * both. Relative to the project root, like every other path the CLI takes. It is
+   * what lets one project emit several artifacts — per locale, per platform — from
+   * a CI matrix without a config file per row (ZAB-78).
+   */
+  out?: string;
+}
 
-  const config = ((await tryImport(jiti, join(root, "zabloo.config.ts"))) ?? {}) as ZablooConfig;
+export async function exportProject(
+  rootDir: string,
+  options: ExportOptions = {},
+): Promise<ExportResult> {
+  const root = resolve(rootDir);
+  const jiti = createProjectJiti(root);
+
+  const config = await loadConfig(root, jiti);
   const theme = (await tryImport(jiti, join(root, "src", "theme.ts"))) as
     | { tokens?: Record<string, TokenValue>; variants?: unknown; transitions?: unknown }
     | undefined;
@@ -123,9 +127,8 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
   }
   if (loadable === null) throw new EnvelopeError(diagnostics);
 
-  const outDir = resolve(root, config.outDir ?? "dist");
-  await mkdir(outDir, { recursive: true });
-  const outFile = join(outDir, "zabloo.ir.json");
+  const outFile = resolveOutFile(root, config, options.out);
+  await mkdir(dirname(outFile), { recursive: true });
   await writeFile(outFile, `${JSON.stringify(envelope, null, 2)}\n`);
   return {
     outFile,
@@ -134,26 +137,4 @@ export async function exportProject(rootDir: string): Promise<ExportResult> {
     assetBytes: collected.totalBytes,
     warnings,
   };
-}
-
-/**
- * Imports one of the project's OPTIONAL files (`zabloo.config.ts`, `src/theme.ts`),
- * or resolves to undefined when it is simply not there — both have defaults
- * (`outDir ?? "dist"`, `tokens ?? {}`) and a project needs neither to export.
- *
- * The absence is decided by looking at the filesystem, not by pattern-matching the
- * failure: this used to test `code === "ERR_MODULE_NOT_FOUND"`, which jiti's `.ts`
- * path never throws (it transforms to CJS and throws `MODULE_NOT_FOUND`), so the
- * fallback was dead code and a project without a config died on a raw stack that
- * even leaked the internal `__zabloo_export__.mjs` resolution base (ZAB-67).
- * Asking first also keeps a REAL error inside the file — a broken import, a typo —
- * from being swallowed as "not there", whatever code it arrives with.
- */
-async function tryImport(jiti: Jiti, path: string): Promise<unknown> {
-  try {
-    await access(path);
-  } catch {
-    return undefined;
-  }
-  return await jiti.import(path);
 }

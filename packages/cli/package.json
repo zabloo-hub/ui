@@ -1,7 +1,7 @@
 {
   "name": "@zabloo/cli",
   "version": "0.1.0",
-  "description": "zabloo/ui CLI: export React projects as versioned IR envelopes",
+  "description": "zabloo/ui CLI: export React projects as versioned IR envelopes, validate them, and preview them live",
   "license": "MIT",
   "keywords": [
     "zabloo",
@@ -10,6 +10,8 @@
     "gamedev",
     "ui",
     "export",
+    "preview",
+    "validate",
     "dev-server",
     "engine-agnostic"
   ],

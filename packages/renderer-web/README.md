@@ -58,6 +58,28 @@ read a node at a time with `findNode(snapshot, "buy-btn")` — and its cost via 
 renames views is reflected the next time you read it — a view picker should re-read it
 after every `reload` rather than keep the array it got at mount.
 
+## Seeing another screen, and what a frame costs
+
+```ts
+const ui = mount(canvas, envelope, {
+  dpr: 1, // render as a 1× screen would, whatever this monitor is
+  onFrame: ({ ms, drawCalls, vertices, repaintOnly }) => hud.update(ms, drawCalls),
+});
+```
+
+`dpr` overrides the page's device pixel ratio **everywhere** the renderer turns logical
+pixels into device ones — the canvas backing store, the glyph atlas scale, the pixel grid
+glyph quads snap to — so the whole picture moves together instead of half of it. It is
+fixed for the life of the mount, because the atlases are rasterized at it: a host offering
+it as a control remounts. The logical size is unchanged by it, so the same UI is laid out
+the same way at any ratio.
+
+`onFrame` fires once per frame **actually painted**, with `FrameStats` plus the `ms` spent
+tessellating and submitting it. `stats()` answers *what did the last frame cost*; this
+answers *when*, which polling cannot: the renderer paints on demand, so a still scene
+paints nothing at all and a caller's own `requestAnimationFrame` would be measuring the
+page rather than the renderer.
+
 ## Authoring errors
 
 `onDiagnostic` receives every [diagnostic](https://github.com/zabloo-hub/ui/blob/main/docs/format/loading.md)

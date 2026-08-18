@@ -30,7 +30,7 @@
 
 import type { ActionContext, Diagnostic, Envelope } from "@zabloo/format";
 import type { ViewSnapshot } from "./snapshot.js";
-import { mount, type ZablooHandle } from "./view.js";
+import { type FrameStats, mount, type ZablooHandle } from "./view.js";
 
 /** Viewport every golden envelope is measured at, unless it asks for another. */
 export const GOLDEN_SIZE = { width: 480, height: 320 };
@@ -63,6 +63,14 @@ export interface GoldenOptions {
    * does — they go to the console, which is where `warnings` picks them up.
    */
   onDiagnostic?: (diagnostic: Diagnostic) => void;
+  /**
+   * Render at this device pixel ratio instead of the page's (ZAB-78). The corpus
+   * never passes it — `GOLDEN_DPR` is what its geometry was recorded at — so this
+   * exists for the tests of the option itself.
+   */
+  dpr?: number;
+  /** Every frame the view actually PAINTED, with what it cost (ZAB-78). */
+  onFrame?: (stats: FrameStats & { ms: number }) => void;
 }
 
 /** An action the view fired, with the item context when it came from a `Repeat`. */
@@ -118,6 +126,12 @@ export interface GoldenView {
   restoreContext(): void;
   /** Draw calls submitted to the fake GL since mount — a repaint bumps it. */
   drawCalls(): number;
+  /**
+   * The canvas's BACKING STORE, in device pixels — logical size × the ratio the
+   * view is rendering at. The observable of `MountOptions.dpr` (ZAB-78): the
+   * logical size is unchanged by it, and this is not.
+   */
+  canvasSize(): { width: number; height: number };
   /**
    * What this view still holds on the page: listeners on the window, the canvas
    * and the hidden field, plus the frames and timers it has scheduled. A
@@ -211,7 +225,7 @@ export async function mountGolden(
   const height = options.height ?? GOLDEN_SIZE.height;
   const shared = options.share ? domOf(options.share) : null;
   const dom = shared ?? installDom();
-  const canvas = new FakeCanvas(width, height, GOLDEN_DPR);
+  const canvas = new FakeCanvas(width, height, options.dpr ?? GOLDEN_DPR);
 
   const actions: FiredAction[] = [];
   const writes: DataWrite[] = [];
@@ -222,6 +236,8 @@ export async function mountGolden(
       onAction: (action, context) => actions.push(context ? { action, context } : { action }),
       onDataChanged: (path, value) => writes.push({ path, value }),
       ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
+      ...(options.dpr !== undefined && { dpr: options.dpr }),
+      ...(options.onFrame && { onFrame: options.onFrame }),
     });
   } catch (error) {
     // A payload the loader REFUSES never becomes a view, so there is no handle
@@ -240,6 +256,7 @@ export async function mountGolden(
   const view: GoldenView = {
     handle,
     snapshot: () => handle.snapshot(),
+    canvasSize: () => ({ width: canvas.width, height: canvas.height }),
     actions,
     writes,
     warnings: dom.warnings,

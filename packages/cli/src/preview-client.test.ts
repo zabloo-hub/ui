@@ -20,9 +20,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   coerce,
   collectBindPaths,
+  fitScale,
+  formatStats,
   hydrateAssets,
   type PreviewClient,
+  parseDpr,
   parseEvent,
+  parseViewport,
   start,
 } from "./preview-client.js";
 import { PREVIEW_BODY, type PreviewEvent } from "./preview-server.js";
@@ -142,8 +146,22 @@ function type(input: HTMLInputElement, value: string): void {
   input.dispatchEvent(new window.Event("input"));
 }
 
+/**
+ * The page remembers the viewport preset and the stats toggle across reloads, and
+ * the dev loop reloads on every save. jsdom serves the page from an opaque origin,
+ * where a real `localStorage` is not available — so it is stubbed here, which also
+ * makes each test start from a clean slate.
+ */
+let storage: Map<string, string>;
+
 beforeEach(() => {
   document.body.innerHTML = PREVIEW_BODY;
+  storage = new Map();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+  });
   mounts = [];
   routes = new Map();
   fetches = [];
@@ -178,6 +196,11 @@ afterEach(() => {
   client = null;
   vi.unstubAllGlobals();
 });
+
+/** Lets the load the page just kicked off run to the end (it is not returned). */
+function settle(): Promise<void> {
+  return new Promise((done) => setTimeout(done, 0));
+}
 
 /** Starts the page against whatever `serve` last programmed, after the first load. */
 async function open(): Promise<PreviewClient> {
@@ -607,5 +630,265 @@ describe("the preview page", () => {
     pads = [null];
     window.dispatchEvent(new window.Event("gamepaddisconnected"));
     expect(badge?.classList.contains("off")).toBe(true);
+  });
+});
+
+/**
+ * Viewport presets (ZAB-78). The canvas used to be `flex: 1` and take the window,
+ * so a UI authored for 1080p could not be checked at 720p without resizing the
+ * browser — and no window shape at all answers "how does this read on a console".
+ */
+describe("parseViewport", () => {
+  it("reads the presets the picker offers", () => {
+    expect(parseViewport("1920x1080", "")).toEqual({ fixed: true, width: 1920, height: 1080 });
+    expect(parseViewport("1280x720", "")).toEqual({ fixed: true, width: 1280, height: 720 });
+  });
+
+  it("fits the window when nothing is pinned", () => {
+    expect(parseViewport("fit", "1600x900")).toEqual({ fixed: false });
+  });
+
+  it("reads the custom box, in the shapes a person types", () => {
+    for (const text of ["1600x900", "1600 x 900", " 1600×900 ", "1600*900"]) {
+      expect(parseViewport("custom", text), text).toEqual({
+        fixed: true,
+        width: 1600,
+        height: 900,
+      });
+    }
+  });
+
+  it("falls back to fitting while the custom box is half-typed", () => {
+    // Not an error worth shouting about: it is a box mid-edit, and something
+    // has to stay on screen while you type the rest.
+    for (const text of ["", "1600", "1600x", "nope", "0x900"]) {
+      expect(parseViewport("custom", text), text).toEqual({ fixed: false });
+    }
+  });
+});
+
+describe("fitScale", () => {
+  it("shrinks a viewport that does not fit", () => {
+    expect(fitScale(1920, 1080, 960, 1080)).toBe(0.5);
+    expect(fitScale(1920, 1080, 1920, 540)).toBe(0.5);
+  });
+
+  it("never scales UP — that would be showing you resampling, not your UI", () => {
+    expect(fitScale(1280, 720, 3840, 2160)).toBe(1);
+  });
+
+  it("stays at 1 when the stage has not been laid out yet", () => {
+    expect(fitScale(1920, 1080, 0, 0)).toBe(1);
+  });
+});
+
+describe("parseDpr", () => {
+  it("passes a forced ratio through", () => {
+    expect(parseDpr("1")).toBe(1);
+    expect(parseDpr("2")).toBe(2);
+  });
+
+  it("leaves the browser's own in place for `auto`", () => {
+    expect(parseDpr("auto")).toBeUndefined();
+    expect(parseDpr("")).toBeUndefined();
+  });
+});
+
+describe("the viewport picker", () => {
+  function stage(): HTMLElement {
+    return document.getElementById("stage") as HTMLElement;
+  }
+  function pick(value: string): void {
+    const picker = document.getElementById("viewport") as HTMLSelectElement;
+    picker.value = value;
+    picker.dispatchEvent(new window.Event("change"));
+  }
+
+  it("leaves the canvas filling the stage in `fit`", async () => {
+    serve(GOLD);
+    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+    await open();
+
+    expect(stage().classList.contains("framed")).toBe(false);
+    expect(canvas.style.width).toBe("");
+    expect(canvas.style.transform).toBe("");
+  });
+
+  it("gives the canvas the preset's own pixel size, and only SCALES it to fit", async () => {
+    serve(GOLD);
+    const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+    await open();
+
+    pick("1920x1080");
+
+    // The declared size is what the renderer lays out against, because
+    // `clientWidth` is layout and `transform` is paint. Shrinking with width
+    // instead would silently re-author the UI at whatever the window is.
+    expect(canvas.style.width).toBe("1920px");
+    expect(canvas.style.height).toBe("1080px");
+    expect(canvas.style.transform).toMatch(/^scale\(/);
+    expect(stage().classList.contains("framed")).toBe(true);
+  });
+
+  it("tells the renderer the logical size moved", async () => {
+    serve(GOLD);
+    await open();
+    const resizes = vi.fn();
+    globalThis.addEventListener("resize", resizes);
+
+    pick("1280x720");
+
+    expect(resizes).toHaveBeenCalledTimes(1);
+    globalThis.removeEventListener("resize", resizes);
+  });
+
+  it("shows the custom box only for `custom`", async () => {
+    serve(GOLD);
+    await open();
+    const box = document.getElementById("custom") as HTMLInputElement;
+
+    expect(box.classList.contains("off")).toBe(true);
+    pick("custom");
+    expect(box.classList.contains("off")).toBe(false);
+  });
+
+  it("remembers the preset across reloads — the dev loop reloads on every save", async () => {
+    serve(GOLD);
+    await open();
+    pick("1280x720");
+
+    client?.stop();
+    document.body.innerHTML = PREVIEW_BODY;
+    await open();
+
+    expect((document.getElementById("viewport") as HTMLSelectElement).value).toBe("1280x720");
+    expect((document.getElementById("canvas") as HTMLCanvasElement).style.width).toBe("1280px");
+  });
+});
+
+describe("the dpr picker", () => {
+  it("mounts at the browser's own ratio by default", async () => {
+    serve(GOLD);
+    await open();
+
+    expect(mounts[0].options.dpr).toBeUndefined();
+  });
+
+  it("remounts at the forced ratio — the atlases are rasterized at it", async () => {
+    serve(GOLD);
+    await open();
+    const picker = document.getElementById("dpr") as HTMLSelectElement;
+
+    picker.value = "2";
+    picker.dispatchEvent(new window.Event("change"));
+    await settle();
+
+    expect(mounts.length).toBeGreaterThan(1);
+    expect(mounts.at(-1)?.options.dpr).toBe(2);
+    // A remount, not a reload: the previous view had to be thrown away.
+    expect(mounts[0].handle.disposed).toBe(true);
+  });
+});
+
+/**
+ * The stats badge (ZAB-78). `stats()` has been on the handle all along, reachable
+ * only by typing `zabloo.stats()` into the console — which is precisely when you
+ * are not looking at the screen.
+ */
+describe("formatStats", () => {
+  const frame = {
+    drawCalls: 17,
+    vertices: 3400,
+    indices: 5100,
+    atlases: 1,
+    atlasBytes: 4 * 1048576,
+    resolved: 312,
+    textLayouts: 0,
+    bufferGrowths: 0,
+    repaintOnly: false,
+    ms: 2.125,
+  };
+
+  it("says what the frame cost, in the renderer's own terms", () => {
+    const text = formatStats(frame, 48);
+    expect(text).toContain("48 fps");
+    expect(text).toContain("2.13 ms");
+    expect(text).toContain("17 draws");
+    expect(text).toContain("3.4k verts");
+    expect(text).toContain("1 atlas 4.0 MB");
+    expect(text).toContain("312 resolved");
+  });
+
+  it("says `idle`, not `0 fps` — the renderer paints on demand", () => {
+    // A still scene painting nothing is the system working. Reporting it as zero
+    // frames per second reads as a stall.
+    expect(formatStats(frame, 0)).toContain("idle");
+    expect(formatStats(frame, 0)).not.toContain("0 fps");
+  });
+
+  it("marks a repaint-only frame as what it is", () => {
+    expect(formatStats({ ...frame, repaintOnly: true }, 60)).toContain("repaint only");
+  });
+
+  it("has something to say before the first frame", () => {
+    expect(formatStats(null, 0)).toBe("no frame painted yet");
+  });
+});
+
+describe("the stats badge", () => {
+  function badge(): HTMLElement {
+    return document.getElementById("stats") as HTMLElement;
+  }
+  function toggle(): HTMLButtonElement {
+    return document.getElementById("stats-toggle") as HTMLButtonElement;
+  }
+
+  it("is off until asked for", async () => {
+    serve(GOLD);
+    await open();
+
+    expect(badge().classList.contains("empty")).toBe(true);
+  });
+
+  it("counts the frames the RENDERER reports, not the page's own rAF", async () => {
+    serve(GOLD);
+    await open();
+    toggle().click();
+
+    // The renderer paints on demand, so only it knows when it drew. This is the
+    // callback it reports through.
+    const onFrame = mounts[0].options.onFrame;
+    expect(onFrame).toBeTypeOf("function");
+    onFrame?.({
+      drawCalls: 9,
+      vertices: 120,
+      indices: 180,
+      atlases: 1,
+      atlasBytes: 1048576,
+      resolved: 40,
+      textLayouts: 0,
+      bufferGrowths: 0,
+      repaintOnly: false,
+      ms: 0.5,
+    });
+    toggle().click();
+    toggle().click(); // redraws immediately on being switched back on
+
+    expect(badge().classList.contains("empty")).toBe(false);
+    expect(badge().textContent).toContain("9 draws");
+    expect(badge().textContent).toContain("1 fps");
+  });
+
+  it("remembers being on across a reload", async () => {
+    serve(GOLD);
+    await open();
+    toggle().click();
+
+    client?.stop();
+    document.body.innerHTML = PREVIEW_BODY;
+    await open();
+
+    expect(badge().classList.contains("empty")).toBe(false);
+    expect(toggle().classList.contains("on")).toBe(true);
   });
 });

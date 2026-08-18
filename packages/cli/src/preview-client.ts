@@ -15,7 +15,7 @@
  */
 
 import type { ActionContext, AssetEntry, Diagnostic, Envelope } from "@zabloo/format";
-import type { MountOptions, ZablooHandle } from "@zabloo/renderer-web";
+import type { FrameStats, MountOptions, ZablooHandle } from "@zabloo/renderer-web";
 import type { PreviewEvent } from "./preview-server.js";
 
 /**
@@ -35,6 +35,96 @@ declare global {
 
 /** How long a line stays in the action log. */
 const LOG_MS = 6000;
+
+/** How often the stats badge redraws — it must fall to "idle" on its own. */
+const STATS_MS = 250;
+
+/**
+ * The size a view is laid out at, which stopped being the window's (ZAB-78). The
+ * canvas was `flex: 1` and took whatever the window gave it, so a UI authored for
+ * 1080p could not be looked at in 720p without resizing the browser — and there is
+ * no window shape at all that answers "how does this read on a console at 4K".
+ */
+export type Viewport = { fixed: false } | { fixed: true; width: number; height: number };
+
+/** The picker's value, plus whatever is in the custom box, as one viewport. */
+export function parseViewport(preset: string, custom: string): Viewport {
+  if (preset === "fit") return { fixed: false };
+  const source = preset === "custom" ? custom : preset;
+  const match = /^\s*(\d{1,5})\s*[x×*]\s*(\d{1,5})\s*$/.exec(source);
+  if (match === null) return { fixed: false };
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  // A half-typed "160" is not an error to shout about — it is a box mid-edit, and
+  // falling back to fitting the window keeps something on screen while you type.
+  if (width < 1 || height < 1) return { fixed: false };
+  return { fixed: true, width, height };
+}
+
+/**
+ * How far a fixed viewport has to shrink to fit the stage. Never above 1: a 720p
+ * view blown up to fill a 4K monitor would be showing you resampling, not your UI.
+ */
+export function fitScale(
+  width: number,
+  height: number,
+  availableWidth: number,
+  availableHeight: number,
+): number {
+  if (!(width > 0 && height > 0 && availableWidth > 0 && availableHeight > 0)) return 1;
+  return Math.min(1, availableWidth / width, availableHeight / height);
+}
+
+/** The DPR picker's value: a number to force, or undefined for the browser's own. */
+export function parseDpr(value: string): number | undefined {
+  const dpr = Number(value);
+  return Number.isFinite(dpr) && dpr > 0 ? Math.min(dpr, 8) : undefined;
+}
+
+/**
+ * What the last painted frame cost, as the badge shows it. `stats()` has been on
+ * the handle all along and was reachable only by typing `zabloo.stats()` into the
+ * console — which is exactly when you are not looking at the screen (ZAB-78).
+ *
+ * `idle` rather than `0 fps` because the renderer paints ON DEMAND: a still scene
+ * painting nothing is the system working, not a stall.
+ */
+export function formatStats(frame: (FrameStats & { ms: number }) | null, fps: number): string {
+  if (frame === null) return "no frame painted yet";
+  return [
+    fps > 0 ? `${fps} fps` : "idle",
+    `${frame.ms.toFixed(2)} ms`,
+    `${frame.drawCalls} draws`,
+    `${compact(frame.vertices)} verts`,
+    `${frame.atlases} atlas ${(frame.atlasBytes / 1048576).toFixed(1)} MB`,
+    frame.repaintOnly ? "repaint only" : `${frame.resolved} resolved`,
+  ].join(" · ");
+}
+
+function compact(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
+}
+
+/**
+ * Preferences that outlive the page. The preset you are working at is a property
+ * of the SCREEN you are designing, not of the tab, so losing it on every reload —
+ * and the dev loop reloads on every save — would make the picker unusable.
+ * Storage can be denied (private mode, a sandboxed frame); the preview works
+ * without it, so nothing here may throw.
+ */
+function remember(key: string, value: string): void {
+  try {
+    localStorage.setItem(`zabloo.preview.${key}`, value);
+  } catch {}
+}
+
+function recall(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(`zabloo.preview.${key}`) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 /**
  * Every data path the envelope BINDS — the ones the game is expected to push.
@@ -162,13 +252,19 @@ function element<T extends HTMLElement>(id: string): T {
 /** Wires the page up and kicks off the first load. */
 export function start(): PreviewClient {
   const canvas = element<HTMLCanvasElement>("canvas");
+  const stage = element("stage");
   const views = element<HTMLSelectElement>("views");
+  const viewport = element<HTMLSelectElement>("viewport");
+  const custom = element<HTMLInputElement>("custom");
+  const dprPicker = element<HTMLSelectElement>("dpr");
   const status = element("status");
   const logBox = element("log");
   const errorBox = element("error");
   const panel = element("data");
   const fields = element("fields");
   const padBadge = element("pad");
+  const statsToggle = element<HTMLButtonElement>("stats-toggle");
+  const statsBox = element("stats");
 
   let handle: ZablooHandle | null = null;
 
@@ -320,6 +416,10 @@ export function start(): PreviewClient {
         log(context ? `${action} → ${context.path} (#${context.index})` : `action: ${action}`),
       onDataChanged,
       onDiagnostic,
+      // Fixed for the life of the mount — the atlases are rasterized at it — so
+      // the picker remounts rather than trying to change it underneath.
+      dpr: parseDpr(dprPicker.value),
+      onFrame: recordFrame,
     });
     window.zabloo = handle;
     replayData();
@@ -353,6 +453,88 @@ export function start(): PreviewClient {
   views.addEventListener("change", () => {
     void load(views.value);
   });
+
+  // The viewport the view is laid out at. Under a preset the canvas keeps its
+  // declared pixel size — `clientWidth` is layout and a `transform` is paint, so
+  // the renderer goes on measuring the full 1920 while the screen shows it
+  // shrunk — and only the scale changes when the window does.
+  function applyViewport(notify: boolean): void {
+    const size = parseViewport(viewport.value, custom.value);
+    custom.classList.toggle("off", viewport.value !== "custom");
+    stage.classList.toggle("framed", size.fixed);
+    if (!size.fixed) {
+      canvas.style.width = "";
+      canvas.style.height = "";
+      canvas.style.transform = "";
+    } else {
+      canvas.style.width = `${size.width}px`;
+      canvas.style.height = `${size.height}px`;
+      canvas.style.transform = `scale(${fitScale(size.width, size.height, stage.clientWidth, stage.clientHeight)})`;
+    }
+    // Only when the LOGICAL size moved: the renderer listens for `resize` itself,
+    // and re-firing it on every window resize would have the two of us bouncing
+    // the same event back and forth.
+    if (notify) globalThis.dispatchEvent(new Event("resize"));
+  }
+
+  function onWindowResize(): void {
+    // The logical size is unchanged — only how much of it fits on screen.
+    applyViewport(false);
+  }
+
+  viewport.value = recall("viewport", "fit");
+  custom.value = recall("custom", "");
+  dprPicker.value = recall("dpr", "auto");
+  viewport.addEventListener("change", () => {
+    remember("viewport", viewport.value);
+    applyViewport(true);
+  });
+  custom.addEventListener("input", () => {
+    remember("custom", custom.value);
+    applyViewport(true);
+  });
+  dprPicker.addEventListener("change", () => {
+    remember("dpr", dprPicker.value);
+    // A remount, not a reload: passing a view id is what forces one, and the
+    // glyph atlases have to be rebuilt at the new scale.
+    void load(views.value || undefined);
+  });
+  globalThis.addEventListener("resize", onWindowResize);
+  applyViewport(false);
+
+  // The stats badge (ZAB-78). Frames are counted as the renderer reports them —
+  // it paints on demand, so the page's own rAF would be measuring the page.
+  let lastFrame: (FrameStats & { ms: number }) | null = null;
+  let painted: number[] = [];
+  let statsTimer: ReturnType<typeof setInterval> | undefined;
+
+  function recordFrame(frame: FrameStats & { ms: number }): void {
+    lastFrame = frame;
+    painted.push(performance.now());
+  }
+
+  function drawStats(): void {
+    const cutoff = performance.now() - 1000;
+    painted = painted.filter((at) => at >= cutoff);
+    statsBox.textContent = formatStats(lastFrame, painted.length);
+  }
+
+  function showStats(on: boolean): void {
+    statsToggle.classList.toggle("on", on);
+    statsBox.classList.toggle("empty", !on);
+    clearInterval(statsTimer);
+    statsTimer = undefined;
+    if (!on) return;
+    drawStats();
+    statsTimer = setInterval(drawStats, STATS_MS);
+  }
+
+  statsToggle.addEventListener("click", () => {
+    const on = !statsToggle.classList.contains("on");
+    remember("stats", on ? "on" : "off");
+    showStats(on);
+  });
+  showStats(recall("stats", "off") === "on");
 
   // Gamepad indicator (ZAB-47). The renderer polls the pad itself; the page only
   // says whether there is one, so console navigation can be told apart from a
@@ -388,6 +570,8 @@ export function start(): PreviewClient {
       events.close();
       window.removeEventListener("gamepadconnected", syncPad);
       window.removeEventListener("gamepaddisconnected", syncPad);
+      globalThis.removeEventListener("resize", onWindowResize);
+      clearInterval(statsTimer);
       handle?.dispose();
       handle = null;
     },
