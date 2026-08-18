@@ -40,7 +40,7 @@ so there is nothing to keep in sync with the states, the bindings or the data.
 | `background`, `borderColor`, `color` | `fontSize` — it keys the glyph atlas |
 | `opacity`, `radius`, `borderWidth` | `textAlign`, `textAlignY`, `lineHeight`, `wrap`, `overflow`, `maxLines` — a re-wrap has no intermediate |
 | `width`, `height`, `gap`, `padding` | `grow`, `direction`, `justify`, `align` |
-| | `visible`, `clip`, `text`, `open`, `src`, `fit`, `axis`, `scrollbar` |
+| | `visible`, `disabled`, `clip`, `text`, `open`, `src`, `fit`, `axis`, `scrollbar` |
 | | A control's value: `Slider`'s `value`/`min`/`max`/`step`, `TextInput`'s `value`/`placeholder`/`maxLength` |
 | | `Overlay`'s `modal`, `z`, `autoCloseMs` |
 

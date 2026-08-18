@@ -33,8 +33,10 @@ why baked rects were never an option for this format.
 ## Behavior
 
 **States:** the `Collapse` node itself carries none of its own; its **header** carries
-`hover`, `pressed` and `focused`. Both carry `disabled` — declared on the `Collapse`, it
-reaches the header, and a disabled header no longer opens or closes the section.
+`hover`, `pressed` and `focused`. Its `pressed` comes **only from the keyboard or the pad**:
+a header is not one of the types the pointer presses, so a tap toggles the section without
+ever lighting the down-state. Both carry `disabled` — declared on the `Collapse`, it reaches
+the header, and a disabled header no longer opens or closes the section.
 
 **Open state is the SDK's.** `open` in the IR is where it *starts*. Afterwards it is
 runtime state — like a `Button`'s `pressed` — and it survives neither serialization nor a
@@ -73,4 +75,4 @@ declares nothing about it, and an SDK that ignores the group leaves independent 
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `open` | `boolean` | `true` | Initial open state. |
-| `children` | `ReactNode` | — | First child = header; the rest = content. |
+| `children` | `ReactNode` | absent | First child = header; the rest = content. |
