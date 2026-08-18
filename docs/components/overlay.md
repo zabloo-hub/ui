@@ -151,7 +151,7 @@ Normatively:
    one. The same path `onDismiss` hangs off.
 3. **A selection inside it closes it.** When an `"exclusive-check"` group inside the
    popover takes a new value, the popover closes: choosing *is* the gesture that ends it.
-   This is what makes [`<Select>`](toggle.md#select) expressible as a composite rather than
+   This is what makes [`<Select>`](toggle.md#select-and-option) expressible as a composite rather than
    a primitive.
 4. **Opening focuses the selection** — the checked option of that group, so the list opens
    where the player left it, scrolled to it; failing that, the subtree's `autofocus`.

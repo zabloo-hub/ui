@@ -49,8 +49,8 @@ authoring time and never reach the IR.
 | `<Toast>` | non-modal `Overlay` with `autoCloseMs` | [overlay](overlay.md#toast) |
 | `<Tooltip>` | non-modal `Overlay`, usually anchored | [overlay](overlay.md#tooltip) |
 | `<Checkbox>` / `<Switch>` / `<Radio>` | `Toggle` with indicator slots | [toggle](toggle.md) |
-| `<RadioGroup>` | `Container` with `group: "exclusive-check"` | [toggle](toggle.md#radiogroup) |
-| `<Select>` / `<Option>` | `Button` + anchored `Overlay` + `"exclusive-check"` group | [toggle](toggle.md#select) |
+| `<RadioGroup>` | `Container` with `group: "exclusive-check"` | [toggle](toggle.md#radio-and-radiogroup) |
+| `<Select>` / `<Option>` | `Button` + anchored `Overlay` + `"exclusive-check"` group | [toggle](toggle.md#select-and-option) |
 | `<Slider>` | `Slider` + its two slots | [slider](slider.md) |
 | `<TextInput>` | `TextInput` | [textinput](textinput.md) |
 | `<List>` / `<Grid>` | `Repeat` | [repeat](repeat.md) |
