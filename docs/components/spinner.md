@@ -94,5 +94,5 @@ of the loop, never a layout change.
 | `period` | `Dim` | `900` | Full cycle in ms. |
 | `min` | `number` | `0.25` | Opacity multiplier at the wave's dimmest. |
 | `easing` | `Easing` | `"ease-in-out"` | Curve of the ramp. |
-| `dot` | `Style` | — | Style of each generated bead, merged over the default. |
-| `children` | `ReactNode` | — | Your own beads, in wave order — replaces the generated dots entirely. |
+| `dot` | `Style` | absent | Style of each generated bead, merged over the default. |
+| `children` | `ReactNode` | absent | Your own beads, in wave order — replaces the generated dots entirely. |

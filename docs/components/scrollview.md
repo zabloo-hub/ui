@@ -32,7 +32,7 @@ Two consequences worth stating plainly:
   hugs its content, and there is then nothing to scroll. `grow` alone does not size it
   either — its measured size is the whole content, so no leftover reaches it. To fill what
   is left of a parent, zero the base on that axis: `height: 0` with `grow: 1` in a column
-  ([why](../format/layout.md#2-arrange)).
+  ([why](../format/layout.md#2-arrange-top-down)).
 - **`axis` is not `direction`.** `axis` says which way the content may overflow;
   `layout.direction` says which way the children flow. A horizontal scroller of chips is
   `axis: "horizontal"` **and** `direction: "row"`.
@@ -89,7 +89,7 @@ a styleable scrollbar (the boolean becomes an object).
 |---|---|---|---|
 | `axis` | `"vertical" \| "horizontal" \| "both"` | `"vertical"` | Scrollable axis. `"both"` frees both. |
 | `scrollbar` | `boolean` | `true` | The SDK's overlay indicator, visible only while there is something to scroll. |
-| `children` | `ReactNode` | — | Content. |
+| `children` | `ReactNode` | absent | Content. |
 
 A data-driven list is a [`<List>`](repeat.md) **inside** a `<ScrollView>`: repetition and
 scrolling are separate capabilities and compose.

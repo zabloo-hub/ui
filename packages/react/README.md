@@ -9,7 +9,7 @@ identically in Unity, Godot or Unreal.
 
 React drives a custom reconciler (the react-three-fiber model: React owns the tree,
 nothing touches the DOM). Your own components run at **authoring time** and never reach
-the IR: what the SDK receives is always a tree of documented primitives.
+the IR: what the SDK receives is always a tree of documented node types.
 
 ## Install
 
@@ -75,16 +75,25 @@ const node = renderToIR(createElement(ThemeProvider, { theme }, createElement(Ma
 ```
 
 One-shot: it mounts synchronously, serializes the tree and unmounts. The element must
-resolve to exactly one root primitive — wrap several in a `Container`.
+resolve to exactly one root node — wrap several in a `Container`.
 
 ## What's in the box
 
-Primitives (`Container`, `Text`, `Button`, `Collapse`, `ScrollView`, `Image`, `Slider`,
-`TextInput`, `Overlay`, `ProgressBar`, `Spinner`) plus authoring-time composites that
-flatten to them: `Row`/`Column`/`Grid`, `Accordion`, `Tabs`,
-`Checkbox`/`Switch`/`RadioGroup`, `Select`, `Badge`, `Modal`/`Toast`/`Tooltip`, and
-`List`, which emits a `Repeat` node so a bound array renders one item per element without
-the tree knowing how many there are.
+The IR has a closed set of **13 node types**. Seven of them have a component that emits
+exactly that node and nothing else: `Container`, `Text`, `Button`, `Collapse`,
+`ScrollView`, `Image`, `Overlay`.
+
+Four more come with their children already built, so you never write the slots by hand:
+`Slider` emits the node plus its fill and thumb, `ProgressBar` plus its fill, `Spinner`
+plus its beads, and `TextInput` — a leaf, so it only carries the field's defaults. The
+remaining two node types have no component of their own name at all: a `Toggle` is authored
+as `Checkbox`, `Switch`, `Radio` or `Option`, and a `Repeat` as `List` or `Grid`.
+
+Everything else is an authoring-time **composite** that flattens to those nodes before the
+export: `Row`/`Column`, `Accordion`, `Tabs`/`Tab`, `Checkbox`/`Switch`/`Radio`/`RadioGroup`,
+`Select`/`Option`, `Badge`, `Modal`/`Toast`/`Tooltip`, and `List`/`Grid`, which emit a
+`Repeat` node so a bound array renders one item per element without the tree knowing how
+many there are.
 
 `ThemeProvider` supplies the project's variants (resolved at export time — they never
 reach the IR) and the default per-component `transition`.

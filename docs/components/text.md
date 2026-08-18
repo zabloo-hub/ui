@@ -35,9 +35,16 @@ is a leaf, so there is no child content to preserve. `Text` has existed since v1
 
 ## Glyphs
 
-Text is **self-rendered**: the SDK rasterizes glyphs from the project's TTF into its own
-atlas and draws them as quads. No engine text element is involved, which is what makes the
-same string break and paint identically on every target.
+Text is **self-rendered**: the SDK rasterizes glyphs from a TTF into its own atlas and
+draws them as quads. No engine text element is involved, which is what makes the same
+string break and paint identically on every target.
+
+**The font is fixed in v1.** Every target embeds the same typeface — Liberation Sans
+Regular, metric-compatible with Arial — and there is no prop, token or
+[asset entry](../format/envelope.md#assets) that names another one. That is deliberate for
+now: one font on every target is what makes the normative break algorithm below verifiable,
+since two SDKs measuring the same string measure it against the same metrics. Per-project
+fonts arrive with the text engine work.
 
 Two consequences to know about: `fontSize` **snaps** — it is the atlas key, so it is never
 tweened by a [transition](../format/motion.md) — and it is **clamped to `1..512`** before
@@ -132,7 +139,7 @@ the prop for it, and it takes the node out of layout, gap included.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `children` | `string \| number \| Array<string \| number>` | — | Static content. |
-| `bind` | `string` | — | Data path. Mutually exclusive with `children`. |
+| `bind` | `string` | absent | Data path. Mutually exclusive with `children`. |
 
 Adjacent string and number children are concatenated at authoring time — a template literal
 and an interpolated expression both end up as one `text` in the IR. There is no formatting

@@ -21,6 +21,9 @@ begin. Build a screen first:
 → **[Getting started](getting-started.md)** — scaffold a project, author a shop screen, bind
 it to game data, wire a button to C#, and load the envelope in Unity.
 
+Already have a project? [Project structure & CLI](project-structure.md) is the same ground
+as reference.
+
 ## The format
 
 | Page | What it covers |
@@ -33,6 +36,7 @@ it to game data, wire a button to C#, and load the envelope in Unity.
 | [Motion](format/motion.md) | Per-node transitions, what animates and what snaps, the easing curves. |
 | [Loading](format/loading.md) | Validation policy, diagnostics, and how unknown content degrades. |
 | [Versioning](format/versioning.md) | What is additive, what breaks, and what an older SDK does about it. |
+| [The host channel](format/host-channel.md) | How the game drives the UI: the operations in, the callbacks back. |
 
 ## The catalog
 
@@ -40,6 +44,19 @@ One page per node type. Each page documents the node as it appears in the IR **a
 `@zabloo/react` components that emit it.
 
 → [Component catalog](components/README.md)
+
+## Authoring
+
+How a project is written, exported and themed. Not normative — this is the `@zabloo/react`
+layer, which resolves away before the IR exists — but it is the whole contract between an
+author and the tooling.
+
+| Page | What it covers |
+|---|---|
+| [Project structure & CLI](project-structure.md) | Where views, theme and assets live, and the two commands that turn them into an envelope. |
+| [`@zabloo/react` reference](react-api.md) | `renderToIR`, `ThemeProvider`, the shared prop types and the item-template types. |
+| [Theming](theming.md) | Tokens, variants and motion defaults: one file, three resolution times. |
+| [Troubleshooting](troubleshooting.md) | The sharp edges, every authoring error, and what to check when nothing happens. |
 
 ## For maintainers
 
@@ -68,4 +85,5 @@ algorithm has a reference implementation in TypeScript, the page names it; those
 
 **Authoring.** The `@zabloo/react` layer is not part of the format. Composites and
 variants are resolved at authoring time and never reach the IR: what the SDK receives is
-always a tree of the node types documented here.
+always a tree of the node types documented here. Its own surface is under
+[Authoring](#authoring).

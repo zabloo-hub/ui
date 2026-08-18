@@ -26,9 +26,11 @@ pnpm build      # export the envelope to dist/zabloo.ir.json
 ## Learn more
 
 - [Getting started](https://github.com/zabloo-hub/ui/blob/main/docs/getting-started.md) — the same project built from an empty folder, step by step, through to loading the envelope in Unity.
+- [Project structure & CLI](https://github.com/zabloo-hub/ui/blob/main/docs/project-structure.md) — what each folder here is for, and what `zabloo dev` / `zabloo export` do.
 - [Component catalog](https://github.com/zabloo-hub/ui/blob/main/docs/components/README.md) — one page per node type, with the `@zabloo/react` components that emit it.
 - [Format reference](https://github.com/zabloo-hub/ui/blob/main/docs/format/envelope.md) — the envelope, layout, style, bindings, motion, and the rules a loader follows.
 - [Examples](https://github.com/zabloo-hub/ui/blob/main/examples/README.md) — runnable projects, from a one-button screen to the whole catalog.
+- [Troubleshooting](https://github.com/zabloo-hub/ui/blob/main/docs/troubleshooting.md) — export errors, loader warnings, and "it rendered but not like that".
 
 ## Wiring the game (Unity)
 

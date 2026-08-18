@@ -71,28 +71,19 @@ published with a [provenance attestation](https://docs.npmjs.com/generating-prov
 linking each tarball to the workflow run and commit that built it. It costs nothing and npm shows
 it on the package page.
 
-## The `@zabloo` scope — status
+## Before the first publish
 
-Checked **2026-08-13**, read-only, against the public registry:
+Nothing under `@zabloo` has been published yet, and an unpublished scope is indistinguishable
+from the outside from one that was never registered: every package name returns a 404 either
+way. So the registry side has to be confirmed while authenticated, and it is worth doing ahead
+of the first release rather than on the day of it.
 
-- `@zabloo/format`, `@zabloo/react`, `@zabloo/cli`, `@zabloo/renderer-web` and `create-zabloo-app`
-  all return **404** — nothing has been published, and the unscoped name `create-zabloo-app` is
-  still free.
-- A registry search for `scope:zabloo` returns **0 packages**.
-- The npm token in the maintainer's local `~/.npmrc` is **expired or invalid** (`npm whoami` → 401),
-  so **ownership of the scope could not be confirmed from the outside**.
-
-Still to verify, and it needs an authenticated `npm login`:
-
-- [ ] `npm whoami` works again, and `npm org ls zabloo` (or `npm access list packages @zabloo`)
-      confirms the scope exists and who owns it.
-- [ ] The account has 2FA on, with the authorization level that still allows automation tokens to
-      publish (2FA *and* automation tokens, not "require 2FA for every publish", which would block CI).
-- [ ] A granular token scoped to `@zabloo` can publish — provable only on the first real release, or
-      against a throwaway scoped package.
-
-A 404 on an unpublished scope looks identical to a scope that was never registered, so this is worth
-resolving before F9 rather than on launch day.
+- [ ] **The scope exists and we own it.** `npm whoami` against an authenticated session, then
+      `npm org ls zabloo` (or `npm access list packages @zabloo`).
+- [ ] **2FA is set to a level automation tokens can publish under** — "2FA *and* automation
+      tokens", not "require 2FA for every publish", which would block CI.
+- [ ] **A granular token scoped to `@zabloo` can actually publish.** Provable only on the first
+      real release, or against a throwaway scoped package.
 
 ## The external smoke test
 

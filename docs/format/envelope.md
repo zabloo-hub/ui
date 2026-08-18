@@ -1,8 +1,7 @@
 # The envelope
 
 The **envelope** is the unit an SDK loads. It is one JSON object carrying a version, a
-token dictionary, one or more views, and — when the UI uses images or fonts — an asset
-manifest.
+token dictionary, one or more views, and — when the UI uses images — an asset manifest.
 
 There is exactly one loading path: a file imported by hand in the editor and a hot-update
 pushed from the platform are the same versioned payload, read the same way.
@@ -89,8 +88,8 @@ treated exactly like a missing one.
 
 ## Assets
 
-Images and fonts travel **inside** the envelope. An entry describes the content and, in
-v1, carries the bytes:
+Images travel **inside** the envelope. An entry describes the content and, in v1, carries
+the bytes:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -114,6 +113,13 @@ same as an image still being decoded.
 `width`/`height` matter for layout, not for paint: an `Image` takes the source's pixel
 size as its intrinsic size, so a manifest that omits them makes the node measure as zero
 until it is given an explicit size.
+
+**Fonts are not assets in v1.** The manifest carries images only — the export accepts
+`.png`, `.jpg` and `.jpeg` — and no node has a prop that could name a font, so there is
+nothing to reference one with. Every target rasterizes the **same embedded typeface** instead (see
+[`Text`](../components/text.md#glyphs)). Per-project fonts arrive with the text engine
+work, and they will land here: the manifest is deliberately generic about MIME types, so
+adding one is an export concern rather than a format change.
 
 ## The node base
 
