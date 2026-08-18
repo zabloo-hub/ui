@@ -7,7 +7,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter './packages/**' build && pnpm install && pnpm --filter './examples/**' build",
+    "build": "pnpm --filter \"./packages/**\" --fail-if-no-match build && pnpm install && pnpm --filter \"./examples/**\" --fail-if-no-match build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
