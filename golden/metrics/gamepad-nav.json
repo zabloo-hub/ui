@@ -1,0 +1,645 @@
+{
+  "view": "gamepad-nav",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": "row-2",
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 344,
+      "y": 176
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Container",
+        "ref": "menu",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 120,
+          "height": 112
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Button",
+            "ref": "play",
+            "rect": {
+              "x": 8,
+              "y": 8,
+              "width": 120,
+              "height": 32
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "play-label",
+                "rect": {
+                  "x": 47.988,
+                  "y": 14.801,
+                  "width": 40.023,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Jugar",
+                      "width": 40.023,
+                      "x": 47.988,
+                      "baseline": 29.285
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "options",
+            "rect": {
+              "x": 8,
+              "y": 48,
+              "width": 120,
+              "height": 32
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "options-label",
+                "rect": {
+                  "x": 34.203,
+                  "y": 54.801,
+                  "width": 67.594,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Opciones",
+                      "width": 67.594,
+                      "x": 34.203,
+                      "baseline": 69.285
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "quit",
+            "rect": {
+              "x": 8,
+              "y": 88,
+              "width": 120,
+              "height": 32
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "quit-label",
+                "rect": {
+                  "x": 51.996,
+                  "y": 94.801,
+                  "width": 32.008,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Salir",
+                      "width": 32.008,
+                      "x": 51.996,
+                      "baseline": 109.285
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "ScrollView",
+        "ref": "inventory",
+        "rect": {
+          "x": 136,
+          "y": 8,
+          "width": 200,
+          "height": 160
+        },
+        "style": {
+          "background": "#0b1120",
+          "radius": 6,
+          "padding": 8,
+          "gap": 8
+        },
+        "scroll": {
+          "x": 0,
+          "y": 110,
+          "maxX": 0,
+          "maxY": 200
+        },
+        "children": [
+          {
+            "type": "Button",
+            "ref": "row-0",
+            "rect": {
+              "x": 144,
+              "y": -94,
+              "width": 180,
+              "height": 36
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-0-label",
+                "rect": {
+                  "x": 209.539,
+                  "y": -86,
+                  "width": 48.922,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Poción",
+                      "width": 48.922,
+                      "x": 209.539,
+                      "baseline": -71.516
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "row-1",
+            "rect": {
+              "x": 144,
+              "y": -50,
+              "width": 180,
+              "height": 36
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-1-label",
+                "rect": {
+                  "x": 206.867,
+                  "y": -42,
+                  "width": 54.266,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Espada",
+                      "width": 54.266,
+                      "x": 206.867,
+                      "baseline": -27.516
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "row-2",
+            "rect": {
+              "x": 144,
+              "y": -6,
+              "width": 180,
+              "height": 36
+            },
+            "states": [
+              "focused"
+            ],
+            "style": {
+              "background": "#4f46e5",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-2-label",
+                "rect": {
+                  "x": 207.316,
+                  "y": 2,
+                  "width": 53.367,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Escudo",
+                      "width": 53.367,
+                      "x": 207.316,
+                      "baseline": 16.484
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "row-3",
+            "rect": {
+              "x": 144,
+              "y": 38,
+              "width": 180,
+              "height": 36
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-3-label",
+                "rect": {
+                  "x": 217.551,
+                  "y": 46,
+                  "width": 32.898,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Arco",
+                      "width": 32.898,
+                      "x": 217.551,
+                      "baseline": 60.484
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "row-4",
+            "rect": {
+              "x": 144,
+              "y": 82,
+              "width": 180,
+              "height": 36
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-4-label",
+                "rect": {
+                  "x": 211.324,
+                  "y": 90,
+                  "width": 45.352,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Casco",
+                      "width": 45.352,
+                      "x": 211.324,
+                      "baseline": 104.484
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "row-5",
+            "rect": {
+              "x": 144,
+              "y": 126,
+              "width": 180,
+              "height": 36
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-5-label",
+                "rect": {
+                  "x": 213.543,
+                  "y": 134,
+                  "width": 40.914,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Botas",
+                      "width": 40.914,
+                      "x": 213.543,
+                      "baseline": 148.484
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "row-6",
+            "rect": {
+              "x": 144,
+              "y": 170,
+              "width": 180,
+              "height": 36
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-6-label",
+                "rect": {
+                  "x": 214.434,
+                  "y": 178,
+                  "width": 39.133,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Anillo",
+                      "width": 39.133,
+                      "x": 214.434,
+                      "baseline": 192.484
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          },
+          {
+            "type": "Button",
+            "ref": "row-7",
+            "rect": {
+              "x": 144,
+              "y": 214,
+              "width": 180,
+              "height": 36
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8
+            },
+            "clip": {
+              "x": 136,
+              "y": 8,
+              "width": 200,
+              "height": 160,
+              "radius": 6
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "row-7-label",
+                "rect": {
+                  "x": 214.875,
+                  "y": 222,
+                  "width": 38.25,
+                  "height": 18.398
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Capa",
+                      "width": 38.25,
+                      "x": 214.875,
+                      "baseline": 236.484
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                },
+                "clip": {
+                  "x": 136,
+                  "y": 8,
+                  "width": 200,
+                  "height": 160,
+                  "radius": 6
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

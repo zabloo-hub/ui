@@ -26,7 +26,7 @@
 
 import { describe, expect, it } from "vitest";
 import { CARET } from "./controls/field.js";
-import { mountCase, readCorpus } from "./golden.js";
+import { metricCases, mountCase, readCorpus } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { MOTION_MS, PERF_SCENES, type PerfScene } from "./perf/scenes.js";
 import { findNode } from "./snapshot.js";
@@ -42,7 +42,8 @@ const BUDGET = {
 };
 
 describe("performance budgets per golden scene (ZAB-55)", () => {
-  for (const [name, golden] of Object.entries(readCorpus())) {
+  // Refusal cases have no frame to budget: nothing renders, by definition.
+  for (const [name, golden] of metricCases(readCorpus())) {
     it(`${name} stays inside the web budgets`, async () => {
       const view = await mountCase(golden);
       const stats = view.handle.stats();

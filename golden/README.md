@@ -15,11 +15,11 @@ golden/
 └── metrics/*.json    what a correct renderer computes from them (generated)
 ```
 
-## A case is four things
+## A case is five things
 
-A case is `(envelope, data, viewport, clock)` — and nothing else. Everything the
-metrics record has to be derivable from those four, or a second target could not
-reproduce it.
+A case is `(envelope, data, viewport, clock, pad)` — and nothing else. Everything
+the metrics record has to be derivable from those five, or a second target could
+not reproduce it.
 
 | Field | Meaning |
 |---|---|
@@ -28,6 +28,16 @@ reproduce it.
 | `data` | pushed through the host data channel (`SetData`) before measuring |
 | `width` / `height` | viewport in logical px (default 480×320, dpr 1) |
 | `advanceMs` | milliseconds of clock run before measuring, so motion is recorded settled |
+| `pad` | gamepad script replayed before measuring — see below |
+| `refuses` | this case records a **load**, not a frame — see below |
+
+The pad belongs on that list for the same reason the clock does: a gamepad is a
+**state the SDK polls**, not an event of any one platform, so a declarative
+script of it replays anywhere. A step is either a change to that state
+(`{"press": 13}`, `{"release": 13}`, `{"axis": 3, "value": 1}`) or a span of time
+for the poll loop to see it in (`{"advanceMs": 16}`) — and nothing happens until
+one of those spans runs, exactly as on a real pad. Indices are the standard
+mapping: `0`=A, `1`=B, `12`–`15`=d-pad, axes `0`/`1` left stick, `2`/`3` right.
 
 Two rules the runner applies to every case, and that the Unity side has to apply
 too:
@@ -49,6 +59,29 @@ here runs on a bare CPU in CI.
 
 Numbers are rounded to 3 decimals so the last bits of a floating-point multiply
 never rewrite a file.
+
+## Cases that refuse to load
+
+Not every normative rule of the format produces a frame. A case with `refuses`
+records the other kind: the envelope must be **rejected**, with the diagnostic
+code it names, and nothing must render. It has no file under `metrics/` — there
+is nothing to measure — and the assertion lives in `golden.test.ts` instead.
+
+```json
+"future-major": {
+  "envelope": "future-major.json",
+  "about": "…",
+  "refuses": { "code": "unsupported-version" }
+}
+```
+
+Together with `unknown-type` (the degradation rule: an unknown node type renders
+as a `Container` preserving `layout`, `style`, `visible`, `disabled` and
+`children`), these are the two halves of
+[forward-tolerance](../docs/format/loading.md#forward-tolerance-normative) — the
+rules a second target is likeliest to get wrong, because they are about content
+it was never built for. They are also the seed of the forward-compat corpus of
+ZAB-39.
 
 ## Working with it
 
@@ -80,11 +113,15 @@ recorded rects would be a megabyte of golden nobody reads.
 ## Adding a capability
 
 1. Write `envelopes/<name>.json` (IR v1 — see `packages/format/src/index.ts`).
-2. Add the case to `cases.json` with an `about` and whatever `data` it needs.
+2. Add the case to `cases.json` with an `about` and whatever `data` or `pad` it
+   needs.
 3. Run the suite with `-u` and **read** the generated metrics: they are the
    record of what the renderer does, so they are only correct if you say so.
 4. If the capability has an invariant a diff would not catch, assert it in
    `view.test.ts`.
 
 The suite fails if an envelope on disk has no case, if a case warns while
-rendering, or if a node type of the v1 catalog appears in no case at all.
+rendering, if a node type of the v1 catalog appears in no case at all, or if
+either forward-tolerance rule above loses its case — a type outside the catalog
+that degrades to a box with its children intact, and a major version that is
+refused.
