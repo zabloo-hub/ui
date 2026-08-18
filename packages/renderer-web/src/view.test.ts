@@ -1563,3 +1563,84 @@ describe("GPU robustness (ZAB-68)", () => {
     expect(disposed.warnings[0]).toContain("disposed view");
   });
 });
+
+describe("mount → dispose → mount, over and over (ZAB-74)", () => {
+  /**
+   * The dev loop's own shape: a preview server that reloads, a React component
+   * that remounts, an editor that swaps documents. Nothing here is a single
+   * frame's behavior — it is what a view must leave behind, which only shows up
+   * as an afternoon of slow accumulation unless a test counts it.
+   */
+  it("leaves nothing behind: no listener, no frame, no timer", async () => {
+    const mounted = await mountCase(CORPUS.overlays);
+    const busy = mounted.held();
+    // Really mounted: listening on the page and the canvas, with the toast's
+    // `autoCloseMs` armed.
+    expect(busy.listeners).toBeGreaterThan(0);
+    expect(busy.timers).toBeGreaterThan(0);
+
+    mounted.dispose();
+
+    expect(mounted.held()).toEqual({ listeners: 0, frames: 0, timers: 0 });
+  });
+
+  it("holds no more after ten cycles than after one", async () => {
+    let first: { listeners: number; frames: number; timers: number } | null = null;
+    for (let i = 0; i < 10; i++) {
+      const cycle = await mountCase(CORPUS.settings);
+      const held = cycle.held();
+      cycle.dispose();
+      // Compared while it is UP: a leak that survives disposal would show up in
+      // the next cycle's own count, which is the number that grows.
+      first ??= held;
+      expect(held).toEqual(first);
+      expect(cycle.held()).toEqual({ listeners: 0, frames: 0, timers: 0 });
+    }
+  });
+
+  it("comes back up whole: focus, input and the data channel all live again", async () => {
+    const first = await mountCase(CORPUS.controls);
+    const focused = first.snapshot().focus;
+    first.dispose();
+
+    view = await mountCase(CORPUS.controls);
+
+    expect(view.snapshot().focus).toBe(focused);
+    // Not just standing there: the keyboard reaches it and the writes flow.
+    view.keyDown("ArrowDown");
+    expect(view.snapshot().focus).not.toBe(focused);
+    expect(view.warnings).toEqual([]);
+  });
+
+  it("hands the input back to the view still standing", async () => {
+    const first = await mountGolden(TWO_BUTTONS);
+    view = first;
+    const second = await mountGolden(TWO_BUTTONS, { share: first });
+    try {
+      // The owner is the first view; disposing it must not leave the page with
+      // nobody listening (ZAB-70) — the survivor takes the keyboard.
+      second.pointer.click(1, 1);
+      second.dispose();
+      first.keyDown("ArrowDown");
+
+      expect(first.snapshot().focus).toBe("b");
+    } finally {
+      // Already disposed above; a second one is the no-op React strict mode does.
+      second.dispose();
+    }
+  });
+
+  it("does not run a frame the disposed view had already scheduled", async () => {
+    const mounted = await mountCase(CORPUS.transitions);
+    view = mounted;
+    // A transition in flight: there IS a frame pending when the view goes down.
+    mounted.handle.setData("job.progress", 0.9);
+    expect(mounted.held().frames).toBeGreaterThan(0);
+    const drawn = mounted.drawCalls();
+
+    mounted.dispose();
+    mounted.advance(400);
+
+    expect(mounted.drawCalls()).toBe(drawn);
+  });
+});

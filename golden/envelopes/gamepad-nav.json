@@ -1,0 +1,411 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.panel": "#1e293b",
+    "color.text": "#e2e8f0",
+    "color.accent": "#4f46e5",
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "views": {
+    "gamepad-nav": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "row",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": {
+        "background": "{color.bg}"
+      },
+      "children": [
+        {
+          "type": "Container",
+          "id": "menu",
+          "layout": {
+            "direction": "column",
+            "align": "start",
+            "gap": "{space.2}"
+          },
+          "children": [
+            {
+              "type": "Button",
+              "id": "play",
+              "onPress": "menu.play",
+              "layout": {
+                "width": 120,
+                "height": 32,
+                "justify": "center",
+                "align": "center"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "play-label",
+                  "text": "Jugar",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ],
+              "autofocus": true
+            },
+            {
+              "type": "Button",
+              "id": "options",
+              "onPress": "menu.options",
+              "layout": {
+                "width": 120,
+                "height": 32,
+                "justify": "center",
+                "align": "center"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "options-label",
+                  "text": "Opciones",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "quit",
+              "onPress": "menu.quit",
+              "layout": {
+                "width": 120,
+                "height": 32,
+                "justify": "center",
+                "align": "center"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "quit-label",
+                  "text": "Salir",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "ScrollView",
+          "id": "inventory",
+          "axis": "vertical",
+          "layout": {
+            "direction": "column",
+            "align": "start",
+            "width": 200,
+            "height": 160,
+            "padding": "{space.2}",
+            "gap": "{space.2}"
+          },
+          "style": {
+            "background": "#0b1120",
+            "radius": "{radius.md}"
+          },
+          "children": [
+            {
+              "type": "Button",
+              "id": "row-0",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-0-label",
+                  "text": "Poción",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "row-1",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-1-label",
+                  "text": "Espada",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "row-2",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-2-label",
+                  "text": "Escudo",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "row-3",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-3-label",
+                  "text": "Arco",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "row-4",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-4-label",
+                  "text": "Casco",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "row-5",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-5-label",
+                  "text": "Botas",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "row-6",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-6-label",
+                  "text": "Anillo",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Button",
+              "id": "row-7",
+              "onPress": "list.pick",
+              "layout": {
+                "width": 180,
+                "height": 36,
+                "align": "center",
+                "padding": "{space.2}"
+              },
+              "style": {
+                "background": "{color.panel}",
+                "radius": "{radius.md}"
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "background": "{color.accent}"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-7-label",
+                  "text": "Capa",
+                  "style": {
+                    "color": "{color.text}"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

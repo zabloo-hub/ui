@@ -73,4 +73,17 @@ describe("the headless rig", () => {
     // The real clock is back: two reads in a row are not the same frozen instant.
     expect(typeof performance.now()).toBe("number");
   });
+
+  it("leaves none behind either when the envelope never becomes a view", async () => {
+    // A refused payload has no handle to dispose and nobody to take the page
+    // down (ZAB-74) — the corpus has cases like that, and they run alongside
+    // every other test in the file.
+    const warn = console.warn;
+    await expect(mountGolden({ ...ENVELOPE, v: 99 })).rejects.toThrow();
+
+    expect(globalThis.document).toBeUndefined();
+    // The console is the rig's too: left hijacked, every later test's warnings
+    // would go into a `warnings` array nobody is reading.
+    expect(console.warn).toBe(warn);
+  });
 });

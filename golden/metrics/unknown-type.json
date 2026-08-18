@@ -1,0 +1,261 @@
+{
+  "view": "unknown-type",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "focus": null,
+  "hover": null,
+  "pressed": null,
+  "layer": [],
+  "tree": {
+    "type": "Container",
+    "ref": "root",
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "width": 480,
+      "height": 320
+    },
+    "measured": {
+      "x": 311.633,
+      "y": 152.797
+    },
+    "style": {
+      "background": "#101218",
+      "padding": 8,
+      "gap": 8
+    },
+    "children": [
+      {
+        "type": "Container",
+        "ref": "row",
+        "rect": {
+          "x": 8,
+          "y": 8,
+          "width": 295.633,
+          "height": 88.797
+        },
+        "style": {
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "before",
+            "rect": {
+              "x": 8,
+              "y": 43.199,
+              "width": 39.141,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#64748b"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "antes",
+                  "width": 39.141,
+                  "x": 8,
+                  "baseline": 57.684
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          },
+          {
+            "type": "Carousel3D",
+            "ref": "carousel",
+            "rect": {
+              "x": 55.141,
+              "y": 8,
+              "width": 180,
+              "height": 88.797
+            },
+            "style": {
+              "background": "#1e293b",
+              "radius": 6,
+              "padding": 8,
+              "gap": 8
+            },
+            "children": [
+              {
+                "type": "Text",
+                "ref": "carousel-title",
+                "rect": {
+                  "x": 63.141,
+                  "y": 16,
+                  "width": 164,
+                  "height": 36.797
+                },
+                "style": {
+                  "color": "#e2e8f0"
+                },
+                "text": {
+                  "lines": [
+                    {
+                      "text": "Un tipo que este SDK",
+                      "width": 153.867,
+                      "x": 63.141,
+                      "baseline": 30.484
+                    },
+                    {
+                      "text": "no conoce",
+                      "width": 73.836,
+                      "x": 63.141,
+                      "baseline": 48.883
+                    }
+                  ],
+                  "lineHeight": 18.398,
+                  "truncated": false
+                }
+              },
+              {
+                "type": "Button",
+                "ref": "carousel-action",
+                "rect": {
+                  "x": 63.141,
+                  "y": 60.797,
+                  "width": 100,
+                  "height": 28
+                },
+                "style": {
+                  "background": "#4f46e5",
+                  "radius": 6
+                },
+                "children": [
+                  {
+                    "type": "Text",
+                    "ref": "carousel-action-label",
+                    "rect": {
+                      "x": 79.781,
+                      "y": 65.598,
+                      "width": 66.719,
+                      "height": 18.398
+                    },
+                    "style": {
+                      "color": "#e2e8f0"
+                    },
+                    "text": {
+                      "lines": [
+                        {
+                          "text": "Siguiente",
+                          "width": 66.719,
+                          "x": 79.781,
+                          "baseline": 80.082
+                        }
+                      ],
+                      "lineHeight": 18.398,
+                      "truncated": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Text",
+            "ref": "after",
+            "rect": {
+              "x": 243.141,
+              "y": 43.199,
+              "width": 60.492,
+              "height": 18.398
+            },
+            "style": {
+              "color": "#64748b"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "después",
+                  "width": 60.492,
+                  "x": 243.141,
+                  "baseline": 57.684
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          }
+        ]
+      },
+      {
+        "type": "HoloPanel",
+        "ref": "hidden-unknown",
+        "out": "visible"
+      },
+      {
+        "type": "HapticGroup",
+        "ref": "disabled-unknown",
+        "rect": {
+          "x": 8,
+          "y": 104.797,
+          "width": 220,
+          "height": 40
+        },
+        "states": [
+          "disabled"
+        ],
+        "style": {
+          "background": "#1e293b",
+          "radius": 6,
+          "opacity": 0.4,
+          "padding": 8,
+          "gap": 8
+        },
+        "children": [
+          {
+            "type": "Text",
+            "ref": "disabled-unknown-label",
+            "rect": {
+              "x": 16,
+              "y": 115.598,
+              "width": 66.414,
+              "height": 18.398
+            },
+            "states": [
+              "disabled"
+            ],
+            "style": {
+              "color": "#e2e8f0"
+            },
+            "text": {
+              "lines": [
+                {
+                  "text": "Vibración",
+                  "width": 66.414,
+                  "x": 16,
+                  "baseline": 130.082
+                }
+              ],
+              "lineHeight": 18.398,
+              "truncated": false
+            }
+          },
+          {
+            "type": "Toggle",
+            "ref": "disabled-unknown-toggle",
+            "rect": {
+              "x": 90.414,
+              "y": 112.797,
+              "width": 44,
+              "height": 24
+            },
+            "states": [
+              "checked",
+              "disabled"
+            ],
+            "style": {
+              "background": "#4f46e5",
+              "radius": 6
+            },
+            "value": 1
+          }
+        ]
+      }
+    ]
+  }
+}
