@@ -1,0 +1,10 @@
+# Line endings are LF in the working tree on every platform.
+#
+# Git checks out CRLF on Windows by default, and the formatter mandates LF — so
+# without this, `pnpm lint` fails on every single file of a Windows checkout, and
+# the diff of anything a Windows contributor saves is the whole file (ZAB-78).
+* text=auto eol=lf
+
+# Binary: never normalized, never diffed as text.
+*.png binary
+*.ttf binary
