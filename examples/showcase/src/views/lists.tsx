@@ -1,9 +1,9 @@
 // View "lists" (file-based convention: the filename is the view ID).
 //
 // The one node whose CHILDREN come from data instead of from the document
-// (`Repeat`, decision 2026-08-11 ZAB-29). Everything else on this page is
-// authoring sugar over it: `<List>` is a Repeat laid out on one axis, `<Grid>`
-// is a Repeat whose row wraps.
+// (the `Repeat` primitive). Everything else on this page is authoring sugar
+// over it: `<List>` is a Repeat laid out on one axis, `<Grid>` is a Repeat
+// whose row wraps.
 //
 // Nothing renders until data arrives — the document carries structure, the game
 // carries content. Paste this in the preview's console to fill the page:

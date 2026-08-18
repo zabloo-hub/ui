@@ -179,8 +179,9 @@ with no backdrop and no capture.
 
 ## Authoring
 
-`<Overlay>` is exported raw — unlike `Toggle` and `Slider` it has no positional slots to
-protect. The three composites below are the ready-made shapes, and they share these props:
+`<Overlay>` emits this node and nothing else: it has no positional slots, so there is no
+convention a component would have to own. The three composites below are the ready-made
+shapes, and they share these props:
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
@@ -191,6 +192,8 @@ protect. The three composites below are the ready-made shapes, and they share th
 | `z` | `number` | per component | Stacking within the layer. |
 | `autoCloseMs` | `number` | per component | Self-dismiss delay. |
 | `onDismiss` | `string` | absent | Named action on a dismiss request. |
+| `panel` | `ContainerProps` | absent | The card, pill or bubble the content sits in. Takes a whole `Container`'s props, not just a `Style`, so its own `layout` is authorable. |
+| `label` | `Style` | absent | Style of the `<Text>` a bare string is wrapped in. `<Toast>` and `<Tooltip>` only — a `<Modal>` never wraps its content. |
 
 ### `<Modal>`
 
@@ -223,8 +226,7 @@ inert and the player keeps using what is underneath, and self-closing after `aut
 ```
 
 Defaults: `position: "bottom"`, `modal: false`, `autoCloseMs: 3000`, `z: 10`. A bare string
-is wrapped in a `<Text>` (`label` styles it); pass nodes for an icon plus a message
-(`panel` styles the pill).
+is wrapped in a `<Text>`; pass nodes instead for an icon plus a message.
 
 ### `<Tooltip>`
 

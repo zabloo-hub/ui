@@ -22,7 +22,7 @@ binds an array and the SDK instantiates the template once per element.
 | `items` | `{ bind: string }` | — | The bound array. **Always** a binding. |
 | `as` | `string` | `"item"` | Alias the template binds against. |
 | `key` | `string` | absent | Path **relative to the item** naming its stable identity. Absent = positional. |
-| `children` | `ZNode[]` | — | `children[0]` = item template; `children[1..]` = empty state. |
+| `children` | `ZNode[]` | absent | `children[0]` = item template; `children[1..]` = empty state. |
 
 `items` is always a binding: a literal array here would put game **data** into the
 document, and the document carries structure.
@@ -107,7 +107,7 @@ one place that convention is written down. They share these props (`RepeatProps`
 | `items` | `string` | — | Data path of the array, e.g. `"shop.items"`. |
 | `as` | `string` | `"item"` | Alias the template binds against. |
 | `keyPath` | `string` | absent | Path relative to the item naming its identity. Named `keyPath` because React owns `key`. |
-| `empty` | `ReactNode` | — | Shown while the array is empty, absent or not an array. |
+| `empty` | `ReactNode` | absent | Shown while the array is empty, absent or not an array. |
 
 ### `<List>`
 
@@ -127,7 +127,7 @@ one place that convention is written down. They share these props (`RepeatProps`
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `axis` | `"vertical" \| "horizontal"` | `"vertical"` | Item flow. |
-| `children` | node **or** `(item) => node` | — | The item template — a **single** node. |
+| `children` | node **or** `(item) => node` | absent | The item template — a **single** node. |
 
 The template is a single node because `children[0]` *is* the template: wrap an item's
 contents in a `<Row>` or `<Column>`.
@@ -151,9 +151,9 @@ A list that wraps into lines of `columns` cells — the same `Repeat`, laid out 
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `columns` | `number` | — | Items per line. An integer `>= 1`. |
-| `itemWidth` | `number` | — | Width of one cell, in px. Give this **or** `layout.width`. |
+| `itemWidth` | `number` | absent | Width of one cell, in px. Give this **or** `layout.width`. |
 | `cell` | container props | `{}` | Props for the cell container that sizes each column. |
-| `children` | node(s) **or** `(item) => nodes` | — | The item template; the cell holds them. |
+| `children` | node(s) **or** `(item) => nodes` | absent | The item template; the cell holds them. |
 
 The geometry is **arithmetic, not a percentage**: v1 has no fractional dims, so the grid
 solves `itemWidth` from `layout.width` (or the other way round) at authoring time and each

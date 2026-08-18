@@ -43,18 +43,18 @@ export const tokens = {
   "text.lg": 20,
   "text.xl": 26,
   "text.line": 22,
-  // Motion is themeable exactly like colour (ZAB-33): set these to 0 and the
-  // whole showcase stops animating without touching a single view.
+  // Motion is themeable exactly like colour: set these to 0 and the whole
+  // showcase stops animating without touching a single view.
   "motion.fast": 120,
   "motion.base": 220,
   "motion.slow": 420,
   "motion.loop": 900,
 };
 
-// Default motion per component (ZAB-36), keyed by PRIMITIVE like `variants`.
-// A node's own `transition` still wins: the theme sets the baseline, authoring
-// stays explicit. Containers are left out on purpose — the sugar builds a lot of
-// them (a Switch's rails, a Tabs' panels) and they would all start moving.
+// Default motion per component, keyed by PRIMITIVE like `variants`. A node's
+// own `transition` still wins: the theme sets the baseline, authoring stays
+// explicit. Containers are left out on purpose — the sugar builds a lot of them
+// (a Switch's rails, a Tabs' panels) and they would all start moving.
 export const transitions: ThemeTransitions = {
   Button: { duration: "{motion.fast}" },
   Toggle: { duration: "{motion.fast}" },
@@ -62,11 +62,10 @@ export const transitions: ThemeTransitions = {
   TextInput: { duration: "{motion.fast}" },
 };
 
-// Variants — an authoring-time concept (decision 2026-08-04): `@zabloo/react`
-// merges them at export time and the envelope receives fully resolved nodes, so
-// no SDK has ever heard of "primary". They are keyed by primitive, which is why
-// <Checkbox>, <Switch> and <Radio> all read from `Toggle`, and the tab buttons
-// from `Button`.
+// Variants — an authoring-time concept: `@zabloo/react` merges them at export
+// time and the envelope receives fully resolved nodes, so no SDK has ever heard
+// of "primary". They are keyed by primitive, which is why <Checkbox>, <Switch>
+// and <Radio> all read from `Toggle`, and the tab buttons from `Button`.
 export const variants: ThemeVariants = {
   Button: {
     primary: {
@@ -75,10 +74,10 @@ export const variants: ThemeVariants = {
         hover: { style: { background: "{color.accent.hover}" } },
         pressed: { style: { background: "{color.accent.pressed}" } },
         // Focus ring: an INSET border, so it paints inside the layout rect and
-        // never grows the node nor bleeds over a neighbour (decision 2026-08-06).
+        // never grows the node nor bleeds over a neighbour.
         focused: { style: { borderWidth: 2, borderColor: "{color.text}" } },
         // `disabled` merges LAST, so it needs no coordination with the three above:
-        // whatever the control was wearing, this is what wins (ZAB-63).
+        // whatever the control was wearing, this is what wins.
         disabled: { style: { background: "{color.off}" } },
       },
     },

@@ -1,0 +1,71 @@
+name: Bug report
+description: Something does not behave the way the docs say it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this. zabloo/ui is pre-release, so a
+        clear reproduction is worth more than anything else you can give us.
+
+        For a **security** problem, do not open an issue — use
+        [private reporting](https://github.com/zabloo-hub/ui/security/advisories/new)
+        instead. See [SECURITY.md](https://github.com/zabloo-hub/ui/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen?
+      options:
+        - "@zabloo/react (authoring / the reconciler)"
+        - "@zabloo/format (the IR types, the envelope, validation)"
+        - "@zabloo/renderer-web (the WebGL2 renderer / the preview)"
+        - "@zabloo/cli (zabloo dev, zabloo export)"
+        - "create-zabloo-app (the scaffolder)"
+        - "sdk/unity (the Unity SDK)"
+        - "Documentation"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected to see instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest thing that shows it. A `.tsx` snippet, an IR envelope, or the
+        steps to get there from `npx create-zabloo-app`. If it only shows up with
+        certain data, include the `zabloo.setData(...)` lines.
+      render: tsx
+    validations:
+      required: true
+
+  - type: textarea
+    id: version
+    attributes:
+      label: Version
+      description: >
+        The commit you are on (`git rev-parse --short HEAD`), or the package versions
+        once these are published. Plus your OS, Node version, and — for a renderer
+        issue — the browser or the Unity version.
+      placeholder: |
+        commit: 21d1476
+        node: 22.11.0
+        os: macOS 15.6
+        browser: Chrome 141
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Logs, the diagnostics the loader printed, a screenshot of the preview.

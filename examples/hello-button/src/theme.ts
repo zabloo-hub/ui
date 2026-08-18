@@ -16,15 +16,15 @@ export const tokens = {
   "motion.loop": 900,
 };
 
-// Default motion per component (ZAB-36), keyed like `variants`: the Collapses
-// below animate their open/close without a prop on every one of them. A node's
-// own `transition` still wins — see the buttons in the view, which set theirs.
+// Default motion per component, keyed like `variants`: the Collapses below
+// animate their open/close without a prop on every one of them. A node's own
+// `transition` still wins — see the buttons in the view, which set theirs.
 export const transitions: ThemeTransitions = {
   Collapse: { duration: "{motion.slow}", easing: "ease-in-out" },
 };
 
-// Variants — an authoring-time concept (decision 2026-08-03 §6): resolved at
-// export time by @zabloo/react; they never reach the IR.
+// Variants — an authoring-time concept: resolved at export time by
+// @zabloo/react; they never reach the IR.
 export const variants: ThemeVariants = {
   Button: {
     primary: {

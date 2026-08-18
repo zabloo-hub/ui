@@ -16,7 +16,7 @@ content on top. An explicit paint layer (paths, arcs) is a compatible future ext
 | `background` | `ColorValue` | none | Fill of the node's rect. Absent = nothing is painted. |
 | `radius` | `Dim` | `0` | Corner radius of the fill, the border and the clip. |
 | `borderWidth` | `Dim` | `0` | Stroke thickness, **inset**. |
-| `borderColor` | `ColorValue` | — | Stroke color. |
+| `borderColor` | `ColorValue` | absent | Stroke color. |
 | `color` | `ColorValue` | white | Color of the node's **content** — glyphs, image tint, caret and selection. |
 | `fontSize` | `Dim` | `16` | Text size in px, rounded and **clamped to `1..512`**. |
 | `opacity` | `number` | `1` | 0..1, clamped. Multiplies down the subtree. |
@@ -91,7 +91,7 @@ like, never when it happens.
 | `checked` | `Toggle` | It is on — its own value, or the one its `"exclusive-check"` group derives. |
 | `hover` | Focusable nodes | The pointer is over it. |
 | `focused` | Focusable nodes | It holds the focus. See [Input & focus](input.md). |
-| `pressed` | `Button`, `Toggle` | A finger or button is down on it. |
+| `pressed` | `Button`, `Toggle`, `Slider`, a `Collapse`'s header | A finger or button is down on it. A `Slider` carries it while the pointer drags it; a `Collapse` header only from the keyboard or the pad, which is the only way it is pressed. |
 | `disabled` | **Every** node | It — or an ancestor — declares [`disabled`](input.md#disabled-normative), so it is out of the interaction model. |
 
 `hover` lights up exactly the focusable set — what takes input is what may look different

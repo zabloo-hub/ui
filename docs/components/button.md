@@ -68,4 +68,4 @@ Opening is behavior; it never replaces the declared action.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `onClick` | `string` | absent | Named action the game subscribes to. |
-| `children` | `ReactNode` | — | Button content. |
+| `children` | `ReactNode` | absent | Button content. |

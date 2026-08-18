@@ -12,7 +12,7 @@ pnpm build      # export the envelope to dist/zabloo.ir.json
 
 ## Dev loop
 
-- **Web preview (no engine needed):** `pnpm dev` and open http://localhost:5078 — it live-reloads on save, shows a data panel for bound paths, logs actions, and supports arrow-key/Enter navigation.
+- **Web preview (no engine needed):** `pnpm dev` and open http://localhost:5078 — it live-reloads on save, shows a data panel for bound paths, logs actions, and drives the UI with the keyboard *or* a gamepad: arrows and the d-pad/left stick move the focus, Enter, Space and A activate, Escape and B dismiss the top overlay, and the right stick scrolls.
 - **Unity:** install the zabloo SDK package, enable **Zabloo → Dev Mode** in the editor, and run `pnpm dev:unity` — every save hot-swaps the running view (even in Play mode). For a manual import, copy `dist/zabloo.ir.json` into your project and assign it to a `ZablooDocument`.
 
 ## Project layout
@@ -22,6 +22,15 @@ pnpm build      # export the envelope to dist/zabloo.ir.json
 - `src/assets/` — images (`.png`, `.jpg`); `<Image src="logo.png">` references them by path relative to this folder, and the export inlines them in the envelope.
 - `src/theme.ts` — design tokens (flat dictionary, hot-updatable) and component variants (resolved at export time).
 - `zabloo.config.ts` — project config (`outDir`).
+
+## Learn more
+
+- [Getting started](https://github.com/zabloo-hub/ui/blob/main/docs/getting-started.md) — the same project built from an empty folder, step by step, through to loading the envelope in Unity.
+- [Project structure & CLI](https://github.com/zabloo-hub/ui/blob/main/docs/project-structure.md) — what each folder here is for, and what `zabloo dev` / `zabloo export` do.
+- [Component catalog](https://github.com/zabloo-hub/ui/blob/main/docs/components/README.md) — one page per node type, with the `@zabloo/react` components that emit it.
+- [Format reference](https://github.com/zabloo-hub/ui/blob/main/docs/format/envelope.md) — the envelope, layout, style, bindings, motion, and the rules a loader follows.
+- [Examples](https://github.com/zabloo-hub/ui/blob/main/examples/README.md) — runnable projects, from a one-button screen to the whole catalog.
+- [Troubleshooting](https://github.com/zabloo-hub/ui/blob/main/docs/troubleshooting.md) — export errors, loader warnings, and "it rendered but not like that".
 
 ## Wiring the game (Unity)
 

@@ -7,9 +7,9 @@
 //    theme can be hot-updated on its own without re-emitting a single node.
 //  - **Variants** never reach the IR at all. `<Button variant="primary">` is
 //    resolved by @zabloo/react at export time against `src/theme.ts`, and the
-//    envelope receives the node with its style and its states already merged
-//    (decision 2026-08-04). No SDK has ever heard the word "primary" — which is
-//    what keeps the founding rule intact: resolved per node, no cascade.
+//    envelope receives the node with its style and its states already merged.
+//    No SDK has ever heard the word "primary" — which is what keeps the founding
+//    rule intact: resolved per node, no cascade.
 //
 // And the third piece, states: transient overrides the SDK merges in a NORMATIVE
 // order. Value states first — what the control IS is the baseline — then the
@@ -20,8 +20,8 @@
 // `hover` sits under `focused` so a passing mouse never hides a focus ring, and
 // `pressed` wins over those because it lasts exactly as long as the finger is
 // down. `disabled` closes the chain: it is the one state that also changes
-// BEHAVIOUR (the node leaves the interaction model, ZAB-63) and the one that
-// inherits, so it has to outrank whatever value the control is holding.
+// BEHAVIOUR (the node leaves the interaction model) and the one that inherits,
+// so it has to outrank whatever value the control is holding.
 
 import {
   Button,

@@ -159,9 +159,9 @@ zabloo.setData("player.gold", 1250);
 document.SetData("player.gold", 1250);
 ```
 
-**What can be bound:** `visible` on every node, `text`, a `ProgressBar`'s `value`, a
-`Repeat`'s `items` — the game pushes, the UI follows. And read/**write**, where the SDK
-writes back and tells the game: a `Toggle`'s `checked`, a `Slider`'s `value`, a
+**What can be bound:** `visible` and `disabled` on every node, `text`, a `ProgressBar`'s
+`value`, a `Repeat`'s `items` — the game pushes, the UI follows. And read/**write**, where
+the SDK writes back and tells the game: a `Toggle`'s `checked`, a `Slider`'s `value`, a
 `TextInput`'s `value`. That is what makes a bound `<TextInput>` and a `<Text>` on the same
 path stay in sync with zero game code.
 

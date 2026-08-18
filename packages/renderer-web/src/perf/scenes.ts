@@ -52,7 +52,7 @@ export const MOTION_MS = 400;
 export function unequalItems(count: number): Array<{ id: string; label: string; note: string }> {
   return Array.from({ length: count }, (_, i) => ({
     id: `it-${i}`,
-    label: `Item ${i} — ${"palabra ".repeat(1 + ((i * 7) % 9))}`,
+    label: `Item ${i} — ${"content ".repeat(1 + ((i * 7) % 9))}`,
     note: `#${i}`,
   }));
 }
@@ -69,7 +69,7 @@ const LIST_ENVELOPE = {
         {
           type: "Text",
           id: "title",
-          text: "Inventario",
+          text: "Inventory",
           style: { color: INK, fontSize: 20 },
         },
         {
@@ -195,7 +195,7 @@ const MOTION_ENVELOPE = {
               layout: { direction: "row", height: 32, align: "center", padding: 6 },
               style: { background: ROW, radius: 4 },
               children: [
-                { type: "Text", id: "section-title", text: "Ajustes", style: { color: INK } },
+                { type: "Text", id: "section-title", text: "Settings", style: { color: INK } },
               ],
             },
             ...Array.from({ length: 12 }, (_, i) => ({

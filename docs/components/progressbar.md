@@ -72,8 +72,8 @@ fraction, never the layout around it.
 
 ## Authoring
 
-There is no `<ProgressBar>` primitive export: the fill is positional, and the component
-below builds it.
+`<ProgressBar>` emits this node with **the fill already built** — there is no raw export
+that would leave it to you, since the fill is `children[0]` by convention.
 
 ```tsx
 <ProgressBar value={{ bind: "player.hp" }} transition={{ duration: 200 }} />
@@ -83,7 +83,7 @@ below builds it.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `value` | `Bindable<number>` | `0` | Progress in `0..1`, usually a read binding. |
-| `fill` | `Style` | — | Style of the fill, merged over the default bar. |
+| `fill` | `Style` | absent | Style of the fill, merged over the default bar. |
 | `size` | `number` | `8` | Bar thickness in px — height for a row bar, width for a column one. |
 
 The component defaults to a **horizontal** bar (`direction: "row"`) and to `clip: true`, so

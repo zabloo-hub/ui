@@ -568,7 +568,8 @@ export function Checkbox(props: CheckboxProps): ReturnType<FC> {
 /**
  * Switch: the same primitive as `<Checkbox>` with a knob that swaps ends. The
  * knob "moves" because each slot justifies it to a different side — layout, not
- * animation (the transition lands in F7).
+ * animation; a `transition` on the node crossfades the two indicator slots as it
+ * swaps.
  */
 export function Switch({
   size = TOGGLE_SIZE,
@@ -885,7 +886,7 @@ const FIELD: Style = { background: "#1b1f2e", radius: 6, color: "#ffffff" };
  * ```tsx
  * <TextInput
  *   value={{ bind: "profile.name" }}
- *   placeholder="Tu nombre"
+ *   placeholder="Your name"
  *   maxLength={16}
  *   onSubmit="name-accept"
  *   states={{ empty: { style: { color: "{color.muted}" } } }}
@@ -1219,10 +1220,10 @@ function message(children: ReactNode, style: Style): ReactNode {
  *
  * ```tsx
  * <Modal visible={{ bind: "ui.confirmQuit" }} onDismiss="quit-cancelled" transition={{ duration: 150 }}>
- *   <Text>¿Salir de la partida?</Text>
+ *   <Text>Quit the game?</Text>
  *   <Row layout={{ gap: 8 }}>
- *     <Button onClick="quit-confirm" autofocus><Text>Salir</Text></Button>
- *     <Button onClick="quit-cancelled"><Text>Cancelar</Text></Button>
+ *     <Button onClick="quit-confirm" autofocus><Text>Quit</Text></Button>
+ *     <Button onClick="quit-cancelled"><Text>Cancel</Text></Button>
  *   </Row>
  * </Modal>
  * ```
@@ -1407,7 +1408,7 @@ export function List({ axis, empty, as, layout, children, ...rest }: ListProps):
  *
  * ```tsx
  * <Toast visible={{ bind: "ui.saved" }} onDismiss="toast-closed" transition={{ duration: 200 }}>
- *   Partida guardada
+ *   Game saved
  * </Toast>
  * ```
  */
@@ -1456,8 +1457,8 @@ export function Toast({
  * gamepad (decision 2026-08-11, ZAB-46):
  *
  * ```tsx
- * <Button id="jump-btn" onClick="jump"><Text>Saltar</Text></Button>
- * <Tooltip anchor="jump-btn" position="top">Pulsa A para saltar</Tooltip>
+ * <Button id="jump-btn" onClick="jump"><Text>Jump</Text></Button>
+ * <Tooltip anchor="jump-btn" position="top">Press A to jump</Tooltip>
  * ```
  *
  * Without one it is placed on the layer and shown by its `visible` binding, which
@@ -1466,7 +1467,7 @@ export function Toast({
  * opens, hanging from a control.
  *
  * ```tsx
- * <Tooltip visible={{ bind: "ui.hint" }} position="top">Pulsa A para saltar</Tooltip>
+ * <Tooltip visible={{ bind: "ui.hint" }} position="top">Press A to jump</Tooltip>
  * ```
  */
 export function Tooltip({

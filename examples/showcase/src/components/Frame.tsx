@@ -1,8 +1,8 @@
 // The chrome every view shares. These are USER components: React executes them
 // at authoring time and they emit zabloo primitives, so nothing named `Screen`
 // or `Section` ever reaches the IR — the envelope only ever sees Containers and
-// Texts (decision 2026-07-09). That is also why they can take any props they
-// like: they are not a format extension, they are a function.
+// Texts. That is also why they can take any props they like: they are not a
+// format extension, they are a function.
 
 import { Column, Container, type ContainerProps, Row, ScrollView, Text } from "@zabloo/react";
 import type { ReactNode } from "react";
