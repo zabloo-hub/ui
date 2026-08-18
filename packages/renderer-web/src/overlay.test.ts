@@ -12,12 +12,18 @@ import {
   isPressTriggered,
   isWithin,
   overlaySpec,
+  overlaysOf,
   resolveHit,
   selectedOptionIn,
   stepPresence,
   topModal,
 } from "./overlay.js";
 import { createNodeAnim, type ResolvedTransition } from "./transition.js";
+
+/** The layer of a whole tree — the view keeps the overlay set as it builds (ZAB-73). */
+function layerOf(root: LayoutNode, present?: (node: LayoutNode) => boolean): LayoutNode[] {
+  return collectLayer(overlaysOf(root), present);
+}
 
 /** The view rect every overlay is arranged against. */
 const VIEW: Rect = { x: 0, y: 0, width: 100, height: 100 };
@@ -83,7 +89,7 @@ describe("overlaySpec", () => {
 describe("collectLayer", () => {
   it("lifts overlays declared anywhere in the tree into one layer", () => {
     const root = box([box([overlay({ id: "modal" })]), button("buy", VIEW)]);
-    expect(idsOf(collectLayer(root))).toEqual(["modal"]);
+    expect(idsOf(layerOf(root))).toEqual(["modal"]);
   });
 
   it("orders by z, breaking ties by document order", () => {
@@ -93,28 +99,60 @@ describe("collectLayer", () => {
       overlay({ id: "second" }),
       overlay({ id: "under", z: -1 }),
     ]);
-    expect(idsOf(collectLayer(root))).toEqual(["under", "first", "second", "toast"]);
+    expect(idsOf(layerOf(root))).toEqual(["under", "first", "second", "toast"]);
   });
 
   it("flattens a nested overlay into the same layer", () => {
     const root = box([overlay({ id: "outer" }, [overlay({ id: "inner", z: 1 })])]);
-    expect(idsOf(collectLayer(root))).toEqual(["outer", "inner"]);
+    expect(idsOf(layerOf(root))).toEqual(["outer", "inner"]);
   });
 
   it("drops hidden overlays — no layer, no backdrop, no capture", () => {
     const root = box([hidden(overlay({ id: "closed" })), overlay({ id: "open" })]);
-    expect(idsOf(collectLayer(root))).toEqual(["open"]);
+    expect(idsOf(layerOf(root))).toEqual(["open"]);
   });
 
   it("drops overlays under something hidden, nested ones included", () => {
     const root = box([hidden(box([overlay({ id: "inside-a-closed-panel" })]))]);
-    expect(collectLayer(root)).toEqual([]);
+    expect(layerOf(root)).toEqual([]);
   });
 
   it("drops overlays inside a section the parent's state took out of layout", () => {
     const panel = box([overlay({ id: "in-collapsed-content" })]);
     panel.sectionShown = false;
-    expect(collectLayer(box([panel]))).toEqual([]);
+    expect(layerOf(box([panel]))).toEqual([]);
+  });
+
+  /**
+   * The view does not hand these in tree order: it keeps the set as it builds and
+   * releases nodes (ZAB-73), and a virtualized row that comes back is appended
+   * wherever the recycling left it. Document order is therefore recovered from
+   * the tree itself, not from the order they arrive in.
+   */
+  it("orders by the document, whatever order the overlays are handed in", () => {
+    const first = overlay({ id: "first" });
+    const second = overlay({ id: "second" });
+    const nested = overlay({ id: "nested" });
+    const under = overlay({ id: "under", z: -1 });
+    box([first, box([nested]), second, under]);
+
+    // Reversed, and with the lowest `z` in the middle: `z` decides first and the
+    // document breaks the tie, from a set that knows neither.
+    expect(idsOf(collectLayer([second, under, nested, first]))).toEqual([
+      "under",
+      "first",
+      "nested",
+      "second",
+    ]);
+  });
+
+  it("drops an overlay whose ancestors are gone, even handed in directly", () => {
+    const panel = box([overlay({ id: "in-collapsed-content" })]);
+    panel.sectionShown = false;
+    box([panel]);
+    // The walk used to prune at the hidden panel and never reach this one; from a
+    // registry it has to answer for its whole chain instead.
+    expect(collectLayer(panel.children)).toEqual([]);
   });
 });
 
@@ -169,16 +207,16 @@ describe("the painted layer during an exit", () => {
     const root = box([closing, toast]);
     // The live layer — input, focus and the auto-close timers all read this one —
     // dropped it the moment `visible` went false.
-    expect(idsOf(collectLayer(root))).toEqual(["toast"]);
+    expect(idsOf(layerOf(root))).toEqual(["toast"]);
     // The painted one keeps it, still under the toast that was above it.
-    const painted = collectLayer(root, (n) => inLayout(n) || n === closing);
+    const painted = layerOf(root, (n) => inLayout(n) || n === closing);
     expect(idsOf(painted)).toEqual(["confirm", "toast"]);
   });
 });
 
 describe("topModal and focusScope", () => {
   it("is the highest MODAL, not the highest overlay", () => {
-    const layer = collectLayer(
+    const layer = layerOf(
       box([overlay({ id: "confirm" }), overlay({ id: "toast", modal: false, z: 10 })]),
     );
     expect(idsOf(layer)).toEqual(["confirm", "toast"]);
@@ -186,12 +224,12 @@ describe("topModal and focusScope", () => {
   });
 
   it("is the last modal opened when several are stacked", () => {
-    const layer = collectLayer(box([overlay({ id: "first" }), overlay({ id: "second" })]));
+    const layer = layerOf(box([overlay({ id: "first" }), overlay({ id: "second" })]));
     expect(topModal(layer)?.ir.id).toBe("second");
   });
 
   it("has no modal while only non-modal overlays are up", () => {
-    const layer = collectLayer(box([overlay({ id: "toast", modal: false })]));
+    const layer = layerOf(box([overlay({ id: "toast", modal: false })]));
     expect(topModal(layer)).toBeNull();
   });
 
@@ -199,10 +237,10 @@ describe("topModal and focusScope", () => {
     const modal = overlay({ id: "confirm" });
     const toast = overlay({ id: "toast", modal: false });
     const root = box([modal, toast]);
-    expect(focusScope(root, collectLayer(root))).toBe(modal);
+    expect(focusScope(root, layerOf(root))).toBe(modal);
 
     const loose = box([toast]);
-    expect(focusScope(loose, collectLayer(loose))).toBe(loose);
+    expect(focusScope(loose, layerOf(loose))).toBe(loose);
   });
 });
 
@@ -245,7 +283,7 @@ describe("autofocusIn", () => {
 
 describe("resolveHit", () => {
   const point = { x: 50, y: 50 };
-  const resolve = (root: LayoutNode) => resolveHit(root, collectLayer(root), point, () => 0);
+  const resolve = (root: LayoutNode) => resolveHit(root, layerOf(root), point, () => 0);
 
   it("goes to the tree while the layer is empty", () => {
     const buy = button("buy", VIEW);

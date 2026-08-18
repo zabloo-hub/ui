@@ -1,7 +1,7 @@
 import type { OverlayNode, ZNode } from "@zabloo/format";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLayoutNode, type LayoutNode, type Rect } from "../layout.js";
-import { collectLayer, focusScope } from "../overlay.js";
+import { collectLayer, focusScope, overlaysOf } from "../overlay.js";
 import type { ResolvedTransition } from "../transition.js";
 import { type OverlayHost, OverlayLayer } from "./layer.js";
 
@@ -60,6 +60,7 @@ function layerWith(anchors: Record<string, LayoutNode>): OverlayLayer {
   };
   return new OverlayLayer({
     root: unused("root"),
+    eachOverlay: unused("eachOverlay"),
     layer: () => [],
     focused: () => null,
     focusPending: unused("focusPending"),
@@ -102,6 +103,11 @@ function rig(root: LayoutNode): Rig {
 
   const host = {
     root: () => root,
+    // The view keeps this set as it builds and releases nodes (ZAB-73); a rig
+    // that holds a whole tree and nothing else re-derives it from the tree.
+    eachOverlay: (visit: (overlay: LayoutNode) => void) => {
+      for (const overlay of overlaysOf(root)) visit(overlay);
+    },
     layer: () => live(),
     focused: () => focused,
     focusPending: () => pending,
@@ -124,7 +130,7 @@ function rig(root: LayoutNode): Rig {
   };
 
   const layer = new OverlayLayer(host as unknown as OverlayHost);
-  const live = (): readonly LayoutNode[] => collectLayer(root, layer.layerPresent);
+  const live = (): readonly LayoutNode[] => collectLayer(overlaysOf(root), layer.layerPresent);
 
   return {
     layer,

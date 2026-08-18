@@ -24,17 +24,56 @@ import { readPath } from "@zabloo/format";
 
 export class DataStore {
   private readonly values = new Map<string, unknown>();
+  /**
+   * Keys written UNDER each ancestor path — the index that makes dropping
+   * descendants a lookup instead of a scan (ZAB-73).
+   *
+   * Without it every `setData` walked every key in the store to find the few
+   * that hang off the path being written, so a game pushing a value per frame
+   * paid for the whole store on each push. A key registers under each of its
+   * ancestor prefixes, which is a handful of entries (paths are short), and the
+   * write that drops it clears them with it.
+   */
+  private readonly descendants = new Map<string, Set<string>>();
 
   /**
    * Writes a value at `path`. Descendants are dropped: whatever was written
    * under this path described the value being replaced, not the new one.
    */
   set(path: string, value: unknown): void {
-    const prefix = `${path}.`;
-    for (const key of this.values.keys()) {
-      if (key.startsWith(prefix)) this.values.delete(key);
+    const under = this.descendants.get(path);
+    if (under) {
+      for (const key of under) this.forget(key);
+      this.descendants.delete(path);
     }
+    if (!this.values.has(path)) this.index(path);
     this.values.set(path, value);
+  }
+
+  /** Registers a key under every ancestor prefix, so a write above finds it. */
+  private index(key: string): void {
+    for (let cut = key.lastIndexOf("."); cut > 0; cut = key.lastIndexOf(".", cut - 1)) {
+      const ancestor = key.slice(0, cut);
+      let under = this.descendants.get(ancestor);
+      if (!under) {
+        under = new Set();
+        this.descendants.set(ancestor, under);
+      }
+      under.add(key);
+    }
+  }
+
+  /** Drops a key and every trace of it in the index. */
+  private forget(key: string): void {
+    this.values.delete(key);
+    this.descendants.delete(key);
+    for (let cut = key.lastIndexOf("."); cut > 0; cut = key.lastIndexOf(".", cut - 1)) {
+      const ancestor = key.slice(0, cut);
+      const under = this.descendants.get(ancestor);
+      if (!under) continue;
+      under.delete(key);
+      if (under.size === 0) this.descendants.delete(ancestor);
+    }
   }
 
   /**
@@ -58,6 +97,7 @@ export class DataStore {
 
   clear(): void {
     this.values.clear();
+    this.descendants.clear();
   }
 }
 

@@ -129,6 +129,14 @@ export interface GoldenView {
    */
   held(): { listeners: number; frames: number; timers: number };
   /**
+   * Moves the canvas on the page without resizing it, and tells the page it
+   * scrolled — the two halves of what happens when a container scrolls under a
+   * mounted view. The renderer caches where the canvas is (ZAB-73), so a test
+   * that moves it without the event is testing the STALE rect on purpose.
+   */
+  moveCanvas(left: number, top: number): void;
+  scrollPage(): void;
+  /**
    * Steps the clock `ms` forward and runs the frames the view scheduled for that
    * span — the only way time passes here, so a transition is measured at the
    * instant the test names instead of whenever the machine got around to it.
@@ -268,6 +276,8 @@ export async function mountGolden(
       const page = dom.held();
       return { ...page, listeners: page.listeners + canvas.listenerCount() };
     },
+    moveCanvas: (left, top) => canvas.moveTo(left, top),
+    scrollPage: () => dom.dispatch("scroll", {}),
     advance: (ms) => dom.advance(ms),
     // A resize to the same size: the view re-renders, which is all this asks for.
     settle: () => dom.dispatch("resize", {}),
@@ -356,6 +366,9 @@ class FakeCanvas extends FakeTarget {
   clientWidth: number;
   clientHeight: number;
   readonly parentElement = null;
+  /** Where the canvas sits on the page — moved by `moveTo` (ZAB-73). */
+  private left = 0;
+  private top = 0;
   private readonly gl = new FakeGl();
   private readonly ctx2d = new FakeContext2D();
 
@@ -396,7 +409,13 @@ class FakeCanvas extends FakeTarget {
   }
 
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
-    return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight };
+    return { left: this.left, top: this.top, width: this.clientWidth, height: this.clientHeight };
+  }
+
+  /** Puts the canvas somewhere else on the page — a scroll, or a layout change. */
+  moveTo(left: number, top: number): void {
+    this.left = left;
+    this.top = top;
   }
 
   setPointerCapture(): void {}

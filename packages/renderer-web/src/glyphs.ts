@@ -391,6 +391,8 @@ const MAX_ATLASES = 8;
 /** One atlas per requested point size (same shape as the SDK's FontLibrary). */
 export class FontLibrary {
   private readonly atlases = new Map<number, GlyphAtlas>();
+  /** Point size at the newest end of the LRU — the fast path of `get` (ZAB-73). */
+  private newest: number | null = null;
 
   constructor(
     private readonly scale: number,
@@ -400,15 +402,25 @@ export class FontLibrary {
   ) {}
 
   get(pointSize: number): GlyphAtlas {
+    // Already the newest: map order IS the recency order, so re-inserting the
+    // last entry would move nothing and churn the map. A frame asks for the same
+    // size once per text node — the whole scene at one point size is the normal
+    // case — so this is the answer almost every time (ZAB-73).
+    if (pointSize === this.newest) {
+      const current = this.atlases.get(pointSize);
+      if (current) return current;
+    }
     let atlas = this.atlases.get(pointSize);
     if (atlas) {
       // Map order is the recency order: re-inserting marks it just used.
       this.atlases.delete(pointSize);
       this.atlases.set(pointSize, atlas);
+      this.newest = pointSize;
       return atlas;
     }
     atlas = new GlyphAtlas(pointSize, this.scale, this.font);
     this.atlases.set(pointSize, atlas);
+    this.newest = pointSize;
     if (this.atlases.size > MAX_ATLASES) {
       const [oldestSize, oldest] = this.atlases.entries().next().value as [number, GlyphAtlas];
       this.atlases.delete(oldestSize);
@@ -447,5 +459,6 @@ export class FontLibrary {
   dispose(): void {
     for (const atlas of this.atlases.values()) atlas.dispose();
     this.atlases.clear();
+    this.newest = null;
   }
 }

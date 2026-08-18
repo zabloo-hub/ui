@@ -30,6 +30,12 @@ import { createNodeAnim, type NodeAnim, type ResolvedTransition } from "../trans
 export interface OverlayHost {
   /** The root of the built tree — every Overlay hangs somewhere under it. */
   root(): LayoutNode;
+  /**
+   * Every Overlay of the view, hidden ones included — the view keeps the set as
+   * it builds and releases nodes (ZAB-73), so the layer never walks the tree to
+   * find three panels in it.
+   */
+  eachOverlay(visit: (overlay: LayoutNode) => void): void;
   /** The live layer, as the last render collected it. */
   layer(): readonly LayoutNode[];
   /** The node that owns the keyboard, if any. */
@@ -215,7 +221,7 @@ export class OverlayLayer {
     this.presence.clear();
     this.exiting.clear();
     const layer = this.host.layer();
-    this.eachOverlay(this.host.root(), (overlay) => {
+    this.host.eachOverlay((overlay) => {
       let anim = this.anims.get(overlay);
       if (!anim) {
         anim = createNodeAnim();
@@ -233,12 +239,6 @@ export class OverlayLayer {
       // those reads the live layer, which it already left.
       if (!live && stepped.value > 0) this.exiting.add(overlay);
     });
-  }
-
-  /** Every Overlay of the tree, hidden ones included — presence is tracked for all. */
-  private eachOverlay(node: LayoutNode, visit: (overlay: LayoutNode) => void): void {
-    if (node.ir.type === "Overlay") visit(node);
-    for (const child of node.children) this.eachOverlay(child, visit);
   }
 
   // --- anchoring (decision 2026-08-11, ZAB-46) ---
@@ -304,7 +304,7 @@ export class OverlayLayer {
     const id = (anchor.ir as { id?: string }).id;
     if (id === undefined) return [];
     const found: LayoutNode[] = [];
-    this.eachOverlay(this.host.root(), (overlay) => {
+    this.host.eachOverlay((overlay) => {
       const spec = anchorSpec(overlay);
       if (spec?.trigger === "press" && spec.id === id) found.push(overlay);
     });

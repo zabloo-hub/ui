@@ -76,6 +76,16 @@ export class PointerHandler {
   private textDrag: LayoutNode | null = null;
   /** Overlay whose backdrop took the pointer down, pending a release on it. */
   private backdropPress: LayoutNode | null = null;
+  /**
+   * Where the canvas sits on the page, cached (ZAB-73). `getBoundingClientRect`
+   * flushes pending layout, and `eventPoint` was calling it up to twice per
+   * `pointermove` — a hover and a drag both resolve a point — so dragging a
+   * Slider forced the browser's layout a hundred times a second.
+   *
+   * What can move it under us is a scroll or a resize, and both are listened for
+   * below; the view invalidates it too when its own canvas is resized.
+   */
+  private bounds: { left: number; top: number } | null = null;
 
   constructor(
     private readonly host: PointerHost,
@@ -322,6 +332,16 @@ export class PointerHandler {
     canvas.addEventListener("pointercancel", this.cancel);
     canvas.addEventListener("pointerleave", leave);
     canvas.addEventListener("wheel", wheel, { passive: false });
+    // The two things that move the canvas without touching it: the page scrolling
+    // under it and the window resizing. Captured, so a scroll inside any
+    // container on the way up counts, and passive — this only drops a cache.
+    const invalidate = this.invalidateBounds;
+    globalThis.addEventListener?.("scroll", invalidate, { capture: true, passive: true });
+    globalThis.addEventListener?.("resize", invalidate, { passive: true });
+    this.host.addDisposer(() => {
+      globalThis.removeEventListener?.("scroll", invalidate, { capture: true });
+      globalThis.removeEventListener?.("resize", invalidate);
+    });
     this.host.addDisposer(() => {
       canvas.removeEventListener("pointerdown", down);
       canvas.removeEventListener("pointermove", move);
@@ -359,8 +379,18 @@ export class PointerHandler {
     if (slider) this.host.commitSlider(slider);
   };
 
+  /** The cached canvas rect is stale: a scroll, a resize, a new canvas size. */
+  invalidateBounds = (): void => {
+    this.bounds = null;
+  };
+
   private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
-    const bounds = this.host.canvas.getBoundingClientRect();
+    let bounds = this.bounds;
+    if (bounds === null) {
+      const rect = this.host.canvas.getBoundingClientRect();
+      bounds = { left: rect.left, top: rect.top };
+      this.bounds = bounds;
+    }
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 

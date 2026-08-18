@@ -2,6 +2,7 @@ import type { OverlayNode, ZNode } from "@zabloo/format";
 import { describe, expect, it, vi } from "vitest";
 import { FieldEditor, type FieldHost } from "../controls/field.js";
 import { createLayoutNode, type LayoutNode, type Rect } from "../layout.js";
+import { overlaysOf } from "../overlay.js";
 import { type OverlayHost, OverlayLayer } from "../overlays/layer.js";
 import type { TextMetrics } from "../text.js";
 import { caretAt } from "../textinput.js";
@@ -151,6 +152,11 @@ function rig(root: LayoutNode, layer: readonly LayoutNode[] = []): Rig {
 
   const overlays = new OverlayLayer({
     root: () => root,
+    // The registry the view keeps as it builds (ZAB-73), re-derived here from
+    // the tree this rig holds.
+    eachOverlay: (visit) => {
+      for (const overlay of overlaysOf(root)) visit(overlay);
+    },
     layer: () => layer,
     focused: () => null,
     focusPending: () => false,

@@ -17,11 +17,12 @@ import type { LayoutNode, Rect } from "../layout.js";
 import type { Point } from "../overlay.js";
 import type { TextMetrics } from "../text.js";
 import {
-  caretX,
+  caretXOf,
+  chars,
   clampSelection,
   codePointIndex,
   type Edit,
-  indexAtX,
+  indexAtXOf,
   insert,
   length,
   remove,
@@ -105,7 +106,26 @@ export class FieldEditor {
   /** The buffer and the state derived from it — `empty` is what styles the placeholder. */
   setNodeText(node: LayoutNode, text: string): void {
     node.text = text;
+    // The split is a function of the buffer, so it dies with it (ZAB-73).
+    node.textChars = null;
     node.empty = text.length === 0;
+  }
+
+  /**
+   * The field's buffer in code points, split once per edit (ZAB-73).
+   *
+   * The caret, the highlight and the field's own scroll each need the same
+   * split, several times per frame, and `Array.from` over the buffer for every
+   * one of them was six to eight arrays a frame for a string nobody had touched.
+   * Public because paint asks the same question the editor does.
+   */
+  charsOf(node: LayoutNode): readonly string[] {
+    let glyphs = node.textChars;
+    if (glyphs === null) {
+      glyphs = chars(node.text);
+      node.textChars = glyphs;
+    }
+    return glyphs;
   }
 
   /**
@@ -142,7 +162,11 @@ export class FieldEditor {
   /** The caret index a point selects, in the field's own content coordinates. */
   textIndexAt(node: LayoutNode, point: Point): number {
     const box = this.host.contentBox(node);
-    return indexAtX(node.text, point.x - box.x + node.textScroll, this.host.metrics(node));
+    return indexAtXOf(
+      this.charsOf(node),
+      point.x - box.x + node.textScroll,
+      this.host.metrics(node),
+    );
   }
 
   /**
@@ -153,11 +177,12 @@ export class FieldEditor {
   syncTextScroll(node: LayoutNode): void {
     const metrics = this.host.metrics(node);
     const box = this.host.contentBox(node);
+    const glyphs = this.charsOf(node);
     node.textScroll = scrollFor(
       node.textScroll,
-      caretX(node.text, node.selection.focus, metrics),
+      caretXOf(glyphs, node.selection.focus, metrics),
       box.width,
-      caretX(node.text, length(node.text), metrics),
+      caretXOf(glyphs, glyphs.length, metrics),
       CARET.width,
     );
   }
