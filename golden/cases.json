@@ -98,5 +98,37 @@
       "settings.volume": 0.8,
       "profile.name": "Sergi"
     }
+  },
+  "unknown-type": {
+    "envelope": "unknown-type.json",
+    "about": "The normative degradation of an UNKNOWN node type: rendered as a Container preserving layout, style, visible, disabled and children — including one the data hides (out of layout, still addressable) and one whose disabled the control inside it inherits.",
+    "data": { "ui.holoOpen": false }
+  },
+  "gamepad-nav": {
+    "envelope": "gamepad-nav.json",
+    "about": "Spatial navigation and scrolling driven by a pad: the d-pad walks the menu, crosses into the list, and the right stick scrolls the list the focus lives in.",
+    "pad": [
+      { "press": 13 },
+      { "advanceMs": 16 },
+      { "release": 13 },
+      { "advanceMs": 16 },
+      { "press": 15 },
+      { "advanceMs": 16 },
+      { "release": 15 },
+      { "advanceMs": 16 },
+      { "press": 13 },
+      { "advanceMs": 16 },
+      { "release": 13 },
+      { "advanceMs": 16 },
+      { "axis": 3, "value": 1 },
+      { "advanceMs": 100 },
+      { "axis": 3, "value": 0 },
+      { "advanceMs": 16 }
+    ]
+  },
+  "future-major": {
+    "envelope": "future-major.json",
+    "about": "The one forward-tolerance rule that is a refusal, not a degradation: an incompatible major version is rejected with `unsupported-version` and nothing renders.",
+    "refuses": { "code": "unsupported-version" }
   }
 }

@@ -1,0 +1,128 @@
+{
+  "v": 1,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.panel": "#1e293b",
+    "color.text": "#e2e8f0",
+    "color.dim": "#64748b",
+    "color.accent": "#4f46e5",
+    "space.2": 8,
+    "radius.md": 6
+  },
+  "views": {
+    "unknown-type": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "align": "start",
+        "padding": "{space.2}",
+        "gap": "{space.2}"
+      },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Container",
+          "id": "row",
+          "layout": { "direction": "row", "align": "center", "gap": "{space.2}" },
+          "children": [
+            {
+              "type": "Text",
+              "id": "before",
+              "text": "antes",
+              "style": { "color": "{color.dim}" }
+            },
+            {
+              "type": "Carousel3D",
+              "id": "carousel",
+              "spin": true,
+              "layout": {
+                "direction": "column",
+                "align": "start",
+                "gap": "{space.2}",
+                "padding": "{space.2}",
+                "width": 180
+              },
+              "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "carousel-title",
+                  "text": "Un tipo que este SDK no conoce",
+                  "layout": { "width": 164, "wrap": true },
+                  "style": { "color": "{color.text}" }
+                },
+                {
+                  "type": "Button",
+                  "id": "carousel-action",
+                  "onPress": "carousel.next",
+                  "layout": { "width": 100, "height": 28, "justify": "center", "align": "center" },
+                  "style": { "background": "{color.accent}", "radius": "{radius.md}" },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "carousel-action-label",
+                      "text": "Siguiente",
+                      "style": { "color": "{color.text}" }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Text",
+              "id": "after",
+              "text": "después",
+              "style": { "color": "{color.dim}" }
+            }
+          ]
+        },
+        {
+          "type": "HoloPanel",
+          "id": "hidden-unknown",
+          "visible": { "bind": "ui.holoOpen" },
+          "layout": { "width": 200, "height": 40 },
+          "style": { "background": "#7c2d12" },
+          "children": [
+            {
+              "type": "Text",
+              "id": "hidden-unknown-label",
+              "text": "fuera de layout",
+              "style": { "color": "{color.text}" }
+            }
+          ]
+        },
+        {
+          "type": "HapticGroup",
+          "id": "disabled-unknown",
+          "disabled": true,
+          "layout": {
+            "direction": "row",
+            "align": "center",
+            "gap": "{space.2}",
+            "padding": "{space.2}",
+            "width": 220
+          },
+          "style": { "background": "{color.panel}", "radius": "{radius.md}" },
+          "states": { "disabled": { "style": { "opacity": 0.4 } } },
+          "children": [
+            {
+              "type": "Text",
+              "id": "disabled-unknown-label",
+              "text": "Vibración",
+              "style": { "color": "{color.text}" }
+            },
+            {
+              "type": "Toggle",
+              "id": "disabled-unknown-toggle",
+              "checked": true,
+              "layout": { "width": 44, "height": 24 },
+              "style": { "background": "{color.dim}", "radius": "{radius.md}" },
+              "states": { "checked": { "style": { "background": "{color.accent}" } } }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "v": 2,
+  "tokens": {
+    "color.bg": "#101218",
+    "color.text": "#e2e8f0",
+    "space.2": 8
+  },
+  "views": {
+    "future-major": {
+      "type": "Container",
+      "id": "root",
+      "layout": { "direction": "column", "align": "start", "padding": "{space.2}" },
+      "style": { "background": "{color.bg}" },
+      "children": [
+        {
+          "type": "Text",
+          "id": "headline",
+          "text": "Contenido de una versión mayor futura",
+          "style": { "color": "{color.text}" }
+        }
+      ]
+    }
+  }
+}

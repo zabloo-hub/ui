@@ -16,7 +16,7 @@
 
 import { Session } from "node:inspector";
 import { describe, expect, it } from "vitest";
-import { mountCase, readCorpus } from "./golden.js";
+import { metricCases, mountCase, readCorpus } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode } from "./snapshot.js";
 
@@ -242,7 +242,7 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
   });
 
   it("draw calls and atlas cost per golden scene", async () => {
-    for (const [name, golden] of Object.entries(readCorpus())) {
+    for (const [name, golden] of metricCases(readCorpus())) {
       const view = await mountCase(golden);
       console.log(`[bench] ${name}: ${JSON.stringify(view.handle.stats())}`);
       view.dispose();

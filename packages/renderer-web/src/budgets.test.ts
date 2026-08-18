@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { mountCase, readCorpus } from "./golden.js";
+import { metricCases, mountCase, readCorpus } from "./golden.js";
 
 const BUDGET = {
   /** Solids + one per atlas/image per clip group, and each overlay opens a paint root. */
@@ -26,7 +26,8 @@ const BUDGET = {
 };
 
 describe("performance budgets per golden scene (ZAB-55)", () => {
-  for (const [name, golden] of Object.entries(readCorpus())) {
+  // Refusal cases have no frame to budget: nothing renders, by definition.
+  for (const [name, golden] of metricCases(readCorpus())) {
     it(`${name} stays inside the web budgets`, async () => {
       const view = await mountCase(golden);
       const stats = view.handle.stats();

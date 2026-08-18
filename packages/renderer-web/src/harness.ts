@@ -119,6 +119,16 @@ export interface GoldenView {
   /** Draw calls submitted to the fake GL since mount — a repaint bumps it. */
   drawCalls(): number;
   /**
+   * What this view still holds on the page: listeners on the window, the canvas
+   * and the hidden field, plus the frames and timers it has scheduled. A
+   * disposed view must hold NOTHING — that is the whole of "the dev loop can
+   * mount and dispose all afternoon" (ZAB-74).
+   *
+   * On a shared page (`GoldenOptions.share`) the window's half is the page's, so
+   * the number covers every view on it; the canvas's half is this view's alone.
+   */
+  held(): { listeners: number; frames: number; timers: number };
+  /**
    * Steps the clock `ms` forward and runs the frames the view scheduled for that
    * span — the only way time passes here, so a transition is measured at the
    * instant the test names instead of whenever the machine got around to it.
@@ -197,12 +207,22 @@ export async function mountGolden(
 
   const actions: FiredAction[] = [];
   const writes: DataWrite[] = [];
-  const handle = mount(canvas as unknown as HTMLCanvasElement, envelope, {
-    view: options.view,
-    onAction: (action, context) => actions.push(context ? { action, context } : { action }),
-    onDataChanged: (path, value) => writes.push({ path, value }),
-    ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
-  });
+  let handle: ZablooHandle;
+  try {
+    handle = mount(canvas as unknown as HTMLCanvasElement, envelope, {
+      view: options.view,
+      onAction: (action, context) => actions.push(context ? { action, context } : { action }),
+      onDataChanged: (path, value) => writes.push({ path, value }),
+      ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
+    });
+  } catch (error) {
+    // A payload the loader REFUSES never becomes a view, so there is no handle
+    // to dispose and nobody to take the page down (ZAB-74). Left installed, the
+    // stand-in `document` and the hijacked console would outlive this call and
+    // land on whatever test ran next.
+    if (shared === null) dom.uninstall();
+    throw error;
+  }
 
   // The first frames measured text with the browser's rasterizer; from here on
   // they are measured with ours, which is the one the corpus is a record of.
@@ -244,6 +264,10 @@ export async function mountGolden(
     loseContext: () => canvas.loseContext(),
     restoreContext: () => canvas.restoreContext(),
     drawCalls: () => canvas.drawCalls,
+    held: () => {
+      const page = dom.held();
+      return { ...page, listeners: page.listeners + canvas.listenerCount() };
+    },
     advance: (ms) => dom.advance(ms),
     // A resize to the same size: the view re-renders, which is all this asks for.
     settle: () => dom.dispatch("resize", {}),
@@ -311,6 +335,13 @@ class FakeTarget {
     // A copy: a handler that removes itself (the disposers do) must not mutate
     // the set being iterated.
     for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);
+  }
+
+  /** How many listeners are hooked up — what a leak shows up as (ZAB-74). */
+  listenerCount(): number {
+    let total = 0;
+    for (const set of this.listeners.values()) total += set.size;
+    return total;
   }
 }
 
@@ -580,6 +611,21 @@ class FakeDom {
     };
     console.error = (...args: unknown[]) => {
       this.warnings.push(args.map(String).join(" "));
+    };
+  }
+
+  /**
+   * Everything the mounted views still hold on this page: window listeners, the
+   * hidden field's, and the frames and timers they have scheduled. A `dispose`
+   * that leaves any of them behind is the leak the dev loop accumulates one
+   * reload at a time (ZAB-74) — the canvas's own listeners are counted by the
+   * caller, which is the one holding it.
+   */
+  held(): { listeners: number; frames: number; timers: number } {
+    return {
+      listeners: this.window.listenerCount() + (this.editor?.listenerCount() ?? 0),
+      frames: this.frames.length,
+      timers: this.timers.length,
     };
   }
 
