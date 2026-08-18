@@ -143,22 +143,12 @@ The game drives the UI through the SDK's API, not through the format. It is the 
 of the actions coming the other way, and it is deliberately **not** in the IR: these are
 runtime operations, and the document has no place to put them.
 
-| Operation | What it does |
-|---|---|
-| `SetData(path, value)` | Writes into the data store. Every binding reading that path updates, and the layout re-runs where it must. |
-| `SetOpen(id, open)` | Opens or closes a `Collapse`. |
-| `SetSelectedTab(id, index)` | Selects a tab of an `"exclusive-select"` group. |
-| `SetChecked(id, checked)` | Sets a `Toggle`. |
-| `SetValue(id, value)` | Moves a `Slider` — exactly the gesture the player would have made, hooks included. |
-| `SetText(id, text)` | Writes a `TextInput`'s text, as if it had been typed. |
-| `SetScroll(id, x, y)` | Moves a `ScrollView`'s offset. |
+Seven operations go in — `SetData`, `SetOpen`, `SetSelectedTab`, `SetChecked`, `SetValue`,
+`SetText`, `SetScroll` — and three callbacks come back: named actions (with the action
+context, when there is one), data changed by the UI, and the loading diagnostics. Each SDK
+exposes them in its own idiom — a C# method, a signal, a JS method on the view handle — so
+the spelling follows the engine's conventions while the operations, their arguments and
+their effects are the same everywhere.
 
-And in the other direction, two callbacks: one for **named actions** (with the action
-context, when there is one) and one for **data changed by the UI** (`path`, `value`).
-
-Each SDK exposes these in its own idiom — a C# method, a signal, a JS method on the view
-handle — so the exact spelling follows the engine's conventions. The operations, their
-arguments and their effects are the same everywhere.
-
-Writes through `SetData` are **cached and replayed**: data pushed before a view is mounted,
-or before a bound node exists, applies as soon as it does.
+→ **[The host channel](host-channel.md)** — the whole contract, with the web target's
+signatures.
