@@ -96,6 +96,22 @@ since that would pay the cost twice.
 
 Warnings are emitted **once, at load**, not per frame.
 
+## Running the contract yourself
+
+`zabloo validate [file]` applies exactly this policy to an envelope on disk and reports it
+as an exit code: `0` when an SDK would load it, `1` on a fatal, and `--strict` to fail on
+the repaired warnings too. `--json` gives the diagnostics as values — `level`, `code`,
+`path`, `message` — so a CI step can annotate the diff instead of printing a line.
+
+```bash
+npx zabloo validate --strict
+```
+
+The envelope is a payload delivered to live games and hot-updated into them, so this is
+the check worth running at the pull request rather than at the player. See the
+[CLI README](https://github.com/zabloo-hub/ui/tree/main/packages/cli#readme) for a
+workflow that does it.
+
 ## Forward-tolerance (normative)
 
 What an SDK does with content built for a newer version of the format:

@@ -343,8 +343,20 @@ if (!quick) {
     expect(existsSync(join(app, ".gitignore")), "the template's gitignore survives packing");
     expect(existsSync(join(app, "src", "assets", "logo.png")), "template assets survive packing");
 
-    // The scaffold asks the registry for ^0.1.0; point it at the tarballs.
+    // What the scaffold WROTE, before we point it at the tarballs. This is the one
+    // place the range is visible: `smoke-external` overwrites it with `file:` paths
+    // and never sees it, which is how a hardcoded `^0.1.0` could have survived a
+    // version bump and pinned every new user to a range nobody updated (ZAB-78).
     const appPkg = JSON.parse(readFileSync(join(app, "package.json"), "utf8"));
+    const scaffolded = { ...appPkg.dependencies, ...appPkg.devDependencies };
+    for (const dir of ["react", "cli"]) {
+      const { name, version } = workspace.find((entry) => entry.dir === dir).pkg;
+      expect(
+        scaffolded[name] === `^${version}`,
+        `create-zabloo-app scaffolds ${name}@^${version} (wrote ${scaffolded[name]})`,
+      );
+    }
+
     appPkg.overrides = overrides;
     for (const [name, spec] of Object.entries(overrides)) {
       if (appPkg.dependencies?.[name]) appPkg.dependencies[name] = spec;

@@ -42,8 +42,64 @@ export interface PreviewServer {
   close(): Promise<void>;
 }
 
-export async function startPreviewServer(port: number): Promise<PreviewServer> {
+export interface PreviewOptions {
+  /**
+   * Extra hostnames the preview answers to, beyond the loopback names. Needed
+   * whenever something in front of the server rewrites `Host` — a Codespace, an
+   * SSH tunnel with a name, `ngrok`. `"*"` turns the guard off entirely.
+   */
+  allowedHosts?: readonly string[];
+}
+
+/**
+ * The names a request may address the preview by. A browser sends the hostname the
+ * PAGE was loaded from, so an attacker page on `evil.example` whose DNS points at
+ * 127.0.0.1 arrives with `Host: evil.example` — and reads the envelope of whatever
+ * a developer had running (DNS rebinding). This is the residual hole Vite closed
+ * with `allowedHosts` (ZAB-78); binding to loopback does not close it, because the
+ * victim's own browser is inside the loopback.
+ */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
+
+/**
+ * The hostname out of a `Host` header, port dropped. `[::1]:5078` keeps its
+ * brackets — that IS the hostname in a URL authority.
+ */
+export function hostnameOf(header: string): string {
+  const trimmed = header.trim().toLowerCase();
+  if (trimmed.startsWith("[")) return trimmed.slice(0, trimmed.indexOf("]") + 1);
+  const colon = trimmed.indexOf(":");
+  return colon === -1 ? trimmed : trimmed.slice(0, colon);
+}
+
+/**
+ * Whether a request addressed to `header` may be served.
+ *
+ * A request with NO `Host` at all is allowed: rebinding works by a browser sending
+ * an attacker's hostname, and every browser sends one, so a missing header is a
+ * script talking to localhost on purpose — not the attack this guard is for.
+ */
+export function hostAllowed(header: string | undefined, allowed: readonly string[]): boolean {
+  if (header === undefined) return true;
+  if (allowed.includes("*")) return true;
+  const hostname = hostnameOf(header);
+  return LOOPBACK_HOSTS.has(hostname) || allowed.some((name) => name.toLowerCase() === hostname);
+}
+
+/**
+ * How often a comment frame is pushed down an idle SSE stream. On localhost it
+ * changes nothing; through any proxy — a Codespace, a tunnel, a corporate box —
+ * an idle connection is dropped after a minute or so and the page silently stops
+ * live-reloading, with the status dot still green (ZAB-78).
+ */
+const PING_MS = 25_000;
+
+export async function startPreviewServer(
+  port: number,
+  options: PreviewOptions = {},
+): Promise<PreviewServer> {
   const clients = new Set<ServerResponse>();
+  const allowedHosts = [...(options.allowedHosts ?? [])];
   const require = createRequire(import.meta.url);
   let thin: string | null = null;
   let blobs = new Map<string, AssetBlob>();
@@ -52,6 +108,15 @@ export async function startPreviewServer(port: number): Promise<PreviewServer> {
 
   const handler: RequestListener = async (req, res) => {
     const url = req.url ?? "/";
+    if (!hostAllowed(req.headers.host, allowedHosts)) {
+      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      res.end(
+        `zabloo preview refuses requests for host "${req.headers.host}" — ` +
+          "it answers to localhost only. Behind a proxy or a Codespace, pass " +
+          "--allow-host <host>.\n",
+      );
+      return;
+    }
     if (url === "/" || url.startsWith("/?")) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(PAGE);
@@ -106,6 +171,14 @@ export async function startPreviewServer(port: number): Promise<PreviewServer> {
   };
 
   const { server, port: boundPort } = await listen(handler, port);
+  // `unref` so the ping never becomes the reason the process stays alive: `dev`
+  // is kept up by the watcher, and a test that closes the server must be able to
+  // let the event loop drain.
+  const ping = setInterval(() => {
+    for (const client of clients) client.write(": ping\n\n");
+  }, PING_MS);
+  ping.unref();
+
   // Only runtime failures reach here: binding is over, and an unhandled `error`
   // event on the server would take the whole dev loop down with it.
   server.on("error", (error: NodeJS.ErrnoException) => {
@@ -128,6 +201,7 @@ export async function startPreviewServer(port: number): Promise<PreviewServer> {
       for (const client of clients) client.write(frame({ kind: "error", message }));
     },
     close() {
+      clearInterval(ping);
       for (const client of clients) client.end();
       clients.clear();
       return new Promise((resolve) => server.close(() => resolve()));
@@ -232,12 +306,27 @@ async function previewClientPath(): Promise<string> {
  */
 export const PREVIEW_BODY = /* html */ `<header>
   <b>zabloo</b> preview
-  <select id="views"></select>
+  <select id="views" title="view"></select>
+  <select id="viewport" title="the size the UI is laid out at, independent of the window">
+    <option value="fit">fit window</option>
+    <option value="1920x1080">1920×1080</option>
+    <option value="1280x720">1280×720</option>
+    <option value="custom">custom…</option>
+  </select>
+  <input id="custom" class="off" size="9" placeholder="1600x900" title="width x height, in logical pixels">
+  <select id="dpr" title="device pixel ratio the view rasterizes at (remounts)">
+    <option value="auto">dpr auto</option>
+    <option value="1">dpr 1</option>
+    <option value="2">dpr 2</option>
+    <option value="3">dpr 3</option>
+  </select>
   <span id="status" title="live connection"></span>
   <span id="pad" class="off" title="d-pad/stick: focus · A: press · B: back · right stick: scroll">🎮 gamepad</span>
-  <span id="hint">console: <code>zabloo.setData("player.gold", 900)</code></span>
+  <button id="stats-toggle" type="button" title="what the last painted frame cost">stats</button>
+  <span id="hint" title="zabloo.setData(path, value) · setChecked(id, on) · setValue(id, n) · setText(id, s) · setOpen(id, open) · setSelectedTab(id, i) · setScroll(id, x, y) · snapshot() · stats() · reload(json)">console: <code>zabloo.setData(…)</code>, <code>setValue</code>, <code>setText</code>, <code>snapshot()</code>…</span>
 </header>
-<canvas id="canvas"></canvas>
+<div id="stage"><canvas id="canvas"></canvas></div>
+<div id="stats" class="empty"></div>
 <pre id="error" class="empty"></pre>
 <div id="log"></div>
 <div id="data" class="empty"><h3>data bindings</h3><div id="fields"></div></div>`;
@@ -264,9 +353,32 @@ const PAGE = /* html */ `<!doctype html>
   #status.err { background: #f87171; }
   #pad { color: #818cf8; letter-spacing: .04em; }
   #pad.off { display: none; }
-  #hint { margin-left: auto; color: #6b7280; }
-  canvas { flex: 1; width: 100%; display: block; }
-  #log { position: fixed; left: 12px; bottom: 12px; max-height: 30%; overflow: auto;
+  button { background: #1f2430; color: inherit; border: 1px solid #2f3446;
+           border-radius: 6px; padding: 3px 8px; font: inherit; cursor: pointer; }
+  button.on { background: #312e81; border-color: #4f46e5; color: #c7d2fe; }
+  input { background: #1f2430; color: inherit; border: 1px solid #2f3446;
+          border-radius: 6px; padding: 3px 8px; font: inherit; }
+  input.off { display: none; }
+  #hint { margin-left: auto; color: #6b7280; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; }
+  #hint code { color: #9aa4b2; }
+  /* The stage owns the free space; the canvas owns the VIEWPORT. In "fit" they
+     are the same thing. Under a preset the canvas keeps its declared pixel size —
+     which is what the renderer lays out against, since clientWidth is layout and
+     not paint — and only a CSS transform shrinks it to what fits on screen. */
+  #stage { flex: 1; min-height: 0; display: flex; align-items: center;
+           justify-content: center; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #stage.framed canvas { flex: none; width: auto; height: auto;
+                         outline: 1px solid #2f3446; transform-origin: center center; }
+  /* Bottom LEFT, under the action log: the right column belongs to the data
+     panel, which is as tall as the view has bindings. */
+  #stats { position: fixed; left: 12px; bottom: 12px; background: #14161fd9;
+           border: 1px solid #232633; border-radius: 8px; padding: 6px 10px; color: #9aa4b2;
+           font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre;
+           pointer-events: none; }
+  #stats.empty { display: none; }
+  #log { position: fixed; left: 12px; bottom: 46px; max-height: 30%; overflow: auto;
          display: flex; flex-direction: column-reverse; gap: 2px; pointer-events: none; }
   #log div { background: #14161fd9; border: 1px solid #232633; border-radius: 6px;
              padding: 3px 10px; color: #4ade80; }
@@ -276,8 +388,12 @@ const PAGE = /* html */ `<!doctype html>
            border-radius: 8px; padding: 12px 14px; color: #fecaca;
            font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
   #error.empty { display: none; }
-  #data { position: fixed; right: 12px; top: 48px; width: 230px; background: #14161fd9;
-          border: 1px solid #232633; border-radius: 8px; padding: 10px; }
+  /* Bounded to the viewport and scrolled inside it: a view with a dozen bindings
+     used to run its last fields off the bottom of the page, where nothing could
+     reach them. */
+  #data { position: fixed; right: 12px; top: 48px; bottom: 12px; width: 230px;
+          overflow: auto; background: #14161fd9; border: 1px solid #232633;
+          border-radius: 8px; padding: 10px; }
   #data h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
              color: #6b7280; margin-bottom: 8px; }
   #data label { display: block; color: #9aa4b2; margin: 6px 0 2px; font-size: 12px; }

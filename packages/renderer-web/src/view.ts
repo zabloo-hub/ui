@@ -279,6 +279,33 @@ export interface MountOptions {
   onDiagnostic?: (diagnostic: Diagnostic) => void;
   /** Canvas clear color (CSS hex). */
   background?: string;
+  /**
+   * Device pixel ratio to render at, instead of the browser's own (ZAB-78).
+   *
+   * The renderer reads `globalThis.devicePixelRatio` everywhere it turns logical
+   * pixels into device ones — the canvas backing store, the glyph atlas scale, the
+   * pixel grid glyph quads snap to — so a host that wants to see a UI as another
+   * screen would show it has to override all of them at once, or see a mix. This
+   * is that one knob: the preview's DPR selector, and the golden harness's fixed
+   * ratio, are the same need.
+   *
+   * Changing it means rebuilding the glyph atlases, so it is fixed for the life of
+   * the mount: a host that offers it as a control remounts.
+   */
+  dpr?: number;
+  /**
+   * Fires once per frame actually PAINTED, with what that frame cost (ZAB-78).
+   *
+   * `stats()` answers "what did the last frame cost"; a host cannot poll it into a
+   * frame RATE, because the renderer paints on demand — a still scene paints
+   * nothing at all, and the caller's own `requestAnimationFrame` would measure the
+   * page, not the renderer. Only the renderer knows when it drew, so only the
+   * renderer can say how often.
+   *
+   * `ms` is the time inside tessellate + submit, which is the work this callback's
+   * reader can act on; it excludes the GPU's own asynchronous execution.
+   */
+  onFrame?: (stats: FrameStats & { ms: number }) => void;
 }
 
 /**
@@ -397,6 +424,9 @@ class WebView implements InputView {
   private readonly fonts: FontLibrary;
   private readonly images: ImageLibrary;
   private readonly clearColor: Color;
+  /** Device pixels per logical pixel — `MountOptions.dpr`, or the browser's. */
+  private readonly dpr: number;
+  private readonly onFrame?: (stats: FrameStats & { ms: number }) => void;
   private readonly onAction?: (action: string, context?: ActionContext) => void;
   private readonly onDataChanged?: (path: string, value: unknown) => void;
   private readonly onDiagnostic?: (diagnostic: Diagnostic) => void;
@@ -529,6 +559,10 @@ class WebView implements InputView {
     this.onAction = options.onAction;
     this.onDataChanged = options.onDataChanged;
     this.onDiagnostic = options.onDiagnostic;
+    this.onFrame = options.onFrame;
+    // Read once and kept: the atlases are rasterized at this scale, so a value
+    // that changed under the view would leave every cached glyph at the old one.
+    this.dpr = options.dpr ?? globalThis.devicePixelRatio ?? 1;
     this.clearColor = this.parseColor(options.background ?? "#101218") ?? [0.06, 0.07, 0.09, 1];
     // A restored context comes back empty and blank: the repaint is what puts
     // the view back on screen (ZAB-68). The GL layer rebuilds its own resources
@@ -536,9 +570,7 @@ class WebView implements InputView {
     this.gl = new GLRenderer(canvas, () => this.render());
     // The LRU eviction releases the dropped atlas's GPU texture (ZAB-55) — the
     // same contract `adopt` already has for the fallback-era atlases.
-    this.fonts = new FontLibrary(globalThis.devicePixelRatio ?? 1, null, (atlas) =>
-      this.gl.evict(atlas),
-    );
+    this.fonts = new FontLibrary(this.dpr, null, (atlas) => this.gl.evict(atlas));
     this.images = new ImageLibrary(envelope.assets ?? {}, {
       // Decoding is async: repaint when a bitmap lands.
       onReady: () => this.render(),
@@ -2556,9 +2588,10 @@ class WebView implements InputView {
    * tail both a full frame and a caret repaint end in.
    */
   private submit(width: number, height: number, repaintOnly: boolean): void {
+    const started = now();
     // ONE builder for the view's whole life: `reset` rewinds the cursors and
     // keeps the buffers, so a steady animation frame reallocates no geometry.
-    const geometry = this.geometry.reset(globalThis.devicePixelRatio ?? 1);
+    const geometry = this.geometry.reset(this.dpr);
     this.paint(this.root, geometry);
     // Then the layer, in `(z, document order)` — each entry is a paint root, so
     // it does not inherit the opacity of wherever it was declared, only its own
@@ -2573,6 +2606,7 @@ class WebView implements InputView {
     const batches = geometry.batches();
     this.gl.draw(batches, width, height, this.clearColor);
     this.lastStats = this.frameStats(batches, repaintOnly);
+    this.onFrame?.({ ...this.lastStats, ms: now() - started });
   }
 
   /**
@@ -2590,7 +2624,7 @@ class WebView implements InputView {
   // --- layout + paint ---
 
   private resize(): void {
-    const dpr = globalThis.devicePixelRatio ?? 1;
+    const dpr = this.dpr;
     const width = this.canvas.clientWidth || this.canvas.width;
     const height = this.canvas.clientHeight || this.canvas.height;
     this.canvas.width = Math.round(width * dpr);
@@ -2601,8 +2635,7 @@ class WebView implements InputView {
   }
 
   private logicalSize(): { width: number; height: number } {
-    const dpr = globalThis.devicePixelRatio ?? 1;
-    return { width: this.canvas.width / dpr, height: this.canvas.height / dpr };
+    return { width: this.canvas.width / this.dpr, height: this.canvas.height / this.dpr };
   }
 
   private measureLeaf = (

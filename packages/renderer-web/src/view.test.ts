@@ -4,6 +4,7 @@ import { GlyphAtlas } from "./glyphs.js";
 import { mountCase, readCorpus, readEnvelope } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode, type NodeSnapshot, type ViewSnapshot } from "./snapshot.js";
+import type { FrameStats } from "./view.js";
 
 /**
  * The invariants of `view.ts` — the dispatch and integration layer that had no
@@ -1776,5 +1777,90 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
     mounted.advance(400);
 
     expect(mounted.drawCalls()).toBe(drawn);
+  });
+});
+
+/**
+ * `MountOptions.dpr` and `MountOptions.onFrame` (ZAB-78) — the two things a host
+ * needs to show a UI as another screen would, and to say what that costs.
+ */
+describe("device pixel ratio", () => {
+  it("renders at the page's ratio when nothing overrides it", async () => {
+    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600 });
+
+    // The harness's page reports dpr 1, which is what the corpus was recorded at.
+    expect(view.canvasSize()).toEqual({ width: 800, height: 600 });
+  });
+
+  it("sizes the backing store by the forced ratio instead", async () => {
+    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 2 });
+
+    expect(view.canvasSize()).toEqual({ width: 1600, height: 1200 });
+  });
+
+  it("keeps the LOGICAL size, so the same UI is laid out either way", async () => {
+    // Sequentially, not side by side: each mount installs its own stand-in page.
+    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 1 });
+    const atOne = node(view.snapshot(), "primary").rect;
+    view.dispose();
+
+    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 2 });
+
+    // DPR is how many device pixels a logical one is drawn with — it is not a
+    // different viewport. A rect that moved would mean layout had leaked into it.
+    expect(node(view.snapshot(), "primary").rect).toEqual(atOne);
+  });
+
+  it("survives a ratio the page could never report", async () => {
+    view = await mountCase(CORPUS["states-tokens"], { dpr: 0.5 });
+
+    expect(view.snapshot()).toBeTruthy();
+  });
+});
+
+describe("onFrame", () => {
+  it("reports every frame the view actually painted, with what it cost", async () => {
+    const frames: Array<{ drawCalls: number; ms: number }> = [];
+    view = await mountCase(CORPUS["states-tokens"], {
+      onFrame: (stats) => frames.push({ drawCalls: stats.drawCalls, ms: stats.ms }),
+    });
+
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames.at(-1)?.drawCalls).toBeGreaterThan(0);
+    expect(frames.at(-1)?.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  it("agrees with stats(), which is the same frame read the other way", async () => {
+    let last: (FrameStats & { ms: number }) | null = null;
+    view = await mountCase(CORPUS["states-tokens"], {
+      onFrame: (stats) => {
+        last = stats;
+      },
+    });
+
+    // `stats()` answers "what did the last frame cost"; `onFrame` answers "when".
+    // They must never be two different numbers for one frame.
+    expect(last).not.toBeNull();
+    const { ms, ...counters } = last as unknown as FrameStats & { ms: number };
+    expect(typeof ms).toBe("number");
+    expect(counters).toEqual(view.handle.stats());
+  });
+
+  it("is what a frame RATE can be built from — polling stats() cannot", async () => {
+    // The renderer paints on demand: a still scene paints nothing at all, so a
+    // caller's own rAF would be measuring the page and not the renderer.
+    let painted = 0;
+    view = await mountCase(CORPUS["states-tokens"], {
+      onFrame: () => {
+        painted++;
+      },
+    });
+    const afterMount = painted;
+
+    view.advance(500);
+
+    // Nothing is animating, so nothing was painted — and that IS the answer.
+    expect(painted).toBe(afterMount);
+    expect(view.handle.stats().drawCalls).toBeGreaterThan(0);
   });
 });

@@ -18,12 +18,21 @@ import { spawn } from "node:child_process";
 import { watch } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { openBrowser } from "./open.js";
 import { startPreviewServer } from "./preview-server.js";
+
+export interface DevOptions {
+  /** Extra `Host` values the preview answers to — see `PreviewOptions`. */
+  allowedHosts?: readonly string[];
+  /** Open the preview in the browser once it is up. */
+  open?: boolean;
+}
 
 export async function devLoop(
   root: string,
   previewPort: number,
   unity: { port: number } | null,
+  options: DevOptions = {},
 ): Promise<void> {
   // Before anything is announced: `watch()` on a missing directory throws from
   // libuv, and it used to do it AFTER the banner claimed everything was up — a
@@ -40,10 +49,11 @@ export async function devLoop(
 
   const unityUrl = unity ? `http://127.0.0.1:${unity.port}/zabloo/envelope` : null;
   const pushToEngine = createPusher(unityUrl);
-  const preview = await startPreviewServer(previewPort);
+  const preview = await startPreviewServer(previewPort, { allowedHosts: options.allowedHosts });
 
   console.log(`zabloo dev: watching ${root}`);
   console.log(`           web preview → ${preview.url}`);
+  if (options.open) openBrowser(preview.url);
   if (unityUrl) {
     console.log(`           engine push → ${unityUrl} (Unity: menu Zabloo → Dev Mode)`);
   } else {

@@ -8,6 +8,7 @@
 import { cp, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { scaffoldedVersion } from "./versions.js";
 
 /**
  * A problem the person running the command can fix (a bad name, a directory
@@ -53,7 +54,11 @@ export async function scaffold(dir: string, options: ScaffoldOptions = {}): Prom
   // Shipped without the dot: npm drops a `.gitignore` from a published tarball.
   await rename(join(dir, "gitignore"), join(dir, ".gitignore"));
 
-  const zablooVersion = options.workspace ? "workspace:*" : "^0.1.0";
+  // Never a literal: the ranges come from the versions this copy of the scaffolder
+  // was released alongside, so a `changeset version` bump cannot leave new users
+  // pinned to a range nobody updated (ZAB-78). See `versions.ts`.
+  const react = options.workspace ? "workspace:*" : scaffoldedVersion("@zabloo/react");
+  const cli = options.workspace ? "workspace:*" : scaffoldedVersion("@zabloo/cli");
   const pkg = {
     name,
     private: true,
@@ -65,12 +70,12 @@ export async function scaffold(dir: string, options: ScaffoldOptions = {}): Prom
       typecheck: "tsc --noEmit",
     },
     dependencies: {
-      "@zabloo/react": zablooVersion,
+      "@zabloo/react": react,
       react: "^19.0.0",
     },
     devDependencies: {
       "@types/react": "^19.0.0",
-      "@zabloo/cli": zablooVersion,
+      "@zabloo/cli": cli,
       typescript: "^5.6.0",
     },
   };
