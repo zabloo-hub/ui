@@ -4,7 +4,7 @@
 // fall back on: we own the rasterizer (stb_truetype, the same algorithm in every
 // target), the metrics, the atlas and the line breaking — so the wrap you see
 // here is OUR algorithm, and it produces the same break points in the browser
-// and in Unity from the same TTF (decision 2026-08-11, text).
+// and in Unity from the same TTF.
 //
 // `<Text>` has exactly two props of its own: `children` and `bind`. Everything
 // on this page is plain STYLE — `wrap`, `textAlign`, `textAlignY`, `lineHeight`,

@@ -8,7 +8,7 @@ Run any of them from the repo root:
 
 ```bash
 pnpm --filter showcase-example dev      # http://localhost:5078
-pnpm --filter showcase-example export   # dist/zabloo.ir.json — the IR itself
+pnpm --filter showcase-example build    # dist/zabloo.ir.json — the IR itself
 ```
 
 `dev` serves the web preview and re-exports on every save. The preview plays the part of
@@ -21,11 +21,11 @@ push each save to the Unity editor as well.
 
 | Project | Open it to see |
 |---|---|
-| [`showcase`](showcase) | **The whole catalog**, one view per capability. Start here to look something up. |
-| [`hello-button`](hello-button) | The smallest whole project: one screen, one bound value, one action. Start here to read one. |
-| [`inventory-demo`](inventory-demo) | A real screen built on data: hundreds of virtualized rows, a horizontal strip, a Collapse inside a scroller. |
-| [`settings-screen`](settings-screen) | A real screen built on controls: tabs, toggles, sliders, a dropdown and a text field, all bound. |
-| [`unity-playground`](unity-playground) | A Unity project consuming the SDK locally — the other render target. |
+| [`showcase`](showcase/README.md) | **The whole catalog**, one view per capability. Start here to look something up. |
+| [`hello-button`](hello-button/README.md) | The smallest whole project: one screen, one bound value, one action. Start here to read one. |
+| [`inventory-demo`](inventory-demo/README.md) | A real screen built on data: hundreds of virtualized rows, a horizontal strip, a Collapse inside a scroller. |
+| [`settings-screen`](settings-screen/README.md) | A real screen built on controls: tabs, toggles, sliders, a dropdown and a text field, all bound. |
+| [`unity-playground`](unity-playground/README.md) | A Unity project consuming the SDK locally — the other render target. |
 
 The showcase is exhaustive and the other two zabloo projects are realistic; they are
 different questions. "How does `maxLines` behave?" is a showcase question. "How do I lay a

@@ -3,7 +3,7 @@
 // The whole layout subset on one page. Flexbox is OURS — the SDK runs the
 // measure/arrange pass itself and no engine's layout system is involved — so
 // what you see here is the same arithmetic in Unity, in the browser and in every
-// target that ever ships (decision 2026-08-01 #1).
+// target that ever ships.
 //
 // The v1 subset is deliberately small: `direction`, `justify`, `align`, `gap`,
 // `padding`, `width`/`height`, `grow` and `wrap`. Everything below is one of

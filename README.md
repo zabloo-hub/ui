@@ -195,7 +195,16 @@ pnpm verify:pack                           # the publish dry run: pack, install 
 clone needs no build first. `packages/cli` is the exception, because two of its tests run
 the real thing rather than a stand-in: the dev server serves the preview page's own
 bundle, and the export tests run a project's code through jiti, which resolves
-`@zabloo/react` from that project. Both want `pnpm build` first.
+`@zabloo/react` from that project. Both want `pnpm build` first — which is why the order
+above is the one to follow on a fresh clone.
+
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the whole loop: setting up, running the preview,
+the golden corpus, when a change needs a changeset, and what a pull request should say.
+Bugs and requests go through the [issue templates](.github/ISSUE_TEMPLATE); a security
+problem goes through [private reporting](SECURITY.md) rather than a public issue. The
+project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## License
 

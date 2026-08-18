@@ -4,15 +4,15 @@
 // pixels:
 //
 // 1. **The values come back.** Every control here is bound, and a binding is
-//    READ/WRITE (decision 2026-08-11, ZAB-23): the SDK writes the new value into
-//    the store and tells the game through one callback, `onDataChanged(path,
+//    READ/WRITE: the SDK writes the new value into the store and tells the
+//    game through one callback, `onDataChanged(path,
 //    value)`. The preview plays the game — type into its data panel and the
 //    control moves; move the control and the panel updates. There is no
 //    `GetChecked(id)`, and there never will be: that would couple the game to
 //    the document's ids.
 // 2. **Behavior is keyed by node type, never by a prop.** A Toggle is checkable
 //    because it is a Toggle, not because a Button carries `checkable` — the rule
-//    that has kept the vocabulary at 13 types (decisions ZAB-5, ZAB-23, ZAB-29).
+//    that has kept the vocabulary at 13 types.
 //
 // The disclosure section at the bottom is the other half: `group` on a plain
 // Container, which is how cross-child behavior (only one open, only one
@@ -214,7 +214,7 @@ export default function ControlsView() {
           subtree — so the game turns the whole block on and off with one
           `SetData("settings.preset", …)`. Flip it in the preview's data panel and
           watch the labels dim with the controls: `disabled` is the only state a
-          Text can be in, and that is exactly why it inherits (ZAB-63).
+          Text can be in, and that is exactly why it inherits.
 
           The knob and the fill keep their colour on purpose, and it is the rule
           working rather than a gap in it: a state dresses the nodes that DECLARE

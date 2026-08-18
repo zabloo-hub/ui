@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "zabloo dev",
     "dev:unity": "zabloo dev --unity",
-    "export": "zabloo export",
+    "build": "zabloo export",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -3,7 +3,7 @@
 // One prop, `transition` — a duration and a curve — and the rule that drives it:
 // *a resolved animatable value changed, so tween it*. There is no list of
 // triggers, so entering a state, a `SetData` on a bound value and a theme swap
-// all animate through the same path (decision 2026-08-11, ZAB-33).
+// all animate through the same path.
 //
 // It lives on the node, not in `style`, because `style` is the set of values
 // being interpolated and this is HOW they are interpolated. `duration` is a Dim,

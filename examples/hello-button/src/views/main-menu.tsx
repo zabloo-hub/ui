@@ -17,7 +17,7 @@ export default function MainMenu() {
   return (
     <Column layout={{ grow: 1, justify: "center", align: "center", gap: 16 }}>
       <Row layout={{ gap: 8 }}>
-        <Text style={{ color: "#facc15", fontSize: 20 }}>Oro:</Text>
+        <Text style={{ color: "#facc15", fontSize: 20 }}>Gold:</Text>
         <Text bind="player.gold" style={{ color: "#facc15", fontSize: 20 }} />
       </Row>
 
@@ -25,7 +25,7 @@ export default function MainMenu() {
           panel and the fill glides there — and retargets mid-glide if you push
           again. The track clips, so the fill keeps its rounded ends. */}
       <Row layout={{ gap: 8, align: "center" }}>
-        <Text style={{ color: "#9aa4b2" }}>Vida</Text>
+        <Text style={{ color: "#9aa4b2" }}>Health</Text>
         <ProgressBar
           id="hp"
           value={{ bind: "player.hp" }}
@@ -39,7 +39,7 @@ export default function MainMenu() {
           travelling wave instead of spinning. `motion.loop` themes its speed. */}
       <Row layout={{ gap: 8, align: "center" }}>
         <Spinner period="{motion.loop}" />
-        <Text style={{ color: "#9aa4b2" }}>Cargando partida</Text>
+        <Text style={{ color: "#9aa4b2" }}>Loading save</Text>
       </Row>
 
       <Row layout={{ gap: 12 }}>
@@ -54,7 +54,7 @@ export default function MainMenu() {
           transition={{ duration: "{motion.fast}" }}
           layout={{ padding: "{space.4}" }}
         >
-          <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Comprar</Text>
+          <Text style={{ color: "{color.on-primary}", fontSize: 24 }}>Buy</Text>
         </Button>
         <Button
           id="quit-btn"
@@ -63,12 +63,12 @@ export default function MainMenu() {
           transition={{ duration: "{motion.slow}", easing: "ease-in-out" }}
           layout={{ padding: "{space.4}" }}
         >
-          <Text style={{ color: "#c8cede", fontSize: 24 }}>Salir</Text>
+          <Text style={{ color: "#c8cede", fontSize: 24 }}>Quit</Text>
         </Button>
       </Row>
 
       <Text visible={{ bind: "shop.thanked" }} style={{ color: "#4ade80" }}>
-        Gracias por tu compra
+        Thanks for your purchase
       </Text>
 
       <Collapse
@@ -86,11 +86,11 @@ export default function MainMenu() {
           states={{ focused: { style: { color: "#a5b4fc" } } }}
           style={{ color: "#ffffff", fontSize: 18 }}
         >
-          Opciones
+          Options
         </Text>
-        <Text style={{ color: "#9aa4b2" }}>Sonido: alto</Text>
-        <Text style={{ color: "#9aa4b2" }}>Idioma: es</Text>
-        <Text style={{ color: "#9aa4b2" }}>Vibracion: si</Text>
+        <Text style={{ color: "#9aa4b2" }}>Sound: high</Text>
+        <Text style={{ color: "#9aa4b2" }}>Language: en</Text>
+        <Text style={{ color: "#9aa4b2" }}>Rumble: on</Text>
       </Collapse>
 
       <Accordion id="menu" layout={{ gap: 4 }}>
@@ -104,10 +104,10 @@ export default function MainMenu() {
             states={{ focused: { style: { color: "#a5b4fc" } } }}
             style={{ color: "#ffffff", fontSize: 18 }}
           >
-            Misiones
+            Quests
           </Text>
-          <Text style={{ color: "#9aa4b2" }}>Derrota al dragon</Text>
-          <Text style={{ color: "#9aa4b2" }}>Recoge 10 gemas</Text>
+          <Text style={{ color: "#9aa4b2" }}>Slay the dragon</Text>
+          <Text style={{ color: "#9aa4b2" }}>Collect 10 gems</Text>
         </Collapse>
         <Collapse
           id="inventory"
@@ -119,10 +119,10 @@ export default function MainMenu() {
             states={{ focused: { style: { color: "#a5b4fc" } } }}
             style={{ color: "#ffffff", fontSize: 18 }}
           >
-            Inventario
+            Inventory
           </Text>
-          <Text style={{ color: "#9aa4b2" }}>Espada de hierro</Text>
-          <Text style={{ color: "#9aa4b2" }}>Pocion x3</Text>
+          <Text style={{ color: "#9aa4b2" }}>Iron sword</Text>
+          <Text style={{ color: "#9aa4b2" }}>Potion x3</Text>
         </Collapse>
         <Collapse
           id="social"
@@ -139,7 +139,7 @@ export default function MainMenu() {
             <Text style={{ color: "#ffffff", fontSize: 18 }}>Social</Text>
             <Badge count={{ bind: "inbox.unread" }} />
           </Row>
-          <Text style={{ color: "#9aa4b2" }}>3 amigos conectados</Text>
+          <Text style={{ color: "#9aa4b2" }}>3 friends online</Text>
         </Collapse>
       </Accordion>
 

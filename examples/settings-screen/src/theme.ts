@@ -24,24 +24,23 @@ export const tokens = {
   "motion.slow": 240,
 };
 
-// Default motion per component (ZAB-36). The bar's buttons and the toggles fade
-// between states; the Slider glides when the value arrives from the game, never
-// while the player is dragging it. The PANELS still snap — a panel entering or
-// leaving the layout is an enter/exit animation, which stays deferred (ZAB-33 §5).
+// Default motion per component. The bar's buttons and the toggles fade between
+// states; the Slider glides when the value arrives from the game, never while
+// the player is dragging it. The PANELS still snap — a panel entering or
+// leaving the layout is an enter/exit animation, which is deferred past v1.
 export const transitions: ThemeTransitions = {
   Button: { duration: "{motion.fast}" },
   Toggle: { duration: "{motion.fast}" },
   Slider: { duration: "{motion.slow}", easing: "ease-out" },
 };
 
-// Variants — an authoring-time concept (decision 2026-08-03 §6): resolved at
-// export time by @zabloo/react; they never reach the IR. They are keyed by
-// PRIMITIVE, so <Checkbox>/<Switch> both key off `Toggle` and the tab buttons
-// off `Button`.
+// Variants — an authoring-time concept: resolved at export time by
+// @zabloo/react; they never reach the IR. They are keyed by PRIMITIVE, so
+// <Checkbox>/<Switch> both key off `Toggle` and the tab buttons off `Button`.
 export const variants: ThemeVariants = {
   Button: {
     // What makes the active tab readable: `states.selected` is the state the SDK
-    // gives the chosen button of an "exclusive-select" group (decision 2026-08-11).
+    // gives the chosen button of an "exclusive-select" group.
     tab: {
       style: { background: "{color.bg.tab}", radius: "{radius.md}" },
       states: {

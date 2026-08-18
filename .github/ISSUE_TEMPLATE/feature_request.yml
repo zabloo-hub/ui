@@ -1,0 +1,68 @@
+name: Feature request
+description: Something the format, the components or the tooling should be able to do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        zabloo/ui keeps its node vocabulary deliberately small — 13 types — because
+        every type has to be implemented and kept identical in **every** engine SDK.
+        That is why "what problem does this solve?" matters more here than usual: a
+        lot of requests turn out to be authoring sugar that flattens to nodes that
+        already exist, which is a much cheaper answer than a new type.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to build, and where does it stop working today? Describe
+        the screen, not the API you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: >
+        The component, prop, style or CLI behavior you are asking for. If you have a
+        shape in mind, sketch the JSX.
+      render: tsx
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do instead today
+      description: >
+        Whatever you are composing out of the existing nodes to get close. If there is
+        no workaround, say so — that is useful too.
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Which layer do you think this belongs to?
+      description: A guess is fine; part of the discussion is deciding this.
+      options:
+        - "Authoring sugar (a @zabloo/react component that flattens to existing nodes)"
+        - "A new style, layout or motion property"
+        - "A new IR node type (every SDK has to implement it)"
+        - "Tooling — the CLI, the preview or the scaffolder"
+        - "Documentation"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: engines
+    attributes:
+      label: Engine check
+      description: >
+        The golden rule: the shared core never knows about any specific engine. If this
+        can only work on one of them, it belongs in that SDK rather than in the format.
+      options:
+        - label: >
+            As far as I can tell, this could work the same way in Unity, Godot and
+            Unreal — or I am asking for it inside one specific SDK.
