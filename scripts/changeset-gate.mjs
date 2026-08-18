@@ -12,7 +12,16 @@
  * would be told to write a changeset for the tests. What ships is `dist/`, built from
  * `src/`, so a file that cannot reach a tarball cannot need a changelog entry.
  *
- * Usage: `node scripts/changeset-gate.mjs [--since <ref>]` (default `origin/main`).
+ * Both halves are read from the PR's OWN range (ZAB-80). Counting every pending
+ * changeset in `.changeset/` was the same as asking "has anyone declared this package
+ * lately", and the answer is almost always yes: ZAB-77 changed
+ * `packages/renderer-web/src/perf/scenes.ts` with no changeset and passed, because a
+ * changeset from ZAB-73 already named `@zabloo/renderer-web`. That change was harmless
+ * and the gate could not have known — a release is not a smaller release for missing an
+ * entry, it is a release whose changelog does not mention it.
+ *
+ * Usage: `node scripts/changeset-gate.mjs [--since <ref>] [--repo <dir>]`
+ * (defaults: `origin/main`, and the repository this script lives in).
  */
 
 import { execFileSync } from "node:child_process";
@@ -20,9 +29,16 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
-const sinceIndex = process.argv.indexOf("--since");
-const since = sinceIndex === -1 ? "origin/main" : process.argv[sinceIndex + 1];
+/** `--flag <value>`, or `fallback` when it is not there. */
+function flag(name, fallback) {
+  const index = process.argv.indexOf(`--${name}`);
+  return index === -1 ? fallback : process.argv[index + 1];
+}
+
+const since = flag("since", "origin/main");
+// `--repo` exists so the gate can be pointed at a fixture repository and tested
+// against real git history; CI and people both leave it alone.
+const repo = flag("repo", join(dirname(fileURLToPath(import.meta.url)), ".."));
 
 /**
  * Files under a package that never reach its tarball. `files: ["dist"]` everywhere, and
@@ -72,11 +88,32 @@ if (touched.size === 0) {
   process.exit(0);
 }
 
-/** Every package named by the frontmatter of a pending changeset. */
+/**
+ * Every package named by the frontmatter of a changeset THIS PR wrote.
+ *
+ * Added or modified, both: amending a pending changeset to add your package is
+ * declaring it just as much as writing a new file is. What does not count is a
+ * changeset that was already on the base branch — that one belongs to the PR that
+ * wrote it, and it is not going to grow a line about a change made after the fact.
+ */
 const declared = new Set();
-for (const file of readdirSync(join(repo, ".changeset"))) {
-  if (!file.endsWith(".md") || file === "README.md") continue;
-  const body = readFileSync(join(repo, ".changeset", file), "utf8");
+const changesets = git(
+  "diff",
+  "--name-only",
+  "--diff-filter=AM",
+  `${since}...HEAD`,
+  "--",
+  ".changeset",
+)
+  .split("\n")
+  .filter((file) => file.endsWith(".md") && !file.endsWith("README.md"));
+for (const file of changesets) {
+  let body;
+  try {
+    body = readFileSync(join(repo, file), "utf8");
+  } catch {
+    continue; // written earlier in the branch and deleted before HEAD
+  }
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body);
   if (!frontmatter) continue;
   for (const line of frontmatter[1].split("\n")) {
@@ -98,6 +135,8 @@ for (const name of missing) {
 }
 console.error(
   "\nRun `pnpm changeset`, pick these packages and the bump, and commit the file it writes." +
-    "\nWithout it the release publishes them with an empty changelog — see docs/releasing.md.",
+    "\nA changeset that was already on the base branch does not count: it declares the change" +
+    "\nthat wrote it, not this one." +
+    "\nWithout one the release publishes these with an empty changelog — see docs/releasing.md.",
 );
 process.exit(1);
