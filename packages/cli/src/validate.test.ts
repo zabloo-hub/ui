@@ -10,7 +10,7 @@
 
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { failed, formatReport, ValidateError, validateEnvelope } from "./validate.js";
 
@@ -125,20 +125,26 @@ describe("failed", () => {
 });
 
 describe("formatReport", () => {
+  // Built with `join`, not spelled out: CI runs this on Windows too, where the
+  // separator `relative` hands back is a backslash.
+  const CWD = resolve("/repo");
+  const FILE = join(CWD, "dist", "zabloo.ir.json");
+
   it("names the file relative to where the command was run", () => {
     const text = formatReport(
-      { file: "/repo/dist/zabloo.ir.json", ok: true, views: ["hud"], diagnostics: [] },
+      { file: FILE, ok: true, views: ["hud"], diagnostics: [] },
       false,
-      "/repo",
+      CWD,
     );
-    expect(text).toContain("zabloo validate: dist/zabloo.ir.json");
+
+    expect(text).toContain(`zabloo validate: ${join("dist", "zabloo.ir.json")}`);
     expect(text).toContain("1 view(s) [hud] ✔");
   });
 
   it("prints each diagnostic with its code and its path into the envelope", () => {
     const text = formatReport(
       {
-        file: "/repo/dist/zabloo.ir.json",
+        file: FILE,
         ok: true,
         views: ["hud"],
         diagnostics: [
@@ -151,7 +157,7 @@ describe("formatReport", () => {
         ],
       },
       false,
-      "/repo",
+      CWD,
     );
     expect(text).toContain("⚠ warn");
     expect(text).toContain("unknown-token");
@@ -165,13 +171,13 @@ describe("formatReport", () => {
   it("says the same warning fails the build under --strict", () => {
     const text = formatReport(
       {
-        file: "/repo/dist/zabloo.ir.json",
+        file: FILE,
         ok: true,
         views: ["hud"],
         diagnostics: [{ level: "warn", code: "unknown-token", path: "", message: "x" }],
       },
       true,
-      "/repo",
+      CWD,
     );
     expect(text).toContain("✗ (--strict)");
   });
@@ -179,13 +185,13 @@ describe("formatReport", () => {
   it("says outright that a fatal envelope would not load anywhere", () => {
     const text = formatReport(
       {
-        file: "/repo/dist/zabloo.ir.json",
+        file: FILE,
         ok: false,
         views: [],
         diagnostics: [{ level: "fatal", code: "missing-views", path: "", message: "no views" }],
       },
       false,
-      "/repo",
+      CWD,
     );
     expect(text).toContain("✗ fatal");
     expect(text).toContain("1 fatal — no SDK would load this envelope ✗");
