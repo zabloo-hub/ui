@@ -93,6 +93,12 @@ Skip it only for changes that touch nothing publishable — documentation, examp
 config, this file. If you are unsure, add one: an unnecessary patch bump costs nothing.
 The full pipeline is in [`docs/releasing.md`](docs/releasing.md).
 
+**Your pull request declares its own changes.** The gate looks at the changesets your
+branch adds or edits, not at everything sitting in `.changeset/`, so a pending changeset
+from someone else's pull request will not cover you even when it names your package.
+That is the case it exists for: a real change once shipped with no changelog entry
+because an earlier, unreleased changeset happened to name the same package.
+
 ## Branches and commits
 
 Branches are named after the task they close: `zab-<number>-<kebab-case-title>` (for

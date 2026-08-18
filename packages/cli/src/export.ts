@@ -23,7 +23,14 @@ import {
   type ZNode,
 } from "@zabloo/format";
 import { collectAssets } from "./assets.js";
-import { createProjectJiti, loadConfig, resolveOutFile, tryImport } from "./config.js";
+import {
+  createProjectJiti,
+  importProjectDependency,
+  loadConfig,
+  resolveOutFile,
+  sanitize,
+  tryImport,
+} from "./config.js";
 
 /** Shapes we need from the project's own copies of react / @zabloo/react. */
 interface ProjectReact {
@@ -62,7 +69,19 @@ export async function exportProject(
   rootDir: string,
   options: ExportOptions = {},
 ): Promise<ExportResult> {
-  const root = resolve(rootDir);
+  try {
+    return await run(resolve(rootDir), options);
+  } catch (error) {
+    // The last gate before a message reaches a person: nothing that leaves here
+    // names a file the project does not contain (ZAB-80). The error keeps its
+    // type and its stack — `readEnvelope`'s `EnvelopeError` travels through this
+    // path too, and only its wording is any of our business.
+    if (error instanceof Error) error.message = sanitize(error.message);
+    throw error;
+  }
+}
+
+async function run(root: string, options: ExportOptions): Promise<ExportResult> {
   const jiti = createProjectJiti(root);
 
   const config = await loadConfig(root, jiti);
@@ -71,9 +90,11 @@ export async function exportProject(
     | undefined;
   const tokens = theme?.tokens ?? {};
 
-  const react = (await jiti.import("react")) as ProjectReact;
-  const zablooReact = (await jiti.import("@zabloo/react")) as ProjectZablooReact;
-
+  // Views FIRST, dependencies second (ZAB-80). Both checks answer "is this a
+  // zabloo project?", and the cheaper, more specific one has to run first or its
+  // answer is unreachable: a directory with no `src/views/` also has no
+  // `node_modules`, so it used to be told about a missing `react` it never asked
+  // for instead of about the views it is actually missing.
   const viewsDir = join(root, "src", "views");
   let files: string[];
   try {
@@ -84,6 +105,13 @@ export async function exportProject(
   if (files.length === 0) {
     throw new Error(`No view files (*.tsx) found in ${viewsDir}`);
   }
+
+  const react = (await importProjectDependency(jiti, "react", root)) as ProjectReact;
+  const zablooReact = (await importProjectDependency(
+    jiti,
+    "@zabloo/react",
+    root,
+  )) as ProjectZablooReact;
 
   const views: Record<string, ZNode> = {};
   for (const file of files.sort()) {

@@ -7,8 +7,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm --filter \"./packages/**\" --fail-if-no-match build && pnpm install && pnpm --filter \"./examples/**\" --fail-if-no-match build",
-    "test": "pnpm -r test",
+    "build": "pnpm --filter \"./packages/**\" --fail-if-no-match build && pnpm install --frozen-lockfile && pnpm --filter \"./examples/**\" --fail-if-no-match build",
+    "test": "pnpm -r test && vitest run --root scripts",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "docs:links": "node scripts/check-links.mjs",

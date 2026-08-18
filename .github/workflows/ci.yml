@@ -41,6 +41,14 @@ jobs:
 
       - run: pnpm build
 
+      # `build` reinstalls halfway through — that is how the bin shims get linked
+      # once `packages/cli/dist/` exists (ZAB-77). It is now `--frozen-lockfile`
+      # like the step above it, and this is what keeps it that way: a reinstall
+      # that resolves something new would rewrite the lockfile, and the job that
+      # was supposed to be a reproducible install would be the one doing it.
+      - name: The build left the lockfile alone
+        run: git diff --exit-code pnpm-lock.yaml
+
       - run: pnpm typecheck
 
       - run: pnpm test

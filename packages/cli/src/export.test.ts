@@ -16,6 +16,7 @@
  * they need `pnpm build` first, which CI runs before `pnpm test`.
  */
 
+import { spawnSync } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +51,22 @@ async function project(files: Record<string, string> = {}): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "zabloo-export-"));
   await symlink(PROJECT_MODULES, join(root, "node_modules"), "junction");
   for (const [path, content] of Object.entries({ "src/views/main.tsx": VIEW, ...files })) {
+    const file = join(root, path);
+    await mkdir(join(file, ".."), { recursive: true });
+    await writeFile(file, content);
+  }
+  return root;
+}
+
+/**
+ * A directory with NO `node_modules` — the state every project is in before its
+ * first `pnpm install`, and the state every directory that is not a project is
+ * in permanently. `project()` cannot express it: the symlink is the whole point
+ * of that fixture.
+ */
+async function directory(files: Record<string, string> = {}): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "zabloo-export-"));
+  for (const [path, content] of Object.entries(files)) {
     const file = join(root, path);
     await mkdir(join(file, ".."), { recursive: true });
     await writeFile(file, content);
@@ -115,5 +132,77 @@ describe("exportProject", () => {
     });
 
     await expect(exportProject(root)).rejects.toThrow(/does-not-exist/);
+  });
+});
+
+/**
+ * What a person gets for pointing the CLI at a directory that is not a project,
+ * or at one they have not installed yet (ZAB-80). Both used to end in node's raw
+ * `Cannot find module 'react'` over a `Require stack` naming
+ * `__zabloo_export__.mjs` — a file the reader never wrote and cannot find,
+ * because it does not exist anywhere.
+ *
+ * These run the BUILT CLI in a child process, which the rest of the file does
+ * not need to do. It is not ceremony: the bug is about how a bare specifier
+ * resolves FROM THE PROJECT, and under Vitest bare specifiers resolve through
+ * Vite from the repo root instead — so in-process every one of these directories
+ * finds the repo's own `react` and the failure never happens. The child process
+ * is the only place the real resolution runs, and it is also the literal command
+ * the ticket reproduced with.
+ */
+describe("zabloo export, in a directory it cannot export", () => {
+  const CLI = join(REPO, "packages", "cli", "dist", "cli.js");
+
+  beforeAll(async () => {
+    try {
+      await access(CLI);
+    } catch {
+      throw new Error("@zabloo/cli is not built — run `pnpm build` before these tests");
+    }
+  });
+
+  /**
+   * stderr of `zabloo export --cwd root`, which must have failed.
+   *
+   * Without `NODE_PATH`, which the runner puts in this process's environment
+   * pointing at pnpm's hoisted store (`node_modules/.pnpm/node_modules`) and a
+   * child would inherit. Every bare specifier resolves from there, so the
+   * project's empty `node_modules` never gets a say and `react` is found no
+   * matter what directory we point at. No user's shell has that variable — it is
+   * an artifact of running inside this monorepo, and letting it through would
+   * make these tests pass on a CLI that is still broken.
+   */
+  function exportCli(root: string): string {
+    const { NODE_PATH: _, ...env } = process.env;
+    const result = spawnSync(process.execPath, [CLI, "export", "--cwd", root], {
+      encoding: "utf8",
+      env,
+    });
+    expect(result.status).toBe(1);
+    return result.stderr;
+  }
+
+  it("says the views are missing, not that react is", async () => {
+    const root = await directory();
+
+    // The specific answer, and the one that was unreachable: a directory with no
+    // `src/views/` has no `node_modules` either, so the dependency import spoke
+    // first and drowned it.
+    expect(exportCli(root)).toContain(`No views directory found at ${join(root, "src", "views")}`);
+  });
+
+  it("names the missing dependency and what to do about it", async () => {
+    const root = await directory({ "src/views/main.tsx": VIEW });
+
+    expect(exportCli(root)).toMatch(/react is not installed in .* Run `pnpm install` there/s);
+  });
+
+  it("never names the internal resolution base", async () => {
+    for (const root of [await directory(), await directory({ "src/views/main.tsx": VIEW })]) {
+      const stderr = exportCli(root);
+
+      expect(stderr).not.toContain("__zabloo_export__");
+      expect(stderr).not.toContain("Require stack");
+    }
   });
 });
