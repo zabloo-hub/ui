@@ -37,6 +37,7 @@ function layerWith(anchors: Record<string, LayoutNode>): OverlayLayer {
   };
   return new OverlayLayer({
     root: unused("root"),
+    eachOverlay: unused("eachOverlay"),
     layer: () => [],
     focused: () => null,
     focusPending: unused("focusPending"),

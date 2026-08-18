@@ -111,7 +111,7 @@ import { layoutText, type PlacedLine, placeLines, type TextLayoutOptions } from 
 import {
   caretAt,
   caretVisible,
-  caretX,
+  caretXOf,
   clampSelection,
   hasSelection,
   length,
@@ -298,6 +298,31 @@ export interface FrameStats {
   atlases: number;
   /** CPU-side bytes of those atlas bitmaps (RGBA); the GPU copies mirror them. */
   atlasBytes: number;
+  /**
+   * Nodes the resolve pass visited (ZAB-73) — the size of the frame's CPU work
+   * before layout even starts. Zero on a repaint-only frame.
+   */
+  resolved: number;
+  /**
+   * Texts this frame actually broke into lines (ZAB-73). Since ZAB-69 a `Text`
+   * whose content, metrics and options did not move reuses its block, so a
+   * steady frame over a static scene must sit at zero: anything else is a wrap
+   * key that stopped matching, which is a whole re-wrap of the scene per frame.
+   */
+  textLayouts: number;
+  /**
+   * Geometry buffers that had to grow this frame (ZAB-73). Zero once the scene
+   * has been painted at its full size — the builder keeps its arrays across
+   * frames (ZAB-55), and a steady frame that keeps reallocating them is the
+   * regression that reuse exists to prevent.
+   */
+  bufferGrowths: number;
+  /**
+   * The frame skipped the whole pipeline before tessellation (ZAB-73): nothing
+   * about the tree, its values or its boxes changed, so only paint ran. What a
+   * blinking caret costs — see `renderCaret`.
+   */
+  repaintOnly: boolean;
 }
 
 export interface ZablooHandle {
@@ -407,6 +432,20 @@ class WebView implements InputView {
    * stale on every reorder.
    */
   private readonly bound = new Set<LayoutNode>();
+  /**
+   * The node kinds a frame used to go looking for, kept as the tree is built and
+   * released instead (ZAB-73). Five full walks ran before layout even started —
+   * on a thousand-row list that is five thousand visits to find three overlays,
+   * one field and one `Repeat`.
+   *
+   * Insertion order is top-down by construction (`buildNode` recurses that way),
+   * which `repeats` depends on: expanding an outer list is what creates the inner
+   * ones, and they register from inside that very expansion — a `Set` iteration
+   * visits what is added while it runs, so nested lists still expand in order.
+   */
+  private readonly overlayNodes = new Set<LayoutNode>();
+  private readonly textInputs = new Set<LayoutNode>();
+  private readonly repeats = new Set<LayoutNode>();
   private readonly data = new DataStore();
   private focusedNode: LayoutNode | null = null;
   /**
@@ -435,6 +474,21 @@ class WebView implements InputView {
   private readonly pad = new PadController(this.padHost());
   /** Set by the resolve pass when any node still has a tween running. */
   private animating = false;
+  /**
+   * Set by the resolve pass when a focused field's caret is blinking (ZAB-73).
+   * Deliberately NOT `animating`: a blink moves no value, so the frames it asks
+   * for are repaints of a scene that did not change, and they are asked for at
+   * the instant the caret flips rather than sixty times a second.
+   */
+  private caretBlinking = false;
+  /** The pending blink flip — see `scheduleCaret`. */
+  private caretTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Bumped by every full frame — the stamp `styleOf` caches against (ZAB-73).
+   * Not a clock: it counts frames that could have changed something, which is
+   * why a repaint-only frame leaves it alone.
+   */
+  private frameId = 0;
   /** Refilled per node by the resolve pass — see the note there (ZAB-55). */
   private readonly scratchTargets: ResolvedValues = {};
   /** The frame's geometry, buffers reused across frames — see `render` (ZAB-55). */
@@ -446,7 +500,15 @@ class WebView implements InputView {
     indices: 0,
     atlases: 0,
     atlasBytes: 0,
+    resolved: 0,
+    textLayouts: 0,
+    bufferGrowths: 0,
+    repaintOnly: false,
   };
+  /** Nodes the resolve pass visited this frame — counted for `FrameStats`. */
+  private resolvedCount = 0;
+  /** Texts this frame re-broke into lines — counted for `FrameStats`. */
+  private textLayoutCount = 0;
   /** Our TTF rasterizer, once its WASM has loaded (see `loadRasterizer`). */
   private font: StbFont | null = null;
   /** Settles when that rasterizer is in and the view has repainted with it. */
@@ -614,6 +676,9 @@ class WebView implements InputView {
     if (!rootIr) throw new Error(`zabloo renderer: view "${this.viewId}" not found`);
     this.byId = new Map();
     this.bound.clear();
+    this.overlayNodes.clear();
+    this.textInputs.clear();
+    this.repeats.clear();
     this.focusedNode = null;
     this.sliderKeys = null;
     // Every render that sets this consumes it before returning, so it is only
@@ -651,8 +716,15 @@ class WebView implements InputView {
     // reaches ONE of them. Addressing a particular row by id is not a thing v1 has
     // — an action from inside a row comes back with its `ActionContext` instead.
     if (any.id) this.byId.set(any.id, node);
+    // The registries a frame reads instead of walking the tree (ZAB-73). Here,
+    // and not after the children: the sets are top-down, which is what lets the
+    // expansion pass iterate `repeats` and still reach a nested list in the same
+    // sweep that created it.
+    if (any.type === "Overlay") this.overlayNodes.add(node);
+    else if (any.type === "TextInput") this.textInputs.add(node);
 
     if (any.type === "Repeat") {
+      this.repeats.add(node);
       // The template is NOT built here: its instances come from the data, and the
       // expansion pass builds one per element of the window it can see. What the
       // document contributes is the empty state, out of layout until it is needed.
@@ -812,9 +884,11 @@ class WebView implements InputView {
    * Nested lists come out right by construction: expanding the outer one creates
    * the instances the inner ones live in, and the walk reaches them right after.
    */
-  private syncRepeats(node: LayoutNode = this.root): void {
-    if (node.repeat) this.expand(node);
-    for (const child of node.children) this.syncRepeats(child);
+  private syncRepeats(): void {
+    // The registry, not a walk: it is top-down, and a `Set` iteration sees what
+    // is added while it runs — so the instances an outer list creates bring their
+    // own inner lists into this same sweep, exactly as the recursion did.
+    for (const node of this.repeats) this.expand(node);
   }
 
   private expand(node: LayoutNode): void {
@@ -988,7 +1062,11 @@ class WebView implements InputView {
    * changes how many cells fit — the window this frame used came from the old
    * number, so the frame is repeated with the new one.
    */
-  private syncExtents(node: LayoutNode = this.root): void {
+  private syncExtents(): void {
+    for (const node of this.repeats) this.syncExtent(node);
+  }
+
+  private syncExtent(node: LayoutNode): void {
     const state = node.repeat;
     const instance = state && state.instances.size > 0 ? node.children[0] : undefined;
     if (state && instance) {
@@ -1020,7 +1098,6 @@ class WebView implements InputView {
     // more, and it converges there: what the plan reads (the scroller's rect, the
     // node's own reserved size) does not depend on which items are realized.
     if (state && this.windowDrifted(node, state)) this.scheduleFrame();
-    for (const child of node.children) this.syncExtents(child);
   }
 
   private windowDrifted(node: LayoutNode, state: RepeatState): boolean {
@@ -1070,6 +1147,9 @@ class WebView implements InputView {
     // come back to.
     if (this.pendingFocus?.repeat === node) this.pendingFocus = null;
     this.bound.delete(node);
+    this.overlayNodes.delete(node);
+    this.textInputs.delete(node);
+    this.repeats.delete(node);
     this.overlays.forget(node);
     const id = (node.ir as AnyNode).id;
     if (id !== undefined && this.byId.get(id) === node) this.byId.delete(id);
@@ -1450,7 +1530,7 @@ class WebView implements InputView {
     return {
       focused: () => this.focusedNode,
       // The metrics this field measures with — the caret and the paint share them.
-      metrics: (node) => this.fonts.get(this.fontSize(this.effectiveStyle(node))),
+      metrics: (node) => this.fonts.get(this.fontSize(this.styleOf(node))),
       // The box a node's content lives in: its rect minus its padding.
       contentBox: (node) => deflate(node.rect, node.resolved.padding ?? 0),
       textEdited: (node) => {
@@ -1937,6 +2017,9 @@ class WebView implements InputView {
   private overlayHost(): OverlayHost {
     return {
       root: () => this.root,
+      eachOverlay: (visit) => {
+        for (const overlay of this.overlayNodes) visit(overlay);
+      },
       layer: () => this.layer,
       focused: () => this.focusedNode,
       focusPending: () => this.pendingFocus !== null,
@@ -2106,10 +2189,25 @@ class WebView implements InputView {
     return color;
   }
 
-  /** This frame's style: the base plus every active state, in `STATE_ORDER`. */
-  private effectiveStyle(node: LayoutNode): Style | undefined {
+  /**
+   * This frame's style: the base plus every active state, in `STATE_ORDER`,
+   * merged ONCE per node and frame (ZAB-73).
+   *
+   * Three passes ask for it — resolve, measure and paint — and the merge
+   * allocates an object per active state, so a node wearing hover+focus cost six
+   * objects a frame for one answer. The cache is stamped with the view's frame
+   * counter rather than invalidated by hand: every state change in the renderer
+   * goes on to call `render()`, which bumps the stamp, so "same frame" and
+   * "nothing has moved" are the same statement. A repaint-only frame keeps the
+   * stamp on purpose — nothing moved, so last frame's merge still answers.
+   */
+  private styleOf(node: LayoutNode): Style | undefined {
+    if (node.styleFrame === this.frameId) return node.styleCache;
     const any = node.ir as AnyNode;
-    return effectiveStyle(any.style, any.states, node);
+    const style = effectiveStyle(any.style, any.states, node);
+    node.styleFrame = this.frameId;
+    node.styleCache = style;
+    return style;
   }
 
   private fontSize(style: Style | undefined): number {
@@ -2173,6 +2271,7 @@ class WebView implements InputView {
       this.forgetAnim(node);
       return;
     }
+    this.resolvedCount++;
     node.forcedClip = false;
     // Effective `disabled` BEFORE the style resolves, since it is a state
     // `effectiveStyle` has to see this very frame (ZAB-63). It inherits from the
@@ -2182,7 +2281,7 @@ class WebView implements InputView {
     // a modal declared inside a disabled panel stays operable and dismissable.
     node.disabled =
       node.disabledFlag || (node.ir.type !== "Overlay" && node.parent?.disabled === true);
-    const style = this.effectiveStyle(node);
+    const style = this.styleOf(node);
     const layout = node.ir.layout;
     // One scratch object for the whole tree, refilled per node: `stepNode`
     // consumes it synchronously and never keeps it, so an animation frame does
@@ -2217,9 +2316,11 @@ class WebView implements InputView {
     if (node.ir.type === "ProgressBar") this.resolveProgress(node, transition, now);
     else if (node.ir.type === "Slider") this.resolveSlider(node, transition, now);
     else if (node.ir.type === "Collapse") this.resolveCollapse(node, transition, now);
-    // A focused field owns the clock while its caret blinks — the same reason a
-    // Spinner does, and it stops as soon as the focus leaves.
-    else if (node.ir.type === "TextInput" && node.focused) this.animating = true;
+    // A focused field owns the clock while its caret blinks, and it stops as soon
+    // as the focus leaves. It does NOT own the pipeline: the blink is a closed
+    // form of the time since the last edit, so nothing about the tree, its values
+    // or its boxes depends on it (ZAB-73) — see `scheduleCaret` and `renderCaret`.
+    else if (node.ir.type === "TextInput" && node.focused) this.caretBlinking = true;
     for (const child of node.children) this.resolve(child, now);
     // After the children: these modulate values they have already resolved.
     if (node.ir.type === "Spinner") this.spin(node, now);
@@ -2383,9 +2484,95 @@ class WebView implements InputView {
   }
 
   private cancelFrame(): void {
+    this.cancelCaret();
     if (this.frame === null) return;
     globalThis.cancelAnimationFrame(this.frame);
     this.frame = null;
+  }
+
+  /**
+   * Asks for the frame the caret next FLIPS on, instead of one every 16 ms
+   * (ZAB-73). `caretVisible` is a closed form of the time since the last edit —
+   * on for the first half of every period — so the only frames a blink needs are
+   * the two per period where that answer changes, and each of them is a repaint
+   * (`renderCaret`). A field left focused went from 60 full pipelines a second
+   * to ~2 repaints.
+   *
+   * A timer and not `requestAnimationFrame` on purpose: rAF is the wrong tool for
+   * "in 530 ms", and a backgrounded tab throttling this to a caret that blinks
+   * slowly is the correct outcome.
+   */
+  private scheduleCaret(): void {
+    if (this.caretTimer !== null || typeof globalThis.setTimeout !== "function") return;
+    const field = this.focusedNode;
+    if (field?.ir.type !== "TextInput") return;
+    const half = CARET.blinkMs / 2;
+    if (!(half > 0) || !Number.isFinite(half)) return; // blink disabled: solid caret
+    const elapsed = now() - (field.caretSince ?? 0);
+    const phase = ((elapsed % half) + half) % half;
+    this.caretTimer = globalThis.setTimeout(
+      () => {
+        this.caretTimer = null;
+        this.renderCaret();
+      },
+      Math.max(1, half - phase),
+    );
+  }
+
+  private cancelCaret(): void {
+    if (this.caretTimer === null) return;
+    globalThis.clearTimeout(this.caretTimer);
+    this.caretTimer = null;
+  }
+
+  /**
+   * The blink's own frame: paint and submit, and nothing before them (ZAB-73).
+   *
+   * Everything the skipped passes produce — the instances, the layer, the
+   * resolved values, the boxes, the wrapped lines — is state kept on the tree,
+   * and a blink changes none of its inputs. Anything that WOULD change them goes
+   * through `render()` (every mutator in the renderer ends in one), so a repaint
+   * can never be looking at values a full frame should have refreshed.
+   */
+  private renderCaret(): void {
+    if (this.disposed) return;
+    const field = this.focusedNode;
+    // The focus moved, or the row holding it left layout, between the flip being
+    // scheduled and it arriving: a full frame is the honest answer.
+    if (field?.ir.type !== "TextInput" || !inLayout(field)) {
+      this.render();
+      return;
+    }
+    const { width, height } = this.logicalSize();
+    if (!(width > 0) || !(height > 0)) return;
+    this.resolvedCount = 0;
+    this.textLayoutCount = 0;
+    this.submit(width, height, true);
+    this.scheduleCaret();
+  }
+
+  /**
+   * Tessellates the tree and the painted layer and hands the batches to GL — the
+   * tail both a full frame and a caret repaint end in.
+   */
+  private submit(width: number, height: number, repaintOnly: boolean): void {
+    // ONE builder for the view's whole life: `reset` rewinds the cursors and
+    // keeps the buffers, so a steady animation frame reallocates no geometry.
+    const geometry = this.geometry.reset(globalThis.devicePixelRatio ?? 1);
+    this.paint(this.root, geometry);
+    // Then the layer, in `(z, document order)` — each entry is a paint root, so
+    // it does not inherit the opacity of wherever it was declared, only its own
+    // presence: the backdrop and the panel fade in and out together.
+    for (const overlay of this.paintLayer) {
+      // Each entry is a paint root, so it opens its own group: sharing the tree's
+      // would put the tree's glyphs over this panel, since a group draws all its
+      // solids before all its text.
+      geometry.startRoot();
+      this.paint(overlay, geometry, this.overlays.presenceOf(overlay));
+    }
+    const batches = geometry.batches();
+    this.gl.draw(batches, width, height, this.clearColor);
+    this.lastStats = this.frameStats(batches, repaintOnly);
   }
 
   /**
@@ -2408,6 +2595,8 @@ class WebView implements InputView {
     const height = this.canvas.clientHeight || this.canvas.height;
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
+    // A canvas that changed size has very likely moved on the page too (ZAB-73).
+    this.pointer.invalidateBounds();
     this.render();
   }
 
@@ -2427,7 +2616,7 @@ class WebView implements InputView {
       // And since ZAB-69 the node also keeps WHAT it wrapped, so the frames that
       // changed none of it — most of them, for the static labels a UI is mostly
       // made of — reuse the block instead of breaking the text again.
-      const style = this.effectiveStyle(node);
+      const style = this.styleOf(node);
       const atlas = this.fonts.get(this.fontSize(style));
       const options = this.textOptions(style, atlas.lineHeight, availableWidth);
       const content = this.resolveText(node);
@@ -2437,6 +2626,7 @@ class WebView implements InputView {
         block = layoutText(content, atlas, options);
         node.textBlock = block;
         node.textKey = key;
+        this.textLayoutCount++;
       }
       return { x: block.width, y: block.height };
     }
@@ -2451,17 +2641,20 @@ class WebView implements InputView {
       // with what is being typed into it, so its width comes from its own
       // `layout` (`@zabloo/react`'s `<TextInput>` fills one in) and the content
       // scrolls inside that box.
-      const style = this.effectiveStyle(node);
+      const style = this.styleOf(node);
       const atlas = this.fonts.get(this.fontSize(style));
       return { x: 0, y: Math.max(0, this.dim(style?.lineHeight, atlas.lineHeight)) };
     }
     return { x: 0, y: 0 };
   };
 
-  /** Every TextInput of the tree, so the caret pass does not walk it looking for them. */
-  private eachTextInput(node: LayoutNode, visit: (field: LayoutNode) => void): void {
-    if (node.ir.type === "TextInput") visit(node);
-    for (const child of node.children) this.eachTextInput(child, visit);
+  /**
+   * Every TextInput of the tree — from the registry, so the caret pass does not
+   * walk it looking for them (ZAB-73; the comment here used to claim exactly
+   * that while the function did the walk).
+   */
+  private eachTextInput(visit: (field: LayoutNode) => void): void {
+    for (const field of this.textInputs) visit(field);
   }
 
   render(): void {
@@ -2472,6 +2665,9 @@ class WebView implements InputView {
     const { width, height } = this.logicalSize();
     if (!(width > 0) || !(height > 0)) return;
     const viewRect: Rect = { x: 0, y: 0, width, height };
+    this.frameId++;
+    this.resolvedCount = 0;
+    this.textLayoutCount = 0;
 
     // Data-driven structure comes first: how many nodes there are is settled
     // before anything asks what they look like or where they are (ZAB-31).
@@ -2480,7 +2676,7 @@ class WebView implements InputView {
     // frame's resolve pass — otherwise `states.focused` would land one frame late.
     // An anchored entry is the one thing here that reads rects, and it reads the
     // ones already laid out (see `isOnScreen`).
-    this.layer = collectLayer(this.root, this.overlays.layerPresent);
+    this.layer = collectLayer(this.overlayNodes, this.overlays.layerPresent);
     this.overlays.syncModalFocus();
     this.overlays.syncAutoClose();
     // A control that left layout under the pointer (a tab panel switching, a
@@ -2490,6 +2686,10 @@ class WebView implements InputView {
     // The resolve pass walks the whole tree, overlay subtrees included: a node in
     // the layer tweens like any other, it just gets laid out and painted apart.
     this.animating = false;
+    // Any pending blink is this frame's business now: it would repaint values a
+    // full frame is about to rewrite anyway.
+    this.caretBlinking = false;
+    this.cancelCaret();
     const frameTime = now();
     // Before resolve: a closing overlay is still painted for one transition, and
     // that is what keeps the resolve pass from dropping its subtree mid-fade.
@@ -2514,7 +2714,7 @@ class WebView implements InputView {
     const paintLayer = !this.overlays.anyExiting()
       ? this.layer
       : collectLayer(
-          this.root,
+          this.overlayNodes,
           (node) => this.overlays.layerPresent(node) || this.overlays.isExiting(node),
         );
     this.paintLayer = paintLayer;
@@ -2532,33 +2732,20 @@ class WebView implements InputView {
     // After arrange, where the boxes are final: each field slides its content just
     // enough to keep its caret inside. It reads rects and writes only its own
     // scroll, so it never feeds back into the layout it just ran.
-    this.eachTextInput(this.root, (field) => {
+    this.eachTextInput((field) => {
       if (inLayout(field)) this.field.syncTextScroll(field);
     });
 
-    // ONE builder for the view's whole life: `reset` rewinds the cursors and
-    // keeps the buffers, so a steady animation frame reallocates no geometry.
-    const geometry = this.geometry.reset(globalThis.devicePixelRatio ?? 1);
-    this.paint(this.root, geometry);
-    // Then the layer, in `(z, document order)` — each entry is a paint root, so
-    // it does not inherit the opacity of wherever it was declared, only its own
-    // presence: the backdrop and the panel fade in and out together.
-    for (const overlay of paintLayer) {
-      // Each entry is a paint root, so it opens its own group: sharing the tree's
-      // would put the tree's glyphs over this panel, since a group draws all its
-      // solids before all its text.
-      geometry.startRoot();
-      this.paint(overlay, geometry, this.overlays.presenceOf(overlay));
-    }
-    const batches = geometry.batches();
-    this.gl.draw(batches, width, height, this.clearColor);
-    this.lastStats = this.frameStats(batches);
+    this.submit(width, height, false);
 
     // A tween in flight owns the clock: keep painting until everything settles.
+    // A caret that is merely blinking does not: it asks for the frame it flips
+    // on, and that frame is a repaint (ZAB-73).
     if (this.animating) this.scheduleFrame();
+    else if (this.caretBlinking) this.scheduleCaret();
   }
 
-  private frameStats(batches: Batch[]): FrameStats {
+  private frameStats(batches: Batch[], repaintOnly: boolean): FrameStats {
     let drawCalls = 0;
     let vertices = 0;
     let indices = 0;
@@ -2574,7 +2761,17 @@ class WebView implements InputView {
       atlases++;
       atlasBytes += atlas.canvas.width * atlas.canvas.height * 4;
     }
-    return { drawCalls, vertices, indices, atlases, atlasBytes };
+    return {
+      drawCalls,
+      vertices,
+      indices,
+      atlases,
+      atlasBytes,
+      resolved: this.resolvedCount,
+      textLayouts: this.textLayoutCount,
+      bufferGrowths: this.geometry.growths(),
+      repaintOnly,
+    };
   }
 
   /**
@@ -2657,7 +2854,7 @@ class WebView implements InputView {
   private placeText(node: LayoutNode): { lines: PlacedLine[]; atlas: GlyphAtlas } | null {
     const block = node.textBlock;
     if (node.ir.type !== "Text" || !block) return null;
-    const style = this.effectiveStyle(node);
+    const style = this.styleOf(node);
     const atlas = this.fonts.get(this.fontSize(style));
     // Lines are placed inside the padding box: a Text's own padding already grew
     // its measured size, so it has to keep the glyphs off the edge too.
@@ -2720,7 +2917,7 @@ class WebView implements InputView {
     opacity: number,
     clip: Clip | null,
   ): void {
-    const style = this.effectiveStyle(node);
+    const style = this.styleOf(node);
     const atlas = this.fonts.get(this.fontSize(style));
     const values = node.resolved;
     const box = deflate(node.rect, values.padding ?? 0);
@@ -2738,10 +2935,14 @@ class WebView implements InputView {
     const top = box.y + Math.max(0, (box.height - lineHeight) / 2);
     const originX = box.x - node.textScroll;
 
+    // Split once for the whole field: the highlight and the caret below both
+    // count in code points, and so did the scroll pass that already ran (ZAB-73).
+    const glyphs = this.field.charsOf(node);
+
     if (node.focused && hasSelection(node.selection)) {
-      const { start, end } = span(node.selection, length(node.text));
-      const from = caretX(node.text, start, atlas);
-      const to = caretX(node.text, end, atlas);
+      const { start, end } = span(node.selection, glyphs.length);
+      const from = caretXOf(glyphs, start, atlas);
+      const to = caretXOf(glyphs, end, atlas);
       geometry.roundedRect(
         { x: originX + from, y: top, width: to - from, height: lineHeight },
         0,
@@ -2761,7 +2962,7 @@ class WebView implements InputView {
     ) {
       geometry.roundedRect(
         {
-          x: originX + caretX(node.text, node.selection.focus, atlas),
+          x: originX + caretXOf(glyphs, node.selection.focus, atlas),
           y: top,
           width: CARET.width,
           height: lineHeight,

@@ -333,25 +333,71 @@ function clampAxis(start: number, size: number, boundsStart: number, boundsSize:
 export type Present = (node: LayoutNode) => boolean;
 
 /**
- * Every Overlay of the view that is present, flattened into one layer ordered
- * by `(z, document order)`. Hidden overlays contribute nothing — no layer, no
- * backdrop, no input blocking — and neither does anything under them.
+ * The Overlays hanging under `root`, present or not — the candidates a layer is
+ * collected from. The view does not call this: it keeps the same set as the tree
+ * is built and released (ZAB-73), because re-walking a thousand-row list once a
+ * frame to find three overlays is the walk, not the finding. This is here for
+ * the rule's own tests and for anyone holding a tree and nothing else.
  */
-export function collectLayer(root: LayoutNode, present: Present = inLayout): LayoutNode[] {
+export function overlaysOf(root: LayoutNode): LayoutNode[] {
   const found: LayoutNode[] = [];
-  collect(root, found, present);
-  return found
-    .map((node, index) => ({ node, index, z: overlaySpec(node)?.z ?? 0 }))
-    .sort((a, b) => a.z - b.z || a.index - b.index)
-    .map((entry) => entry.node);
+  collect(root, found);
+  return found;
 }
 
-function collect(node: LayoutNode, out: LayoutNode[], present: Present): void {
-  if (!present(node)) return;
+function collect(node: LayoutNode, out: LayoutNode[]): void {
   // Keep descending through an overlay: a nested one is legal and joins the
   // same layer, ordered like any other entry.
   if (node.ir.type === "Overlay") out.push(node);
-  for (const child of node.children) collect(child, out, present);
+  for (const child of node.children) collect(child, out);
+}
+
+/**
+ * The `overlays` that are present, flattened into one layer ordered by
+ * `(z, document order)`. Hidden overlays contribute nothing — no layer, no
+ * backdrop, no input blocking — and neither does anything under them, which is
+ * why presence is asked of the whole chain up to the root and not of the entry
+ * alone: an overlay inside a closed Collapse is as absent as one with
+ * `visible:false`.
+ */
+export function collectLayer(
+  overlays: Iterable<LayoutNode>,
+  present: Present = inLayout,
+): LayoutNode[] {
+  const found: Array<{ node: LayoutNode; path: number[]; z: number }> = [];
+  for (const node of overlays) {
+    if (!chainPresent(node, present)) continue;
+    found.push({ node, path: documentPath(node), z: overlaySpec(node)?.z ?? 0 });
+  }
+  return found.sort((a, b) => a.z - b.z || comparePaths(a.path, b.path)).map((entry) => entry.node);
+}
+
+function chainPresent(node: LayoutNode, present: Present): boolean {
+  for (let current: LayoutNode | null = node; current; current = current.parent) {
+    if (!present(current)) return false;
+  }
+  return true;
+}
+
+/**
+ * The node's position in the document, as the child index of each step down from
+ * the root. Comparing two of these is comparing document order — the order a
+ * walk would have found them in, recovered without the walk.
+ */
+function documentPath(node: LayoutNode): number[] {
+  const path: number[] = [];
+  for (let current = node; current.parent; current = current.parent) {
+    path.push(current.parent.children.indexOf(current));
+  }
+  return path.reverse();
+}
+
+/** Lexicographic, so an ancestor sorts before the descendant it contains. */
+function comparePaths(a: number[], b: number[]): number {
+  for (let i = 0; i < a.length && i < b.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
 }
 
 /**

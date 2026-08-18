@@ -1,11 +1,14 @@
 /**
- * Performance bench (ZAB-55). NOT part of the regular suite: it runs only with
+ * Performance bench (ZAB-55, widened in ZAB-73). NOT part of the regular suite:
+ * it runs only with
  * `BENCH=1` (`pnpm bench`), because its numbers are for a human comparing a
  * before and an after on one machine — CI asserting on wall-clock would flake.
  *
  * It rides the golden harness, so the whole pipeline runs for real except the
- * GPU submission — which is exactly the split the three ZAB-55 hotspots live
- * on the CPU side of. Two caveats the numbers must be read with:
+ * GPU submission — which is exactly the split the hotspots live on the CPU side
+ * of. The scenes are the ones `budgets.test.ts` asserts against (`perf/scenes.ts`,
+ * ZAB-73), so the frame CI holds a budget on and the frame timed here are the
+ * same frame. Two caveats the numbers must be read with:
  *
  * - The harness fakes `performance.now` (the frame CLOCK), so wall time is
  *   measured with `process.hrtime.bigint()`, which nothing fakes.
@@ -16,8 +19,10 @@
 
 import { Session } from "node:inspector";
 import { describe, expect, it } from "vitest";
+import { CARET } from "./controls/field.js";
 import { mountCase, readCorpus } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
+import { PERF_SCENES, type PerfScene } from "./perf/scenes.js";
 import { findNode } from "./snapshot.js";
 
 const FRAMES = 1000;
@@ -73,115 +78,19 @@ function report(name: string, cost: { ms: number; kb: number }, extra = ""): voi
   console.log(`[bench] ${name}: ${line}${extra ? ` — ${extra}` : ""}`);
 }
 
-/**
- * Clicks the named control (navigation is spatial — there is no Tab), wheeling
- * the scene down until the control is on screen if a scroller hides it.
- */
-function focusByClick(view: GoldenView, ref: string): void {
-  for (let i = 0; i < 40; i++) {
-    const snapshot = view.snapshot();
-    const rect = findNode(snapshot, ref)?.rect;
-    if (rect && rect.y >= 0 && rect.y + rect.height <= snapshot.size.height) {
-      view.pointer.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
-      if (view.snapshot().focus === ref) return;
-    }
-    view.pointer.wheel(snapshot.size.width / 2, snapshot.size.height / 2, 0, 40);
-  }
-  throw new Error(`bench: could not focus "${ref}"`);
+/** Mounts a perf scene settled, the way `budgets.test.ts` measures it. */
+async function mountScene(scene: PerfScene): Promise<GoldenView> {
+  const view = await mountGolden(scene.envelope, {
+    width: scene.width,
+    height: scene.height,
+    data: scene.data,
+  });
+  view.settle();
+  view.settle();
+  return view;
 }
 
-// --- the 1.000-unequal-rows list (focus 3) ---
-
-/** Deterministic label lengths → rows wrapping to 1..4 lines in a 200px column. */
-function unequalItems(count: number): Array<{ id: string; label: string }> {
-  return Array.from({ length: count }, (_, i) => ({
-    id: `it-${i}`,
-    label: `Item ${i} — ${"palabra ".repeat(1 + ((i * 7) % 9))}`,
-  }));
-}
-
-const ROWS_ENVELOPE = {
-  v: 1,
-  views: {
-    main: {
-      type: "Container",
-      id: "root",
-      layout: { direction: "column", padding: 8 },
-      style: { background: "#101218" },
-      children: [
-        {
-          type: "ScrollView",
-          id: "scroller",
-          axis: "vertical",
-          layout: { direction: "column", width: 240, height: 300, padding: 8 },
-          style: { background: "#1e293b" },
-          children: [
-            {
-              type: "Repeat",
-              id: "rows",
-              items: { bind: "list.items" },
-              as: "item",
-              key: "id",
-              layout: { direction: "column", gap: 6 },
-              children: [
-                {
-                  type: "Container",
-                  id: "row",
-                  layout: { direction: "column", width: 208, padding: 6 },
-                  style: { background: "#334155", radius: 4 },
-                  children: [
-                    {
-                      type: "Text",
-                      id: "row-label",
-                      text: { bind: "item.label" },
-                      style: { color: "#e2e8f0" },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    },
-  },
-};
-
-const SPINNER_ENVELOPE = {
-  v: 1,
-  views: {
-    main: {
-      type: "Container",
-      id: "root",
-      layout: { direction: "column", padding: 16, gap: 8 },
-      style: { background: "#101218" },
-      children: [
-        ...Array.from({ length: 12 }, (_, i) => ({
-          type: "Container",
-          id: `panel-${i}`,
-          layout: { direction: "row", width: 300, height: 18, padding: 4 },
-          style: { background: "#1e293b", radius: 4 },
-          children: [
-            { type: "Text", id: `label-${i}`, text: `Fila ${i}`, style: { color: "#e2e8f0" } },
-          ],
-        })),
-        {
-          type: "Spinner",
-          id: "spin",
-          layout: { direction: "row", gap: 6, align: "center", height: 12 },
-          children: [0, 1, 2].map((i) => ({
-            type: "Container",
-            id: `bead-${i}`,
-            layout: { width: 8, height: 8 },
-            style: { background: "#e2e8f0", radius: 4 },
-          })),
-        },
-      ],
-    },
-  },
-};
-
-describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
+describe.runIf(process.env.BENCH)("performance bench (ZAB-55, ZAB-73)", () => {
   it("relayout: full pipeline frame on the settings scene", async () => {
     const view = await mountCase(readCorpus().settings);
     // `settle` re-renders without moving the clock: the cost of one whole
@@ -190,20 +99,46 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
     view.dispose();
   });
 
-  it("animation frame: blinking caret on the settings scene", async () => {
-    const view = await mountCase(readCorpus().settings);
-    focusByClick(view, "player-name");
-    view.type("Zabloo");
-    // The focused field owns the clock: every 16ms step renders one frame.
-    const cost = await measure(FRAMES, () => view.advance(16));
-    expect(view.snapshot().focus).toBe("player-name");
-    report("caret animation frame", cost, JSON.stringify(view.handle.stats()));
+  it("relayout: full pipeline frame on a populated screen", async () => {
+    const view = await mountScene(PERF_SCENES["dense-loop"]);
+    report("dense screen full relayout", await measure(FRAMES, () => view.settle()));
     view.dispose();
   });
 
-  it("animation frame: spinner over a static scene", async () => {
-    const view = await mountGolden(SPINNER_ENVELOPE);
-    view.settle();
+  it("focused field: what 16 ms of a blinking caret costs", async () => {
+    const view = await mountScene(PERF_SCENES["dense-caret"]);
+    const field = findNode(view.snapshot(), "message")?.rect;
+    if (!field) throw new Error("bench: the composer field is not on screen");
+    view.pointer.click(field.x + 20, field.y + field.height / 2);
+    view.type("Zabloo");
+    expect(view.snapshot().focus).toBe("message");
+    // Since ZAB-73 most of these ticks render NOTHING: the blink asks for the
+    // frame it flips on, twice a period, and each of those is a repaint. So this
+    // is the honest "what does leaving a field focused cost per 16 ms".
+    const cost = await measure(FRAMES, () => view.advance(16));
+    report("caret, per 16ms tick", cost, JSON.stringify(view.handle.stats()));
+    view.dispose();
+  });
+
+  it("focused field: the flip frame itself, against a full frame of the same scene", async () => {
+    const view = await mountScene(PERF_SCENES["dense-caret"]);
+    const field = findNode(view.snapshot(), "message")?.rect;
+    if (!field) throw new Error("bench: the composer field is not on screen");
+    view.pointer.click(field.x + 20, field.y + field.height / 2);
+    view.type("Zabloo");
+    // One tick per half period lands exactly on the flips, so every iteration
+    // renders one caret repaint and nothing else.
+    const flip = await measure(FRAMES, () => view.advance(CARET.blinkMs / 2));
+    expect(view.handle.stats().repaintOnly).toBe(true);
+    report("caret flip repaint", flip, JSON.stringify(view.handle.stats()));
+    const full = await measure(FRAMES, () => view.settle());
+    report("same scene, full frame", full);
+    console.log(`[bench] caret flip is ${((flip.ms / full.ms) * 100).toFixed(1)}% of a full frame`);
+    view.dispose();
+  });
+
+  it("animation frame: a Spinner running over a populated screen", async () => {
+    const view = await mountScene(PERF_SCENES["dense-loop"]);
     // The wave must actually be running, or the loop measures skipped frames.
     const opacityOf = () => findNode(view.snapshot(), "bead-0")?.style?.opacity;
     const before = opacityOf();
@@ -215,35 +150,44 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55)", () => {
   });
 
   it("repeat: 1.000 unequal rows — mount, scroll, window shape", async () => {
-    const view = await mountGolden(ROWS_ENVELOPE, {
-      data: { "list.items": unequalItems(1000) },
-    });
-    view.settle();
-    view.settle();
-
+    const view = await mountScene(PERF_SCENES.list);
     const windowOf = () => findNode(view.snapshot(), "rows")?.window;
     console.log(`[bench] rows window after settle: ${JSON.stringify(windowOf())}`);
 
     // Steady-state scrolling: every wheel renders (plus any window re-plan the
     // drifted check schedules — that cost belongs to the number).
     const cost = await measure(FRAMES, () => {
-      view.pointer.wheel(120, 150, 0, 40);
+      view.pointer.wheel(400, 300, 0, 40);
       view.advance(16);
     });
     report("1000-row scroll frame", cost, `window ${JSON.stringify(windowOf())}`);
 
     // Scroll back to the top: does the window recover, or did "biggest wins" pin it?
     for (let i = 0; i < 400; i++) {
-      view.pointer.wheel(120, 150, 0, -400);
+      view.pointer.wheel(400, 300, 0, -400);
       view.advance(16);
     }
     console.log(`[bench] rows window back at top: ${JSON.stringify(windowOf())}`);
     view.dispose();
   });
 
+  it("text: a wall of wrapped prose, relaid out every frame", async () => {
+    const view = await mountScene(PERF_SCENES.text);
+    report("wrapped prose full relayout", await measure(FRAMES, () => view.settle()));
+    view.dispose();
+  });
+
   it("draw calls and atlas cost per golden scene", async () => {
     for (const [name, golden] of Object.entries(readCorpus())) {
       const view = await mountCase(golden);
+      console.log(`[bench] ${name}: ${JSON.stringify(view.handle.stats())}`);
+      view.dispose();
+    }
+  });
+
+  it("draw calls and atlas cost per realistic scene", async () => {
+    for (const [name, scene] of Object.entries(PERF_SCENES)) {
+      const view = await mountScene(scene);
       console.log(`[bench] ${name}: ${JSON.stringify(view.handle.stats())}`);
       view.dispose();
     }

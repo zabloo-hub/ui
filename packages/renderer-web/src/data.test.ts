@@ -51,6 +51,56 @@ describe("DataStore — paths are addresses, not keys", () => {
   });
 });
 
+describe("DataStore — the descendant index (ZAB-73)", () => {
+  it("drops only what hangs off the path, however deep the store is", () => {
+    const store = new DataStore();
+    store.set("shop.items.0.enabled", true);
+    store.set("shop.items.1.enabled", true);
+    store.set("shop.itemsCount", 2);
+    store.set("player.gold", 100);
+
+    store.set("shop.items", [{ enabled: false }, { enabled: false }]);
+
+    expect(store.get("shop.items.0.enabled")).toBe(false);
+    expect(store.get("shop.items.1.enabled")).toBe(false);
+    // A sibling that merely shares the prefix is untouched — the separator is
+    // part of the comparison here exactly as it is in `affects`.
+    expect(store.get("shop.itemsCount")).toBe(2);
+    expect(store.get("player.gold")).toBe(100);
+  });
+
+  it("keeps working after the same subtree is written over and over", () => {
+    const store = new DataStore();
+    for (let round = 0; round < 3; round++) {
+      store.set("shop.items", [{ enabled: false }]);
+      store.set("shop.items.0.enabled", true);
+      expect(store.get("shop.items.0.enabled")).toBe(true);
+    }
+    // The index must not have kept a dead key alive: the last array wins.
+    store.set("shop.items", [{ enabled: false }]);
+    expect(store.get("shop.items.0.enabled")).toBe(false);
+  });
+
+  it("forgets an intermediate write when an ancestor above it is replaced", () => {
+    const store = new DataStore();
+    store.set("a.b.c.d", 1);
+    store.set("a.b", { c: { d: 2 } });
+    expect(store.get("a.b.c.d")).toBe(2);
+    // And writing the root of it all drops the middle key too, not just the leaf.
+    store.set("a.b.c.d", 3);
+    store.set("a", { b: { c: { d: 4 } } });
+    expect(store.get("a.b.c.d")).toBe(4);
+  });
+
+  it("is emptied by `clear`, index included", () => {
+    const store = new DataStore();
+    store.set("shop.items.0.enabled", true);
+    store.clear();
+    store.set("shop.items", [{ enabled: false }]);
+    expect(store.get("shop.items.0.enabled")).toBe(false);
+  });
+});
+
 describe("affects — which bindings a write moves", () => {
   it("matches the exact path", () => {
     expect(affects("player.gold", "player.gold")).toBe(true);

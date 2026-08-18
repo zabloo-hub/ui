@@ -9,7 +9,7 @@
  * writes its interpolated dims. Layout is pure geometry over resolved inputs.
  */
 
-import type { ItemScope, Layout, ScrollAxis, SliderAxis, ZNode } from "@zabloo/format";
+import type { ItemScope, Layout, ScrollAxis, SliderAxis, Style, ZNode } from "@zabloo/format";
 import { fillRect } from "./progress.js";
 import type { ItemSpan } from "./repeat.js";
 import { clamp, resolveScrollMax } from "./scroll.js";
@@ -178,6 +178,13 @@ export interface LayoutNode {
    */
   textScroll: number;
   /**
+   * TextInput only: `text` split into code points, or null when it has to be
+   * split again (ZAB-73). Every caret question is asked in those units and a
+   * focused field asks several per frame; the buffer only changes on an edit,
+   * so the split belongs to the buffer and not to each question.
+   */
+  textChars: string[] | null;
+  /**
    * TextInput only: when the caret's blink cycle last restarted (every edit and
    * every caret move restarts it, so the caret is solid while typing). Null while
    * the field has never been focused.
@@ -200,6 +207,15 @@ export interface LayoutNode {
    * again. Null until a measure pass fills it in, and on every other node type.
    */
   textKey: TextKey | null;
+  /**
+   * The frame `styleCache` was merged on, or -1 before the first one (ZAB-73).
+   * The view stamps its frame counter here: resolve, measure and paint all ask
+   * the same node for the same style, and merging it three times per node and
+   * frame allocated an object per state-carrying node on each pass.
+   */
+  styleFrame: number;
+  /** This frame's merged style — the view's `styleOf` owns it (ZAB-73). */
+  styleCache: Style | undefined;
   /** Tweens in flight for this node. Rebuilding the tree drops them, so a reload snaps. */
   anim: NodeAnim;
   /**
@@ -259,10 +275,13 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
     empty: true,
     selection: caretAt(0),
     textScroll: 0,
+    textChars: null,
     caretSince: null,
     resolved: {},
     textBlock: null,
     textKey: null,
+    styleFrame: -1,
+    styleCache: undefined,
     anim: createNodeAnim(),
     scopes: NO_SCOPES,
     repeat: null,

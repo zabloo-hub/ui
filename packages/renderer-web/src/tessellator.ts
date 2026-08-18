@@ -64,6 +64,8 @@ export class GeometryBuilder {
   /** Retired stores/groups waiting for the next frame — buffers kept (ZAB-55). */
   private readonly batchPool: BatchStore[] = [];
   private readonly groupPool: ClipGroup[] = [];
+  /** `growthCount` when this frame started — see `growths` (ZAB-73). */
+  private growthsAtReset = growthCount();
 
   /** `dpr` lets glyph quads snap to the physical pixel grid (crisp text). */
   constructor(private dpr: number = 1) {
@@ -77,6 +79,7 @@ export class GeometryBuilder {
    */
   reset(dpr: number = this.dpr): this {
     this.dpr = dpr;
+    this.growthsAtReset = growthCount();
     for (const group of this.groups) {
       this.recycle(group.solid);
       for (const batch of group.images.values()) this.recycle(batch);
@@ -88,6 +91,19 @@ export class GeometryBuilder {
     this.groups.length = 0;
     this.group = this.openGroup(null);
     return this;
+  }
+
+  /**
+   * Vertex/index buffers that had to grow since this frame's `reset` (ZAB-73).
+   *
+   * The number a steady animation frame must hold at ZERO: the buffers are the
+   * view's, kept across frames on purpose, so a frame that reallocates them is
+   * either painting something new or has lost the reuse ZAB-55 bought. That is
+   * exactly the regression CI could not see before — draw calls and vertices
+   * stay identical while the allocator does all the work.
+   */
+  growths(): number {
+    return growthCount() - this.growthsAtReset;
   }
 
   private recycle(batch: BatchStore): void {
@@ -434,11 +450,24 @@ function liveView(store: BatchStore): Batch {
   };
 }
 
+/**
+ * Buffer reallocations since the module loaded. A plain counter, shared by every
+ * builder on the page: a builder records it at `reset` and reports the delta, so
+ * no per-batch bookkeeping rides along the write path (`pushVertex` is the
+ * hottest function in the renderer).
+ */
+let growths = 0;
+
+function growthCount(): number {
+  return growths;
+}
+
 function growFloats(array: Float32Array, needed: number): Float32Array {
   let capacity = array.length * 2;
   while (capacity < needed) capacity *= 2;
   const next = new Float32Array(capacity);
   next.set(array);
+  growths++;
   return next;
 }
 
@@ -447,6 +476,7 @@ function growIndices(array: Uint32Array, needed: number): Uint32Array {
   while (capacity < needed) capacity *= 2;
   const next = new Uint32Array(capacity);
   next.set(array);
+  growths++;
   return next;
 }
 

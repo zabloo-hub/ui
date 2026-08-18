@@ -1563,3 +1563,123 @@ describe("GPU robustness (ZAB-68)", () => {
     expect(disposed.warnings[0]).toContain("disposed view");
   });
 });
+
+/**
+ * A list of groups, each with a list of its own — the shape that pins the
+ * expansion ORDER (ZAB-73). Expanding the outer list is what builds the inner
+ * ones, so whatever drives the pass has to reach a `Repeat` that did not exist
+ * when the pass started.
+ */
+const NESTED_REPEATS = {
+  v: 1,
+  views: {
+    groups: {
+      type: "Container",
+      layout: { direction: "column", align: "start" },
+      children: [
+        {
+          type: "Repeat",
+          id: "groups",
+          items: { bind: "shop.groups" },
+          as: "group",
+          key: "id",
+          layout: { direction: "column", align: "start" },
+          children: [
+            {
+              type: "Container",
+              layout: { direction: "column", align: "start" },
+              children: [
+                { type: "Text", text: { bind: "group.name" } },
+                {
+                  type: "Repeat",
+                  items: { bind: "group.items" },
+                  as: "item",
+                  key: "id",
+                  layout: { direction: "column", align: "start" },
+                  children: [{ type: "Text", text: { bind: "item.name" } }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
+const GROUPS = [
+  {
+    id: "g1",
+    name: "Armas",
+    items: [
+      { id: "i1", name: "Espada" },
+      { id: "i2", name: "Arco" },
+    ],
+  },
+  { id: "g2", name: "Pociones", items: [{ id: "i3", name: "Vida" }] },
+];
+
+describe("where the canvas is (ZAB-73)", () => {
+  it("re-reads the canvas rect when the page scrolls under it", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    const target = center(view.snapshot(), "primary");
+    // The rect is cached — `getBoundingClientRect` flushes layout and a pointer
+    // move asked for it twice — so a page that scrolls has to say so.
+    view.moveCanvas(0, -40);
+    view.scrollPage();
+
+    // The control is where it always was in the VIEW; what moved is the page
+    // coordinate it answers to.
+    view.pointer.click(target.x, target.y - 40);
+
+    expect(view.actions).toEqual([{ action: "buy" }]);
+  });
+
+  it("re-reads it when the canvas itself is resized", async () => {
+    view = await mountCase(CORPUS["states-tokens"]);
+    view.moveCanvas(0, -40);
+    // The other way a mounted view learns it moved: it was resized. A canvas that
+    // changed size has very likely changed place too.
+    view.resize(480, 320);
+    const target = center(view.snapshot(), "primary");
+
+    view.pointer.click(target.x, target.y - 40);
+
+    expect(view.actions).toEqual([{ action: "buy" }]);
+  });
+});
+
+describe("nested Repeats (ZAB-31, expansion order pinned in ZAB-73)", () => {
+  it("expands the inner lists the outer one just created, in the same pass", async () => {
+    view = await mountGolden(NESTED_REPEATS, { data: { "shop.groups": GROUPS } });
+
+    // One frame: the inner lists must not need a SECOND one to appear, or every
+    // nested list in a UI would flash empty on the frame its group arrives.
+    const texts = allTexts(view.snapshot());
+    expect(texts).toEqual(["Armas", "Espada", "Arco", "Pociones", "Vida"]);
+  });
+
+  it("follows the data when a group's items change under it", async () => {
+    view = await mountGolden(NESTED_REPEATS, { data: { "shop.groups": GROUPS } });
+
+    view.handle.setData("shop.groups", [
+      { id: "g1", name: "Armas", items: [{ id: "i9", name: "Daga" }] },
+    ]);
+    view.settle();
+
+    expect(allTexts(view.snapshot())).toEqual(["Armas", "Daga"]);
+  });
+});
+
+/** Every `Text` of the tree, in document order — what the rows say. */
+function allTexts(snapshot: ViewSnapshot): string[] {
+  const found: string[] = [];
+  const walk = (node: NodeSnapshot): void => {
+    if (node.type === "Text" && node.text) {
+      found.push(node.text.lines.map((line) => line.text).join(" "));
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(snapshot.tree);
+  return found;
+}

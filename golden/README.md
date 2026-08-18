@@ -67,6 +67,16 @@ drag that must not become a click, an action carrying the item it fired from —
 are **not** here. They are hand-written assertions in
 `packages/renderer-web/src/view.test.ts`.
 
+## What does NOT belong here
+
+**Performance scenes.** The corpus documents BEHAVIOR, so its cases are as small
+as the rule they record. The scenes the budgets are asserted against — a
+thousand-row list, a wall of wrapped prose, a panel mid-transition — live in
+`packages/renderer-web/src/perf/scenes.ts` instead (ZAB-73), for two reasons:
+their metrics are `stats()`, which is web-only telemetry and deliberately
+outside `snapshot()` (the cross-target contract), and a thousand rows of
+recorded rects would be a megabyte of golden nobody reads.
+
 ## Adding a capability
 
 1. Write `envelopes/<name>.json` (IR v1 — see `packages/format/src/index.ts`).

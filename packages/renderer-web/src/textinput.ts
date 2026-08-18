@@ -188,7 +188,18 @@ export function selectAll(text: string): Selection {
  * boundary the player sees.
  */
 export function caretX(text: string, index: number, metrics: TextMetrics): number {
-  const glyphs = chars(text);
+  return caretXOf(chars(text), index, metrics);
+}
+
+/**
+ * The same measurement over code points that are already split (ZAB-73). The
+ * caret, the selection highlight and the field's own scroll all want it in the
+ * same frame, and splitting the buffer once per question made a focused field
+ * allocate six or eight arrays a frame for one string that had not changed. The
+ * renderer caches the split per node (`FieldEditor.charsOf`); this is the entry
+ * point that lets it.
+ */
+export function caretXOf(glyphs: readonly string[], index: number, metrics: TextMetrics): number {
   const upto = clampIndex(index, glyphs.length);
   let x = 0;
   for (let i = 0; i < upto; i++) {
@@ -205,7 +216,11 @@ export function caretX(text: string, index: number, metrics: TextMetrics): numbe
  * the one that makes a drag select what it looks like it selects.
  */
 export function indexAtX(text: string, x: number, metrics: TextMetrics): number {
-  const glyphs = chars(text);
+  return indexAtXOf(chars(text), x, metrics);
+}
+
+/** `indexAtX` over code points that are already split — see `caretXOf`. */
+export function indexAtXOf(glyphs: readonly string[], x: number, metrics: TextMetrics): number {
   let left = 0;
   for (let i = 0; i < glyphs.length; i++) {
     const step = (i > 0 ? metrics.kern(glyphs[i - 1], glyphs[i]) : 0) + metrics.advance(glyphs[i]);
