@@ -22,21 +22,21 @@ export const tokens = {
   "motion.fast": 120,
 };
 
-// Default motion per component (ZAB-36), keyed by PRIMITIVE like `variants`. It
-// is what makes this screen a test of transitions × recycling (ZAB-66): the
-// favourite Toggle of every row crossfades and the chips and buy buttons fade
-// their states, so a row REUSED for another item would be visible as a
-// crossfade between two items instead of a clean swap. Scroll it fast, or
-// reorder `shop.items` from the console, and nothing should smear.
+// Default motion per component, keyed by PRIMITIVE like `variants`. It is what
+// makes this screen a test of transitions × recycling: the favourite Toggle of
+// every row crossfades and the chips and buy buttons fade their states, so a
+// row REUSED for another item would be visible as a crossfade between two
+// items instead of a clean swap. Scroll it fast, or reorder `shop.items` from
+// the console, and nothing should smear.
 export const transitions: ThemeTransitions = {
   Button: { duration: "{motion.fast}" },
   Toggle: { duration: "{motion.fast}" },
 };
 
-// Variants — authoring-time style sets (decision 2026-08-03 §6): resolved by
-// @zabloo/react, never present in the IR. Note there is no `ScrollView` variant
-// here: the scroller has no states of its own (it is not focusable and has no
-// hover/pressed), so everything interactive lives on the rows inside it.
+// Variants — authoring-time style sets: resolved by @zabloo/react, never
+// present in the IR. Note there is no `ScrollView` variant here: the scroller
+// has no states of its own (it is not focusable and has no hover/pressed), so
+// everything interactive lives on the rows inside it.
 export const variants: ThemeVariants = {
   Button: {
     // Category chip of the horizontal strip.

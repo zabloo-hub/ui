@@ -1,11 +1,11 @@
 // View "inventory" (file-based convention: the filename is the view ID).
-// Reference screen for data-driven lists (ZAB-31) over the ScrollView of ZAB-9:
-// the catalogue is ONE item template bound to `shop.items`, and the game pushes
-// the array. Feed it from the preview's data panel (paste JSON) or its console:
+// Reference screen for data-driven lists inside a ScrollView: the catalogue is
+// ONE item template bound to `shop.items`, and the game pushes the array. Feed
+// it from the preview's data panel (paste JSON) or its console:
 //
 //   zabloo.setData("shop.items", Array.from({ length: 400 }, (_, i) => ({
-//     id: "item-" + i, tag: "IT", name: "Objeto " + i,
-//     detail: "Daño " + (i % 20) + " · Peso " + (i % 9), price: 20 + i * 3,
+//     id: "item-" + i, tag: "IT", name: "Item " + i,
+//     detail: "Damage " + (i % 20) + " · Weight " + (i % 9), price: 20 + i * 3,
 //   })))
 //
 // What each block is here to prove:
@@ -22,9 +22,10 @@
 //    an `id` inside a template would be worn by every instance of it.
 //  - The empty state (`empty`) is what shows before any data arrives, or when
 //    the array is empty — the IR has no expressions, so it is a slot.
-//  - Around the list, ZAB-9 still holds: the category strip scrolls on the other
-//    axis with no indicator, the <Collapse> inside the scroller re-clamps the
-//    offset when it closes, and nothing paints outside the panel.
+//  - The scroller's own rules still hold around the list: the category strip
+//    scrolls on the other axis with no indicator, the <Collapse> inside the
+//    scroller re-clamps the offset when it closes, and nothing paints outside
+//    the panel.
 import {
   Button,
   Checkbox,
@@ -38,21 +39,21 @@ import {
 } from "@zabloo/react";
 
 const CATEGORIES = [
-  "Todo",
-  "Armas",
-  "Armaduras",
-  "Pociones",
-  "Materiales",
-  "Hechizos",
-  "Monturas",
-  "Cosméticos",
+  "All",
+  "Weapons",
+  "Armor",
+  "Potions",
+  "Materials",
+  "Spells",
+  "Mounts",
+  "Cosmetics",
 ];
 
 /** The rare section stays authored: it is the static content the list scrolls with. */
 const RARE: Array<[string, string, string, number]> = [
-  ["reliquia", "Reliquia del alba", "Único · Luz sagrada", 1500],
-  ["grimorio", "Grimorio prohibido", "Único · Hechizos oscuros", 1200],
-  ["corona", "Corona del rey caído", "Único · Mando +2", 2400],
+  ["relic", "Relic of the dawn", "Unique · Holy light", 1500],
+  ["grimoire", "Forbidden grimoire", "Unique · Dark spells", 1200],
+  ["crown", "Crown of the fallen king", "Unique · Command +2", 2400],
 ];
 
 const NAME = { color: "{color.text}", fontSize: 16 } as const;
@@ -75,7 +76,7 @@ function RareRow({ item }: { item: (typeof RARE)[number] }) {
         <Text style={NAME}>{name}</Text>
         <Text style={DETAIL}>{detail}</Text>
       </Column>
-      <Text style={PRICE}>{`${price} oro`}</Text>
+      <Text style={PRICE}>{`${price} gold`}</Text>
     </Row>
   );
 }
@@ -84,11 +85,11 @@ export default function Inventory() {
   return (
     <Column layout={{ grow: 1, justify: "center", align: "center", gap: "{space.4}" }}>
       <Row layout={{ width: 460, justify: "space-between", align: "center" }}>
-        <Text style={{ color: "{color.text}", fontSize: 20 }}>Tienda del gremio</Text>
+        <Text style={{ color: "{color.text}", fontSize: 20 }}>Guild shop</Text>
         {/* Bound, like any other text: the preview's data panel (or the game's
             SetData) fills it — it is empty until someone sets `player.gold`. */}
         <Row layout={{ gap: "{space.1}", align: "center" }}>
-          <Text style={PRICE}>Oro:</Text>
+          <Text style={PRICE}>Gold:</Text>
           <Text bind="player.gold" style={PRICE} />
         </Row>
       </Row>
@@ -152,7 +153,7 @@ export default function Inventory() {
           layout={{ gap: "{space.1}", align: "stretch" }}
           empty={
             <Container layout={{ height: 64, justify: "center", align: "center" }}>
-              <Text style={DETAIL}>La tienda está vacía — empuja `shop.items`</Text>
+              <Text style={DETAIL}>The shop is empty — push `shop.items`</Text>
             </Container>
           }
         >
@@ -172,11 +173,11 @@ export default function Inventory() {
 
               <Row layout={{ gap: "{space.1}", align: "center" }}>
                 <Text bind={it("price")} style={PRICE} />
-                <Text style={PRICE}>oro</Text>
+                <Text style={PRICE}>gold</Text>
               </Row>
 
               {/* Two-way, into the element: tapping it writes `shop.items.<n>.fav`
-                  and the game hears it on `onDataChanged` (ZAB-23 + ZAB-29). */}
+                  and the game hears it on `onDataChanged`. */}
               <Checkbox checked={{ bind: it("fav") }} onChange="favourite" size={20} />
 
               <Button
@@ -184,7 +185,7 @@ export default function Inventory() {
                 onClick="buy"
                 layout={{ padding: "{space.2}", justify: "center", align: "center" }}
               >
-                <Text style={{ color: "{color.text}", fontSize: 14 }}>Comprar</Text>
+                <Text style={{ color: "{color.text}", fontSize: 14 }}>Buy</Text>
               </Button>
             </Row>
           )}
@@ -197,8 +198,8 @@ export default function Inventory() {
             layout={{ height: 44, padding: "{space.2}", justify: "space-between", align: "center" }}
             style={{ background: "{color.bg.row.alt}", radius: "{radius.md}" }}
           >
-            <Text style={NAME}>Objetos raros</Text>
-            <Text style={DETAIL}>{`${RARE.length} piezas`}</Text>
+            <Text style={NAME}>Rare items</Text>
+            <Text style={DETAIL}>{`${RARE.length} pieces`}</Text>
           </Row>
           {RARE.map((item) => (
             <RareRow key={item[0]} item={item} />
@@ -207,7 +208,7 @@ export default function Inventory() {
       </ScrollView>
 
       <Text style={{ color: "{color.text.muted}", fontSize: 14 }}>
-        Empuja `shop.items` desde el panel de datos o la consola · rueda o arrastra en la lista
+        Push `shop.items` from the data panel or the console · wheel or drag inside the list
       </Text>
     </Column>
   );

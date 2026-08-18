@@ -188,19 +188,34 @@ Node ≥ 22 and pnpm (the repo pins its version through `packageManager`).
 
 ```bash
 pnpm install
+pnpm build                                 # packages → dist/, then the examples' envelopes
 pnpm typecheck && pnpm test && pnpm lint   # the three checks CI runs
-pnpm build                                 # bundles every package into dist/
 pnpm verify:pack                           # the publish dry run: pack, install outside
                                            # the workspace, import and typecheck it
 ```
 
-**CI runs them in that order, after `pnpm build`** — install, build, typecheck, test, lint,
-`verify:pack`. Locally the build is usually optional: `typecheck` and `test` resolve
+**CI runs them in that order** — install, build, typecheck, test, lint, `verify:pack`.
+Locally the build is usually optional for the checks: `typecheck` and `test` resolve
 workspace dependencies to their **sources**, so a fresh clone needs no build first.
 `packages/cli` is the exception, because two of its tests run the real thing rather than a
 stand-in: the dev server serves the preview page's own bundle, and the export tests run a
 project's code through jiti, which resolves `@zabloo/react` from that project. Both want
 `pnpm build` first — which is why CI builds up front rather than sorting it out per package.
+
+**Run `pnpm build` once before using the examples**, though, whatever you do with the
+checks. `zabloo` is a bin of `@zabloo/cli`, and pnpm can only link a bin whose target
+already exists — on a fresh clone `dist/cli.js` does not, so the shim is skipped with a
+warning and `pnpm --filter showcase-example dev` would fail with `zabloo: not found`. The
+build closes that gap itself: it bundles the packages, re-links the workspace, and only
+then exports the examples.
+
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the whole loop: setting up, running the preview,
+the golden corpus, when a change needs a changeset, and what a pull request should say.
+Bugs and requests go through the [issue templates](.github/ISSUE_TEMPLATE); a security
+problem goes through [private reporting](SECURITY.md) rather than a public issue. The
+project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
 
 ## License
 

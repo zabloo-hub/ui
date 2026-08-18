@@ -1,15 +1,14 @@
 // View "settings" (file-based convention: the filename is the view ID).
-// The screen F5 closes on (ZAB-28): everything the batch added — Tabs (ZAB-22),
-// Checkbox/Switch (ZAB-23), Slider (ZAB-24), Select (ZAB-25) and TextInput
-// (ZAB-26) — composed as ONE real settings screen instead of a test bed per
+// The whole form catalogue — Tabs, Checkbox/Switch, Slider, Select and
+// TextInput — composed as ONE real settings screen instead of a test bed per
 // control. Each control on its own, with every prop it takes, is the `showcase`
 // project next door; this is what a game actually ships.
 //
 // Every control is bound, so the preview's data panel plays the part of the
 // game: type a value there and the screen moves; move the screen and the field
 // updates (the game's onDataChanged). Everything here is reachable with the
-// keyboard alone — arrows to move, Enter to activate, Escape to close the
-// dropdown — and with the mouse.
+// keyboard or a gamepad alone — arrows/d-pad to move, Enter/Space/A to
+// activate, Escape/B to close the dropdown — and with the mouse.
 
 import {
   Button,
@@ -53,7 +52,7 @@ const PANEL = {
   },
 } as const;
 
-const QUALITIES = ["Baja", "Media", "Alta", "Ultra"] as const;
+const QUALITIES = ["Low", "Medium", "High", "Ultra"] as const;
 
 // Long enough that the dropdown scrolls: what makes the list navigable is the
 // focus dragging the ScrollView along with it.
@@ -90,7 +89,7 @@ function Field({ label, bind, children }: { label: string; bind: string; childre
 export default function Settings() {
   return (
     <Column layout={{ grow: 1, justify: "center", align: "center", gap: "{space.4}" }}>
-      <Text style={{ color: "{color.text}", fontSize: 24 }}>Ajustes</Text>
+      <Text style={{ color: "{color.text}", fontSize: 24 }}>Settings</Text>
 
       {/* The unselected panels LEAVE the layout (the same InLayout flag Collapse
           uses), so switching tabs re-runs the flexbox pass and the screen
@@ -106,13 +105,13 @@ export default function Settings() {
           variant="tab"
           autofocus
           layout={{ padding: "{space.2}" }}
-          label={<Text style={TAB_LABEL}>Vídeo</Text>}
+          label={<Text style={TAB_LABEL}>Video</Text>}
           panel={{ ...PANEL, id: "panel-video" }}
         >
           {/* The closed button shows the VALUE, and the list opens in the overlay
               layer anchored to it: it closes on pick, on Escape and on a click
               outside. With the keyboard, Enter opens it over the option in use. */}
-          <Field label="Calidad gráfica" bind="settings.quality">
+          <Field label="Graphics quality" bind="settings.quality">
             <Select
               id="quality"
               variant="setting"
@@ -136,12 +135,12 @@ export default function Settings() {
             checkedTrack={{ background: "{color.accent}" }}
             layout={TOGGLE_ROW}
           >
-            <Text style={LABEL}>Pantalla completa</Text>
+            <Text style={LABEL}>Fullscreen</Text>
           </Switch>
 
           {/* Quantized: brightness moves from 0 to 100 in tens, and the arrows
               walk that same grid while the slider holds the focus. */}
-          <Field label="Brillo" bind="settings.brightness">
+          <Field label="Brightness" bind="settings.brightness">
             <Slider
               id="brightness"
               variant="setting"
@@ -165,7 +164,7 @@ export default function Settings() {
         >
           {/* Continuous: `onChange` follows the finger (preview the volume) and
               `onCommit` fires on release (apply the setting for real). */}
-          <Field label="Volumen general" bind="settings.volume">
+          <Field label="Master volume" bind="settings.volume">
             <Slider
               id="volume"
               variant="setting"
@@ -180,7 +179,7 @@ export default function Settings() {
             />
           </Field>
 
-          <Field label="Música" bind="settings.music">
+          <Field label="Music" bind="settings.music">
             <Slider
               id="music"
               variant="setting"
@@ -202,7 +201,7 @@ export default function Settings() {
             checkedTrack={{ background: "{color.accent}" }}
             layout={TOGGLE_ROW}
           >
-            <Text style={LABEL}>Efectos de sonido</Text>
+            <Text style={LABEL}>Sound effects</Text>
           </Switch>
 
           <Checkbox
@@ -212,7 +211,7 @@ export default function Settings() {
             onChange="subtitles-changed"
             layout={TOGGLE_ROW}
           >
-            <Text style={LABEL}>Subtítulos</Text>
+            <Text style={LABEL}>Subtitles</Text>
           </Checkbox>
         </Tab>
 
@@ -220,17 +219,17 @@ export default function Settings() {
           id="tab-game"
           variant="tab"
           layout={{ padding: "{space.2}" }}
-          label="Juego"
+          label="Game"
           panel={{ ...PANEL, id: "panel-game" }}
         >
           {/* Text: the node IS the box, and the SDK paints the caret, the
               selection and the placeholder inside it. `onSubmit` fires on Enter,
               and ←/→ walk the caret before letting the focus leave the field. */}
-          <Field label="Nombre" bind="profile.name">
+          <Field label="Name" bind="profile.name">
             <TextInput
               id="player-name"
               value={{ bind: "profile.name" }}
-              placeholder="Tu nombre"
+              placeholder="Your name"
               maxLength={16}
               onSubmit="name-accept"
               width={FIELD_WIDTH}
@@ -244,7 +243,7 @@ export default function Settings() {
 
           {/* The long list is the one that has to scroll: past `maxHeight` the
               dropdown is a ScrollView, and moving the focus drags it along. */}
-          <Field label="Idioma" bind="settings.language">
+          <Field label="Language" bind="settings.language">
             <Select
               id="language"
               variant="setting"
@@ -268,21 +267,21 @@ export default function Settings() {
             onChange="hints-changed"
             layout={TOGGLE_ROW}
           >
-            <Text style={LABEL}>Consejos en pantalla</Text>
+            <Text style={LABEL}>On-screen hints</Text>
           </Checkbox>
         </Tab>
       </Tabs>
 
       <Row layout={{ gap: "{space.3}" }}>
         <Button variant="secondary" onClick="settings-reset" layout={{ padding: "{space.3}" }}>
-          <Text style={{ color: "{color.text}", fontSize: 16 }}>Restablecer</Text>
+          <Text style={{ color: "{color.text}", fontSize: 16 }}>Reset</Text>
         </Button>
         <Button variant="primary" onClick="settings-save" layout={{ padding: "{space.3}" }}>
-          <Text style={{ color: "{color.on-accent}", fontSize: 16 }}>Guardar</Text>
+          <Text style={{ color: "{color.on-accent}", fontSize: 16 }}>Save</Text>
         </Button>
       </Row>
 
-      <Text style={VALUE}>Ratón o teclado: flechas para moverse, Enter para activar</Text>
+      <Text style={VALUE}>Mouse, keyboard or gamepad: arrows to move, Enter to activate</Text>
     </Column>
   );
 }

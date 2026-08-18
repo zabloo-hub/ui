@@ -4,9 +4,9 @@
 // a runtime lookup: `zabloo export` reads the file, hashes it, inlines it in the
 // envelope's asset manifest and rewrites the prop to `asset:banner.png`. So the
 // payload is still ONE json — import it by hand, push it down the dev loop or
-// hot-update it, and the bytes travel with the tree (decision 2026-08-11,
-// assets). The manifest also carries the pixel size, which is how layout can
-// reserve the right box before a single byte is decoded.
+// hot-update it, and the bytes travel with the tree. The manifest also carries
+// the pixel size, which is how layout can reserve the right box before a single
+// byte is decoded.
 //
 // Like `<Text>`, the node has exactly one prop of its own here — `fit` — and
 // everything else is ordinary style:

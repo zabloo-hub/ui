@@ -73,7 +73,7 @@ export interface CommonProps {
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
   /**
-   * Tweens this node's animatable values when they change (F7). One object per
+   * Tweens this node's animatable values when they change. One object per
    * node, read from the base node only — no cascade, no per-state override.
    */
   transition?: Transition;
