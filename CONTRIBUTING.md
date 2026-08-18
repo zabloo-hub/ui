@@ -22,16 +22,32 @@ pnpm test
 pnpm lint
 ```
 
-**Why `build` comes first.** `typecheck` and `test` resolve workspace dependencies to
-their **sources**, so most packages need no build at all. `packages/cli` is the exception,
-because two of its tests run the real thing instead of a stand-in: the dev server serves
-the preview page's own bundle, and the export tests run a project's code through jiti,
-which resolves `@zabloo/react` from that project. Both want `pnpm build` to have run.
-Once you have built once, you can run the other three in any order you like — which is
-exactly what CI does.
+**Why `build` comes first.** Two reasons, and the second one will bite you if you skip it.
 
-The examples build too: `pnpm build` runs `zabloo export` in each of them, so a change
-that breaks an example's export fails the build rather than going unnoticed.
+`typecheck` and `test` resolve workspace dependencies to their **sources**, so most
+packages need no build at all. `packages/cli` is the exception, because two of its tests
+run the real thing instead of a stand-in: the dev server serves the preview page's own
+bundle, and the export tests run a project's code through jiti, which resolves
+`@zabloo/react` from that project. Both want `pnpm build` to have run.
+
+The other reason is the `zabloo` command itself. It is a **bin** of `@zabloo/cli`, and
+pnpm links bins at *install* time — it can only link one whose target file already exists.
+On a fresh clone `packages/cli/dist/cli.js` does not exist yet, so the shim is skipped
+with nothing but a `WARN` in the install log, and the first thing you try to run gets:
+
+```
+sh: 1: zabloo: not found
+```
+
+`pnpm build` is written to close that gap on its own: it builds the packages, re-runs
+`pnpm install` to link the workspace's bins now that their targets exist, and only then
+exports the examples. So `pnpm install && pnpm build` leaves a clone fully working,
+`pnpm dev` included. If you ever see `zabloo: not found`, a plain `pnpm install` is the
+fix — you are looking at a shim that was skipped.
+
+The examples building is deliberate too: `pnpm build` runs `zabloo export` in each of
+them, so a change that breaks an example's export fails the build rather than going
+unnoticed.
 
 ## Running things
 
