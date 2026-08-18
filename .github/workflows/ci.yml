@@ -47,6 +47,13 @@ jobs:
 
       - run: pnpm lint
 
+      # Relative links and anchors across the docs. ZAB-75 swept them by hand and
+      # still left four broken anchors behind, which is the argument for a check
+      # rather than a reviewer. Linux only: it reads the tree, and a link is not
+      # a property of the platform.
+      - run: pnpm docs:links
+        if: runner.os == 'Linux'
+
       # Every change that reaches a tarball carries a changeset, or the first
       # changelog comes out empty. Skipped on the Version Packages PR, which is
       # changesets CONSUMING them, and on Linux only — it is a property of the

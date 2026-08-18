@@ -84,7 +84,7 @@ position: `value` on the group is the selection, `value` on each `Toggle` is its
 - The checked state of a grouped `Toggle` is **derived**, never stored per node.
 
 The selection is ONE value, which is why the same behavior backs both a radio group and a
-[dropdown](toggle.md#select) without either needing a mechanism of its own.
+[dropdown](toggle.md#select-and-option) without either needing a mechanism of its own.
 
 **`onChange` is the group's** (decision 2026-08-17). The group owns the value, so it is the
 node that can say *the selection moved*; a `Toggle`'s own `onChange` only ever says *this one

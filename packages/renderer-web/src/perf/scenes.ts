@@ -120,10 +120,10 @@ const LIST_ENVELOPE = {
 // --- a wall of wrapped prose ---
 
 const PARAGRAPH =
-  "El zorro marrón salta sobre el perro perezoso una y otra vez, mientras la " +
-  "tipografía se rompe en líneas que el motor tiene que medir cada vez que algo " +
-  "de su entrada se mueve. Un párrafo largo es el caso que más trabajo de texto " +
-  "mete en un frame, y por eso está aquí.";
+  "The quick brown fox jumps over the lazy dog again and again, while the type " +
+  "breaks into lines the engine has to measure every time anything about its " +
+  "input moves. A long paragraph is the case that puts the most text work into " +
+  "a single frame, which is why it is here.";
 
 /** Three columns × four paragraphs, at three point sizes (three live atlases). */
 const TEXT_ENVELOPE = {
@@ -209,7 +209,7 @@ const MOTION_ENVELOPE = {
                   type: "Text",
                   id: `row-label-${i}`,
                   layout: { grow: 1 },
-                  text: `Opción ${i}`,
+                  text: `Option ${i}`,
                   style: { color: INK },
                 },
                 {

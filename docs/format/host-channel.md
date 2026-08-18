@@ -132,6 +132,19 @@ ui.dispose();
 | `onDataChanged` | `(path, value) => void` | none | The return leg of the data channel. |
 | `onDiagnostic` | `(diagnostic) => void` | console | Where the loading contract's diagnostics go. |
 | `background` | `string` | `"#101218"` | Canvas clear color (CSS hex). |
+| `dpr` | `number` | the browser's | Device pixel ratio to render at, instead of `devicePixelRatio`. |
+| `onFrame` | `(stats) => void` | none | Fires once per frame actually painted, with what it cost. |
+
+**`dpr` is fixed for the life of the mount.** The renderer reads the ratio everywhere it
+turns logical pixels into device ones — the backing store, the glyph atlas scale, the pixel
+grid quads snap to — so overriding it means rebuilding the atlases; a host that offers it as
+a control (a preview's DPR selector, a golden harness pinned to a fixed ratio) remounts.
+
+**`onFrame` is the only way to get a frame RATE.** `stats()` answers what the LAST frame
+cost, and polling it cannot become a rate because the renderer paints on demand: a still
+scene paints nothing at all, and the caller's own `requestAnimationFrame` would be measuring
+the page rather than the renderer. It receives `FrameStats` plus an `ms` — the time inside
+tessellate + submit, excluding the GPU's own asynchronous execution.
 
 **`mount` throws** an `EnvelopeError` if the payload is unusable — there is no previous UI
 to protect, and the caller has to hear that its payload never became a view. It is the only
@@ -147,6 +160,11 @@ entry point that throws.
 | `snapshot()` | `() => ViewSnapshot` | The frame's measurements — see below. |
 | `stats()` | `() => FrameStats` | What the last painted frame cost — see below. |
 | `dispose()` | `() => void` | Releases the canvas, the GL resources and the listeners. Idempotent. |
+
+The seven [id operations](#the-operations-normative) — `setData`, `setOpen`, `setSelectedTab`,
+`setChecked`, `setValue`, `setText`, `setScroll` — are members of this same handle; they are
+tabled above because they are the normative surface every target implements, and these six
+are the web binding's own.
 
 **`reload` never throws.** A payload the validator refuses — truncated, corrupt, a major
 version this reader does not implement — is reported through `onDiagnostic` and

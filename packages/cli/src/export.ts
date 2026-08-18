@@ -37,7 +37,7 @@ interface ProjectZablooReact {
 export interface ExportResult {
   outFile: string;
   viewIds: string[];
-  /** Per-asset breakdown for the CLI summary (decision: el resumen imprime el desglose). */
+  /** Per-asset breakdown for the CLI summary (decision: the summary prints the breakdown). */
   assets: Array<{ id: string; bytes: number }>;
   /** Decoded bytes across the asset manifest. */
   assetBytes: number;

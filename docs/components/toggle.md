@@ -120,7 +120,7 @@ the one place that convention is written down. They share these props (`ToggleCo
 | `checkedTrack` | `Style` | absent | Track style while checked, merged over `track`. |
 | `knob` | `Style` | absent | The knob, at the start (off) or the end (on) of the track. |
 
-### `<Radio>` and `<RadioGroup>` {#radiogroup}
+### `<Radio>` and `<RadioGroup>`
 
 `<Radio>` is a `<Checkbox>` with round corners and a **required `value`**; it has no
 `checked` of its own, because the group owns the selection.
@@ -147,7 +147,7 @@ is a different (and rarer) question. Declaring both fires both, the option's fir
 [the group behavior](container.md#exclusive-check-normative) for what the action carries —
 no value of its own: that comes back on the data channel.
 
-### `<Select>` and `<Option>` {#select}
+### `<Select>` and `<Option>`
 
 A dropdown: a button that opens a list of options in the overlay layer, anchored to itself,
 and closes when the player picks one.

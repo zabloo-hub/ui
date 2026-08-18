@@ -150,7 +150,7 @@ Shared by `<Checkbox>`, `<Switch>` and `<Radio>`. Extends `CommonProps`.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `checked` | `Bindable<boolean>` | `false` | Initial state, or a **read/write** binding: the SDK writes the new value back and notifies the game. |
-| `onChange` | `string` | none | Named action fired after every change. |
+| `onChange` | `string` | none | Named action fired after every change, however it was caused. Inside a `<RadioGroup>` or `<Select>`, only when this option **takes** the selection — the one that loses it says nothing; the [group's own `onChange`](components/toggle.md#radio-and-radiogroup) is what reports the move. |
 | `size` | `number` | `22` | Indicator size in px — the box side, the switch track height. |
 | `children` | `ReactNode` | none | The label. Rendered next to the indicator, and tapping it toggles too. |
 

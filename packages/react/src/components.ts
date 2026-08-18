@@ -184,7 +184,16 @@ export interface ToggleControlProps extends CommonProps {
    * the SDK writes the new value back and notifies the game.
    */
   checked?: Bindable<boolean>;
-  /** Named action fired after every change (like `<Button onClick>`). */
+  /**
+   * Named action fired after every change, however it was caused — a tap, Enter,
+   * gamepad A or the game's own `setChecked`.
+   *
+   * Inside a `<RadioGroup>` (or a `<Select>`) it fires only when THIS option TAKES
+   * the selection (ZAB-64): a radio never turns itself off, so the one that loses it
+   * says nothing — its `checked` is derived, and it was not the node acted on. What
+   * reports the move is the group's own `onChange`; declaring both fires both, this
+   * one first.
+   */
   onChange?: string;
   /** Indicator size in px — the box side / the switch track height. Default: 22. */
   size?: number;
