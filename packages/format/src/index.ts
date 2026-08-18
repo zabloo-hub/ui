@@ -265,7 +265,7 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * `width`, `height`, `gap`, `padding`. Everything else snaps: `fontSize` (the glyph
  * atlas key), the text-layout properties (`wrap`, `textAlign`, `textAlignY`,
  * `lineHeight`, `overflow`, `maxLines` — a re-wrap has no intermediate value),
- * `grow`, the layout enums, and every structural prop (`visible`, `clip`,
+ * `grow`, the layout enums, and every structural prop (`visible`, `disabled`, `clip`,
  * `text`, `open`, `src`, `fit`, `axis`, `scrollbar`, the Slider's `value`/`min`/
  * `max`/`step` and the TextInput's `value`/`placeholder`/`maxLength` — a control's
  * value is state the player is dragging or typing, not a visual magnitude to catch

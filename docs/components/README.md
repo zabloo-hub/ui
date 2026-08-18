@@ -57,10 +57,23 @@ authoring time and never reach the IR.
 | `<ProgressBar>` | `ProgressBar` + its fill | [progressbar](progressbar.md) |
 | `<Spinner>` | `Spinner` + its beads | [spinner](spinner.md) |
 
-Four primitives are **not** exported as components — `Toggle`, `Slider`, `Repeat` and
-`ProgressBar`. Their children are positional slots, and the components above are the one
-place that convention is written down. `TextInput` is exported despite being a control: it
-is a leaf, so it has no slot convention to protect.
+**"Primitive" means one of those 13 node types**, and nothing else. What `@zabloo/react`
+exports is a *component*, and how closely a component matches a node type varies:
+
+- **Seven emit exactly their node and nothing else** — `<Container>`, `<Text>`, `<Button>`,
+  `<Collapse>`, `<ScrollView>`, `<Image>`, `<Overlay>`. What you write is what the IR gets.
+- **Three emit their node with its children already built** — `<Slider>` adds its fill and
+  thumb, `<ProgressBar>` its fill, `<Spinner>` its beads. Those children are
+  [positional slots](#positional-slots), and the component is the one place that convention
+  is written down, which is why you never fill them by hand.
+- **`<TextInput>` emits its node with the field's defaults applied** — a leaf, so there is
+  no slot convention to protect, only a size, a padding and a paint you would otherwise
+  write on every field.
+- **Two have no component of their own name at all.** A `Toggle` is authored as
+  `<Checkbox>`, `<Switch>`, `<Radio>` or `<Option>`; a `Repeat` as `<List>` or `<Grid>`.
+
+Everything else in the table above is a **composite**: it has no node type of its own and
+flattens to these before the export.
 
 ## Props every node has
 
@@ -73,6 +86,11 @@ is specific to each type.
 control or on the section that owns a whole group of them, and every node it reaches — labels
 included — can dress itself through `states.disabled`. See
 [Input & focus](../format/input.md#disabled-normative).
+
+**Reading the `Default` column**, here and on every page: a `—` means the prop is
+**required** — there is no default because leaving it out is not a thing you can do.
+`absent` means the opposite: optional, with no value standing in for it, so the node simply
+does not have it.
 
 ## Positional slots
 

@@ -89,7 +89,7 @@ a styleable scrollbar (the boolean becomes an object).
 |---|---|---|---|
 | `axis` | `"vertical" \| "horizontal" \| "both"` | `"vertical"` | Scrollable axis. `"both"` frees both. |
 | `scrollbar` | `boolean` | `true` | The SDK's overlay indicator, visible only while there is something to scroll. |
-| `children` | `ReactNode` | — | Content. |
+| `children` | `ReactNode` | absent | Content. |
 
 A data-driven list is a [`<List>`](repeat.md) **inside** a `<ScrollView>`: repetition and
 scrolling are separate capabilities and compose.

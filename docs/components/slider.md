@@ -79,9 +79,10 @@ declared.
 
 ## Behavior
 
-**States:** `hover`, `pressed`, `focused`, plus `disabled` — its own or inherited. A gesture
-in flight when the game disables it is **cancelled**, never committed: the value never
-settled.
+**States:** `hover`, `pressed`, `focused`, plus `disabled` — its own or inherited. `pressed`
+is the **drag**: it lasts as long as the pointer holds the control, and the arrow keys that
+step the value never raise it, because there is nothing to activate. A gesture in flight when
+the game disables it is **cancelled**, never committed: the value never settled.
 
 **Focusable:** yes, unless [`disabled`](../format/input.md#disabled-normative). It **keeps the
 arrow keys on its own axis** and never gives them back;
@@ -97,8 +98,9 @@ flow. Inert.
 
 ## Authoring
 
-There is no `<Slider>` primitive export: the two slots are positional, and the component
-below is the one place that convention is written down.
+`<Slider>` emits this node with **both slots already built** — there is no raw export that
+would leave them to you, because the positions are a convention and the component below is
+the one place it is written down.
 
 ```tsx
 <Slider value={{ bind: "settings.volume" }} onChange="volume-preview" onCommit="volume-apply" />
@@ -115,8 +117,8 @@ below is the one place that convention is written down.
 | `length` | `number` | `200` | Track length along its axis, in px. |
 | `thickness` | `number` | `6` | Track thickness across its axis, in px. |
 | `thumbSize` | `number` | `18` | Thumb size, in px. |
-| `fill` | `Style` | — | The filled part of the track. |
-| `thumb` | `Style` | — | The handle that rides the track. |
+| `fill` | `Style` | absent | The filled part of the track. |
+| `thumb` | `Style` | absent | The handle that rides the track. |
 
 `length`, `thickness` and `thumbSize` are authoring conveniences that resolve into
 `layout` and the two slots' sizes. An explicit `layout` still wins.

@@ -189,8 +189,32 @@ opening modal, the game.
 |---|---|
 | Arrows | Move focus, per the algorithm above. |
 | Enter | Activate the focused node — press a `Button`, toggle a `Toggle`, submit a `TextInput`. |
+| Space | **Presses the focused node, exactly like Enter** — down on the keypress, activated on the release. Inside a `TextInput` it is a character instead. |
 | Escape | Dismiss request to the topmost modal overlay. |
 | Text keys | Edit the focused `TextInput`. |
+
+Enter and Space are one intention, and it is the gamepad's A: the press lights the
+`pressed` state on the way down and activates on the way up, so a release that never comes
+(the focus moved, the pad was unplugged) cancels rather than fires. Auto-repeat is ignored —
+holding the key does not activate twice.
+
+### While a `TextInput` has the focus
+
+A focused field claims the keys that edit it **before** anything above sees them; what it
+does not claim falls through to the ordinary handling.
+
+| Key | Effect |
+|---|---|
+| ← → | Move the caret one character; with a selection up, **collapse** to the edge it was pushed against rather than also stepping. **With Shift**, extend the selection instead. With nothing selected and the caret already at that end, the field gives the key back and the focus leaves it. |
+| Home / End | Caret to the start or the end of the line. **With Shift**, select up to it. |
+| Cmd/Ctrl + ← → | Same as Home/End — and the same Shift behavior. |
+| Cmd/Ctrl + A | Select the whole value. |
+| Backspace / Delete | Delete the selection when there is one; otherwise one character, backwards or forwards. |
+| Enter | Fire `onSubmit`. It never inserts a newline: the field is one line in v1. |
+| Space | A character, so it does **not** press anything. |
+| Tab | Swallowed. Navigation here is spatial, so a Tab would only hand the keyboard to whatever the page has next and leave the field still looking focused. |
+| ↑ ↓ | **Not claimed** — a field is one line, so the vertical arrows navigate out of it like anywhere else. |
+| Cmd/Ctrl + C / X / V / Z | **Not intercepted** — the platform's own field performs them and the edit comes back through its input event. |
 
 Two controls claim the arrows for themselves, and they do it differently on purpose:
 

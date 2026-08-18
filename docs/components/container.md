@@ -158,7 +158,7 @@ each `<Tab>` contributes a bar button and a panel, in order.
 |---|---|---|---|
 | `label` | `ReactNode` | — | Bar button content. A bare string or number is wrapped in a `<Text>`. |
 | `panel` | container props | `{}` | Props for this tab's panel container. |
-| `children` | `ReactNode` | — | Panel content, shown while this tab is selected. |
+| `children` | `ReactNode` | absent | Panel content, shown while this tab is selected. |
 
 A `<Tab>`'s **own** props (style, states, variant…) style its **bar button** — style the
 active one through `states.selected`. `<Tab>` never renders itself: `<Tabs>` reads its props
@@ -177,8 +177,8 @@ bindable since v1.
 | Prop | Type | Default | Description |
 |---|---|---|---|
 | `count` | `Bindable<string \| number>` | `""` | The counter. |
-| `label` | `Style` | — | Style of the label, merged over the default. |
-| `children` | `ReactNode` | — | Custom content instead of the counter. |
+| `label` | `Style` | absent | Style of the label, merged over the default. |
+| `children` | `ReactNode` | absent | Custom content instead of the counter. |
 
 There is **no "hide at zero"**: the IR has no expressions. Bind `visible` to a flag the
 game owns if the badge should disappear.

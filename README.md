@@ -88,7 +88,8 @@ as the table above goes:
   under the finger). Motion is themeable per component and durations are tokens, so a
   "reduce motion" theme stops the UI dead without re-emitting the tree.
 - **Styling**: design tokens (flat dictionary, theme hot-update without re-emitting the
-  tree), per-state overrides (`hover` / `pressed` / `focused` / `selected`), variants resolved at export time,
+  tree), per-state overrides (the seven states — `empty`, `selected`, `checked`, `hover`,
+  `focused`, `pressed`, `disabled` — merged in that fixed order), variants resolved at export time,
   and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset
   border), `color`, `fontSize`, `opacity` (inherits multiplicatively), plus the text
   set — `wrap`, `textAlign`, `textAlignY`, `lineHeight`, `overflow`, `maxLines`.
@@ -137,6 +138,8 @@ recompiling or re-shipping through stores — the dev loop uses that exact path.
 
 The reference for the IR and the component catalog lives in [`docs/`](docs/README.md):
 
+- [Getting started](docs/getting-started.md) — scaffold a project and build a real screen,
+  from an empty folder to an envelope the SDK loads. Start here.
 - [The envelope](docs/format/envelope.md) — version, tokens, views, assets.
 - [Layout](docs/format/layout.md) · [Style](docs/format/style.md) · [Input & focus](docs/format/input.md) ·
   [Bindings & actions](docs/format/bindings.md) · [Motion](docs/format/motion.md)
@@ -185,19 +188,21 @@ Node ≥ 22 and pnpm (the repo pins its version through `packageManager`).
 
 ```bash
 pnpm install
-pnpm typecheck && pnpm test && pnpm lint   # what CI runs, in any order you like
+pnpm typecheck && pnpm test && pnpm lint   # the three checks CI runs
 pnpm build                                 # bundles every package into dist/
 pnpm verify:pack                           # the publish dry run: pack, install outside
                                            # the workspace, import and typecheck it
 ```
 
-`typecheck` and `test` resolve workspace dependencies to their **sources**, so a fresh
-clone needs no build first. `packages/cli` is the exception, because two of its tests run
-the real thing rather than a stand-in: the dev server serves the preview page's own
-bundle, and the export tests run a project's code through jiti, which resolves
-`@zabloo/react` from that project. Both want `pnpm build` first.
+**CI runs them in that order, after `pnpm build`** — install, build, typecheck, test, lint,
+`verify:pack`. Locally the build is usually optional: `typecheck` and `test` resolve
+workspace dependencies to their **sources**, so a fresh clone needs no build first.
+`packages/cli` is the exception, because two of its tests run the real thing rather than a
+stand-in: the dev server serves the preview page's own bundle, and the export tests run a
+project's code through jiti, which resolves `@zabloo/react` from that project. Both want
+`pnpm build` first — which is why CI builds up front rather than sorting it out per package.
 
 ## License
 
-Open source and free: the core (tessellator + IR runtime), the IR/format spec, every
-engine SDK and the base component library.
+[MIT](LICENSE). Open source and free: the core (tessellator + IR runtime), the IR/format
+spec, every engine SDK and the base component library.

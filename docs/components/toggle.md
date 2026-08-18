@@ -73,6 +73,14 @@ and it was not the node that was acted on). What reports the move is the group's
 [`onChange`](container.md#exclusive-check-normative), which is where a `<Select>` or a
 `<RadioGroup>` hangs its hook; with both declared, the option's fires first.
 
+**Motion:** with a `transition`, the two indicator slots **crossfade**. The SDK tweens a
+0..1 `checked` progress and multiplies each slot's opacity by it — `children[0]` fading in
+as `children[1]` fades out — which is what the [shared box](#indicator-slots) is for: the
+label never moves while the check appears or the knob is swapped. This is component behavior
+driving the [motion engine](../format/motion.md) with endpoints it computes, not an
+animatable prop; the multiplier composes with whatever `opacity` the slot declares. Without
+a `transition` the progress is only ever 0 or 1 — one indicator, fully opaque.
+
 **Degradation:** as a `Container` — **both** indicator slots show at once, plus the label,
 since nothing is hiding one of them. The control is inert.
 
@@ -86,7 +94,7 @@ the one place that convention is written down. They share these props (`ToggleCo
 | `checked` | `Bindable<boolean>` | `false` | Initial state, or a read/write binding. |
 | `onChange` | `string` | absent | Named action fired after every change. |
 | `size` | `number` | `22` | Indicator size in px — the box side, or the switch track height. |
-| `children` | `ReactNode` | — | The label. Tapping it toggles too. |
+| `children` | `ReactNode` | absent | The label. Tapping it toggles too. |
 
 ### `<Checkbox>` and `<Switch>`
 
@@ -100,17 +108,17 @@ the one place that convention is written down. They share these props (`ToggleCo
 </Switch>
 ```
 
-| `<Checkbox>` | Type | Description |
-|---|---|---|
-| `box` | `Style` | Box style in both states. |
-| `checkedBox` | `Style` | Box style while checked, merged over `box`. |
-| `mark` | `Style` | The mark inside a checked box. |
+| `<Checkbox>` prop | Type | Default | Description |
+|---|---|---|---|
+| `box` | `Style` | absent | Box style in both states. |
+| `checkedBox` | `Style` | absent | Box style while checked, merged over `box`. |
+| `mark` | `Style` | absent | The mark inside a checked box. |
 
-| `<Switch>` | Type | Description |
-|---|---|---|
-| `track` | `Style` | Track style in both states. |
-| `checkedTrack` | `Style` | Track style while checked, merged over `track`. |
-| `knob` | `Style` | The knob, at the start (off) or the end (on) of the track. |
+| `<Switch>` prop | Type | Default | Description |
+|---|---|---|---|
+| `track` | `Style` | absent | Track style in both states. |
+| `checkedTrack` | `Style` | absent | Track style while checked, merged over `track`. |
+| `knob` | `Style` | absent | The knob, at the start (off) or the end (on) of the track. |
 
 ### `<Radio>` and `<RadioGroup>` {#radiogroup}
 
@@ -165,14 +173,14 @@ close the list.
 | `width` | `number` | `220` | Width of the closed button and of the dropdown. |
 | `maxHeight` | `number` | `240` | Cap on the dropdown's height; past it the list scrolls. |
 | `position` | placement | `"bottom"` | Which side of the button the list opens on. It flips when it must. |
-| `button` / `label` / `panel` | `Style` | — | The closed button, its label, the dropdown panel. |
+| `button` / `label` / `panel` | `Style` | absent | The closed button, its label, the dropdown panel. |
 
 | `<Option>` prop | Type | Default | Description |
 |---|---|---|---|
 | `value` | `string \| number` | — | This option's value. Selected while it equals the `<Select>`'s. |
 | `size` | `number` | `16` | Size of the check mark's box. |
-| `mark` | `Style` | — | The mark shown on the selected row. |
-| `children` | `ReactNode` | — | The row's content — usually a `<Text>`. |
+| `mark` | `Style` | absent | The mark shown on the selected row. |
+| `children` | `ReactNode` | absent | The row's content — usually a `<Text>`. |
 
 An `<Option>` is the same `Toggle` a `<Radio>` lowers to, dressed as a list row: the mark
 sits on the selected one and the row highlights through `states.checked`, with

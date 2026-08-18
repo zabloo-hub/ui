@@ -81,8 +81,10 @@ field wins over it.
 
 ## Behavior
 
-**States:** `empty`, plus `hover`, `pressed` and `focused` — and `disabled`, its own or
-inherited. A disabled field takes no caret and no keystroke, and still shows what it holds.
+**States:** `empty`, plus `hover` and `focused` — and `disabled`, its own or inherited.
+There is **no `pressed`**: a press on a field places the caret, it does not activate
+anything, so there is no down-state to dress. A disabled field takes no caret and no
+keystroke, and still shows what it holds.
 
 **Focusable:** yes, unless [`disabled`](../format/input.md#disabled-normative). It takes the
 arrow keys to move its caret but **gives them back at the extremes**: at the end of the text, one more press leaves the field. This is deliberately
