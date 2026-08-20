@@ -69,15 +69,13 @@ interface StbExports {
 }
 
 /** Compiled once per process — the module is pure code, fonts hold the state. */
-let modulePromise: Promise<WebAssembly.Module> | null = null;
+const compiled: { module: Promise<WebAssembly.Module> | null } = { module: null };
 
 function compile(): Promise<WebAssembly.Module> {
-  if (!modulePromise) {
-    // Async on purpose: browsers refuse synchronous compilation of anything
-    // over 4 KB on the main thread, and this module is ~18 KB.
-    modulePromise = WebAssembly.compile(decodeBase64(STBTT_WASM_BASE64) as BufferSource);
-  }
-  return modulePromise;
+  // Async on purpose: browsers refuse synchronous compilation of anything over
+  // 4 KB on the main thread, and this module is ~18 KB.
+  compiled.module ??= WebAssembly.compile(decodeBase64(STBTT_WASM_BASE64) as BufferSource);
+  return compiled.module;
 }
 
 /**
@@ -171,11 +169,11 @@ class StbFont {
 
   /** Design units → px at an em size of `pixelSize`. */
   private scaleFor(pixelSize: number): number {
-    let scale = this.scales.get(pixelSize);
-    if (scale === undefined) {
-      scale = this.api.zb_scale_for_em(this.font, pixelSize);
-      this.scales.set(pixelSize, scale);
-    }
+    const cached = this.scales.get(pixelSize);
+    if (cached !== undefined) return cached;
+
+    const scale = this.api.zb_scale_for_em(this.font, pixelSize);
+    this.scales.set(pixelSize, scale);
     return scale;
   }
 
@@ -192,11 +190,11 @@ class StbFont {
   glyphIndex(char: string): number {
     const codepoint = char.codePointAt(0);
     if (codepoint === undefined) return 0;
-    let glyph = this.glyphIndices.get(codepoint);
-    if (glyph === undefined) {
-      glyph = this.api.zb_find_glyph(this.font, codepoint);
-      this.glyphIndices.set(codepoint, glyph);
-    }
+    const cached = this.glyphIndices.get(codepoint);
+    if (cached !== undefined) return cached;
+
+    const glyph = this.api.zb_find_glyph(this.font, codepoint);
+    this.glyphIndices.set(codepoint, glyph);
     return glyph;
   }
 
@@ -270,10 +268,7 @@ const EMPTY = new Uint8Array(0);
  * module ships to the browser, and Node has had a global `atob` since 16.
  */
 function decodeBase64(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
 
 export type { FontMetrics, GlyphBitmap };

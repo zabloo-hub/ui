@@ -239,9 +239,12 @@ function scrollFor(
   caretWidth = 1,
 ): number {
   const max = Math.max(0, contentWidth + caretWidth - viewWidth);
-  let next = Math.min(scroll, max);
-  if (caret - next > viewWidth - caretWidth) next = caret - viewWidth + caretWidth;
-  if (caret < next) next = caret;
+  const clamped = Math.min(scroll, max);
+  // The smallest move that brings the caret back inside: push right when it fell
+  // off the trailing edge, left when it fell off the leading one.
+  const pushed =
+    caret - clamped > viewWidth - caretWidth ? caret - viewWidth + caretWidth : clamped;
+  const next = caret < pushed ? caret : pushed;
   return Math.min(max, Math.max(0, next));
 }
 

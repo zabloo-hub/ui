@@ -134,9 +134,7 @@ function stepNode(
   // written each step — `undefined` included — so no stale value survives reuse.
   out: ResolvedValues = {},
 ): { values: ResolvedValues; animating: boolean } {
-  let animating = false;
-
-  for (const prop of ANIMATABLE_PROPS) {
+  const inFlight = ANIMATABLE_PROPS.map((prop) => {
     const value = stepTrack(anim, prop, targets[prop], transition, now);
     // One cast for the whole loop: the prop union and the value union are correlated
     // by construction (a ColorProp only ever carries a Color), but TS cannot see it.
@@ -144,10 +142,10 @@ function stepNode(
     // A track still in the map after its step is a tween in flight (a finished
     // one deletes itself as it lands) — the exact signal the old per-prop return
     // carried, without an object per prop per frame.
-    if (value !== undefined && anim.tracks.has(prop)) animating = true;
-  }
+    return value !== undefined && anim.tracks.has(prop);
+  });
 
-  return { values: out, animating };
+  return { values: out, animating: inFlight.includes(true) };
 }
 
 /**
@@ -196,20 +194,17 @@ function stepTrack(
 
   const live = anim.tracks.get(key);
   const current = anim.current.get(key);
-  let value: AnimValue;
-
-  if (current === undefined) {
-    value = target; // mount, or a node coming back into layout
-  } else if (live) {
-    // Already heading there, or retargeted from the value on screen.
-    value = sameValue(live.to, target)
-      ? current
-      : retarget(anim, key, current, target, transition, now);
-  } else if (sameValue(current, target)) {
-    value = current; // settled
-  } else {
-    value = retarget(anim, key, current, target, transition, now);
-  }
+  const value: AnimValue =
+    current === undefined
+      ? target // mount, or a node coming back into layout
+      : live
+        ? // Already heading there, or retargeted from the value on screen.
+          sameValue(live.to, target)
+          ? current
+          : retarget(anim, key, current, target, transition, now)
+        : sameValue(current, target)
+          ? current // settled
+          : retarget(anim, key, current, target, transition, now);
 
   anim.current.set(key, value);
   return value;
