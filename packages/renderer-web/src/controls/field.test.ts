@@ -48,13 +48,16 @@ interface Rig {
  * `document` that hands out the one element this module creates.
  */
 function rig(): Rig {
-  let focused: LayoutNode | null = null;
+  // Slots, because the host's callbacks are the ones that write them.
+  const live: { focused: LayoutNode | null; created: FakeTextarea | null } = {
+    focused: null,
+    created: null,
+  };
   const edited: LayoutNode[] = [];
   const disposers: Array<() => void> = [];
-  let created: FakeTextarea | null = null;
 
   const host: FieldHost = {
-    focused: () => focused,
+    focused: () => live.focused,
     metrics: () => FONT,
     contentBox: () => BOX,
     textEdited: (node) => edited.push(node),
@@ -66,18 +69,18 @@ function rig(): Rig {
   };
 
   installDocument(() => {
-    created = new FakeTextarea();
-    return created;
+    live.created = new FakeTextarea();
+    return live.created;
   });
 
   const state: Rig = {
     editor: new FieldEditor(host),
     edited,
     renders: 0,
-    textarea: () => created,
+    textarea: () => live.created,
     disposers,
     focus: (node) => {
-      focused = node;
+      live.focused = node;
     },
   };
   return state;
@@ -105,11 +108,8 @@ class FakeTextarea {
     this.attributes[name] = value;
   }
   addEventListener(type: string, listener: (event: unknown) => void): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
+    const set = this.listeners.get(type) ?? new Set();
+    this.listeners.set(type, set);
     set.add(listener);
   }
   removeEventListener(type: string, listener: (event: unknown) => void): void {
@@ -120,11 +120,11 @@ class FakeTextarea {
   }
   focus(): void {
     this.focused = true;
-    active = this as unknown as Element;
+    document_.active = this as unknown as Element;
   }
   blur(): void {
     this.focused = false;
-    if (active === (this as unknown as Element)) active = null;
+    if (document_.active === (this as unknown as Element)) document_.active = null;
   }
   setSelectionRange(start: number, end: number, direction: "forward" | "backward"): void {
     this.selectionStart = start;
@@ -133,9 +133,7 @@ class FakeTextarea {
   }
   /** How many listeners are still hooked up — a leak shows up as a number that never drops. */
   listenerCount(): number {
-    let total = 0;
-    for (const set of this.listeners.values()) total += set.size;
-    return total;
+    return [...this.listeners.values()].reduce((total, set) => total + set.size, 0);
   }
   /** The browser reporting what it did to the text: value, caret, then the event. */
   edit(value: string, caret = value.length, direction: "forward" | "backward" = "forward"): void {
@@ -150,22 +148,22 @@ class FakeTextarea {
   }
 }
 
-/** What `document.activeElement` reports — the editor reads it before focusing. */
-let active: Element | null = null;
+/** The stand-in page: `document.activeElement`, which the editor reads before focusing. */
+const document_: { active: Element | null } = { active: null };
 
 function installDocument(create: () => FakeTextarea): void {
-  active = null;
+  document_.active = null;
   vi.stubGlobal("document", {
     createElement: () => create(),
     get activeElement() {
-      return active;
+      return document_.active;
     },
   });
 }
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  active = null;
+  document_.active = null;
 });
 
 describe("the buffer", () => {

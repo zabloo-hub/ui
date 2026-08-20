@@ -25,56 +25,56 @@ import type { TextMetrics } from "./text.js";
  * started and `focus` where it is now — the order between them is what makes
  * shift+arrow grow AND shrink a selection instead of always growing it.
  */
-export interface Selection {
+interface Selection {
   anchor: number;
   focus: number;
 }
 
 /** The selection as an ordered span. `start === end` means "just a caret". */
-export interface Span {
+interface Span {
   start: number;
   end: number;
 }
 
 /** The result of an edit: the new text and where the caret ended up. */
-export interface Edit {
+interface Edit {
   text: string;
   selection: Selection;
 }
 
 /** Code points of `text` — the unit every index in this module counts in. */
-export function chars(text: string): string[] {
+function chars(text: string): string[] {
   return Array.from(text);
 }
 
 /** Number of code points in `text`. */
-export function length(text: string): number {
+function length(text: string): number {
   return chars(text).length;
 }
 
 /** A caret with no selection at `index`. */
-export function caretAt(index: number): Selection {
+function caretAt(index: number): Selection {
   return { anchor: index, focus: index };
 }
 
 /** The selection as an ordered, clamped span. */
-export function span(selection: Selection, max: number): Span {
+function span(selection: Selection, max: number): Span {
   const anchor = clampIndex(selection.anchor, max);
   const focus = clampIndex(selection.focus, max);
   return anchor <= focus ? { start: anchor, end: focus } : { start: focus, end: anchor };
 }
 
-export function hasSelection(selection: Selection): boolean {
+function hasSelection(selection: Selection): boolean {
   return selection.anchor !== selection.focus;
 }
 
 /** Keeps a selection inside a text that changed under it (a `SetData` from the game). */
-export function clampSelection(selection: Selection, max: number): Selection {
+function clampSelection(selection: Selection, max: number): Selection {
   return { anchor: clampIndex(selection.anchor, max), focus: clampIndex(selection.focus, max) };
 }
 
 /** The selected substring — what a copy or a cut puts on the clipboard. */
-export function selectedText(text: string, selection: Selection): string {
+function selectedText(text: string, selection: Selection): string {
   const glyphs = chars(text);
   const { start, end } = span(selection, glyphs.length);
   return glyphs.slice(start, end).join("");
@@ -90,12 +90,7 @@ export function selectedText(text: string, selection: Selection): string {
  * field is deferred), and pasting a two-line address should leave the first line in
  * the box instead of failing silently.
  */
-export function insert(
-  text: string,
-  selection: Selection,
-  input: string,
-  maxLength?: number,
-): Edit {
+function insert(text: string, selection: Selection, input: string, maxLength?: number): Edit {
   const glyphs = chars(text);
   const { start, end } = span(selection, glyphs.length);
   const inserted = chars(sanitizeLine(input));
@@ -110,7 +105,7 @@ export function insert(
  * Backspace / Delete. With a selection, either key deletes it and nothing else —
  * the direction only decides which side a bare caret eats.
  */
-export function remove(text: string, selection: Selection, forward: boolean): Edit {
+function remove(text: string, selection: Selection, forward: boolean): Edit {
   const glyphs = chars(text);
   const { start, end } = span(selection, glyphs.length);
   if (start !== end) {
@@ -129,7 +124,7 @@ export function remove(text: string, selection: Selection, forward: boolean): Ed
 }
 
 /** Where a caret movement lands. `extend` is the shift key: it drags `focus` alone. */
-export interface Move {
+interface Move {
   selection: Selection;
   /**
    * True when the movement had nowhere to go — the caret was already against that
@@ -147,12 +142,7 @@ export interface Move {
  * COLLAPSES to the edge it was pushed against — it does not also step, which is what
  * makes "select a word, press left, keep typing" behave.
  */
-export function moveCaret(
-  text: string,
-  selection: Selection,
-  direction: number,
-  extend: boolean,
-): Move {
+function moveCaret(text: string, selection: Selection, direction: number, extend: boolean): Move {
   const max = length(text);
   const ordered = span(selection, max);
   if (!extend && ordered.start !== ordered.end) {
@@ -165,12 +155,7 @@ export function moveCaret(
 }
 
 /** Home / End (and what Escape-less gamepad navigation would need): jump to an edge. */
-export function moveToEdge(
-  text: string,
-  selection: Selection,
-  end: boolean,
-  extend: boolean,
-): Move {
+function moveToEdge(text: string, selection: Selection, end: boolean, extend: boolean): Move {
   const max = length(text);
   const to = end ? max : 0;
   const atBoundary = clampIndex(selection.focus, max) === to && !hasSelection(selection);
@@ -178,7 +163,7 @@ export function moveToEdge(
 }
 
 /** Select everything (Ctrl/Cmd+A), anchored at the start so shift+left shrinks it. */
-export function selectAll(text: string): Selection {
+function selectAll(text: string): Selection {
   return { anchor: 0, focus: length(text) };
 }
 
@@ -187,7 +172,7 @@ export function selectAll(text: string): Selection {
  * included — the same width the paint loop accumulates, so the caret lands on the
  * boundary the player sees.
  */
-export function caretX(text: string, index: number, metrics: TextMetrics): number {
+function caretX(text: string, index: number, metrics: TextMetrics): number {
   return caretXOf(chars(text), index, metrics);
 }
 
@@ -199,14 +184,24 @@ export function caretX(text: string, index: number, metrics: TextMetrics): numbe
  * renderer caches the split per node (`FieldEditor.charsOf`); this is the entry
  * point that lets it.
  */
-export function caretXOf(glyphs: readonly string[], index: number, metrics: TextMetrics): number {
-  const upto = clampIndex(index, glyphs.length);
-  let x = 0;
-  for (let i = 0; i < upto; i++) {
-    if (i > 0) x += metrics.kern(glyphs[i - 1], glyphs[i]);
-    x += metrics.advance(glyphs[i]);
-  }
-  return x;
+/**
+ * The x of every caret position in the run: the left edge of each glyph, then the
+ * end of the run — `glyphs.length + 1` entries, one per seam. One linear pass, so
+ * both callers below cost what the old loops did.
+ */
+function seamsOf(glyphs: readonly string[], metrics: TextMetrics): number[] {
+  return glyphs.reduce<number[]>(
+    (seams, glyph, i) => {
+      const kern = i > 0 ? metrics.kern(glyphs[i - 1], glyph) : 0;
+      seams.push(seams[i] + kern + metrics.advance(glyph));
+      return seams;
+    },
+    [0],
+  );
+}
+
+function caretXOf(glyphs: readonly string[], index: number, metrics: TextMetrics): number {
+  return seamsOf(glyphs, metrics)[clampIndex(index, glyphs.length)];
 }
 
 /**
@@ -215,20 +210,16 @@ export function caretXOf(glyphs: readonly string[], index: number, metrics: Text
  * before it and on the right half after it — the behavior every text field has, and
  * the one that makes a drag select what it looks like it selects.
  */
-export function indexAtX(text: string, x: number, metrics: TextMetrics): number {
+function indexAtX(text: string, x: number, metrics: TextMetrics): number {
   return indexAtXOf(chars(text), x, metrics);
 }
 
 /** `indexAtX` over code points that are already split — see `caretXOf`. */
-export function indexAtXOf(glyphs: readonly string[], x: number, metrics: TextMetrics): number {
-  let left = 0;
-  for (let i = 0; i < glyphs.length; i++) {
-    const step = (i > 0 ? metrics.kern(glyphs[i - 1], glyphs[i]) : 0) + metrics.advance(glyphs[i]);
-    const right = left + step;
-    if (x < left + step / 2) return i;
-    left = right;
-  }
-  return glyphs.length;
+function indexAtXOf(glyphs: readonly string[], x: number, metrics: TextMetrics): number {
+  // The nearest seam: the first glyph whose midpoint the pointer has not passed.
+  const seams = seamsOf(glyphs, metrics);
+  const found = seams.findIndex((left, i) => i < glyphs.length && x < (left + seams[i + 1]) / 2);
+  return found === -1 ? glyphs.length : found;
 }
 
 /**
@@ -239,7 +230,7 @@ export function indexAtXOf(glyphs: readonly string[], x: number, metrics: TextMe
  * always keeps the run anchored to the left when it fits, so a short text does not
  * float in a wide box.
  */
-export function scrollFor(
+function scrollFor(
   scroll: number,
   caret: number,
   viewWidth: number,
@@ -248,9 +239,12 @@ export function scrollFor(
   caretWidth = 1,
 ): number {
   const max = Math.max(0, contentWidth + caretWidth - viewWidth);
-  let next = Math.min(scroll, max);
-  if (caret - next > viewWidth - caretWidth) next = caret - viewWidth + caretWidth;
-  if (caret < next) next = caret;
+  const clamped = Math.min(scroll, max);
+  // The smallest move that brings the caret back inside: push right when it fell
+  // off the trailing edge, left when it fell off the leading one.
+  const pushed =
+    caret - clamped > viewWidth - caretWidth ? caret - viewWidth + caretWidth : clamped;
+  const next = caret < pushed ? caret : pushed;
   return Math.min(max, Math.max(0, next));
 }
 
@@ -261,7 +255,7 @@ export function scrollFor(
  * cycle from ON — a caret that blinks off exactly as you type reads as a dropped
  * keystroke.
  */
-export function caretVisible(elapsed: number, period: number): boolean {
+function caretVisible(elapsed: number, period: number): boolean {
   if (!(period > 0) || !Number.isFinite(period) || !Number.isFinite(elapsed)) return true;
   const phase = elapsed % period;
   return (phase < 0 ? phase + period : phase) < period / 2;
@@ -272,7 +266,7 @@ export function caretVisible(elapsed: number, period: number): boolean {
  * Exported because the web renderer also mirrors a hidden `<textarea>` back into the
  * model, and that path has to fold text the same way this one does.
  */
-export function sanitizeLine(input: string): string {
+function sanitizeLine(input: string): string {
   return input.replace(/[\r\n\t]+/g, " ");
 }
 
@@ -281,11 +275,11 @@ export function sanitizeLine(input: string): string {
  * units and this model counts code points, so an emoji before the caret makes the
  * two disagree by one. Everywhere else in the renderer, indices are code points.
  */
-export function codePointIndex(text: string, utf16: number): number {
+function codePointIndex(text: string, utf16: number): number {
   return chars(text.slice(0, Math.max(0, utf16))).length;
 }
 
-export function utf16Offset(text: string, index: number): number {
+function utf16Offset(text: string, index: number): number {
   return chars(text)
     .slice(0, clampIndex(index, length(text)))
     .join("").length;
@@ -299,3 +293,28 @@ function clampIndex(index: number, max: number): number {
   if (!Number.isFinite(index)) return 0;
   return Math.min(max, Math.max(0, Math.trunc(index)));
 }
+
+export type { Edit, Move, Selection, Span };
+export {
+  caretAt,
+  caretVisible,
+  caretX,
+  caretXOf,
+  chars,
+  clampSelection,
+  codePointIndex,
+  hasSelection,
+  indexAtX,
+  indexAtXOf,
+  insert,
+  length,
+  moveCaret,
+  moveToEdge,
+  remove,
+  sanitizeLine,
+  scrollFor,
+  selectAll,
+  selectedText,
+  span,
+  utf16Offset,
+};

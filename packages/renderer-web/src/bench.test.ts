@@ -38,10 +38,10 @@ interface SamplingProfileNode {
  * timed loop runs bare and a second, profiled loop counts the allocations.
  */
 async function measure(frames: number, tick: () => void): Promise<{ ms: number; kb: number }> {
-  for (let i = 0; i < 30; i++) tick();
+  for (const _i of Array(30).keys()) tick();
 
   const start = process.hrtime.bigint();
-  for (let i = 0; i < frames; i++) tick();
+  for (const _ of Array(frames).keys()) tick();
   const elapsed = Number(process.hrtime.bigint() - start) / 1e6;
 
   const session = new Session();
@@ -58,17 +58,14 @@ async function measure(frames: number, tick: () => void): Promise<{ ms: number; 
     includeObjectsCollectedByMajorGC: true,
     includeObjectsCollectedByMinorGC: true,
   });
-  for (let i = 0; i < frames; i++) tick();
+  for (const _ of Array(frames).keys()) tick();
   const { profile } = (await post("HeapProfiler.stopSampling")) as {
     profile: { head: SamplingProfileNode };
   };
   session.disconnect();
-  let allocated = 0;
-  const walk = (node: SamplingProfileNode): void => {
-    allocated += node.selfSize;
-    for (const child of node.children) walk(child);
-  };
-  walk(profile.head);
+  const sizeOf = (node: SamplingProfileNode): number =>
+    node.selfSize + node.children.reduce((sum, child) => sum + sizeOf(child), 0);
+  const allocated = sizeOf(profile.head);
 
   return { ms: elapsed / frames, kb: allocated / 1024 / frames };
 }
@@ -163,7 +160,7 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55, ZAB-73)", () => {
     report("1000-row scroll frame", cost, `window ${JSON.stringify(windowOf())}`);
 
     // Scroll back to the top: does the window recover, or did "biggest wins" pin it?
-    for (let i = 0; i < 400; i++) {
+    for (const _i of Array(400).keys()) {
       view.pointer.wheel(400, 300, 0, -400);
       view.advance(16);
     }

@@ -53,21 +53,25 @@ interface Rig {
 }
 
 function rig(options: { raf?: boolean; navigator?: boolean } = {}): Rig {
-  let pads: (FakePad | null)[] = [];
-  let disposed = false;
-  let clock = 1000;
+  // Slots: the stubbed globals below read them, and the rig's own methods write
+  // them, so none of these can be a value the caller holds.
+  const fake: {
+    pads: (FakePad | null)[];
+    disposed: boolean;
+    clock: number;
+    nextHandle: number;
+  } = { pads: [], disposed: false, clock: 1000, nextHandle: 1 };
   const pending = new Map<number, () => void>();
-  let nextHandle = 1;
 
-  vi.stubGlobal("performance", { now: () => clock });
+  vi.stubGlobal("performance", { now: () => fake.clock });
   if (options.navigator !== false) {
-    vi.stubGlobal("navigator", { getGamepads: () => pads });
+    vi.stubGlobal("navigator", { getGamepads: () => fake.pads });
   } else {
     vi.stubGlobal("navigator", {});
   }
   if (options.raf !== false) {
     vi.stubGlobal("requestAnimationFrame", (callback: () => void) => {
-      const handle = nextHandle++;
+      const handle = fake.nextHandle++;
       pending.set(handle, callback);
       return handle;
     });
@@ -81,7 +85,7 @@ function rig(options: { raf?: boolean; navigator?: boolean } = {}): Rig {
 
   const host = {
     get disposed() {
-      return disposed;
+      return fake.disposed;
     },
     moveFocus: vi.fn(),
     pressFocused: vi.fn(),
@@ -98,15 +102,15 @@ function rig(options: { raf?: boolean; navigator?: boolean } = {}): Rig {
     host: host as unknown as Rig["host"],
     plug: () => {
       const pad = new FakePad();
-      pads = [pad];
+      fake.pads = [pad];
       return pad;
     },
     unplug: () => {
-      pads = [];
+      fake.pads = [];
     },
     frames: (count, ms = 0) => {
-      for (let i = 0; i < count; i++) {
-        clock += ms;
+      for (const _ of Array(count).keys()) {
+        fake.clock += ms;
         const [handle, callback] = [...pending.entries()][0] ?? [];
         if (handle === undefined || !callback) return;
         pending.delete(handle);
@@ -115,7 +119,7 @@ function rig(options: { raf?: boolean; navigator?: boolean } = {}): Rig {
     },
     scheduled: () => pending.size,
     disposed: (value) => {
-      disposed = value;
+      fake.disposed = value;
     },
   };
 }

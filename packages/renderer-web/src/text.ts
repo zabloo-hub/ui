@@ -17,7 +17,7 @@ import type { Rect } from "./layout.js";
 const ELLIPSIS = "…";
 
 /** Everything the algorithm needs from a font, in logical px. */
-export interface TextMetrics {
+interface TextMetrics {
   /** Horizontal advance of one character. */
   advance(char: string): number;
   /**
@@ -32,7 +32,7 @@ export interface TextMetrics {
   readonly ascent: number;
 }
 
-export interface TextLayoutOptions {
+interface TextLayoutOptions {
   /** Word wrap to `maxWidth`. */
   wrap: boolean;
   /** Width to wrap and cut to. `null` (or <= 0) means unconstrained. */
@@ -44,13 +44,13 @@ export interface TextLayoutOptions {
   overflow: TextOverflow;
 }
 
-export interface TextLine {
+interface TextLine {
   text: string;
   /** Painted width — trailing spaces excluded. */
   width: number;
 }
 
-export interface TextBlock {
+interface TextBlock {
   lines: TextLine[];
   /** The widest line. */
   width: number;
@@ -63,7 +63,7 @@ export interface TextBlock {
 }
 
 /** A line ready to paint: the run's top-left, half-leading already applied. */
-export interface PlacedLine {
+interface PlacedLine {
   text: string;
   x: number;
   y: number;
@@ -83,15 +83,21 @@ function isBreakSpace(char: string): boolean {
  * line, which is why a break has to end the chain: the pair straddling it never
  * applies, on either side of the measurement.
  */
+/** What `char` adds after `previous` ("" at the start of a run): kern + advance. */
+function stepOf(previous: string, char: string, metrics: TextMetrics): number {
+  return (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
+}
+
 function widthOf(text: string, metrics: TextMetrics): number {
-  let width = 0;
-  let previous = "";
+  // A slot per CALL, not per character: the running width and the left half of
+  // the next kerning pair are what the walk carries, and this is the measure
+  // pass — an object per glyph is exactly what it must not make.
+  const run = { width: 0, previous: "" };
   for (const char of text) {
-    if (previous !== "") width += metrics.kern(previous, char);
-    width += metrics.advance(char);
-    previous = char;
+    run.width += stepOf(run.previous, char, metrics);
+    run.previous = char;
   }
-  return width;
+  return run.width;
 }
 
 /**
@@ -104,15 +110,13 @@ function widthOf(text: string, metrics: TextMetrics): number {
  * narrower (see `breakWord`).
  */
 function widthUpTo(text: string, metrics: TextMetrics, limit: number): number | null {
-  let width = 0;
-  let previous = "";
+  const run = { width: 0, previous: "" };
   for (const char of text) {
-    if (previous !== "") width += metrics.kern(previous, char);
-    width += metrics.advance(char);
-    previous = char;
-    if (width > limit) return null;
+    run.width += stepOf(run.previous, char, metrics);
+    run.previous = char;
+    if (run.width > limit) return null;
   }
-  return width;
+  return run.width;
 }
 
 /** Last code point of a string — the left half of the kerning pair at a junction. */
@@ -122,9 +126,9 @@ function lastChar(text: string): string {
 
 /** Trailing spaces do not paint and do not count — a line's width ends at its last word. */
 function trimEnd(text: string): string {
-  let end = text.length;
-  while (end > 0 && isBreakSpace(text[end - 1])) end--;
-  return text.slice(0, end);
+  const cut = { at: text.length };
+  while (cut.at > 0 && isBreakSpace(text[cut.at - 1])) cut.at--;
+  return text.slice(0, cut.at);
 }
 
 function lineOf(text: string, metrics: TextMetrics): TextLine {
@@ -136,11 +140,7 @@ function lineOf(text: string, metrics: TextMetrics): TextLine {
  * Lays out `content` into lines. The result is the node's intrinsic size (`width` ×
  * `height`) as far as the flexbox is concerned, and the input of `placeLines`.
  */
-export function layoutText(
-  content: string,
-  metrics: TextMetrics,
-  options: TextLayoutOptions,
-): TextBlock {
+function layoutText(content: string, metrics: TextMetrics, options: TextLayoutOptions): TextBlock {
   const limit = options.maxWidth !== null && options.maxWidth > 0 ? options.maxWidth : null;
   const lines: TextLine[] = [];
   const maxLines = options.maxLines;
@@ -167,20 +167,18 @@ export function layoutText(
   // dropped lines. A wrapped line that is still too wide is a single glyph wider
   // than the line: the minimum-one-glyph rule wins, or the text would vanish.
   const canCut = !options.wrap && limit !== null;
-  let truncated = dropped;
   const last = lines.length - 1;
-  for (let i = 0; i <= last; i++) {
-    const tooWide = canCut && lines[i].width > limit;
-    if (tooWide) truncated = true;
+  const wide = lines.map((line) => canCut && line.width > limit);
+  for (const [i, tooWide] of wide.entries()) {
     if (options.overflow === "ellipsis" && (tooWide || (dropped && i === last))) {
       lines[i] = ellipsize(lines[i].text, metrics, limit);
     } else if (tooWide) {
       lines[i] = clipLine(lines[i].text, metrics, limit as number);
     }
   }
+  const truncated = dropped || wide.includes(true);
 
-  let width = 0;
-  for (const line of lines) width = Math.max(width, line.width);
+  const width = lines.reduce((widest, line) => Math.max(widest, line.width), 0);
   return {
     lines,
     width,
@@ -204,24 +202,23 @@ function wrapParagraph(
 ): void {
   const chars = Array.from(paragraph);
   const start = out.length;
-  let line = "";
-  let lineWidth = 0;
-  let lineLast = ""; // left half of the kerning pair at the next junction
+  // The line being built, and where the scan has got to. Slots, because a greedy
+  // wrap IS a fold whose state is three values wide; `last` is the left half of
+  // the kerning pair at the next junction.
+  const current = { line: "", width: 0, last: "" };
+  const scan = { at: 0 };
 
-  let i = 0;
-  while (i < chars.length) {
+  while (scan.at < chars.length) {
     if (budget !== null && out.length >= budget) return;
-    // A segment is a run of spaces plus the word that follows it.
-    let spaces = "";
-    while (i < chars.length && isBreakSpace(chars[i])) {
-      spaces += chars[i];
-      i++;
-    }
-    let word = "";
-    while (i < chars.length && !isBreakSpace(chars[i])) {
-      word += chars[i];
-      i++;
-    }
+    // A segment is a run of spaces plus the word that follows it. Scanned by
+    // index rather than sliced: a paragraph is walked once, start to end.
+    const spacesFrom = scan.at;
+    while (scan.at < chars.length && isBreakSpace(chars[scan.at])) scan.at++;
+    const spaces = chars.slice(spacesFrom, scan.at).join("");
+
+    const wordFrom = scan.at;
+    while (scan.at < chars.length && !isBreakSpace(chars[scan.at])) scan.at++;
+    const word = chars.slice(wordFrom, scan.at).join("");
     if (word === "") break; // trailing spaces: they neither paint nor break
 
     const segment = spaces + word;
@@ -230,40 +227,42 @@ function wrapParagraph(
     // and measuring all 50k of it first is the other half of the quadratic.
     const segmentWidth = widthUpTo(segment, metrics, limit);
 
-    if (line === "") {
+    if (current.line === "") {
       if (segmentWidth === null) {
-        [line, lineWidth] = breakWord(segment, metrics, limit, out, budget);
+        [current.line, current.width] = breakWord(segment, metrics, limit, out, budget);
       } else {
         // Spaces that START a line are indentation: they paint, so they count.
-        line = segment;
-        lineWidth = segmentWidth;
+        current.line = segment;
+        current.width = segmentWidth;
       }
     } else if (
       segmentWidth !== null &&
-      lineWidth + metrics.kern(lineLast, segment[0]) + segmentWidth <= limit
+      current.width + metrics.kern(current.last, segment[0]) + segmentWidth <= limit
     ) {
-      lineWidth += metrics.kern(lineLast, segment[0]) + segmentWidth;
-      line += segment;
+      current.width += metrics.kern(current.last, segment[0]) + segmentWidth;
+      current.line += segment;
     } else {
       // Break here: the line ends, and with it go the spaces at the break and the
       // kerning pair that straddled it.
-      out.push({ text: line, width: lineWidth });
+      out.push({ text: current.line, width: current.width });
       const wordWidth = widthUpTo(word, metrics, limit);
       if (wordWidth === null) {
-        [line, lineWidth] = breakWord(word, metrics, limit, out, budget);
+        [current.line, current.width] = breakWord(word, metrics, limit, out, budget);
       } else {
-        line = word;
-        lineWidth = wordWidth;
+        current.line = word;
+        current.width = wordWidth;
       }
     }
-    lineLast = lastChar(line);
+    current.last = lastChar(current.line);
   }
 
   // Past the budget the line in hand is one nobody will paint — and, when a long
   // word ran out of budget mid-break, one whose width was never measured.
   if (budget !== null && out.length >= budget) return;
   // An empty paragraph still owns a line, so a blank line takes vertical space.
-  if (line !== "" || out.length === start) out.push({ text: line, width: lineWidth });
+  if (current.line !== "" || out.length === start) {
+    out.push({ text: current.line, width: current.width });
+  }
 }
 
 /**
@@ -293,43 +292,40 @@ function breakWord(
   budget: number | null,
 ): [string, number] {
   const chars = Array.from(word);
-  let i = 0;
-  while (i < chars.length) {
-    let width = 0;
-    let previous = "";
-    let end = i;
-    while (end < chars.length) {
-      const char = chars[end];
-      const step = (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
-      if (end > i && width + step > limit) break;
-      width += step;
-      previous = char;
-      end++;
+  const from = { at: 0 };
+  while (from.at < chars.length) {
+    const piece = { width: 0, previous: "", end: from.at };
+    while (piece.end < chars.length) {
+      const char = chars[piece.end];
+      const step = stepOf(piece.previous, char, metrics);
+      // At least one glyph per line, or the text would vanish.
+      if (piece.end > from.at && piece.width + step > limit) break;
+      piece.width += step;
+      piece.previous = char;
+      piece.end++;
     }
     // Everything left fits: it is the caller's line, not another full one.
-    if (end === chars.length) return [chars.slice(i).join(""), width];
-    out.push({ text: chars.slice(i, end).join(""), width });
-    i = end;
+    if (piece.end === chars.length) return [chars.slice(from.at).join(""), piece.width];
+    out.push({ text: chars.slice(from.at, piece.end).join(""), width: piece.width });
+    from.at = piece.end;
     // Out of budget: the rest is unpaintable, so it is never measured. The
     // caller drops the line it gets back rather than pushing it.
     if (budget !== null && out.length >= budget) break;
   }
-  return [chars.slice(i).join(""), 0];
+  return [chars.slice(from.at).join(""), 0];
 }
 
 /** Longest prefix that fits: the glyph that would cross the boundary is dropped. */
 function clipLine(text: string, metrics: TextMetrics, limit: number): TextLine {
-  let kept = "";
-  let width = 0;
-  let previous = "";
+  const run = { kept: "", width: 0, previous: "" };
   for (const char of text) {
-    const step = (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
-    if (width + step > limit) break;
-    kept += char;
-    width += step;
-    previous = char;
+    const step = stepOf(run.previous, char, metrics);
+    if (run.width + step > limit) break;
+    run.kept += char;
+    run.width += step;
+    run.previous = char;
   }
-  return lineOf(kept, metrics);
+  return lineOf(run.kept, metrics);
 }
 
 /**
@@ -341,21 +337,19 @@ function ellipsize(text: string, metrics: TextMetrics, limit: number | null): Te
   if (limit === null) return lineOf(`${trimEnd(text)}${ELLIPSIS}`, metrics);
 
   const markAdvance = metrics.advance(ELLIPSIS);
-  let kept = "";
-  let width = 0;
-  let previous = "";
+  const run = { kept: "", width: 0, previous: "" };
   for (const char of text) {
-    const step = (previous === "" ? 0 : metrics.kern(previous, char)) + metrics.advance(char);
+    const step = stepOf(run.previous, char, metrics);
     // The mark kerns against whatever ends up in front of it, so the room it
     // needs is measured against THIS glyph, not against the one before it.
-    if (width + step + metrics.kern(char, ELLIPSIS) + markAdvance > limit) break;
-    kept += char;
-    width += step;
-    previous = char;
+    if (run.width + step + metrics.kern(char, ELLIPSIS) + markAdvance > limit) break;
+    run.kept += char;
+    run.width += step;
+    run.previous = char;
   }
   // Trimming can only shorten it, so the marked line still fits — and measuring the
   // final string once is what guarantees it is exactly the run the tessellator paints.
-  return lineOf(`${trimEnd(kept)}${ELLIPSIS}`, metrics);
+  return lineOf(`${trimEnd(run.kept)}${ELLIPSIS}`, metrics);
 }
 
 /** Offset of an inner extent inside an outer one. Never negative: overflow starts at the edge. */
@@ -372,7 +366,7 @@ function alignOffset(align: TextAlign, outer: number, inner: number): number {
  * itself — so the half-leading that centers the glyphs in a taller line box is
  * already folded in.
  */
-export function placeLines(
+function placeLines(
   block: TextBlock,
   rect: Rect,
   metrics: TextMetrics,
@@ -387,3 +381,6 @@ export function placeLines(
     y: top + i * block.lineHeight + halfLeading,
   }));
 }
+
+export type { PlacedLine, TextBlock, TextLayoutOptions, TextLine, TextMetrics };
+export { layoutText, placeLines };

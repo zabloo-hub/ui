@@ -58,11 +58,8 @@ class FakeCanvas {
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
+    const set = this.listeners.get(type) ?? new Set();
+    this.listeners.set(type, set);
     set.add(listener);
   }
   removeEventListener(type: string, listener: (event: unknown) => void): void {
@@ -75,9 +72,7 @@ class FakeCanvas {
     this.captured.push(id);
   }
   listenerCount(): number {
-    let total = 0;
-    for (const set of this.listeners.values()) total += set.size;
-    return total;
+    return [...this.listeners.values()].reduce((total, set) => total + set.size, 0);
   }
   dispatch(type: string, event: Record<string, unknown>): void {
     for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);
@@ -202,9 +197,12 @@ function rig(root: LayoutNode, layer: readonly LayoutNode[] = []): Rig {
       canvas.dispatch("pointerup", event(x, y));
     },
     wheel: (x, y, deltaX, deltaY) => {
-      let prevented = 0;
-      canvas.dispatch("wheel", event(x, y, { deltaX, deltaY, preventDefault: () => prevented++ }));
-      return prevented;
+      const prevented: true[] = [];
+      canvas.dispatch(
+        "wheel",
+        event(x, y, { deltaX, deltaY, preventDefault: () => prevented.push(true) }),
+      );
+      return prevented.length;
     },
     leave: () => canvas.dispatch("pointerleave", {}),
   };
@@ -432,10 +430,10 @@ describe("a press that does not conclude", () => {
   it("commits a cancelled Slider AFTER the state is clean", () => {
     const volume = slider("volume");
     const state = rig(box([volume]));
-    let draggingWhenCommitted: boolean | null = null;
+    const commit: { dragging: boolean | null } = { dragging: null };
     (state.host.commitSlider as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (gesture: SliderGesture) => {
-        draggingWhenCommitted = state.pointer.isSliderDragging(gesture.node);
+        commit.dragging = state.pointer.isSliderDragging(gesture.node);
       },
     );
 
@@ -444,7 +442,7 @@ describe("a press that does not conclude", () => {
 
     // The handler an `onCommit` runs can re-enter this view: it must not find a
     // gesture that is already over still in flight.
-    expect(draggingWhenCommitted).toBe(false);
+    expect(commit.dragging).toBe(false);
   });
 });
 

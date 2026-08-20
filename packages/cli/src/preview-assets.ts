@@ -9,13 +9,13 @@
  * ALWAYS a complete envelope — one loading path, as always.
  */
 
-export interface AssetBlob {
+interface AssetBlob {
   mime: string;
   /** The entry's `data` field, verbatim (base64). */
   base64: string;
 }
 
-export interface SplitEnvelope {
+interface SplitEnvelope {
   /** The envelope without the inlined `data` fields. */
   thin: string;
   /** Asset bytes keyed by content hash; two ids with the same hash share one blob. */
@@ -28,15 +28,21 @@ interface RawEntry {
   data?: unknown;
 }
 
-export function splitEnvelope(json: string): SplitEnvelope {
+/** `JSON.parse` without the throw — `null` when the text is not JSON. */
+function parseOrNull(json: string): { assets?: Record<string, RawEntry> } | null {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function splitEnvelope(json: string): SplitEnvelope {
   const blobs = new Map<string, AssetBlob>();
 
-  let envelope: { assets?: Record<string, RawEntry> };
-  try {
-    envelope = JSON.parse(json);
-  } catch {
-    return { thin: json, blobs }; // the export already validated it; never break the preview
-  }
+  // The export already validated it; unparseable here means never break the preview.
+  const envelope = parseOrNull(json);
+  if (envelope === null) return { thin: json, blobs };
   const assets = envelope?.assets;
   if (typeof assets !== "object" || assets === null) {
     return { thin: json, blobs };
@@ -53,3 +59,6 @@ export function splitEnvelope(json: string): SplitEnvelope {
 
   return { thin: blobs.size > 0 ? JSON.stringify(envelope) : json, blobs };
 }
+
+export type { AssetBlob, SplitEnvelope };
+export { splitEnvelope };

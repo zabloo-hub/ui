@@ -10,7 +10,7 @@
 import { clipContains } from "../clip.js";
 import type { FieldEditor } from "../controls/field.js";
 import { effectiveClip } from "../hit.js";
-import { contains, inLayout, type LayoutNode } from "../layout.js";
+import { contains, inLayout, type LayoutNode, selfAndAncestors } from "../layout.js";
 import { type Point, resolveHit } from "../overlay.js";
 import type { OverlayLayer } from "../overlays/layer.js";
 import { caretAt } from "../textinput.js";
@@ -385,12 +385,14 @@ export class PointerHandler {
   };
 
   private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
-    let bounds = this.bounds;
-    if (bounds === null) {
-      const rect = this.host.canvas.getBoundingClientRect();
-      bounds = { left: rect.left, top: rect.top };
-      this.bounds = bounds;
+    const cached = this.bounds;
+    if (cached !== null) {
+      return { x: event.clientX - cached.left, y: event.clientY - cached.top };
     }
+
+    const rect = this.host.canvas.getBoundingClientRect();
+    const bounds = { left: rect.left, top: rect.top };
+    this.bounds = bounds;
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 
@@ -437,11 +439,9 @@ export class PointerHandler {
    * reaches the ScrollView or Collapse it happens to be declared inside.
    */
   private findUp(node: LayoutNode, predicate: (n: LayoutNode) => boolean): LayoutNode | null {
-    let current: LayoutNode | null = node;
-    while (current) {
+    for (const current of selfAndAncestors(node)) {
       if (current.ir.type === "Overlay") return null;
       if (predicate(current)) return current;
-      current = current.parent;
     }
     return null;
   }

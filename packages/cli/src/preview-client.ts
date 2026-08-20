@@ -45,10 +45,10 @@ const STATS_MS = 250;
  * 1080p could not be looked at in 720p without resizing the browser — and there is
  * no window shape at all that answers "how does this read on a console at 4K".
  */
-export type Viewport = { fixed: false } | { fixed: true; width: number; height: number };
+type Viewport = { fixed: false } | { fixed: true; width: number; height: number };
 
 /** The picker's value, plus whatever is in the custom box, as one viewport. */
-export function parseViewport(preset: string, custom: string): Viewport {
+function parseViewport(preset: string, custom: string): Viewport {
   if (preset === "fit") return { fixed: false };
   const source = preset === "custom" ? custom : preset;
   const match = /^\s*(\d{1,5})\s*[x×*]\s*(\d{1,5})\s*$/.exec(source);
@@ -65,7 +65,7 @@ export function parseViewport(preset: string, custom: string): Viewport {
  * How far a fixed viewport has to shrink to fit the stage. Never above 1: a 720p
  * view blown up to fill a 4K monitor would be showing you resampling, not your UI.
  */
-export function fitScale(
+function fitScale(
   width: number,
   height: number,
   availableWidth: number,
@@ -76,7 +76,7 @@ export function fitScale(
 }
 
 /** The DPR picker's value: a number to force, or undefined for the browser's own. */
-export function parseDpr(value: string): number | undefined {
+function parseDpr(value: string): number | undefined {
   const dpr = Number(value);
   return Number.isFinite(dpr) && dpr > 0 ? Math.min(dpr, 8) : undefined;
 }
@@ -89,7 +89,7 @@ export function parseDpr(value: string): number | undefined {
  * `idle` rather than `0 fps` because the renderer paints ON DEMAND: a still scene
  * painting nothing is the system working, not a stall.
  */
-export function formatStats(frame: (FrameStats & { ms: number }) | null, fps: number): string {
+function formatStats(frame: (FrameStats & { ms: number }) | null, fps: number): string {
   if (frame === null) return "no frame painted yet";
   return [
     fps > 0 ? `${fps} fps` : "idle",
@@ -134,7 +134,7 @@ function recall(key: string, fallback: string): string {
  * child is skipped. Everything else about the Repeat is walked — its bound
  * array, its own `visible`, and the empty state, all of which the game does feed.
  */
-export function collectBindPaths(node: unknown, paths: Set<string> = new Set()): Set<string> {
+function collectBindPaths(node: unknown, paths: Set<string> = new Set()): Set<string> {
   if (node === null || typeof node !== "object") return paths;
   const record = node as Record<string, unknown>;
   if (typeof record.bind === "string") paths.add(record.bind);
@@ -155,7 +155,7 @@ export function collectBindPaths(node: unknown, paths: Set<string> = new Set()):
  * array — so JSON is parsed; anything that does not parse stays the text the
  * person typed, because a half-written array is not an error worth shouting about.
  */
-export function coerce(text: string): unknown {
+function coerce(text: string): unknown {
   const trimmed = text.trim();
   if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
     try {
@@ -171,7 +171,7 @@ export function coerce(text: string): unknown {
 }
 
 /** How a value written back by a control is shown in its field and in the log. */
-export function show(value: unknown): string {
+function show(value: unknown): string {
   return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
 }
 
@@ -184,7 +184,7 @@ export function show(value: unknown): string {
  * An asset the server cannot serve is reported and left without bytes rather
  * than failing the reload: the rest of the view is still worth showing.
  */
-export async function hydrateAssets(
+async function hydrateAssets(
   envelope: Envelope,
   cache: Map<string, string>,
   report: (message: string) => void,
@@ -196,24 +196,26 @@ export async function hydrateAssets(
         cache.set(entry.hash, entry.data);
         return;
       }
-      let data = cache.get(entry.hash);
-      if (data === undefined) {
-        const res = await fetch(`/asset/${entry.hash}`);
-        if (!res.ok) {
-          report(`asset unavailable: ${entry.hash.slice(0, 8)}`);
-          return;
-        }
-        data = await res.text();
-        cache.set(entry.hash, data);
+      const data = cache.get(entry.hash) ?? (await fetchAssetData(entry.hash));
+      if (data === null) {
+        report(`asset unavailable: ${entry.hash.slice(0, 8)}`);
+        return;
       }
+      cache.set(entry.hash, data);
       entry.data = data;
     }),
   );
   return envelope;
 }
 
+/** An asset's base64 payload from the server, or `null` if it is not there. */
+async function fetchAssetData(hash: string): Promise<string | null> {
+  const res = await fetch(`/asset/${hash}`);
+  return res.ok ? await res.text() : null;
+}
+
 /** The running preview page, as the tests (and the console) get to drive it. */
-export interface PreviewClient {
+interface PreviewClient {
   /** The load `start()` kicked off — the page ignores it, a test waits on it. */
   ready: Promise<void>;
   /**
@@ -235,7 +237,7 @@ export interface PreviewClient {
  * go look": a reload is the harmless answer, and a page that ignored a frame it
  * could not parse would silently stop updating.
  */
-export function parseEvent(data: string): PreviewEvent {
+function parseEvent(data: string): PreviewEvent {
   try {
     const parsed = JSON.parse(data) as PreviewEvent;
     if (parsed.kind === "error" && typeof parsed.message === "string") return parsed;
@@ -250,7 +252,7 @@ function element<T extends HTMLElement>(id: string): T {
 }
 
 /** Wires the page up and kicks off the first load. */
-export function start(): PreviewClient {
+function start(): PreviewClient {
   const canvas = element<HTMLCanvasElement>("canvas");
   const stage = element("stage");
   const views = element<HTMLSelectElement>("views");
@@ -266,7 +268,11 @@ export function start(): PreviewClient {
   const statsToggle = element<HTMLButtonElement>("stats-toggle");
   const statsBox = element("stats");
 
-  let handle: ZablooHandle | null = null;
+  /** The mounted view, and whether this load already reported a fatal. */
+  const live: { handle: ZablooHandle | null; sawFatal: boolean } = {
+    handle: null,
+    sawFatal: false,
+  };
 
   function log(message: string): void {
     const line = document.createElement("div");
@@ -311,13 +317,10 @@ export function start(): PreviewClient {
     const line = `[${diagnostic.code}] ${diagnostic.message}`;
     log(line);
     if (diagnostic.level === "fatal") {
-      sawFatal = true;
+      live.sawFatal = true;
       showError(line);
     }
   }
-
-  /** Whether this load already reported a fatal — see the catch in `load`. */
-  let sawFatal = false;
 
   // The preview plays the role of "the game": it discovers the envelope's
   // data-path bindings and offers inputs to push values (zabloo.setData). The
@@ -340,7 +343,7 @@ export function start(): PreviewClient {
       if (held !== undefined) input.value = held;
       input.addEventListener("input", () => {
         dataValues.set(path, input.value);
-        handle?.setData(path, coerce(input.value));
+        live.handle?.setData(path, coerce(input.value));
       });
       dataInputs.set(path, input);
       fields.append(label, input);
@@ -359,7 +362,7 @@ export function start(): PreviewClient {
   }
 
   function replayData(): void {
-    for (const [path, value] of dataValues) handle?.setData(path, coerce(value));
+    for (const [path, value] of dataValues) live.handle?.setData(path, coerce(value));
   }
 
   const assetData = new Map<string, string>();
@@ -369,7 +372,7 @@ export function start(): PreviewClient {
   // would leave a canvas that simply stopped updating, which is the worst report
   // of all. reload() never throws, so this catches the first mount and the fetch.
   async function load(viewId?: string): Promise<void> {
-    sawFatal = false;
+    live.sawFatal = false;
     try {
       await loadOrFail(viewId);
     } catch (error) {
@@ -377,7 +380,7 @@ export function start(): PreviewClient {
       // its code — repeating the exception's message would say it twice. This
       // path still covers what never becomes a diagnostic: the fetch, the JSON of
       // the response, the asset hydration.
-      if (sawFatal) return;
+      if (live.sawFatal) return;
       const message = `envelope error: ${error instanceof Error ? error.message : String(error)}`;
       log(message);
       showError(message);
@@ -390,26 +393,26 @@ export function start(): PreviewClient {
     const envelope = await hydrateAssets((await res.json()) as Envelope, assetData, log);
     const json = JSON.stringify(envelope);
     buildDataPanel(envelope);
-    if (handle && viewId === undefined) {
-      handle.reload(json);
+    if (live.handle && viewId === undefined) {
+      live.handle.reload(json);
       replayData();
-      syncViewOptions(handle);
+      syncViewOptions(live.handle);
       // `reload` never throws: a refused hot-update comes back as a fatal
       // diagnostic and the previous view stays on screen. Clearing the overlay
       // here would erase the only report of it — the canvas IS stale now.
-      if (!sawFatal) clearError();
+      if (!live.sawFatal) clearError();
       return;
     }
     // Dropped BEFORE mounting, not after: a `mount` that throws — a view the
     // renderer refuses — used to leave `handle` pointing at the view it had just
     // disposed, and the next SSE reload called `reload()` on the dead one (ZAB-67).
     // Null means the next load remounts, which is what a broken view needs.
-    if (handle) {
-      handle.dispose();
-      handle = null;
+    if (live.handle) {
+      live.handle.dispose();
+      live.handle = null;
       window.zabloo = undefined;
     }
-    handle = ZablooRenderer.mount(canvas, json, {
+    live.handle = ZablooRenderer.mount(canvas, json, {
       view: viewId,
       // An action from inside a row carries the item it fired from (ZAB-29).
       onAction: (action: string, context?: ActionContext) =>
@@ -421,9 +424,9 @@ export function start(): PreviewClient {
       dpr: parseDpr(dprPicker.value),
       onFrame: recordFrame,
     });
-    window.zabloo = handle;
+    window.zabloo = live.handle;
     replayData();
-    syncViewOptions(handle);
+    syncViewOptions(live.handle);
     clearError();
   }
 
@@ -504,29 +507,31 @@ export function start(): PreviewClient {
 
   // The stats badge (ZAB-78). Frames are counted as the renderer reports them —
   // it paints on demand, so the page's own rAF would be measuring the page.
-  let lastFrame: (FrameStats & { ms: number }) | null = null;
-  let painted: number[] = [];
-  let statsTimer: ReturnType<typeof setInterval> | undefined;
+  const stats: {
+    last: (FrameStats & { ms: number }) | null;
+    painted: number[];
+    timer?: ReturnType<typeof setInterval>;
+  } = { last: null, painted: [] };
 
   function recordFrame(frame: FrameStats & { ms: number }): void {
-    lastFrame = frame;
-    painted.push(performance.now());
+    stats.last = frame;
+    stats.painted.push(performance.now());
   }
 
   function drawStats(): void {
     const cutoff = performance.now() - 1000;
-    painted = painted.filter((at) => at >= cutoff);
-    statsBox.textContent = formatStats(lastFrame, painted.length);
+    stats.painted = stats.painted.filter((at) => at >= cutoff);
+    statsBox.textContent = formatStats(stats.last, stats.painted.length);
   }
 
   function showStats(on: boolean): void {
     statsToggle.classList.toggle("on", on);
     statsBox.classList.toggle("empty", !on);
-    clearInterval(statsTimer);
-    statsTimer = undefined;
+    clearInterval(stats.timer);
+    stats.timer = undefined;
     if (!on) return;
     drawStats();
-    statsTimer = setInterval(drawStats, STATS_MS);
+    stats.timer = setInterval(drawStats, STATS_MS);
   }
 
   statsToggle.addEventListener("click", () => {
@@ -564,16 +569,30 @@ export function start(): PreviewClient {
   return {
     ready: load(),
     load,
-    handle: () => handle,
+    handle: () => live.handle,
     values: () => dataValues,
     stop() {
       events.close();
       window.removeEventListener("gamepadconnected", syncPad);
       window.removeEventListener("gamepaddisconnected", syncPad);
       globalThis.removeEventListener("resize", onWindowResize);
-      clearInterval(statsTimer);
-      handle?.dispose();
-      handle = null;
+      clearInterval(stats.timer);
+      live.handle?.dispose();
+      live.handle = null;
     },
   };
 }
+
+export type { PreviewClient, Viewport };
+export {
+  coerce,
+  collectBindPaths,
+  fitScale,
+  formatStats,
+  hydrateAssets,
+  parseDpr,
+  parseEvent,
+  parseViewport,
+  show,
+  start,
+};

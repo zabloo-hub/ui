@@ -29,10 +29,10 @@
 import type { AssetEntry, AssetRef, Envelope, TokenValue, ZNode } from "./index.js";
 
 /** Major IR version implemented by this package. */
-export const IR_VERSION = 1;
+const IR_VERSION = 1;
 
 /** True if this package's reader can consume content with version `v`. */
-export function supportsVersion(v: number): boolean {
+function supportsVersion(v: number): boolean {
   return Number.isInteger(v) && v === IR_VERSION;
 }
 
@@ -41,7 +41,7 @@ export function supportsVersion(v: number): boolean {
  * id). SDK consumers should use this instead of hand-rolled `startsWith("asset:")`
  * string surgery.
  */
-export function isAssetRef(value: unknown): value is AssetRef {
+function isAssetRef(value: unknown): value is AssetRef {
   return typeof value === "string" && value.startsWith("asset:") && value.length > "asset:".length;
 }
 
@@ -49,19 +49,19 @@ export function isAssetRef(value: unknown): value is AssetRef {
  * Extract the manifest id from an asset ref (strips the `asset:` prefix). SDK
  * consumers should use this instead of hand-rolled string surgery.
  */
-export function assetIdFromRef(ref: AssetRef): string {
+function assetIdFromRef(ref: AssetRef): string {
   return ref.slice("asset:".length);
 }
 
 /** `fatal` aborts the load; `warn` was repaired and the envelope still loads. */
-export type DiagnosticLevel = "warn" | "fatal";
+type DiagnosticLevel = "warn" | "fatal";
 
 /**
  * Stable identity of a diagnostic — what a consumer switches on (and what the Unity
  * loader will emit for the same input). The prose of `message` is free to improve;
  * these strings are the contract.
  */
-export type DiagnosticCode =
+type DiagnosticCode =
   | "invalid-json"
   | "not-an-object"
   | "missing-version"
@@ -82,7 +82,7 @@ export type DiagnosticCode =
   | "unknown-anchor";
 
 /** One thing the validator found, addressed to whoever authored the envelope. */
-export interface Diagnostic {
+interface Diagnostic {
   level: DiagnosticLevel;
   code: DiagnosticCode;
   /**
@@ -96,7 +96,7 @@ export interface Diagnostic {
 }
 
 /** What `readEnvelope` gives back: the repaired envelope (or none) and what it found. */
-export interface EnvelopeReport {
+interface EnvelopeReport {
   /** The repaired envelope, or `null` if a `fatal` diagnostic stopped the load. */
   envelope: Envelope | null;
   diagnostics: Diagnostic[];
@@ -108,7 +108,7 @@ export interface EnvelopeReport {
  * carries everything found on the way there, so a caller that only caught the throw
  * can still report the warnings.
  */
-export class EnvelopeError extends Error {
+class EnvelopeError extends Error {
   readonly diagnostics: readonly Diagnostic[];
 
   constructor(diagnostics: readonly Diagnostic[]) {
@@ -125,17 +125,14 @@ export class EnvelopeError extends Error {
  * payload and a v2 envelope all come back as a `fatal` diagnostic with a readable
  * message, which is what lets a hot-update fail without touching the UI on screen.
  */
-export function readEnvelope(input: unknown): EnvelopeReport {
+function readEnvelope(input: unknown): EnvelopeReport {
   const diagnostics: Diagnostic[] = [];
   if (typeof input === "string") {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(input);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      return fail(diagnostics, "invalid-json", "", `not valid JSON — ${detail}`);
+    const parsed = parseJson(input);
+    if ("error" in parsed) {
+      return fail(diagnostics, "invalid-json", "", `not valid JSON — ${parsed.error}`);
     }
-    return validateEnvelope(parsed, diagnostics);
+    return validateEnvelope(parsed.value, diagnostics);
   }
   return validateEnvelope(input, diagnostics);
 }
@@ -145,7 +142,7 @@ export function readEnvelope(input: unknown): EnvelopeReport {
  * The strict sibling of `readEnvelope`, kept for callers that want an exception:
  * a string is not a JSON document here, it is simply not an object.
  */
-export function parseEnvelope(data: unknown): Envelope {
+function parseEnvelope(data: unknown): Envelope {
   const { envelope, diagnostics } = validateEnvelope(data, []);
   if (envelope === null) throw new EnvelopeError(diagnostics);
   return envelope;
@@ -546,20 +543,19 @@ function sanitizeChildren(
     dropProp(node, "children", path, ctx, "an array of nodes");
     return;
   }
-  const clean: ZNode[] = [];
-  for (let i = 0; i < children.length; i++) {
-    const childPath = `${path}.children[${i}]`;
+  // A dropped child leaves a hole only where position carries meaning (a slot);
+  // anywhere else it simply goes.
+  node.children = children.flatMap((raw, i) => {
     const child = sanitizeNode(
-      children[i],
-      childPath,
+      raw,
+      `${path}.children[${i}]`,
       ctx,
       positional ? "slot" : "node",
       depth + 1,
     );
-    if (child !== null) clean.push(child);
-    else if (positional) clean.push({ type: "Container" });
-  }
-  node.children = clean;
+    if (child !== null) return [child];
+    return positional ? [{ type: "Container" } as ZNode] : [];
+  });
 }
 
 /**
@@ -887,6 +883,15 @@ function warn(ctx: Ctx, code: DiagnosticCode, path: string, detail: string): voi
   push(ctx.diagnostics, "warn", code, path, detail);
 }
 
+/** `JSON.parse` as a value: the document, or the reason it is not one. */
+function parseJson(text: string): { value: unknown } | { error: string } {
+  try {
+    return { value: JSON.parse(text) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function fail(
   diagnostics: Diagnostic[],
   code: DiagnosticCode,
@@ -907,3 +912,14 @@ function push(
   const message = path.length === 0 ? `IR envelope: ${detail}` : `IR envelope: ${path} — ${detail}`;
   diagnostics.push({ level, code, path, message });
 }
+
+export type { Diagnostic, DiagnosticCode, DiagnosticLevel, EnvelopeReport };
+export {
+  assetIdFromRef,
+  EnvelopeError,
+  IR_VERSION,
+  isAssetRef,
+  parseEnvelope,
+  readEnvelope,
+  supportsVersion,
+};

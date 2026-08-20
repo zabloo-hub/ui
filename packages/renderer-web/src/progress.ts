@@ -33,9 +33,7 @@ export function fillRect(
   const contentMain = row ? content.width : content.height;
   const main = fillMain(contentMain, value);
   const leftover = Math.max(0, contentMain - main);
-  let lead = 0;
-  if (justify === "end") lead = leftover;
-  else if (justify === "center") lead = leftover * 0.5;
+  const lead = justify === "end" ? leftover : justify === "center" ? leftover * 0.5 : 0;
   return row
     ? { x: content.x + lead, y: content.y, width: main, height: content.height }
     : { x: content.x, y: content.y + lead, width: content.width, height: main };

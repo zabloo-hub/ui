@@ -24,9 +24,9 @@ import { type AssetBlob, splitEnvelope } from "./preview-assets.js";
  * the page has to tell "a new envelope is ready" from "the export just broke",
  * and the second one is the whole point of the channel being typed (ZAB-67).
  */
-export type PreviewEvent = { kind: "reload" } | { kind: "error"; message: string };
+type PreviewEvent = { kind: "reload" } | { kind: "error"; message: string };
 
-export interface PreviewServer {
+interface PreviewServer {
   url: string;
   /** Publishes the envelope exported last; splits its assets out for `/asset/<hash>`. */
   setEnvelope(json: string): void;
@@ -42,7 +42,7 @@ export interface PreviewServer {
   close(): Promise<void>;
 }
 
-export interface PreviewOptions {
+interface PreviewOptions {
   /**
    * Extra hostnames the preview answers to, beyond the loopback names. Needed
    * whenever something in front of the server rewrites `Host` — a Codespace, an
@@ -65,7 +65,7 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0
  * The hostname out of a `Host` header, port dropped. `[::1]:5078` keeps its
  * brackets — that IS the hostname in a URL authority.
  */
-export function hostnameOf(header: string): string {
+function hostnameOf(header: string): string {
   const trimmed = header.trim().toLowerCase();
   if (trimmed.startsWith("[")) return trimmed.slice(0, trimmed.indexOf("]") + 1);
   const colon = trimmed.indexOf(":");
@@ -79,7 +79,7 @@ export function hostnameOf(header: string): string {
  * an attacker's hostname, and every browser sends one, so a missing header is a
  * script talking to localhost on purpose — not the attack this guard is for.
  */
-export function hostAllowed(header: string | undefined, allowed: readonly string[]): boolean {
+function hostAllowed(header: string | undefined, allowed: readonly string[]): boolean {
   if (header === undefined) return true;
   if (allowed.includes("*")) return true;
   const hostname = hostnameOf(header);
@@ -94,17 +94,23 @@ export function hostAllowed(header: string | undefined, allowed: readonly string
  */
 const PING_MS = 25_000;
 
-export async function startPreviewServer(
+async function startPreviewServer(
   port: number,
   options: PreviewOptions = {},
 ): Promise<PreviewServer> {
   const clients = new Set<ServerResponse>();
   const allowedHosts = [...(options.allowedHosts ?? [])];
   const require = createRequire(import.meta.url);
-  let thin: string | null = null;
-  let blobs = new Map<string, AssetBlob>();
-  /** The failure the last export reported, until an export succeeds. */
-  let failure: string | null = null;
+  /**
+   * What the server is currently serving: the envelope without its asset bytes,
+   * those bytes by hash, and the failure the last export reported (until one
+   * succeeds).
+   */
+  const served: { thin: string | null; blobs: Map<string, AssetBlob>; failure: string | null } = {
+    thin: null,
+    blobs: new Map(),
+    failure: null,
+  };
 
   const handler: RequestListener = async (req, res) => {
     const url = req.url ?? "/";
@@ -128,18 +134,18 @@ export async function startPreviewServer(
       res.writeHead(200, { "content-type": "text/javascript" });
       res.end(await readFile(await previewClientPath()));
     } else if (url === "/envelope") {
-      if (thin === null) {
+      if (served.thin === null) {
         res.writeHead(503);
         res.end("no envelope exported yet");
       } else {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(thin);
+        res.end(served.thin);
       }
     } else if (url.startsWith("/asset/")) {
       // Content-addressed: the bytes behind a hash never change, so the browser
       // may keep them forever. The payload is the entry's `data` field verbatim
       // (base64) — the page pastes it back in without re-encoding.
-      const blob = blobs.get(url.slice("/asset/".length));
+      const blob = served.blobs.get(url.slice("/asset/".length));
       if (blob === undefined) {
         res.writeHead(404);
         res.end("unknown asset hash");
@@ -161,7 +167,9 @@ export async function startPreviewServer(
       // A page that connects while the export is broken hears about it right
       // away: what it just fetched from `/envelope` is the last GOOD export, and
       // nothing else on the page would say so.
-      if (failure !== null) res.write(frame({ kind: "error", message: failure }));
+      if (served.failure !== null) {
+        res.write(frame({ kind: "error", message: served.failure }));
+      }
       clients.add(res);
       req.on("close", () => clients.delete(res));
     } else {
@@ -189,15 +197,15 @@ export async function startPreviewServer(
     url: `http://localhost:${boundPort}/`,
     setEnvelope(json) {
       const split = splitEnvelope(json);
-      thin = split.thin;
-      blobs = split.blobs;
-      failure = null;
+      served.thin = split.thin;
+      served.blobs = split.blobs;
+      served.failure = null;
     },
     notify() {
       for (const client of clients) client.write(frame({ kind: "reload" }));
     },
     notifyError(message) {
-      failure = message;
+      served.failure = message;
       for (const client of clients) client.write(frame({ kind: "error", message }));
     },
     close() {
@@ -241,7 +249,7 @@ async function listen(
   handler: RequestListener,
   first: number,
 ): Promise<{ server: Server; port: number }> {
-  for (let port = first; port < first + PORT_ATTEMPTS; port++) {
+  for (const port of Array.from({ length: PORT_ATTEMPTS }, (_, i) => first + i)) {
     const server = createServer(handler);
     try {
       await bind(server, port);
@@ -304,7 +312,7 @@ async function previewClientPath(): Promise<string> {
  * ids the page serves: `start()` looks these up by name, and a rename that only
  * happened on one side has to fail somewhere.
  */
-export const PREVIEW_BODY = /* html */ `<header>
+const PREVIEW_BODY = /* html */ `<header>
   <b>zabloo</b> preview
   <select id="views" title="view"></select>
   <select id="viewport" title="the size the UI is laid out at, independent of the window">
@@ -412,3 +420,6 @@ ${PREVIEW_BODY}
 </body>
 </html>
 `;
+
+export type { PreviewEvent, PreviewOptions, PreviewServer };
+export { hostAllowed, hostnameOf, PREVIEW_BODY, startPreviewServer };

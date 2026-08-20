@@ -19,9 +19,9 @@ import { type Diagnostic, readEnvelope } from "@zabloo/format";
 import { loadConfig, resolveOutFile } from "./config.js";
 
 /** A problem with the invocation itself, not with the envelope's contents. */
-export class ValidateError extends Error {}
+class ValidateError extends Error {}
 
-export interface ValidateReport {
+interface ValidateReport {
   /** Absolute path of the envelope that was read. */
   file: string;
   /** No `fatal` diagnostic: an SDK would load this payload. */
@@ -37,20 +37,17 @@ export interface ValidateReport {
  * with no arguments checks what `zabloo export` just wrote — including when
  * `zabloo.config.ts` moved `outDir`.
  */
-export async function validateEnvelope(rootDir: string, file?: string): Promise<ValidateReport> {
+async function validateEnvelope(rootDir: string, file?: string): Promise<ValidateReport> {
   const root = resolve(rootDir);
   const path =
     file === undefined ? resolveOutFile(root, await loadConfig(root)) : resolve(root, file);
 
-  let text: string;
-  try {
-    text = await readFile(path, "utf8");
-  } catch {
+  const text = await readFile(path, "utf8").catch(() => {
     throw new ValidateError(
       `no envelope at ${path}` +
         (file === undefined ? " — run `zabloo export` first, or pass a path" : ""),
     );
-  }
+  });
 
   // The raw text, not a parsed value: invalid JSON is a diagnostic of the contract
   // (`invalid-json`), and parsing it here would turn it into a thrown SyntaxError.
@@ -64,7 +61,7 @@ export async function validateEnvelope(rootDir: string, file?: string): Promise<
 }
 
 /** `true` when the report should fail the command — see `--strict`. */
-export function failed(report: ValidateReport, strict: boolean): boolean {
+function failed(report: ValidateReport, strict: boolean): boolean {
   return !report.ok || (strict && report.diagnostics.length > 0);
 }
 
@@ -73,7 +70,7 @@ export function failed(report: ValidateReport, strict: boolean): boolean {
  * Pure, so the tests assert the text a studio will paste into an issue rather
  * than a spy on `console.log`.
  */
-export function formatReport(report: ValidateReport, strict: boolean, cwd: string): string {
+function formatReport(report: ValidateReport, strict: boolean, cwd: string): string {
   const lines: string[] = [`zabloo validate: ${relative(cwd, report.file) || report.file}`];
 
   for (const diagnostic of report.diagnostics) {
@@ -102,3 +99,6 @@ export function formatReport(report: ValidateReport, strict: boolean, cwd: strin
 function count(n: number, noun: string): string {
   return n === 0 ? "" : `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
+
+export type { ValidateReport };
+export { failed, formatReport, ValidateError, validateEnvelope };

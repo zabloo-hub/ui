@@ -1,0 +1,161 @@
+/*
+ * The design's palette, light and dark. See `README.md` for the full table.
+ *
+ * Plain CSS, separate from `globals.css`, so it can be read without a Tailwind
+ * build — `tokens.test.ts` injects it into jsdom as-is. Hence two rules:
+ * values are literal rather than chained through `var()` (jsdom does not
+ * resolve it), and `.dark` MUST stay below `:root` — same specificity, same
+ * element, only source order separates them.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* --- shadcn's own names ------------------------------------------------- */
+  --background: #fafafa;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: #09090b;
+  /* The zinc theme's Primary is near-black, NOT the indigo — the indigo is for
+     selection and active state only. */
+  --primary: #09090b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #09090b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #09090b;
+  --destructive: #dc2626;
+  --destructive-foreground: #fafafa;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+
+  /* shadcn spends `--ring` on the focus BORDER, so it holds the indigo and the
+     halo gets a name of its own. Late-bound on purpose: `.dark` moves
+     `--indigo` and this follows without being redeclared. */
+  --ring: var(--indigo);
+  --ring-halo: #e0e7ff;
+
+  /* --- tokens the design has and shadcn does not -------------------------- */
+  --stage: #f4f4f5;
+
+  --text-secondary: #3f3f46;
+  --text-faint: #d4d4d8;
+
+  --indigo: #4f46e5;
+  /* Text ON the soft backgrounds: the indigo itself in light, lighter in dark. */
+  --indigo-foreground: #4f46e5;
+  --indigo-soft: #eef2ff;
+  --indigo-soft-border: #c7d2fe;
+  --indigo-chip: #e0e7ff;
+
+  --ok: #22a04d;
+  --ok-fg: #3f9152;
+  --ok-bg: #eaf6ee;
+  --ok-border: #cde8d6;
+  --warn: #d99711;
+  --warn-fg: #96690f;
+  --warn-bg: #fdf5e3;
+  --warn-border: #f0dfb2;
+  /* Paler than the pill: it covers a whole footer, and the tint at that size
+     reads as an error. */
+  --warn-surface: #fdf9ef;
+  --danger: #dc2626;
+  --danger-fg: #b91c1c;
+  --danger-bg: #fdecec;
+  --danger-border: #f5c9c9;
+
+  --log-write: #0e8a5f;
+  --log-action: #4f46e5;
+
+  --brand-gradient: linear-gradient(135deg, #818cf8, #4f46e5);
+  --switch-on: #4f46e5;
+  --veil: rgba(246, 246, 248, 0.55);
+  --glass: rgba(255, 255, 255, 0.88);
+
+  /* --- the shadows that change with the theme ----------------------------- */
+  /* Utilities over tokens instead of `@theme` keys, for the reason in
+     `globals.css`. The other four are `@theme` keys there. */
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-panel: 0 10px 32px rgba(20, 20, 30, 0.16);
+  --shadow-frame: 0 2px 10px rgba(20, 20, 30, 0.08);
+
+  /* shadcn's base; the scale built on it is in `globals.css`. Here because some
+     generated components read it directly as `calc(var(--radius) - 2px)`. */
+  --radius: 6px;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #18181b;
+  --card-foreground: #fafafa;
+  --popover: #18181b;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #09090b;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+  --destructive: #f87171;
+  --destructive-foreground: #09090b;
+  --border: #27272a;
+  --input: #27272a;
+
+  /* `--ring` is not repeated: it is `var(--indigo)` and `--indigo` moves here. */
+  --ring-halo: rgba(129, 140, 248, 0.25);
+
+  /* The stage stops being a separate shade: a lighter surround would glow
+     around the render. */
+  --stage: #09090b;
+
+  --text-secondary: #d4d4d8;
+  --text-faint: #52525b;
+
+  --indigo: #818cf8;
+  --indigo-foreground: #a5b0fc;
+  --indigo-soft: rgba(129, 140, 248, 0.12);
+  --indigo-soft-border: rgba(129, 140, 248, 0.35);
+  --indigo-chip: rgba(129, 140, 248, 0.18);
+
+  /* Alphas of the dot colour rather than fixed hexes: these sit on `--card` in
+     the console and on `--background` in the statusbar, and a tint mixed for
+     one banded on the other. */
+  --ok: #34c778;
+  --ok-fg: #6ee7a0;
+  --ok-bg: rgba(52, 199, 120, 0.1);
+  --ok-border: rgba(52, 199, 120, 0.28);
+  --warn: #fbbf24;
+  --warn-fg: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.1);
+  --warn-border: rgba(251, 191, 36, 0.28);
+  --warn-surface: rgba(251, 191, 36, 0.06);
+  --danger: #f87171;
+  --danger-fg: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.1);
+  --danger-border: rgba(248, 113, 113, 0.28);
+
+  --log-write: #4cc79a;
+  --log-action: #a5b0fc;
+
+  --brand-gradient: linear-gradient(135deg, #a5b0fc, #6366f1);
+  --switch-on: #6366f1;
+  --veil: rgba(9, 9, 11, 0.55);
+  --glass: rgba(24, 24, 27, 0.88);
+
+  /* Triggers lose their shadow here. `0 0 #0000` rather than `none`, which
+     would invalidate any composed box-shadow list it landed in. */
+  --shadow-control: 0 0 #0000;
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-panel: 0 10px 32px rgba(0, 0, 0, 0.45);
+  --shadow-frame: 0 4px 18px rgba(0, 0, 0, 0.4);
+}

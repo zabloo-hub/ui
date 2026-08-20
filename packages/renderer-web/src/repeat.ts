@@ -20,19 +20,19 @@
 import { itemIdentity, itemKey, type ZNode } from "@zabloo/format";
 
 /** Lines kept realized beyond each edge of the viewport, so a scroll never shows a hole. */
-export const BUFFER_LINES = 2;
+const BUFFER_LINES = 2;
 
 /** How many items are realized before the first layout has measured anything. */
-export const INITIAL_WINDOW = 24;
+const INITIAL_WINDOW = 24;
 
 /** One realized position: the element it shows and the identity its state is keyed by. */
-export interface ItemSlot {
+interface ItemSlot {
   index: number;
   identity: string;
 }
 
 /** The uniform geometry a virtualized `Repeat` assumes, along the axis its lines stack on. */
-export interface ItemMetrics {
+interface ItemMetrics {
   /** One line's size on the stacking axis (an item's own size when nothing wraps). */
   extent: number;
   /** The node's `gap`, which separates lines as much as items. */
@@ -42,7 +42,7 @@ export interface ItemMetrics {
 }
 
 /** The realized window plus the space reserved around it — layout's whole share of it. */
-export interface ItemSpan {
+interface ItemSpan {
   /** First realized item. */
   first: number;
   /** How many items are realized. */
@@ -56,12 +56,12 @@ export interface ItemSpan {
 }
 
 /** `children[0]` is the item template — the node instantiated once per element. */
-export function itemTemplate(ir: ZNode): ZNode | undefined {
+function itemTemplate(ir: ZNode): ZNode | undefined {
   return childrenOf(ir)[0];
 }
 
 /** `children[1..]` are the empty state, in layout only while there is nothing to repeat. */
-export function emptySlots(ir: ZNode): ZNode[] {
+function emptySlots(ir: ZNode): ZNode[] {
   return childrenOf(ir).slice(1);
 }
 
@@ -74,7 +74,7 @@ function childrenOf(ir: ZNode): ZNode[] {
  * of the wrong shape — is the empty case, which is exactly when the empty-state
  * slot enters layout (decision 2026-08-11, ZAB-29).
  */
-export function itemsOf(value: unknown): unknown[] {
+function itemsOf(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
@@ -89,7 +89,12 @@ export function itemsOf(value: unknown): unknown[] {
  * the list still reconciles deterministically instead of rebuilding a row per
  * frame; it is only that row that stops travelling with its data.
  */
-export function windowSlots(
+/** `from…to-1`, as values — an index range the caller can iterate with `const`. */
+function indexRange(from: number, to: number): number[] {
+  return Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
+}
+
+function windowSlots(
   items: readonly unknown[],
   keyPath: string | undefined,
   first: number,
@@ -98,7 +103,7 @@ export function windowSlots(
   const slots: ItemSlot[] = [];
   const seen = new Set<string>();
   const end = Math.min(items.length, first + count);
-  for (let index = Math.max(0, first); index < end; index++) {
+  for (const index of indexRange(Math.max(0, first), end)) {
     const keyed = itemIdentity(itemKey(items[index], keyPath), index);
     const identity = seen.has(keyed) ? itemIdentity(undefined, index) : keyed;
     seen.add(identity);
@@ -107,7 +112,7 @@ export function windowSlots(
   return slots;
 }
 
-export interface Reconciliation<T> {
+interface Reconciliation<T> {
   /** The window in order: an existing instance to reuse, or nothing to build one. */
   entries: Array<{ slot: ItemSlot; instance: T | undefined }>;
   /** Instances that left the window (or the array) — theirs is the state that dies. */
@@ -115,7 +120,7 @@ export interface Reconciliation<T> {
 }
 
 /** Matches a window against the instances of the previous frame, by identity. */
-export function reconcileWindow<T>(
+function reconcileWindow<T>(
   previous: ReadonlyMap<string, T>,
   slots: readonly ItemSlot[],
 ): Reconciliation<T> {
@@ -137,12 +142,12 @@ export function reconcileWindow<T>(
  * computed from the uniform item size so the window and layout break in the same
  * place. Always at least one: an item wider than the line still gets a line.
  */
-export function itemsPerLine(content: number, item: number, gap: number): number {
+function itemsPerLine(content: number, item: number, gap: number): number {
   if (!(content > 0) || !(item > 0)) return 1;
   return Math.max(1, Math.floor((content + gap) / (item + gap)));
 }
 
-export function lineCount(items: number, perLine: number): number {
+function lineCount(items: number, perLine: number): number {
   return perLine > 0 ? Math.ceil(items / perLine) : 0;
 }
 
@@ -156,7 +161,7 @@ export function lineCount(items: number, perLine: number): number {
  * exist when a frame starts — so a fast scroll can outrun it by one frame. That
  * is what the buffer is for: it is the lines that make the lag invisible.
  */
-export function visibleSpan(
+function visibleSpan(
   itemCount: number,
   metrics: ItemMetrics,
   viewStart: number,
@@ -189,3 +194,17 @@ export function visibleSpan(
 function clampLine(line: number, lines: number): number {
   return Math.min(lines - 1, Math.max(0, line));
 }
+
+export type { ItemMetrics, ItemSlot, ItemSpan, Reconciliation };
+export {
+  BUFFER_LINES,
+  emptySlots,
+  INITIAL_WINDOW,
+  itemsOf,
+  itemsPerLine,
+  itemTemplate,
+  lineCount,
+  reconcileWindow,
+  visibleSpan,
+  windowSlots,
+};

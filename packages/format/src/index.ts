@@ -32,25 +32,11 @@
  * `@zabloo/format` stays one import for consumers.
  */
 
-export {
-  assetIdFromRef,
-  type Diagnostic,
-  type DiagnosticCode,
-  type DiagnosticLevel,
-  EnvelopeError,
-  type EnvelopeReport,
-  IR_VERSION,
-  isAssetRef,
-  parseEnvelope,
-  readEnvelope,
-  supportsVersion,
-} from "./validate.js";
-
 /** A reference to a design token, e.g. `"{color.primary}"`. */
-export type TokenRef = `{${string}}`;
+type TokenRef = `{${string}}`;
 
 /** Token values in the envelope's flat dictionary. */
-export type TokenValue = string | number;
+type TokenValue = string | number;
 
 /**
  * A static value or a data-path binding, e.g. `{ bind: "player.gold" }`.
@@ -61,16 +47,16 @@ export type TokenValue = string | number;
  * template a path may start with the item alias (`"item.name"`) and is resolved
  * against the current element — see `resolveBinding`.
  */
-export type Bindable<T> = T | { bind: string };
+type Bindable<T> = T | { bind: string };
 
 /** Dimension: a number (px) or a token reference. */
-export type Dim = number | TokenRef;
+type Dim = number | TokenRef;
 
 /** Color: a literal (e.g. `"#4f46e5"`) or a token reference. */
-export type ColorValue = string | TokenRef;
+type ColorValue = string | TokenRef;
 
 /** A reference to an asset in the envelope's manifest, e.g. `"asset:icons/coin.png"`. */
-export type AssetRef = `asset:${string}`;
+type AssetRef = `asset:${string}`;
 
 /**
  * One asset in the envelope's manifest (decision 2026-08-11, ZAB-10). `hash` is the
@@ -79,7 +65,7 @@ export type AssetRef = `asset:${string}`;
  * it; a future platform may omit it and let SDKs resolve bytes by hash (deferred
  * resolution) without a format change.
  */
-export interface AssetEntry {
+interface AssetEntry {
   hash: string;
   /** MIME type, e.g. "image/png". The format is generic; accepted MIMEs are an export concern. */
   mime: string;
@@ -96,7 +82,7 @@ export interface AssetEntry {
  * Versioned multi-view envelope — the unit the SDK loader consumes, whether it comes
  * from a manual import or a platform hot-update (one loading path).
  */
-export interface Envelope {
+interface Envelope {
   /** IR version. SDKs refuse only on a major mismatch. */
   v: number;
   /** Flat token dictionary, e.g. `{ "color.primary": "#4f46e5" }`. */
@@ -108,7 +94,7 @@ export interface Envelope {
 }
 
 /** v1 node vocabulary (closed set). */
-export type ZNode =
+type ZNode =
   | ContainerNode
   | TextNode
   | ButtonNode
@@ -150,17 +136,10 @@ export type ZNode =
  * still `empty`. Being last is what lets one override speak for the whole control
  * whatever it currently holds.
  */
-export type StateName =
-  | "hover"
-  | "pressed"
-  | "disabled"
-  | "focused"
-  | "selected"
-  | "checked"
-  | "empty";
+type StateName = "hover" | "pressed" | "disabled" | "focused" | "selected" | "checked" | "empty";
 
 /** Per-state style overrides. The SDK owns runtime state, keyed by component type. */
-export interface StateOverride {
+interface StateOverride {
   style?: Style;
 }
 
@@ -168,7 +147,7 @@ export interface StateOverride {
  * Yoga subset decided for v1: direction, justify, align, gap, padding,
  * width/height, grow — plus `wrap` (2026-08-11, ZAB-32).
  */
-export interface Layout {
+interface Layout {
   direction?: "row" | "column";
   justify?: "start" | "center" | "end" | "space-between";
   align?: "start" | "center" | "end" | "stretch";
@@ -197,7 +176,7 @@ export interface Layout {
 }
 
 /** Alignment of a text block inside its rect, on either axis. */
-export type TextAlign = "start" | "center" | "end";
+type TextAlign = "start" | "center" | "end";
 
 /**
  * What happens to text that does not fit (decision 2026-08-11, ZAB-17):
@@ -206,7 +185,7 @@ export type TextAlign = "start" | "center" | "end";
  * - `"ellipsis"`: the truncation is marked with `…` (U+2026), trimming glyphs from
  *   the end of the last line until the mark fits.
  */
-export type TextOverflow = "clip" | "ellipsis";
+type TextOverflow = "clip" | "ellipsis";
 
 /**
  * Resolved per-node style. Paint is implicit: `background`/`radius`/`borderWidth`
@@ -216,7 +195,7 @@ export type TextOverflow = "clip" | "ellipsis";
  * through tokens and overridable per state (`states.focused.style.textAlign`) like
  * every other visual input. They are read from a `Text` node and ignored elsewhere.
  */
-export interface Style {
+interface Style {
   background?: ColorValue;
   radius?: Dim;
   borderWidth?: Dim;
@@ -253,7 +232,7 @@ export interface Style {
  * polynomials rather than CSS cubic-béziers so every target computes the SAME number
  * without a solver — see `easeProgress`, the normative reference implementation.
  */
-export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
+type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
 
 /**
  * Declarative transition for a node's animatable values. The SDK tweens whenever a
@@ -283,7 +262,7 @@ export type Easing = "linear" | "ease-in" | "ease-out" | "ease-in-out";
  * enters and leaves the layer (decision 2026-08-11, ZAB-21) — which is why none of
  * those props appears in the set above, `visible` included.
  */
-export interface Transition {
+interface Transition {
   /** Duration in milliseconds. A `Dim` so motion is themeable (`"{motion.fast}"`); <= 0 is instant. */
   duration: Dim;
   /** Default: "ease-out". */
@@ -368,9 +347,9 @@ interface NodeBase {
  * `<Select>` asks, and the only node that can answer it is the one that holds the
  * value.
  */
-export type GroupBehavior = "exclusive-open" | "exclusive-select" | "exclusive-check";
+type GroupBehavior = "exclusive-open" | "exclusive-select" | "exclusive-check";
 
-export interface ContainerNode extends NodeBase {
+interface ContainerNode extends NodeBase {
   type: "Container";
   /** Cross-child behavior the SDK enforces (e.g. Accordion = "exclusive-open"). */
   group?: GroupBehavior;
@@ -449,12 +428,12 @@ export interface ContainerNode extends NodeBase {
  * The text properties SNAP like `fontSize` — none of them is animatable by a
  * `transition` (a re-wrap has no meaningful intermediate value).
  */
-export interface TextNode extends NodeBase {
+interface TextNode extends NodeBase {
   type: "Text";
   text: Bindable<string>;
 }
 
-export interface ButtonNode extends NodeBase {
+interface ButtonNode extends NodeBase {
   type: "Button";
   /** Named action, exposed idiomatically per engine (C# event / signal / Blueprint). */
   onClick?: string;
@@ -468,7 +447,7 @@ export interface ButtonNode extends NodeBase {
  * open state (keyed by type) and re-runs layout on toggle; the game can also
  * drive it programmatically (`SetOpen(id, open)`).
  */
-export interface CollapseNode extends NodeBase {
+interface CollapseNode extends NodeBase {
   type: "Collapse";
   /** Initial state (default: true). */
   open?: boolean;
@@ -477,7 +456,7 @@ export interface CollapseNode extends NodeBase {
 }
 
 /** Scrollable axis of a ScrollView. */
-export type ScrollAxis = "vertical" | "horizontal" | "both";
+type ScrollAxis = "vertical" | "horizontal" | "both";
 
 /**
  * Scrollable region (5th primitive, decision 2026-08-11). A normal flex
@@ -501,7 +480,7 @@ export type ScrollAxis = "vertical" | "horizontal" | "both";
  * auto-scrolling to the focused node land with gamepad input; inertia, a
  * styleable scrollbar (`scrollbar` boolean → object) and snapping come after.
  */
-export interface ScrollViewNode extends NodeBase {
+interface ScrollViewNode extends NodeBase {
   type: "ScrollView";
   /** Scrollable axis. Default: "vertical". */
   axis?: ScrollAxis;
@@ -520,7 +499,7 @@ export interface ScrollViewNode extends NodeBase {
  * - `"cover"`: fills the rect, undistorted, cropping the overflowing axis evenly.
  * - `"stretch"`: fills the rect exactly, distorting the aspect ratio.
  */
-export type ImageFit = "contain" | "cover" | "stretch";
+type ImageFit = "contain" | "cover" | "stretch";
 
 /**
  * Textured rectangle (6th primitive). A content-bearing LEAF, like `Text`: its
@@ -543,7 +522,7 @@ export type ImageFit = "contain" | "cover" | "stretch";
  *   from the manifest's `width`/`height`. No `loading` state exists — the
  *   placeholder is authored, not a runtime state.
  */
-export interface ImageNode extends NodeBase {
+interface ImageNode extends NodeBase {
   type: "Image";
   src: AssetRef;
   /** How the source fills the layout rect. Default: "contain". */
@@ -572,7 +551,7 @@ export interface ImageNode extends NodeBase {
  * `checked` is DERIVED from the group's `value` (never stored per node), and
  * tapping it writes its own `value` into the group's binding.
  */
-export interface ToggleNode extends NodeBase {
+interface ToggleNode extends NodeBase {
   type: "Toggle";
   /** Initial state, or a read/write data-path binding. Default: false. */
   checked?: Bindable<boolean>;
@@ -585,7 +564,7 @@ export interface ToggleNode extends NodeBase {
 }
 
 /** Orientation of a Slider's track. Vertical runs bottom-to-top, like a fader. */
-export type SliderAxis = "horizontal" | "vertical";
+type SliderAxis = "horizontal" | "vertical";
 
 /**
  * Continuous value control (9th primitive, decision 2026-08-11, ZAB-24). The
@@ -616,7 +595,7 @@ export type SliderAxis = "horizontal" | "vertical";
  * like `Toggle.checked` (decision 2026-08-11, ZAB-23). It is clamped to
  * `[min, max]` and, with a `step`, quantized to `min + k * step`.
  */
-export interface SliderNode extends NodeBase {
+interface SliderNode extends NodeBase {
   type: "Slider";
   /** Current value, or a read/write data-path binding. Default: `min`. */
   value?: Bindable<number>;
@@ -679,7 +658,7 @@ export interface SliderNode extends NodeBase {
  * images). Their blink and their styling are behavior, not IR — the same split
  * that keeps the ScrollView's scrollbar out of the format.
  */
-export interface TextInputNode extends NodeBase {
+interface TextInputNode extends NodeBase {
   type: "TextInput";
   /** Current text, or a read/write data-path binding. Default: "". */
   value?: Bindable<string>;
@@ -732,7 +711,7 @@ export interface TextInputNode extends NodeBase {
  * `ProgressBar`'s fraction — `visible` itself never animates, and a fading overlay
  * takes no input and traps no focus, being on its way out.
  */
-export interface OverlayNode extends NodeBase {
+interface OverlayNode extends NodeBase {
   type: "Overlay";
   /**
    * Places this overlay's content against ANOTHER node's rect instead of the layer,
@@ -786,7 +765,7 @@ export interface OverlayNode extends NodeBase {
  * - `left`/`right`: beside the anchor, centered on its height.
  * - `center`: centered ON the anchor, ignoring `offset` — a badge over an icon.
  */
-export type AnchorAt =
+type AnchorAt =
   | "center"
   | "top"
   | "bottom"
@@ -846,7 +825,7 @@ export type AnchorAt =
  * `manual`, so the dropdown sits open on the layer where its anchor puts it — a
  * visible, inert list rather than a control that never appears.
  */
-export type OverlayTrigger = "hover" | "manual" | "press";
+type OverlayTrigger = "hover" | "manual" | "press";
 
 /**
  * An overlay's relation to another node: the rect it is placed against, and
@@ -870,7 +849,7 @@ export type OverlayTrigger = "hover" | "manual" | "press";
  * state: the SDK warns and falls back to the layer placement, so a typo degrades to
  * a visible v1 tooltip rather than to silence.
  */
-export interface OverlayAnchor {
+interface OverlayAnchor {
   /** `id` of the node in this view whose layout rect the content is placed against. */
   id: string;
   /** Preferred placement around the anchor. Default: `"top"`. */
@@ -885,10 +864,10 @@ export interface OverlayAnchor {
 }
 
 /** Default item alias of a `Repeat` template (`as`). */
-export const ITEM_ALIAS = "item";
+const ITEM_ALIAS = "item";
 
 /** Reserved leaf segment inside an item scope: `"item.$index"` → the element's position. */
-export const INDEX_SEGMENT = "$index";
+const INDEX_SEGMENT = "$index";
 
 /**
  * Data-driven repetition (9th primitive, decision 2026-08-11, ZAB-29): the first
@@ -918,7 +897,7 @@ export const INDEX_SEGMENT = "$index";
  * (focus, `checked`, scroll offset, in-flight transitions) with the item instead of
  * leaving it pinned to a position. See `itemKey`/`itemIdentity`.
  */
-export interface RepeatNode extends NodeBase {
+interface RepeatNode extends NodeBase {
   type: "Repeat";
   /**
    * The bound array. Always a binding — a literal array here would put DATA in the
@@ -942,7 +921,7 @@ export interface RepeatNode extends NodeBase {
  * One item scope open while the SDK instantiates a template — a stack of these
  * grows one entry per enclosing `Repeat`.
  */
-export interface ItemScope {
+interface ItemScope {
   /** The enclosing Repeat's `as` (default `"item"`). */
   alias: string;
   /** Absolute data path of this element, e.g. `"shop.items.3"`. */
@@ -955,7 +934,7 @@ export interface ItemScope {
  * Result of resolving a binding inside a template: either an absolute data path or
  * the element's position, which is a number the data does not contain.
  */
-export type ResolvedBind = { kind: "path"; path: string } | { kind: "index"; index: number };
+type ResolvedBind = { kind: "path"; path: string } | { kind: "index"; index: number };
 
 /**
  * Context a named action carries when it fires from inside a repeated item
@@ -967,7 +946,7 @@ export type ResolvedBind = { kind: "path"; path: string } | { kind: "index"; ind
  * already embeds every enclosing index (`"shop.cats.2.items.5"`), so the game can
  * address the whole chain from it.
  */
-export interface ActionContext {
+interface ActionContext {
   /** Absolute data path of the item, e.g. `"shop.items.3"`. */
   path: string;
   /** The item's raw key when the Repeat declares one; absent when identity is positional. */
@@ -987,10 +966,10 @@ export interface ActionContext {
  * deeper (`"item.a.$index"`) is an ordinary segment that will simply read
  * `undefined`.
  */
-export function resolveBinding(bind: string, scopes: readonly ItemScope[]): ResolvedBind {
-  for (let i = scopes.length - 1; i >= 0; i--) {
-    const scope = scopes[i];
-    if (scope === undefined || scope.alias.length === 0) continue;
+function resolveBinding(bind: string, scopes: readonly ItemScope[]): ResolvedBind {
+  // Innermost scope first: a nested list's alias shadows the one outside it.
+  for (const scope of [...scopes].reverse()) {
+    if (!scope || scope.alias.length === 0) continue;
     if (bind === scope.alias) return { kind: "path", path: scope.path };
     if (!bind.startsWith(`${scope.alias}.`)) continue;
     const rest = bind.slice(scope.alias.length + 1);
@@ -1001,7 +980,7 @@ export function resolveBinding(bind: string, scopes: readonly ItemScope[]): Reso
 }
 
 /** Absolute path of element `index` of the array at `arrayPath`. */
-export function itemPath(arrayPath: string, index: number): string {
+function itemPath(arrayPath: string, index: number): string {
   return `${arrayPath}.${index}`;
 }
 
@@ -1013,21 +992,19 @@ const ARRAY_INDEX = /^\d+$/;
  * or walked through a non-object yields `undefined` rather than throwing. Bound UI
  * degrades to "no value", it never breaks the frame.
  */
-export function readPath(root: unknown, path: string): unknown {
+function readPath(root: unknown, path: string): unknown {
   if (path.length === 0) return undefined;
-  let current: unknown = root;
-  for (const segment of path.split(".")) {
+  // Once a segment misses, `undefined` walks itself to the end — the guard on
+  // the next step short-circuits the rest without needing an early return.
+  return path.split(".").reduce<unknown>((current, segment) => {
     if (segment.length === 0) return undefined;
     if (current === null || current === undefined) return undefined;
     if (Array.isArray(current)) {
-      if (!ARRAY_INDEX.test(segment)) return undefined;
-      current = current[Number(segment)];
-      continue;
+      return ARRAY_INDEX.test(segment) ? current[Number(segment)] : undefined;
     }
     if (typeof current !== "object") return undefined;
-    current = (current as Record<string, unknown>)[segment];
-  }
-  return current;
+    return (current as Record<string, unknown>)[segment];
+  }, root);
 }
 
 /**
@@ -1036,7 +1013,7 @@ export function readPath(root: unknown, path: string): unknown {
  * missing field, an empty string) means "this element has no key" and identity
  * falls back to its position.
  */
-export function itemKey(item: unknown, keyPath: string | undefined): string | number | undefined {
+function itemKey(item: unknown, keyPath: string | undefined): string | number | undefined {
   if (keyPath === undefined || keyPath.length === 0) return undefined;
   const value = readPath(item, keyPath);
   if (typeof value === "string" && value.length > 0) return value;
@@ -1052,7 +1029,7 @@ export function itemKey(item: unknown, keyPath: string | undefined): string | nu
  * where only some elements resolve a key would let item `{id: "0"}` collide with the
  * unkeyed element at position 0 and inherit its state.
  */
-export function itemIdentity(key: string | number | undefined, index: number): string {
+function itemIdentity(key: string | number | undefined, index: number): string {
   return key === undefined ? String(index) : `k:${key}`;
 }
 
@@ -1093,7 +1070,7 @@ export function itemIdentity(key: string | number | undefined, index: number): s
  * (normative unknown-type rule), i.e. the track with an unsized fill inside — the
  * bar loses its fraction, never the layout around it.
  */
-export interface ProgressBarNode extends NodeBase {
+interface ProgressBarNode extends NodeBase {
   type: "ProgressBar";
   /** Progress in 0..1 (clamped). Static or a read binding. Default: 0. */
   value?: Bindable<number>;
@@ -1122,7 +1099,7 @@ export interface ProgressBarNode extends NodeBase {
  * Forward-tolerance: an older SDK renders it as a Container — the beads show, at
  * rest. The degradation is the absence of the loop, never a layout change.
  */
-export interface SpinnerNode extends NodeBase {
+interface SpinnerNode extends NodeBase {
   type: "Spinner";
   /**
    * Full cycle in milliseconds. A `Dim` so the loop is themeable like the rest of
@@ -1143,16 +1120,12 @@ export interface SpinnerNode extends NodeBase {
  * — shared by the web renderer and the CLI preview; the Unity SDK decodes on its side
  * (Convert.FromBase64String).
  */
-export function decodeAssetData(entry: AssetEntry): Uint8Array {
+function decodeAssetData(entry: AssetEntry): Uint8Array {
   if (entry.data === undefined) {
     throw new Error("asset has no inline `data` (deferred resolution is not supported yet)");
   }
   const binary = atob(entry.data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
 /**
@@ -1162,7 +1135,7 @@ export function decodeAssetData(entry: AssetEntry): Uint8Array {
  * across targets. `t` outside 0..1 clamps; an unknown curve (newer content on an
  * older reader) falls back to linear rather than refusing to animate.
  */
-export function easeProgress(easing: Easing, t: number): number {
+function easeProgress(easing: Easing, t: number): number {
   if (!(t > 0)) return 0; // also catches NaN
   if (t >= 1) return 1;
   switch (easing) {
@@ -1186,7 +1159,7 @@ export function easeProgress(easing: Easing, t: number): number {
  * and `f` approaches 0 again as the phase completes. Phases outside 0..1 wrap
  * (including negative ones, which is how a bead's offset arrives).
  */
-export function spinnerPulse(phase: number, easing: Easing = "ease-in-out"): number {
+function spinnerPulse(phase: number, easing: Easing = "ease-in-out"): number {
   if (!Number.isFinite(phase)) return 0;
   const p = phase - Math.floor(phase);
   return p < 0.5 ? easeProgress(easing, p * 2) : easeProgress(easing, (1 - p) * 2);
@@ -1198,7 +1171,76 @@ export function spinnerPulse(phase: number, easing: Easing = "ease-in-out"): num
  * string, NaN — as 0. Shared so "what does a broken binding show" has one answer
  * across targets: an empty bar, never a full one and never a crash.
  */
-export function clampProgress(value: unknown): number {
+function clampProgress(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0; // NaN too
   return value > 1 ? 1 : value;
 }
+
+export {
+  assetIdFromRef,
+  type Diagnostic,
+  type DiagnosticCode,
+  type DiagnosticLevel,
+  EnvelopeError,
+  type EnvelopeReport,
+  IR_VERSION,
+  isAssetRef,
+  parseEnvelope,
+  readEnvelope,
+  supportsVersion,
+} from "./validate.js";
+export type {
+  ActionContext,
+  AnchorAt,
+  AssetEntry,
+  AssetRef,
+  Bindable,
+  ButtonNode,
+  CollapseNode,
+  ColorValue,
+  ContainerNode,
+  Dim,
+  Easing,
+  Envelope,
+  GroupBehavior,
+  ImageFit,
+  ImageNode,
+  ItemScope,
+  Layout,
+  OverlayAnchor,
+  OverlayNode,
+  OverlayTrigger,
+  ProgressBarNode,
+  RepeatNode,
+  ResolvedBind,
+  ScrollAxis,
+  ScrollViewNode,
+  SliderAxis,
+  SliderNode,
+  SpinnerNode,
+  StateName,
+  StateOverride,
+  Style,
+  TextAlign,
+  TextInputNode,
+  TextNode,
+  TextOverflow,
+  ToggleNode,
+  TokenRef,
+  TokenValue,
+  Transition,
+  ZNode,
+};
+export {
+  clampProgress,
+  decodeAssetData,
+  easeProgress,
+  INDEX_SEGMENT,
+  ITEM_ALIAS,
+  itemIdentity,
+  itemKey,
+  itemPath,
+  readPath,
+  resolveBinding,
+  spinnerPulse,
+};

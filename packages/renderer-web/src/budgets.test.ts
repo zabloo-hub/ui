@@ -114,7 +114,7 @@ describe("performance budgets on realistic scenes (ZAB-73)", () => {
     const view = await mountScene(PERF_SCENES.list);
     // Deep into the list, where a renderer that had quietly stopped windowing
     // would be carrying a thousand realized rows.
-    for (let i = 0; i < 20; i++) {
+    for (const _i of Array(20).keys()) {
       view.pointer.wheel(400, 300, 0, 120);
       view.advance(16);
     }
@@ -154,7 +154,7 @@ describe("performance budgets on realistic scenes (ZAB-73)", () => {
     const view = await mountScene(PERF_SCENES["dense-loop"]);
     // The Spinner keeps the pipeline running, so these are FULL frames — the
     // regime ZAB-55's buffer reuse and ZAB-69's wrap cache were built for.
-    for (let i = 0; i < 10; i++) view.advance(16);
+    for (const _i of Array(10).keys()) view.advance(16);
     const settled = view.handle.stats();
     expect(settled.resolved, "a full frame, not a repaint").toBeGreaterThan(0);
 
@@ -184,7 +184,7 @@ describe("performance budgets on realistic scenes (ZAB-73)", () => {
     // between change nothing and are never asked for: this used to be sixty full
     // pipelines a second over the whole screen.
     const drawn = view.drawCalls();
-    for (let i = 0; i < 10; i++) view.advance(16);
+    for (const _i of Array(10).keys()) view.advance(16);
     expect(view.drawCalls(), "frames rendered between two flips").toBe(drawn);
 
     // And the flip itself is a repaint: nothing resolved, nothing re-wrapped,

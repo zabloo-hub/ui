@@ -1,0 +1,17 @@
+// `const`, never `let`.
+//
+// Biome has no built-in rule for this: `style/useConst` only catches a `let` that
+// is never reassigned, and the ones worth catching are precisely the ones that
+// are. So it is a plugin.
+//
+// The reassignment is the smell, not the keyword. An accumulator is a `reduce`,
+// a transformed sequence is a `map`, a counter loop is `entries()` or `keys()`,
+// a conditionally-built value is a function that returns it, and a slot some API
+// insists on owning is a field of a `const` holder.
+
+language js
+
+variable_declaration() as $decl where {
+  $decl <: r"let[\s\S]*",
+  register_diagnostic(span=$decl, message="Use `const`, never `let`. Reach for map/reduce/entries, an early return, or a helper that returns the value.", severity="error")
+}

@@ -36,7 +36,8 @@ interface Written {
   data: Uint8ClampedArray;
 }
 
-let written: Written[] = [];
+/** What the fake canvas was asked to paint, in order. The tests read it back. */
+const written: Written[] = [];
 
 class FakeContext {
   fillStyle = "";
@@ -81,33 +82,34 @@ class FakeCanvas {
   }
 }
 
-let font: StbFont;
+// A slot: the font arrives in `beforeAll`, so it cannot be a module `const`.
+const stb: { font: StbFont } = { font: null as unknown as StbFont };
 const originalOffscreen = globalThis.OffscreenCanvas;
 
 beforeAll(async () => {
-  font = await loadFont(decodeBase64(DEFAULT_FONT_BASE64));
+  stb.font = await loadFont(decodeBase64(DEFAULT_FONT_BASE64));
   (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = FakeCanvas;
 });
 
 afterAll(() => {
   (globalThis as { OffscreenCanvas?: unknown }).OffscreenCanvas = originalOffscreen;
-  font.dispose();
+  stb.font.dispose();
 });
 
 describe("GlyphAtlas with the TTF rasterizer", () => {
-  it("takes its font-wide metrics from the font, not from the canvas", () => {
-    const atlas = new GlyphAtlas(16, 1, font);
-    const metrics = font.metrics(16);
+  it("takes its font-wide metrics from the stb.font, not from the canvas", () => {
+    const atlas = new GlyphAtlas(16, 1, stb.font);
+    const metrics = stb.font.metrics(16);
     expect(atlas.ascent).toBeCloseTo(metrics.ascent, 6);
     expect(atlas.lineHeight).toBeCloseTo(metrics.lineHeight, 6);
   });
 
   it("divides device px by the raster scale to report logical px", () => {
-    const atlas = new GlyphAtlas(16, 2, font);
+    const atlas = new GlyphAtlas(16, 2, stb.font);
     // Rasterized at 32 device px, reported at 16 logical px.
-    expect(atlas.lineHeight).toBeCloseTo(font.metrics(32).lineHeight / 2, 6);
+    expect(atlas.lineHeight).toBeCloseTo(stb.font.metrics(32).lineHeight / 2, 6);
     expect(runWidth(atlas, "Hello")).toBeCloseTo(
-      runWidth(new GlyphAtlas(16, 1, font), "Hello"),
+      runWidth(new GlyphAtlas(16, 1, stb.font), "Hello"),
       // Not exact: the two rasterize at different sizes, so hinting-free
       // rounding of the ink boxes differs. Advances are what must agree.
       1,
@@ -115,8 +117,8 @@ describe("GlyphAtlas with the TTF rasterizer", () => {
   });
 
   it("puts a glyph's ink above the baseline and gives it a UV rect", () => {
-    written = [];
-    const atlas = new GlyphAtlas(32, 1, font);
+    written.length = 0;
+    const atlas = new GlyphAtlas(32, 1, stb.font);
     const glyph = atlas.get("A");
 
     expect(glyph?.hasQuad).toBe(true);
@@ -136,13 +138,13 @@ describe("GlyphAtlas with the TTF rasterizer", () => {
   });
 
   it("writes the glyph coverage as white pixels with coverage as alpha", () => {
-    written = [];
-    const atlas = new GlyphAtlas(32, 1, font);
+    written.length = 0;
+    const atlas = new GlyphAtlas(32, 1, stb.font);
     atlas.get("A");
 
     const spot = written.at(-1) as Written;
     expect(spot.data.some((_, i) => i % 4 === 3 && spot.data[i] > 0)).toBe(true);
-    for (let i = 0; i < spot.data.length; i += 4) {
+    for (const i of Array.from({ length: spot.data.length / 4 }, (_, k) => k * 4)) {
       expect(spot.data[i]).toBe(255);
       expect(spot.data[i + 1]).toBe(255);
       expect(spot.data[i + 2]).toBe(255);
@@ -150,22 +152,22 @@ describe("GlyphAtlas with the TTF rasterizer", () => {
   });
 
   it("rasterizes each glyph once", () => {
-    written = [];
-    const atlas = new GlyphAtlas(16, 1, font);
+    written.length = 0;
+    const atlas = new GlyphAtlas(16, 1, stb.font);
     atlas.get("A");
     atlas.get("A");
     expect(written).toHaveLength(1);
   });
 
   it("gives whitespace an advance but no quad", () => {
-    const glyph = new GlyphAtlas(16, 1, font).get(" ");
+    const glyph = new GlyphAtlas(16, 1, stb.font).get(" ");
     expect(glyph?.hasQuad).toBe(false);
     expect(glyph?.advance).toBeGreaterThan(0);
   });
 
   it("packs glyphs into distinct spots without overlapping", () => {
-    written = [];
-    const atlas = new GlyphAtlas(16, 1, font);
+    written.length = 0;
+    const atlas = new GlyphAtlas(16, 1, stb.font);
     for (const char of "abcdefghij") atlas.get(char);
 
     expect(written).toHaveLength(10);
@@ -178,7 +180,7 @@ describe("GlyphAtlas with the TTF rasterizer", () => {
   });
 
   it("applies the font's kerning when measuring a run", () => {
-    const atlas = new GlyphAtlas(32, 1, font);
+    const atlas = new GlyphAtlas(32, 1, stb.font);
     const kern = atlas.kern("A", "V");
     expect(kern).toBeLessThan(0);
 
@@ -190,7 +192,7 @@ describe("GlyphAtlas with the TTF rasterizer", () => {
   });
 
   it("bumps its version as the bitmap changes, so the GL layer re-uploads", () => {
-    const atlas = new GlyphAtlas(16, 1, font);
+    const atlas = new GlyphAtlas(16, 1, stb.font);
     const before = atlas.version;
     atlas.get("A");
     expect(atlas.version).toBeGreaterThan(before);
@@ -220,7 +222,7 @@ describe("GlyphAtlas growth (ZAB-55)", () => {
   it("grows past the first full atlas instead of caching the glyph as blank", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     // 200px glyphs ≈ 150² px each incl. padding → ~30 per 1024².
-    const atlas = new GlyphAtlas(200, 1, font);
+    const atlas = new GlyphAtlas(200, 1, stb.font);
     const glyphs = ascii(60).map((char) => atlas.get(char));
 
     // Every glyph got a quad — nobody was skipped for lack of room.
@@ -231,13 +233,13 @@ describe("GlyphAtlas growth (ZAB-55)", () => {
   });
 
   it("keeps every UV rect inside the grown surface, and re-rasterizes the old glyphs", () => {
-    const atlas = new GlyphAtlas(200, 1, font);
+    const atlas = new GlyphAtlas(200, 1, stb.font);
     const first = atlas.get("A");
     for (const char of ascii(60)) atlas.get(char);
 
     const regrown = atlas.get("A");
     expect(atlas.canvas.width).toBeGreaterThan(1024);
-    // Same metrics (same font, same size)…
+    // Same metrics (same stb.font, same size)…
     expect(regrown?.advance).toBe(first?.advance);
     expect(regrown?.hasQuad).toBe(true);
     // …and every UV, old or new, inside the grown surface.
@@ -251,7 +253,7 @@ describe("GlyphAtlas growth (ZAB-55)", () => {
   });
 
   it("bumps the version on growth so the GL layer re-uploads the bigger bitmap", () => {
-    const atlas = new GlyphAtlas(200, 1, font);
+    const atlas = new GlyphAtlas(200, 1, stb.font);
     atlas.get("A");
     const before = atlas.version;
     for (const char of ascii(60)) atlas.get(char);
@@ -262,7 +264,7 @@ describe("GlyphAtlas growth (ZAB-55)", () => {
   it("gives up only at the max size, warning once instead of per glyph", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     // ~1500px-wide glyphs: two or three per 4096² row, so a dozen overflow the max.
-    const atlas = new GlyphAtlas(2000, 1, font);
+    const atlas = new GlyphAtlas(2000, 1, stb.font);
     const glyphs = [..."MWQ@GB#%&8DHK"].map((char) => atlas.get(char));
 
     expect(atlas.canvas.width).toBe(4096);
@@ -306,7 +308,7 @@ function stubFont(render: StbFont["render"]): StbFont {
 describe("GlyphAtlas hardening (ZAB-69)", () => {
   it("blanks a glyph wider than the atlas itself instead of writing UVs past 1", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    written = [];
+    written.length = 0;
     // Wider than MAX_ATLAS_SIZE, short enough that only the WIDTH is the problem
     // — growth by height alone used to place it anyway, off the right edge.
     const atlas = new GlyphAtlas(
@@ -359,7 +361,7 @@ describe("GlyphAtlas hardening (ZAB-69)", () => {
 
     // Ten frames measuring the same run — and the real renderer walks it twice a
     // frame, since the tessellator kerns the paint loop the same way.
-    for (let frame = 0; frame < 10; frame++) expect(runWidth(atlas, "AVAV")).toBe(34);
+    for (const _frame of Array(10).keys()) expect(runWidth(atlas, "AVAV")).toBe(34);
 
     // "AVAV" has two distinct pairs, AV and VA. That is the whole cost.
     expect(kern).toHaveBeenCalledTimes(2);
@@ -369,7 +371,7 @@ describe("GlyphAtlas hardening (ZAB-69)", () => {
 
 describe("FontLibrary", () => {
   it("keeps one atlas per point size", () => {
-    const library = new FontLibrary(1, font);
+    const library = new FontLibrary(1, stb.font);
     expect(library.get(16)).toBe(library.get(16));
     expect(library.get(16)).not.toBe(library.get(24));
   });
@@ -380,18 +382,18 @@ describe("FontLibrary", () => {
     const fallback24 = library.get(24);
     expect(fallback16.lineHeight).toBe(15); // still the fake canvas
 
-    const replaced = library.adopt(font);
+    const replaced = library.adopt(stb.font);
 
     expect(replaced).toEqual([fallback16, fallback24]);
     expect(library.get(16)).not.toBe(fallback16);
-    expect(library.get(16).lineHeight).toBeCloseTo(font.metrics(16).lineHeight, 6);
+    expect(library.get(16).lineHeight).toBeCloseTo(stb.font.metrics(16).lineHeight, 6);
   });
 
   it("evicts the least-recently-used atlas past the cap, releasing it to the caller", () => {
     const evicted: GlyphAtlas[] = [];
-    const library = new FontLibrary(1, font, (atlas) => evicted.push(atlas));
+    const library = new FontLibrary(1, stb.font, (atlas) => evicted.push(atlas));
     const first = library.get(10);
-    for (let size = 11; size <= 18; size++) library.get(size); // 9 sizes: one over the cap
+    for (const size of Array.from({ length: 8 }, (_, i) => 11 + i)) library.get(size); // 9 sizes: one over the cap
 
     expect(evicted).toEqual([first]);
     expect([...library.all()]).toHaveLength(8);
@@ -401,9 +403,9 @@ describe("FontLibrary", () => {
 
   it("touching an atlas keeps it alive — recency, not insertion order", () => {
     const evicted: GlyphAtlas[] = [];
-    const library = new FontLibrary(1, font, (atlas) => evicted.push(atlas));
+    const library = new FontLibrary(1, stb.font, (atlas) => evicted.push(atlas));
     const first = library.get(10);
-    for (let size = 11; size <= 17; size++) library.get(size); // at the cap of 8
+    for (const size of Array.from({ length: 7 }, (_, i) => 11 + i)) library.get(size); // at the cap of 8
     library.get(10); // touch the oldest…
     library.get(19); // …so the overflow drops 11, not 10
 
@@ -419,7 +421,7 @@ describe("FontLibrary", () => {
    * able to give that back at the moment it disposes the view.
    */
   it("releases every atlas bitmap on dispose", () => {
-    const library = new FontLibrary(1, font);
+    const library = new FontLibrary(1, stb.font);
     const atlases = [library.get(16), library.get(24)];
 
     library.dispose();
@@ -434,7 +436,7 @@ describe("FontLibrary", () => {
   });
 
   it("starts over after a dispose, instead of handing back a dead atlas", () => {
-    const library = new FontLibrary(1, font);
+    const library = new FontLibrary(1, stb.font);
     const before = library.get(16);
 
     library.dispose();

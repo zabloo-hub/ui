@@ -1,17 +1,13 @@
 /*
- * Placeholder — V2 (ZAB-83) writes the real theme here, from the artboards.
- *
- * What is here is the minimum that compiles and shows the fonts: Tailwind, the
- * two Geist families, and the two stylesheets `shadcn add` expects to find
- * imported (its own variants/keyframes, and tw-animate-css). Deliberately NO
- * `:root`/`.dark` token block: `shadcn init` seeds one from its neutral palette,
- * and the design's tokens are not that — indigo primary, a stage colour that is
- * not the background, tinted state colours. V2 writes them once, from the source,
- * instead of V2 diffing against a set nobody chose.
+ * Tailwind, the fonts, and the bridge from the palette in `tokens.css` to the
+ * utilities the components are written with. The design has no variables of its
+ * own — every colour in the artboards is inline — so the mapping happens here
+ * once and nothing downstream writes a literal colour. See `README.md`.
  *
  * The fonts are bundled (@fontsource) rather than pulled from a CDN: `zabloo dev`
  * is a local tool and has to look the same with the network unplugged.
  */
+
 @import "tailwindcss";
 @import "shadcn/tailwind.css";
 @import "tw-animate-css";
@@ -19,19 +15,176 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
+@import "./tokens.css";
+
 @custom-variant dark (&:is(.dark *));
 
-/* Plain `@theme`, not `@theme inline`: inline only bakes the value into the
-   utilities, and half the design reads a font off `var(--font-mono)` rather than
-   a class. shadcn's own block is `inline` because its values are already
-   `var(--token)` indirections — these two are literals. */
+/*
+ * `inline` bakes the literal text `var(--background)` into each utility, so the
+ * utility is theme-agnostic and `.dark` retheming it is a plain cascade
+ * override. The `--color-*` prefix is also what keeps it from self-referencing.
+ *
+ * `--text-secondary` and `--text-faint` surface as `subtle` and `faint`: their
+ * own names collide with Tailwind's font-size namespace, and mapping them
+ * straight across would have spelled `text-text-secondary`.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-stage: var(--stage);
+  --color-subtle: var(--text-secondary);
+  --color-faint: var(--text-faint);
+
+  --color-indigo: var(--indigo);
+  --color-indigo-foreground: var(--indigo-foreground);
+  --color-indigo-soft: var(--indigo-soft);
+  --color-indigo-soft-border: var(--indigo-soft-border);
+  --color-indigo-chip: var(--indigo-chip);
+
+  --color-ok: var(--ok);
+  --color-ok-fg: var(--ok-fg);
+  --color-ok-bg: var(--ok-bg);
+  --color-ok-border: var(--ok-border);
+  --color-warn: var(--warn);
+  --color-warn-fg: var(--warn-fg);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-border: var(--warn-border);
+  --color-warn-surface: var(--warn-surface);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-border: var(--danger-border);
+
+  --color-log-write: var(--log-write);
+  --color-log-action: var(--log-action);
+
+  --color-switch-on: var(--switch-on);
+  --color-veil: var(--veil);
+  --color-glass: var(--glass);
+}
+
+/* Plain `@theme`, not `inline`: half the design reads a font off
+   `var(--font-mono)` rather than a class. */
 @theme {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  /* The design's radii put onto shadcn's names instead of its
+     `calc(var(--radius) ± 4px)` chain, which would land buttons and inputs at
+     4px. This way Button/Input (`rounded-md`), TabsList (`rounded-lg`) and Card
+     (`rounded-xl`) come out at the drawn radius untouched. */
+  --radius-xs: 4px; /* type tags, severity chips, the ← UI chip */
+  --radius-sm: 5px; /* micro controls: Set, the W×H inputs, Clear on hover */
+  --radius-md: 6px; /* inputs, buttons, menu items, canvas frame, tooltip */
+  --radius-lg: 8px; /* menus, TabsList, accent-soft rows, JSON card, empty state */
+  --radius-xl: 10px; /* the floating bindings panel */
+
+  /* Named, not numbered: the sizes are half-pixel, and `text-[11.5px]` spread
+     over twenty files is how a scale stops being one. Tailwind's `text-xs` and
+     `text-sm` are left meaning 12px and 14px. */
+  --text-micro: 8px; /* the number stepper's arrows */
+  --text-tag: 9.5px; /* type tags, count badge, severity chips, stat labels */
+  --text-label: 10px; /* section labels (600, .09em), "Edit JSON", "dev" */
+  --text-code: 10.5px; /* mono: log/JSON/filename/fps, "N paths" */
+  --text-caption: 11px; /* statusbar, captions, resolutions */
+  --text-log: 11.5px; /* mono: log lines, paths, segmented control, stale pill */
+  --text-log--line-height: 1.9;
+  --text-ui: 12px; /* the base: controls, tabs, buttons, panel title */
+  --text-item: 12.5px; /* view selector items */
+  --text-brand: 13px; /* the wordmark */
+  --text-stat: 14px; /* stat values, the × close */
+
+  /* The four that are the same in both themes. Tinted blue-black rather than
+     neutral, which is what keeps a menu from looking dirty over #fafafa;
+     `--shadow-sm` is Tailwind's own key and the design's is flatter. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-menu: 0 6px 20px rgba(20, 20, 30, 0.1);
+  --shadow-tooltip: 0 4px 14px rgba(0, 0, 0, 0.2);
+  --shadow-pill: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/*
+ * The theme-dependent shadows, as utilities over tokens. A `@theme` shadow does
+ * NOT compile to `var(--shadow-x)` the way a `@theme` colour does: Tailwind
+ * picks the value apart to make `shadow-<color>` work and bakes the result in
+ * literally, leaving nothing for `.dark` to move. The call site is the same;
+ * the trade is that these set `box-shadow` outright and so do not stack with
+ * `ring-*`.
+ */
+@utility shadow-control {
+  box-shadow: var(--shadow-control);
+}
+
+@utility shadow-tab {
+  box-shadow: var(--shadow-tab);
+}
+
+@utility shadow-panel {
+  box-shadow: var(--shadow-panel);
+}
+
+@utility shadow-frame {
+  box-shadow: var(--shadow-frame);
+}
+
+/*
+ * `focus-visible:focus-ring` — the design's 1.5px indigo border plus a 3px
+ * halo, no offset. shadcn spells this `border-ring ring-ring/50 ring-[3px]`,
+ * which is close but not this: the halo is a tint of its own, not the border at
+ * half alpha.
+ *
+ * The halo is an `outline` and not the `0 0 0 3px` box-shadow it was drawn
+ * with — same geometry, but it stays out of the way of the `shadow-control`
+ * these controls already wear. It thickens all four borders, so it belongs on
+ * the fully-bordered controls it is for, not on a `border-b` tab.
+ */
+@utility focus-ring {
+  border-width: 1.5px;
+  border-color: var(--indigo);
+  outline: 3px solid var(--ring-halo);
+  outline-offset: 0;
+}
+
+@utility brand-gradient {
+  background-image: var(--brand-gradient);
 }
 
 @layer base {
+  /* Tailwind v4 defaults borders to `currentColor`, so the bare `border-b` in
+     `App.tsx` would draw a near-black line. */
+  *,
+  ::after,
+  ::before {
+    @apply border-border;
+  }
+
   html {
     @apply font-sans;
+  }
+
+  /* 12px, not Tailwind's 16 or shadcn's 14: the whole scale is built down from
+     the chrome's base. */
+  body {
+    @apply bg-background text-foreground text-ui;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 }

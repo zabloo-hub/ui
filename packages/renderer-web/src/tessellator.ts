@@ -12,7 +12,7 @@ import type { Batch, TextureSource } from "./gl.js";
 import type { GlyphAtlas } from "./glyphs.js";
 import type { Rect } from "./layout.js";
 
-export type Color = [number, number, number, number];
+type Color = [number, number, number, number];
 
 const CORNER_SEGMENTS = 6;
 
@@ -49,7 +49,7 @@ interface ClipGroup {
 }
 
 /** How an Image node paints — the resolved style the view hands down. */
-export interface ImagePaint {
+interface ImagePaint {
   /** Default: "contain". */
   fit?: ImageFit;
   /** Tint × inherited opacity, already resolved. Default: opaque white (untinted). */
@@ -58,7 +58,7 @@ export interface ImagePaint {
   radius?: number;
 }
 
-export class GeometryBuilder {
+class GeometryBuilder {
   private readonly groups: ClipGroup[] = [];
   private group: ClipGroup;
   /** Retired stores/groups waiting for the next frame — buffers kept (ZAB-55). */
@@ -208,10 +208,10 @@ export class GeometryBuilder {
     // around the centroid — identical to the SDK.
     pushVertex(batch, rect.x + rect.width / 2, rect.y + rect.height / 2, 0, 0, color);
     fillPerimeter(rect, r);
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
     }
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushIndex(batch, base);
       pushIndex(batch, base + 1 + i);
       pushIndex(batch, base + 1 + ((i + 1) % PERIMETER_POINTS));
@@ -247,16 +247,16 @@ export class GeometryBuilder {
     // the other lands. (radius 0 degenerates corner arcs to repeated points —
     // harmless.)
     fillPerimeter(rect, r);
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
     }
     fillPerimeter(inner, Math.max(0, r - width));
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
     }
 
     const count = PERIMETER_POINTS;
-    for (let i = 0; i < count; i++) {
+    for (const i of PERIMETER_INDICES) {
       const next = (i + 1) % count;
       pushIndex(batch, base + i);
       pushIndex(batch, base + next);
@@ -315,12 +315,12 @@ export class GeometryBuilder {
     const cy = box.y + box.height / 2;
     pushVertex(batch, cx, cy, uAt(cx), vAt(cy), color);
     fillPerimeter(box, r);
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       const x = perimeterX[i];
       const y = perimeterY[i];
       pushVertex(batch, x, y, uAt(x), vAt(y), color);
     }
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushIndex(batch, base);
       pushIndex(batch, base + 1 + i);
       pushIndex(batch, base + 1 + ((i + 1) % PERIMETER_POINTS));
@@ -328,33 +328,35 @@ export class GeometryBuilder {
   }
 
   private imageBatchFor(asset: ImageAsset): BatchStore {
-    let batch = this.group.images.get(asset);
-    if (!batch) {
-      batch = this.acquire(asset, this.group.clip);
-      this.group.images.set(asset, batch);
-    }
+    const cached = this.group.images.get(asset);
+    if (cached) return cached;
+
+    const batch = this.acquire(asset, this.group.clip);
+    this.group.images.set(asset, batch);
     return batch;
   }
 
   /** Single-line text run starting at (originX, originY) — top-left of the run. */
   text(originX: number, originY: number, content: string, atlas: GlyphAtlas, color: Color): void {
     const batch = this.batchFor(atlas);
-    let pen = originX;
     const baseline = originY + atlas.ascent;
-    let previous = "";
+    // One cursor per run, not per glyph: the pen and the previous character are
+    // what the loop carries forward, and an object per character is exactly the
+    // garbage this path must not make.
+    const cursor = { pen: originX, previous: "" };
 
     for (const char of content) {
       const glyph = atlas.get(char);
       if (!glyph) continue;
       // Same kerning `measure` applied — otherwise the painted run would not
       // fit the box the layout pass reserved for it.
-      if (previous !== "") pen += atlas.kern(previous, char);
-      previous = char;
+      if (cursor.previous !== "") cursor.pen += atlas.kern(cursor.previous, char);
+      cursor.previous = char;
       if (glyph.hasQuad) {
         // Snap the glyph origin to the physical pixel grid: fractional layout
         // positions + LINEAR filtering would blur the glyph by half a pixel.
         // The extents are integer device px already (atlas raster scale = dpr).
-        const x0 = Math.round((pen + glyph.minX) * this.dpr) / this.dpr;
+        const x0 = Math.round((cursor.pen + glyph.minX) * this.dpr) / this.dpr;
         const y0 = Math.round((baseline - glyph.maxY) * this.dpr) / this.dpr;
         const x1 = x0 + (glyph.maxX - glyph.minX);
         const y1 = y0 + (glyph.maxY - glyph.minY);
@@ -366,16 +368,16 @@ export class GeometryBuilder {
         pushVertex(batch, x0, y1, glyph.u0, glyph.v1, color);
         pushQuadIndices(batch, base);
       }
-      pen += glyph.advance;
+      cursor.pen += glyph.advance;
     }
   }
 
   private batchFor(atlas: GlyphAtlas): BatchStore {
-    let batch = this.group.texts.get(atlas);
-    if (!batch) {
-      batch = this.acquire(atlas, this.group.clip);
-      this.group.texts.set(atlas, batch);
-    }
+    const cached = this.group.texts.get(atlas);
+    if (cached) return cached;
+
+    const batch = this.acquire(atlas, this.group.clip);
+    this.group.texts.set(atlas, batch);
     return batch;
   }
 }
@@ -385,7 +387,7 @@ export class GeometryBuilder {
  * (CSS `object-fit: contain`). Null when either side has no usable size — a
  * manifest without dimensions and a decode still in flight, or a collapsed rect.
  */
-export function aspectFit(rect: Rect, width: number, height: number): Rect | null {
+function aspectFit(rect: Rect, width: number, height: number): Rect | null {
   if (!(rect.width > 0) || !(rect.height > 0) || !(width > 0) || !(height > 0)) return null;
   const scale = Math.min(rect.width / width, rect.height / height);
   const fittedWidth = width * scale;
@@ -399,7 +401,7 @@ export function aspectFit(rect: Rect, width: number, height: number): Rect | nul
 }
 
 /** The painted box and the slice of the texture it samples (both in 0..1 for the UVs). */
-export interface ImageQuad {
+interface ImageQuad {
   rect: Rect;
   uv: Rect;
 }
@@ -416,7 +418,7 @@ const FULL_UV: Rect = { x: 0, y: 0, width: 1, height: 1 };
  * Null when either side has no usable size — a manifest without dimensions and a
  * decode still in flight, or a collapsed rect.
  */
-export function fitImage(
+function fitImage(
   rect: Rect,
   width: number,
   height: number,
@@ -436,7 +438,7 @@ export function fitImage(
 }
 
 /** Applies an inherited opacity to a color (per-vertex alpha, decision 2026-08-06). */
-export function fade(color: Color, opacity: number): Color {
+function fade(color: Color, opacity: number): Color {
   return opacity >= 1 ? color : [color[0], color[1], color[2], color[3] * opacity];
 }
 
@@ -456,27 +458,29 @@ function liveView(store: BatchStore): Batch {
  * no per-batch bookkeeping rides along the write path (`pushVertex` is the
  * hottest function in the renderer).
  */
-let growths = 0;
+const grown = { count: 0 };
 
 function growthCount(): number {
-  return growths;
+  return grown.count;
+}
+
+/** The first doubling of `length` that holds `needed` — the old `while` as a value. */
+function capacityFor(length: number, needed: number): number {
+  const doubled = length * 2;
+  return doubled >= needed ? doubled : capacityFor(doubled, needed);
 }
 
 function growFloats(array: Float32Array, needed: number): Float32Array {
-  let capacity = array.length * 2;
-  while (capacity < needed) capacity *= 2;
-  const next = new Float32Array(capacity);
+  const next = new Float32Array(capacityFor(array.length, needed));
   next.set(array);
-  growths++;
+  grown.count++;
   return next;
 }
 
 function growIndices(array: Uint32Array, needed: number): Uint32Array {
-  let capacity = array.length * 2;
-  while (capacity < needed) capacity *= 2;
-  const next = new Uint32Array(capacity);
+  const next = new Uint32Array(capacityFor(array.length, needed));
   next.set(array);
-  growths++;
+  grown.count++;
   return next;
 }
 
@@ -492,16 +496,16 @@ function pushVertex(
     batch.vertices = growFloats(batch.vertices, batch.floats + 8);
   }
   const out = batch.vertices;
-  let at = batch.floats;
-  out[at++] = x;
-  out[at++] = y;
-  out[at++] = u;
-  out[at++] = v;
-  out[at++] = color[0];
-  out[at++] = color[1];
-  out[at++] = color[2];
-  out[at++] = color[3];
-  batch.floats = at;
+  const at = batch.floats;
+  out[at] = x;
+  out[at + 1] = y;
+  out[at + 2] = u;
+  out[at + 3] = v;
+  out[at + 4] = color[0];
+  out[at + 5] = color[1];
+  out[at + 6] = color[2];
+  out[at + 7] = color[3];
+  batch.floats = at + 8;
 }
 
 function pushIndex(batch: BatchStore, value: number): void {
@@ -528,21 +532,34 @@ function pushQuadIndices(batch: BatchStore, base: number): void {
  * fill) so a frame full of rounded rects allocates no point arrays (ZAB-55).
  */
 const PERIMETER_POINTS = 4 * (CORNER_SEGMENTS + 1);
+/**
+ * `0…PERIMETER_POINTS-1`, built once. The perimeter walk runs per rounded rect
+ * per frame, and an index range materialised inside it would be garbage the
+ * frame budget can feel.
+ */
+const PERIMETER_INDICES = [...Array(PERIMETER_POINTS).keys()];
+/** The four corners, and the segments within one — hoisted for the same reason. */
+const CORNERS = [...Array(4).keys()];
+const CORNER_STEPS = [...Array(CORNER_SEGMENTS + 1).keys()];
 const perimeterX = new Float64Array(PERIMETER_POINTS);
 const perimeterY = new Float64Array(PERIMETER_POINTS);
 
 function fillPerimeter(rect: Rect, r: number): void {
-  let at = 0;
-  for (let corner = 0; corner < 4; corner++) {
+  for (const corner of CORNERS) {
     // TL: 180 → 270, TR: 270 → 360, BR: 0 → 90, BL: 90 → 180.
     const cx = corner === 0 || corner === 3 ? rect.x + r : rect.x + rect.width - r;
     const cy = corner < 2 ? rect.y + r : rect.y + rect.height - r;
     const start = (180 + corner * 90) * (Math.PI / 180);
-    for (let s = 0; s <= CORNER_SEGMENTS; s++) {
+    for (const s of CORNER_STEPS) {
       const angle = start + (Math.PI / 2) * (s / CORNER_SEGMENTS);
+      // The slot is where the walk would have got to: corners are filled in
+      // order, each contributing the same number of points.
+      const at = corner * CORNER_STEPS.length + s;
       perimeterX[at] = cx + r * Math.cos(angle);
       perimeterY[at] = cy + r * Math.sin(angle);
-      at++;
     }
   }
 }
+
+export type { Color, ImagePaint, ImageQuad };
+export { aspectFit, fade, fitImage, GeometryBuilder };

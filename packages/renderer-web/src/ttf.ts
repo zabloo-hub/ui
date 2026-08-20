@@ -20,7 +20,7 @@
 import { STBTT_WASM_BASE64 } from "./generated/stbtt-wasm.js";
 
 /** Font-wide metrics at a given em size, in px. */
-export interface FontMetrics {
+interface FontMetrics {
   /** Above the baseline, positive. */
   ascent: number;
   /** Below the baseline, positive (stb reports it negative; we flip it). */
@@ -32,7 +32,7 @@ export interface FontMetrics {
 }
 
 /** A rasterized glyph: its ink box plus 8-bit coverage, row-major, top row first. */
-export interface GlyphBitmap {
+interface GlyphBitmap {
   width: number;
   height: number;
   /** Ink box relative to the pen/baseline, in px, Y DOWN. */
@@ -69,22 +69,20 @@ interface StbExports {
 }
 
 /** Compiled once per process — the module is pure code, fonts hold the state. */
-let modulePromise: Promise<WebAssembly.Module> | null = null;
+const compiled: { module: Promise<WebAssembly.Module> | null } = { module: null };
 
 function compile(): Promise<WebAssembly.Module> {
-  if (!modulePromise) {
-    // Async on purpose: browsers refuse synchronous compilation of anything
-    // over 4 KB on the main thread, and this module is ~18 KB.
-    modulePromise = WebAssembly.compile(decodeBase64(STBTT_WASM_BASE64) as BufferSource);
-  }
-  return modulePromise;
+  // Async on purpose: browsers refuse synchronous compilation of anything over
+  // 4 KB on the main thread, and this module is ~18 KB.
+  compiled.module ??= WebAssembly.compile(decodeBase64(STBTT_WASM_BASE64) as BufferSource);
+  return compiled.module;
 }
 
 /**
  * Parses a TTF and returns the rasterizer bound to it. Rejects if stb cannot
  * make sense of the bytes.
  */
-export async function loadFont(ttf: Uint8Array): Promise<StbFont> {
+async function loadFont(ttf: Uint8Array): Promise<StbFont> {
   const module = await compile();
   const runtime = new StbRuntime();
   const instance = await WebAssembly.instantiate(module, runtime.imports());
@@ -134,7 +132,7 @@ class StbRuntime {
   }
 }
 
-export class StbFont {
+class StbFont {
   /** Codepoint → glyph index. The lookup walks cmap, so it is worth caching. */
   private readonly glyphIndices = new Map<number, number>();
   private readonly scales = new Map<number, number>();
@@ -171,11 +169,11 @@ export class StbFont {
 
   /** Design units → px at an em size of `pixelSize`. */
   private scaleFor(pixelSize: number): number {
-    let scale = this.scales.get(pixelSize);
-    if (scale === undefined) {
-      scale = this.api.zb_scale_for_em(this.font, pixelSize);
-      this.scales.set(pixelSize, scale);
-    }
+    const cached = this.scales.get(pixelSize);
+    if (cached !== undefined) return cached;
+
+    const scale = this.api.zb_scale_for_em(this.font, pixelSize);
+    this.scales.set(pixelSize, scale);
     return scale;
   }
 
@@ -192,11 +190,11 @@ export class StbFont {
   glyphIndex(char: string): number {
     const codepoint = char.codePointAt(0);
     if (codepoint === undefined) return 0;
-    let glyph = this.glyphIndices.get(codepoint);
-    if (glyph === undefined) {
-      glyph = this.api.zb_find_glyph(this.font, codepoint);
-      this.glyphIndices.set(codepoint, glyph);
-    }
+    const cached = this.glyphIndices.get(codepoint);
+    if (cached !== undefined) return cached;
+
+    const glyph = this.api.zb_find_glyph(this.font, codepoint);
+    this.glyphIndices.set(codepoint, glyph);
     return glyph;
   }
 
@@ -269,9 +267,9 @@ const EMPTY = new Uint8Array(0);
  * Base64 → bytes. Deliberately `atob`-based rather than `node:buffer`: this
  * module ships to the browser, and Node has had a global `atob` since 16.
  */
-export function decodeBase64(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+function decodeBase64(base64: string): Uint8Array {
+  return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
 }
+
+export type { FontMetrics, GlyphBitmap };
+export { decodeBase64, loadFont, StbFont };

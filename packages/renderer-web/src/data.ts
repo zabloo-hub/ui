@@ -22,6 +22,18 @@
 
 import { readPath } from "@zabloo/format";
 
+/**
+ * The dotted ancestors of a key, shortest first: `a.b.c` → `a`, `a.b`. Empty for
+ * a key with no dots, and a leading dot never yields the empty prefix.
+ */
+function ancestorsOf(key: string): string[] {
+  const parts = key.split(".");
+  return parts
+    .slice(0, -1)
+    .map((_, i) => parts.slice(0, i + 1).join("."))
+    .filter((prefix) => prefix.length > 0);
+}
+
 export class DataStore {
   private readonly values = new Map<string, unknown>();
   /**
@@ -52,13 +64,9 @@ export class DataStore {
 
   /** Registers a key under every ancestor prefix, so a write above finds it. */
   private index(key: string): void {
-    for (let cut = key.lastIndexOf("."); cut > 0; cut = key.lastIndexOf(".", cut - 1)) {
-      const ancestor = key.slice(0, cut);
-      let under = this.descendants.get(ancestor);
-      if (!under) {
-        under = new Set();
-        this.descendants.set(ancestor, under);
-      }
+    for (const ancestor of ancestorsOf(key)) {
+      const under = this.descendants.get(ancestor) ?? new Set<string>();
+      this.descendants.set(ancestor, under);
       under.add(key);
     }
   }
@@ -67,8 +75,7 @@ export class DataStore {
   private forget(key: string): void {
     this.values.delete(key);
     this.descendants.delete(key);
-    for (let cut = key.lastIndexOf("."); cut > 0; cut = key.lastIndexOf(".", cut - 1)) {
-      const ancestor = key.slice(0, cut);
+    for (const ancestor of ancestorsOf(key)) {
       const under = this.descendants.get(ancestor);
       if (!under) continue;
       under.delete(key);
@@ -83,14 +90,11 @@ export class DataStore {
    */
   get(path: string): unknown {
     if (path.length === 0) return undefined;
-    let cut = path.length;
-    while (cut > 0) {
-      const head = path.slice(0, cut);
-      if (this.values.has(head)) {
-        const value = this.values.get(head);
-        return cut === path.length ? value : readPath(value, path.slice(cut + 1));
-      }
-      cut = path.lastIndexOf(".", cut - 1);
+    // Longest prefix first: `a.b.c`, then `a.b`, then `a`.
+    for (const head of [path, ...ancestorsOf(path).reverse()]) {
+      if (!this.values.has(head)) continue;
+      const value = this.values.get(head);
+      return head.length === path.length ? value : readPath(value, path.slice(head.length + 1));
     }
     return undefined;
   }

@@ -23,7 +23,7 @@ import { type GoldenOptions, type GoldenView, mountGolden } from "./harness.js";
 /** The corpus root, from this file — `packages/renderer-web/src` → repo root. */
 const GOLDEN_DIR = new URL("../../../golden/", import.meta.url);
 
-export interface GoldenCase {
+interface GoldenCase {
   /** File under `golden/envelopes/`. */
   envelope: string;
   /** What this case is a record of — the first thing a reader of a diff needs. */
@@ -55,29 +55,29 @@ export interface GoldenCase {
  * (0=A, 1=B, 12–15=d-pad, axes 0/1 left stick, 2/3 right stick), the same
  * numbers `gamepad.ts` documents.
  */
-export type PadStep =
+type PadStep =
   | { press: number }
   | { release: number }
   | { axis: number; value: number }
   | { advanceMs: number };
 
-export type Corpus = Record<string, GoldenCase>;
+type Corpus = Record<string, GoldenCase>;
 
-export function readCorpus(): Corpus {
+function readCorpus(): Corpus {
   return readJson("cases.json") as Corpus;
 }
 
-export function readEnvelope(file: string): object {
+function readEnvelope(file: string): object {
   return readJson(`envelopes/${file}`) as object;
 }
 
 /** Path of a case's golden metrics, for `toMatchFileSnapshot`. */
-export function metricsPath(name: string): string {
+function metricsPath(name: string): string {
   return fileURLToPath(new URL(`metrics/${name}.json`, GOLDEN_DIR));
 }
 
 /** Envelope files on disk — what the corpus is checked for gaps against. */
-export function envelopeFiles(): string[] {
+function envelopeFiles(): string[] {
   return readdirSync(fileURLToPath(new URL("envelopes/", GOLDEN_DIR)))
     .filter((file) => file.endsWith(".json"))
     .sort();
@@ -93,10 +93,7 @@ export function envelopeFiles(): string[] {
  * has to give itself the same second frame, or the two targets would be
  * comparing a transient against a settled list.
  */
-export async function mountCase(
-  golden: GoldenCase,
-  extra: GoldenOptions = {},
-): Promise<GoldenView> {
+async function mountCase(golden: GoldenCase, extra: GoldenOptions = {}): Promise<GoldenView> {
   const view = await mountGolden(readEnvelope(golden.envelope), {
     width: golden.width,
     height: golden.height,
@@ -125,10 +122,13 @@ function replayPad(view: GoldenView, steps: readonly PadStep[]): void {
 }
 
 /** The cases that produce metrics — every one that is not a refusal. */
-export function metricCases(corpus: Corpus): Array<[string, GoldenCase]> {
+function metricCases(corpus: Corpus): Array<[string, GoldenCase]> {
   return Object.entries(corpus).filter(([, golden]) => golden.refuses === undefined);
 }
 
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(fileURLToPath(new URL(path, GOLDEN_DIR)), "utf8"));
 }
+
+export type { Corpus, GoldenCase, PadStep };
+export { envelopeFiles, metricCases, metricsPath, mountCase, readCorpus, readEnvelope };

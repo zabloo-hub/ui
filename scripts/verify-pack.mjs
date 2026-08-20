@@ -50,14 +50,15 @@ const quick = process.argv.includes("--quick");
 const keep = process.argv.includes("--keep");
 
 const failures = [];
-let currentPackage = "";
+/** Which package the checks below belong to — a slot, so `expect` can name it. */
+const current = { package: "" };
 
 function expect(ok, message) {
   if (ok) {
     console.log(`    ✓ ${message}`);
   } else {
     console.log(`    ✗ ${message}`);
-    failures.push(`${currentPackage}: ${message}`);
+    failures.push(`${current.package}: ${message}`);
   }
 }
 
@@ -125,7 +126,7 @@ for (const entry of workspace) {
 
 for (const entry of workspace) {
   const { dir, pkg, packed, entries } = entry;
-  currentPackage = pkg.name;
+  current.package = pkg.name;
   console.log(`  ${pkg.name}@${pkg.version}  (${entries.length} files)`);
 
   // Metadata: what the npm page shows, and what links it back to the repo.
@@ -201,7 +202,7 @@ function collectExportTargets(node, into) {
 
 // --- a consumer outside the workspace -------------------------------------
 
-currentPackage = "consumer";
+current.package = "consumer";
 console.log("\n  clean consumer (npm install of the tarballs)");
 
 const consumer = join(tmp, "consumer");
@@ -335,7 +336,7 @@ expect(
 // --- the whole loop, from tarballs only -----------------------------------
 
 if (!quick) {
-  currentPackage = "end-to-end";
+  current.package = "end-to-end";
   console.log("\n  end-to-end (scaffold → install → export)");
 
   const app = join(tmp, "my-game-ui");

@@ -33,7 +33,7 @@ import type { ViewSnapshot } from "./snapshot.js";
 import { type FrameStats, mount, type ZablooHandle } from "./view.js";
 
 /** Viewport every golden envelope is measured at, unless it asks for another. */
-export const GOLDEN_SIZE = { width: 480, height: 320 };
+const GOLDEN_SIZE = { width: 480, height: 320 };
 
 /**
  * Device pixel ratio the corpus is rendered at. 1 on purpose: a golden file is a
@@ -41,9 +41,9 @@ export const GOLDEN_SIZE = { width: 480, height: 320 };
  * glyph boxes (they are rounded in device px) without moving anything the
  * metrics describe.
  */
-export const GOLDEN_DPR = 1;
+const GOLDEN_DPR = 1;
 
-export interface GoldenOptions {
+interface GoldenOptions {
   /** View to render (default: the envelope's first). */
   view?: string;
   width?: number;
@@ -74,18 +74,18 @@ export interface GoldenOptions {
 }
 
 /** An action the view fired, with the item context when it came from a `Repeat`. */
-export interface FiredAction {
+interface FiredAction {
   action: string;
   context?: ActionContext;
 }
 
 /** A value the view wrote back into a bound path (the ZAB-23 return leg). */
-export interface DataWrite {
+interface DataWrite {
   path: string;
   value: unknown;
 }
 
-export interface GoldenView {
+interface GoldenView {
   handle: ZablooHandle;
   /** Metrics of the frame on screen. */
   snapshot(): ViewSnapshot;
@@ -174,7 +174,7 @@ export interface GoldenView {
   dispose(): void;
 }
 
-export interface KeyInit {
+interface KeyInit {
   shiftKey?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
@@ -187,7 +187,7 @@ export interface KeyInit {
  * Indices are the standard mapping (0=A, 1=B, 12–15=d-pad, axes 0/1 left stick,
  * 2/3 right stick), the same numbers `gamepad.ts` documents.
  */
-export interface GoldenPad {
+interface GoldenPad {
   press(index: number): void;
   release(index: number): void;
   axis(index: number, value: number): void;
@@ -196,7 +196,7 @@ export interface GoldenPad {
 }
 
 /** Pointer gestures against the canvas, in logical view coordinates. */
-export interface Pointer {
+interface Pointer {
   down(x: number, y: number): void;
   move(x: number, y: number): void;
   up(x: number, y: number): void;
@@ -217,7 +217,7 @@ export interface Pointer {
  * Mounts an envelope and returns it ready to measure: the rasterizer swapped in,
  * the seed data applied and one frame rendered with both.
  */
-export async function mountGolden(
+async function mountGolden(
   envelope: Envelope | object,
   options: GoldenOptions = {},
 ): Promise<GoldenView> {
@@ -229,24 +229,25 @@ export async function mountGolden(
 
   const actions: FiredAction[] = [];
   const writes: DataWrite[] = [];
-  let handle: ZablooHandle;
-  try {
-    handle = mount(canvas as unknown as HTMLCanvasElement, envelope, {
-      view: options.view,
-      onAction: (action, context) => actions.push(context ? { action, context } : { action }),
-      onDataChanged: (path, value) => writes.push({ path, value }),
-      ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
-      ...(options.dpr !== undefined && { dpr: options.dpr }),
-      ...(options.onFrame && { onFrame: options.onFrame }),
-    });
-  } catch (error) {
-    // A payload the loader REFUSES never becomes a view, so there is no handle
-    // to dispose and nobody to take the page down (ZAB-74). Left installed, the
-    // stand-in `document` and the hijacked console would outlive this call and
-    // land on whatever test ran next.
-    if (shared === null) dom.uninstall();
-    throw error;
-  }
+  const handle = ((): ZablooHandle => {
+    try {
+      return mount(canvas as unknown as HTMLCanvasElement, envelope, {
+        view: options.view,
+        onAction: (action, context) => actions.push(context ? { action, context } : { action }),
+        onDataChanged: (path, value) => writes.push({ path, value }),
+        ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
+        ...(options.dpr !== undefined && { dpr: options.dpr }),
+        ...(options.onFrame && { onFrame: options.onFrame }),
+      });
+    } catch (error) {
+      // A payload the loader REFUSES never becomes a view, so there is no handle
+      // to dispose and nobody to take the page down (ZAB-74). Left installed, the
+      // stand-in `document` and the hijacked console would outlive this call and
+      // land on whatever test ran next.
+      if (shared === null) dom.uninstall();
+      throw error;
+    }
+  })();
 
   // The first frames measured text with the browser's rasterizer; from here on
   // they are measured with ours, which is the one the corpus is a record of.
@@ -346,11 +347,8 @@ class FakeTarget {
   private readonly listeners = new Map<string, Set<Listener>>();
 
   addEventListener(type: string, listener: Listener): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
+    const set = this.listeners.get(type) ?? new Set();
+    this.listeners.set(type, set);
     set.add(listener);
   }
 
@@ -366,9 +364,7 @@ class FakeTarget {
 
   /** How many listeners are hooked up — what a leak shows up as (ZAB-74). */
   listenerCount(): number {
-    let total = 0;
-    for (const set of this.listeners.values()) total += set.size;
-    return total;
+    return [...this.listeners.values()].reduce((total, set) => total + set.size, 0);
   }
 }
 
@@ -513,14 +509,14 @@ class FakeGl {
               this.draws++;
             };
           }
-          let member = members.get(prop);
-          if (member === undefined) {
-            // One object per name, stable across calls: `createBuffer()` handing
-            // out a new identity every time would defeat the texture cache.
-            const handle = { gl: prop };
-            member = () => handle;
-            members.set(prop, member);
-          }
+          const cached = members.get(prop);
+          if (cached !== undefined) return cached;
+
+          // One object per name, stable across calls: `createBuffer()` handing
+          // out a new identity every time would defeat the texture cache.
+          const handle = { gl: prop };
+          const member = () => handle;
+          members.set(prop, member);
           return member;
         },
       },
@@ -772,3 +768,6 @@ function installDom(): FakeDom {
   dom.install();
   return dom;
 }
+
+export type { DataWrite, FiredAction, GoldenOptions, GoldenPad, GoldenView, KeyInit, Pointer };
+export { GOLDEN_DPR, GOLDEN_SIZE, mountGolden };

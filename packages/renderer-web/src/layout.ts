@@ -18,7 +18,7 @@ import type { TextBlock, TextMetrics } from "./text.js";
 import { caretAt, type Selection } from "./textinput.js";
 import { createNodeAnim, type NodeAnim, type ResolvedValues } from "./transition.js";
 
-export interface Rect {
+interface Rect {
   x: number;
   y: number;
   width: number;
@@ -30,7 +30,7 @@ export interface Rect {
  * function of these, so two frames that match here are two frames whose lines
  * are the same object — and a static label costs one layout, not one per frame.
  */
-export interface TextKey {
+interface TextKey {
   /** The resolved content — a bound `Text` can hand a different string each frame. */
   content: string;
   /**
@@ -48,7 +48,7 @@ export interface TextKey {
  * the identity of the item they show, plus the uniform size the virtualization
  * assumes. Owned by the view; layout only ever reads `virtual`.
  */
-export interface RepeatState {
+interface RepeatState {
   /** Live template instances, by `itemIdentity` — this is what reordering moves. */
   instances: Map<string, LayoutNode>;
   /** The empty-state slot (`children[1..]`), built once and kept out of layout. */
@@ -67,7 +67,7 @@ export interface RepeatState {
 }
 
 /** A layout-ready tree node (built by the view from IR nodes). */
-export interface LayoutNode {
+interface LayoutNode {
   ir: ZNode;
   parent: LayoutNode | null;
   children: LayoutNode[];
@@ -240,7 +240,7 @@ export interface LayoutNode {
  * lives with the type it belongs to, so the view and the tests build it the same
  * way and adding runtime state is one edit, not four.
  */
-export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): LayoutNode {
+function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): LayoutNode {
   return {
     ir,
     parent,
@@ -292,7 +292,7 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
 /** The scopes of a node outside every template — shared, and never written to. */
 const NO_SCOPES: readonly ItemScope[] = [];
 
-export function inLayout(node: LayoutNode): boolean {
+function inLayout(node: LayoutNode): boolean {
   return node.visibleFlag && node.sectionShown;
 }
 
@@ -304,7 +304,7 @@ export function inLayout(node: LayoutNode): boolean {
  * `layout.width`/`height` on an Overlay are ignored, and an Overlay inside a
  * `ScrollView` does not scroll with the content.
  */
-export function inFlow(node: LayoutNode): boolean {
+function inFlow(node: LayoutNode): boolean {
   return inLayout(node) && node.ir.type !== "Overlay";
 }
 
@@ -318,10 +318,9 @@ export function inFlow(node: LayoutNode): boolean {
  * The shared box is as big as the larger slot, so the control does not resize
  * when it flips, and everything after them (the label) flows on as usual.
  */
-export function flowItems(node: LayoutNode): LayoutNode[][] {
+function flowItems(node: LayoutNode): LayoutNode[][] {
   const items: LayoutNode[][] = [];
-  for (let i = 0; i < node.children.length; i++) {
-    const child = node.children[i];
+  for (const [i, child] of node.children.entries()) {
     if (!inFlow(child)) continue; // display:none, or lifted to the overlay layer
     const previous = items[items.length - 1];
     if (node.ir.type === "Toggle" && i === 1 && previous?.[0] === node.children[0]) {
@@ -333,7 +332,7 @@ export function flowItems(node: LayoutNode): LayoutNode[][] {
   return items;
 }
 
-export function contains(rect: Rect, point: { x: number; y: number }): boolean {
+function contains(rect: Rect, point: { x: number; y: number }): boolean {
   return (
     point.x >= rect.x &&
     point.x <= rect.x + rect.width &&
@@ -346,7 +345,7 @@ export function contains(rect: Rect, point: { x: number; y: number }): boolean {
  * Sizes a childless node against the width it may use — `null` when that width is
  * unconstrained, which is what tells a `Text` not to wrap.
  */
-export type MeasureLeaf = (
+type MeasureLeaf = (
   node: LayoutNode,
   availableWidth: number | null,
 ) => {
@@ -376,7 +375,7 @@ function childWidth(node: LayoutNode, inner: number | null): number | null {
  * to break against and lays its children out on one line — the same degradation
  * an SDK that predates the flag gives.
  */
-export function wrapsLines(node: LayoutNode): boolean {
+function wrapsLines(node: LayoutNode): boolean {
   const layout = layoutOf(node);
   return layout?.wrap === true && layout.direction === "row";
 }
@@ -399,21 +398,23 @@ function breakLines(
   if (!wrapsLines(node) || (contentMain === null && cap === null)) {
     return [mains.map((_, index) => index)];
   }
-  const lines: number[][] = [];
-  let line: number[] = [];
-  let used = 0;
-  for (let index = 0; index < mains.length; index++) {
-    const needed = line.length === 0 ? mains[index] : used + gap + mains[index];
+  // The line being filled stays IN `lines`, so what the loop carries is how wide
+  // it is — one slot instead of a second array that has to be kept in step.
+  const lines: number[][] = [[]];
+  const filling = { used: 0 };
+  for (const [index, main] of mains.entries()) {
+    const line = lines[lines.length - 1];
+    const needed = line.length === 0 ? main : filling.used + gap + main;
     const full = cap !== null && line.length >= cap;
     if (line.length > 0 && (full || (contentMain !== null && needed > contentMain))) {
-      lines.push(line);
-      line = [];
-      used = 0;
+      lines.push([]);
+      filling.used = 0;
     }
-    used = line.length === 0 ? mains[index] : used + gap + mains[index];
-    line.push(index);
+    const current = lines[lines.length - 1];
+    filling.used = current.length === 0 ? main : filling.used + gap + main;
+    current.push(index);
   }
-  if (line.length > 0) lines.push(line);
+  if (lines[lines.length - 1].length === 0) lines.pop();
   return lines;
 }
 
@@ -430,25 +431,23 @@ function flowSize(
   crosses: readonly number[],
   gap: number,
 ): { main: number; cross: number } {
-  let main = 0;
-  let cross = 0;
-  for (const line of lines) {
-    let lineMain = gap * Math.max(0, line.length - 1);
-    let lineCross = 0;
-    for (const index of line) {
-      lineMain += mains[index];
-      lineCross = Math.max(lineCross, crosses[index]);
-    }
-    main = Math.max(main, lineMain);
-    cross += lineCross;
-  }
-  cross += gap * Math.max(0, lines.length - 1);
+  const lineMains = lines.map(
+    (line) =>
+      gap * Math.max(0, line.length - 1) + line.reduce((sum, index) => sum + mains[index], 0),
+  );
+  const lineCrosses = lines.map((line) =>
+    line.reduce((tallest, index) => Math.max(tallest, crosses[index]), 0),
+  );
+  const main = lineMains.reduce((widest, lineMain) => Math.max(widest, lineMain), 0);
+  const cross =
+    lineCrosses.reduce((sum, lineCross) => sum + lineCross, 0) +
+    gap * Math.max(0, lines.length - 1);
+
+  // A virtualized node reserves the space of the WHOLE array on the axis its
+  // lines stack on, not the space of the window that got realized.
   const span = node.virtual;
-  if (span) {
-    if (wrapsLines(node)) cross = span.reserved;
-    else main = span.reserved;
-  }
-  return { main, cross };
+  if (!span) return { main, cross };
+  return wrapsLines(node) ? { main, cross: span.reserved } : { main: span.reserved, cross };
 }
 
 /**
@@ -460,7 +459,7 @@ function flowSize(
  * much as in a column, since v1 measures no cross-child competition for it. Only the
  * leaves use it: it is the width a `Text` wraps to (decision 2026-08-11, ZAB-17).
  */
-export function measure(
+function measure(
   node: LayoutNode,
   measureLeaf: MeasureLeaf,
   availableWidth: number | null = null,
@@ -468,46 +467,41 @@ export function measure(
   const padding = node.resolved.padding ?? 0;
   const own = node.resolved.width ?? availableWidth;
   const inner = own === null ? null : Math.max(0, own - padding * 2);
-  let size: { x: number; y: number };
+  const size = ((): { x: number; y: number } => {
+    if (node.ir.type === "Slider") {
+      // A Slider measures as a LEAF: the rail's length and thickness are its own
+      // layout props, never the sum of its slots (a 18px thumb must not define a
+      // 220px track). The slots are still measured — the thumb's own size is what
+      // the value-driven arrange positions — they just do not add up.
+      //
+      // In flow only, like every other branch: the resolve pass returns early for
+      // a node out of layout, so its `resolved` is whatever the last frame that
+      // painted it left there — measuring with those is measuring the past.
+      for (const child of node.children) if (inFlow(child)) measure(child, measureLeaf, inner);
+      return { x: padding * 2, y: padding * 2 };
+    }
+    if (node.children.length === 0) {
+      const leaf = measureLeaf(node, inner);
+      return { x: leaf.x + padding * 2, y: leaf.y + padding * 2 };
+    }
 
-  if (node.ir.type === "Slider") {
-    // A Slider measures as a LEAF: the rail's length and thickness are its own
-    // layout props, never the sum of its slots (a 18px thumb must not define a
-    // 220px track). The slots are still measured — the thumb's own size is what
-    // the value-driven arrange positions — they just do not add up.
-    //
-    // In flow only, like every other branch: the resolve pass returns early for
-    // a node out of layout, so its `resolved` is whatever the last frame that
-    // painted it left there — measuring with those is measuring the past.
-    for (const child of node.children) if (inFlow(child)) measure(child, measureLeaf, inner);
-    size = { x: padding * 2, y: padding * 2 };
-  } else if (node.children.length === 0) {
-    const leaf = measureLeaf(node, inner);
-    size = { x: leaf.x + padding * 2, y: leaf.y + padding * 2 };
-  } else {
     const row = layoutOf(node)?.direction === "row";
     const gap = node.resolved.gap ?? 0;
     const offer = childWidth(node, inner);
     const items = flowItems(node);
-    const mains: number[] = [];
-    const crosses: number[] = [];
-    for (const item of items) {
-      // Every member is measured; a shared box takes the largest of them.
-      let itemMain = 0;
-      let itemCross = 0;
-      for (const child of item) {
-        const cs = measure(child, measureLeaf, offer);
-        itemMain = Math.max(itemMain, row ? cs.x : cs.y);
-        itemCross = Math.max(itemCross, row ? cs.y : cs.x);
-      }
-      mains.push(itemMain);
-      crosses.push(itemCross);
-    }
+    // Every member is measured; a shared box takes the largest of them.
+    const sizes = items.map((item) => item.map((child) => measure(child, measureLeaf, offer)));
+    const mains = sizes.map((item) =>
+      item.reduce((largest, cs) => Math.max(largest, row ? cs.x : cs.y), 0),
+    );
+    const crosses = sizes.map((item) =>
+      item.reduce((largest, cs) => Math.max(largest, row ? cs.y : cs.x), 0),
+    );
     const flow = flowSize(node, breakLines(node, mains, inner, gap), mains, crosses, gap);
-    size = row
+    return row
       ? { x: flow.main + padding * 2, y: flow.cross + padding * 2 }
       : { x: flow.cross + padding * 2, y: flow.main + padding * 2 };
-  }
+  })();
 
   // What the content asks for, kept before any override replaces it: the
   // Collapse's motion needs "how tall is this with the content in".
@@ -520,7 +514,7 @@ export function measure(
 }
 
 /** Top-down arrange into `rect` (view space). */
-export function arrange(node: LayoutNode, rect: Rect): void {
+function arrange(node: LayoutNode, rect: Rect): void {
   node.rect = rect;
   if (node.ir.type === "Slider") {
     arrangeSlider(node, rect);
@@ -564,12 +558,8 @@ export function arrange(node: LayoutNode, rect: Rect): void {
   const contentCross = row ? content.height : content.width;
 
   // Sizes per ITEM: a shared box takes the largest of the nodes in it.
-  const measuredMains = new Array<number>(count);
-  const measuredCrosses = new Array<number>(count);
-  for (let i = 0; i < count; i++) {
-    measuredMains[i] = itemSize(items[i], row);
-    measuredCrosses[i] = itemSize(items[i], !row);
-  }
+  const measuredMains = items.map((item) => itemSize(item, row));
+  const measuredCrosses = items.map((item) => itemSize(item, !row));
   const lines = breakLines(node, measuredMains, contentMain, gap);
 
   const isScrollView = node.ir.type === "ScrollView";
@@ -592,7 +582,9 @@ export function arrange(node: LayoutNode, rect: Rect): void {
   // axis those lines stack on — which is the cross axis when it wraps.
   const wrapping = wrapsLines(node);
   const span = node.virtual;
-  let crossCursor = (row ? content.y : content.x) + (wrapping && span ? span.lead : 0);
+  // Where the next line starts on the cross axis — the one value that genuinely
+  // carries from one line to the next.
+  const stack = { cross: (row ? content.y : content.x) + (wrapping && span ? span.lead : 0) };
   const mainLead = (row ? content.x : content.y) + (!wrapping && span ? span.lead : 0);
 
   for (const line of lines) {
@@ -600,86 +592,64 @@ export function arrange(node: LayoutNode, rect: Rect): void {
     // per line — the leftovers of a line are shared between the items on it), and
     // a shared box grows by its FIRST member's `grow`: the slots of a Toggle are
     // one item, so they can only ever grow as one.
-    const mains = new Array<number>(line.length);
-    let totalMain = gap * (line.length - 1);
-    let totalGrow = 0;
-    for (let i = 0; i < line.length; i++) {
-      mains[i] = measuredMains[line[i]];
-      totalMain += mains[i];
-      totalGrow += items[line[i]][0].ir.layout?.grow ?? 0;
-    }
-    let remaining = contentMain - totalMain;
-    if (remaining > 0 && totalGrow > 0) {
-      for (let i = 0; i < line.length; i++) {
-        const grow = items[line[i]][0].ir.layout?.grow ?? 0;
-        mains[i] += remaining * (grow / totalGrow);
-      }
-      remaining = 0;
-    }
+    const measured = line.map((index) => measuredMains[index]);
+    const grows = line.map((index) => items[index][0].ir.layout?.grow ?? 0);
+    const totalMain = gap * (line.length - 1) + measured.reduce((sum, main) => sum + main, 0);
+    const totalGrow = grows.reduce((sum, grow) => sum + grow, 0);
+
+    const slack = contentMain - totalMain;
+    const growing = slack > 0 && totalGrow > 0;
+    const mains = growing
+      ? measured.map((main, i) => main + slack * (grows[i] / totalGrow))
+      : measured;
+    const remaining = growing ? 0 : slack;
 
     // Justify: distribute leftover main-axis space, within the line.
-    let lead = 0;
-    let between = gap;
     const leftover = Math.max(0, remaining);
-    switch (l?.justify) {
-      case "center":
-        lead = leftover * 0.5;
-        break;
-      case "end":
-        lead = leftover;
-        break;
-      case "space-between":
-        if (line.length > 1) between = gap + leftover / (line.length - 1);
-        break;
-    }
+    const lead = l?.justify === "center" ? leftover * 0.5 : l?.justify === "end" ? leftover : 0;
+    const between =
+      l?.justify === "space-between" && line.length > 1 ? gap + leftover / (line.length - 1) : gap;
 
     // A single line owns the whole cross axis (`align: stretch` fills the node);
     // wrapped lines own only what their tallest item takes, and stack from the
     // start — how the lines themselves distribute is out of the subset (ZAB-32).
-    let lineCross = contentCross;
-    if (wrapping) {
-      lineCross = 0;
-      for (const index of line) lineCross = Math.max(lineCross, measuredCrosses[index]);
-    }
+    const lineCross = wrapping
+      ? line.reduce((tallest, index) => Math.max(tallest, measuredCrosses[index]), 0)
+      : contentCross;
 
-    let cursor = mainLead + lead;
-    for (let i = 0; i < line.length; i++) {
-      const item = items[line[i]];
-      let crossSize = measuredCrosses[line[i]];
-      let crossOffset = 0;
-      switch (l?.align) {
-        case "center":
-          crossOffset = (lineCross - crossSize) * 0.5;
-          break;
-        case "end":
-          crossOffset = lineCross - crossSize;
-          break;
-        case "stretch":
-          crossSize = lineCross;
-          break;
-      }
-      const crossPos = crossCursor + crossOffset;
+    // Where the next item starts along the line — the same kind of carry as the
+    // cross cursor, one axis in.
+    const pen = { main: mainLead + lead };
+    for (const [i, index] of line.entries()) {
+      const measuredCross = measuredCrosses[index];
+      const stretched = l?.align === "stretch";
+      const crossSize = stretched ? lineCross : measuredCross;
+      const crossOffset =
+        l?.align === "center"
+          ? (lineCross - measuredCross) * 0.5
+          : l?.align === "end"
+            ? lineCross - measuredCross
+            : 0;
+      const crossPos = stack.cross + crossOffset;
 
       const childRect: Rect = row
-        ? { x: cursor, y: crossPos, width: mains[i], height: crossSize }
-        : { x: crossPos, y: cursor, width: crossSize, height: mains[i] };
+        ? { x: pen.main, y: crossPos, width: mains[i], height: crossSize }
+        : { x: crossPos, y: pen.main, width: crossSize, height: mains[i] };
       if (isScrollView) {
         childRect.x -= node.scrollOffset.x;
         childRect.y -= node.scrollOffset.y;
       }
       // Every member of the item gets the SAME rect: that is what "shared box" means.
-      for (const child of item) arrange(child, childRect);
-      cursor += mains[i] + between;
+      for (const child of items[index]) arrange(child, childRect);
+      pen.main += mains[i] + between;
     }
-    crossCursor += lineCross + gap;
+    stack.cross += lineCross + gap;
   }
 }
 
 /** An item's size along an axis: the largest of the nodes sharing its box. */
 function itemSize(item: LayoutNode[], row: boolean): number {
-  let size = 0;
-  for (const child of item) size = Math.max(size, row ? child.measured.x : child.measured.y);
-  return size;
+  return item.reduce((size, child) => Math.max(size, row ? child.measured.x : child.measured.y), 0);
 }
 
 /**
@@ -754,3 +724,27 @@ function crossOf(node: LayoutNode, horizontal: boolean, fallback: number): numbe
   if (resolved === undefined) return fallback;
   return horizontal ? node.measured.y : node.measured.x;
 }
+
+/**
+ * `node` and every ancestor above it, innermost first — the walk half this
+ * package used to spell out by hand. Recursive rather than a cursor loop; the
+ * validator caps tree depth, so there is no unbounded chain to blow the stack.
+ */
+function* selfAndAncestors(node: LayoutNode | null | undefined): Generator<LayoutNode> {
+  if (!node) return;
+  yield node;
+  yield* selfAndAncestors(node.parent);
+}
+
+export type { LayoutNode, MeasureLeaf, Rect, RepeatState, TextKey };
+export {
+  arrange,
+  contains,
+  createLayoutNode,
+  flowItems,
+  inFlow,
+  inLayout,
+  measure,
+  selfAndAncestors,
+  wrapsLines,
+};

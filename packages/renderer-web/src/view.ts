@@ -68,6 +68,7 @@ import {
   measure,
   type Rect,
   type RepeatState,
+  selfAndAncestors,
   type TextKey,
   wrapsLines,
 } from "./layout.js";
@@ -250,7 +251,7 @@ interface PendingFocus {
   path: number[];
 }
 
-export interface MountOptions {
+interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
   view?: string;
   /**
@@ -314,7 +315,7 @@ export interface MountOptions {
  * beside `snapshot()` instead of inside it. It is what the performance budgets
  * are asserted against.
  */
-export interface FrameStats {
+interface FrameStats {
   /** Draw calls submitted (batches with geometry in them). */
   drawCalls: number;
   /** Vertices across those batches. */
@@ -352,7 +353,7 @@ export interface FrameStats {
   repaintOnly: boolean;
 }
 
-export interface ZablooHandle {
+interface ZablooHandle {
   /**
    * The envelope's view ids, as of NOW: a hot-update may add, drop or rename
    * views, so this is read on every access instead of frozen when the handle was
@@ -408,7 +409,7 @@ export interface ZablooHandle {
  * because there is no previous UI to protect: the caller has to hear that its
  * payload never became a view. Once mounted, `reload` swallows the same failure.
  */
-export function mount(
+function mount(
   canvas: HTMLCanvasElement,
   envelope: string | object,
   options: MountOptions = {},
@@ -628,18 +629,20 @@ class WebView implements InputView {
         if (!this.alive("reload")) return;
         // A corrupt hot-update never takes down a UI that is already on screen
         // (decision 2026-08-12, ZAB-37): it reports and the current envelope stays.
-        let next: Envelope;
-        try {
-          next = loadEnvelope(input, this.onDiagnostic);
-        } catch (error) {
-          // The sink already heard the fatal diagnostic, with its code and path —
-          // the console line is for the caller that installed no sink.
-          if (!this.onDiagnostic) {
-            const detail = error instanceof Error ? error.message : String(error);
-            console.warn(`[zabloo] reload rejected, keeping the current envelope — ${detail}`);
+        const next = ((): Envelope | null => {
+          try {
+            return loadEnvelope(input, this.onDiagnostic);
+          } catch (error) {
+            // The sink already heard the fatal diagnostic, with its code and path —
+            // the console line is for the caller that installed no sink.
+            if (!this.onDiagnostic) {
+              const detail = error instanceof Error ? error.message : String(error);
+              console.warn(`[zabloo] reload rejected, keeping the current envelope — ${detail}`);
+            }
+            return null;
           }
-          return;
-        }
+        })();
+        if (next === null) return;
         this.envelope = next;
         if (!this.envelope.views[this.viewId]) {
           this.viewId = Object.keys(this.envelope.views)[0];
@@ -791,7 +794,7 @@ class WebView implements InputView {
     if (any.type === "ProgressBar") {
       // `children[0]` is the fill and the rest is reserved: taking them out of
       // layout is what makes "reserved" true for paint and input too.
-      for (let i = 1; i < node.children.length; i++) node.children[i].sectionShown = false;
+      for (const reserved of node.children.slice(1)) reserved.sectionShown = false;
     }
     if (any.group === "exclusive-select") {
       const { buttons } = this.tabsOf(node, true);
@@ -956,13 +959,9 @@ class WebView implements InputView {
     const children: LayoutNode[] = [];
     for (const { slot, instance } of entries) {
       const path = itemPath(arrayPath ?? "", slot.index);
-      let child = instance;
-      if (child === undefined) {
-        const scope: ItemScope = { alias, path, index: slot.index };
-        child = this.buildNode(template as ZNode, node, [...node.scopes, scope]);
-      } else {
-        this.rescope(child, alias, path, slot.index);
-      }
+      const child =
+        instance ?? this.buildInstance(template as ZNode, node, alias, path, slot.index);
+      if (instance !== undefined) this.rescope(child, alias, path, slot.index);
       instances.set(slot.identity, child);
       children.push(child);
       // Back in the window: the item the focus is waiting on takes it again.
@@ -973,6 +972,18 @@ class WebView implements InputView {
     // `display:none` semantics of every other slot (decision 2026-08-11, ZAB-29).
     for (const slot of state.empty) slot.sectionShown = items.length === 0;
     node.children = [...children, ...state.empty];
+  }
+
+  /** A fresh instance of the template, scoped to one element of the array. */
+  private buildInstance(
+    template: ZNode,
+    node: LayoutNode,
+    alias: string,
+    path: string,
+    index: number,
+  ): LayoutNode {
+    const scope: ItemScope = { alias, path, index };
+    return this.buildNode(template, node, [...node.scopes, scope]);
   }
 
   /**
@@ -1077,11 +1088,9 @@ class WebView implements InputView {
 
   /** The ScrollView this node scrolls inside, if any — an Overlay is its own scope. */
   private scrollerOf(node: LayoutNode): LayoutNode | null {
-    let current = node.parent;
-    while (current) {
+    for (const current of selfAndAncestors(node.parent)) {
       if (current.ir.type === "Overlay") return null;
       if (current.ir.type === "ScrollView") return current;
-      current = current.parent;
     }
     return null;
   }
@@ -1159,11 +1168,9 @@ class WebView implements InputView {
    * past its `Repeat` and finds whatever list encloses the whole thing.
    */
   private repeatOf(node: LayoutNode): LayoutNode | null {
-    let current: LayoutNode | null = node;
-    while (current) {
-      const parent: LayoutNode | null = current.parent;
+    for (const current of selfAndAncestors(node)) {
+      const parent = current.parent;
       if (parent?.repeat && !parent.repeat.empty.includes(current)) return parent;
-      current = parent;
     }
     return null;
   }
@@ -1208,12 +1215,11 @@ class WebView implements InputView {
     const focused = this.focusedNode;
     if (focused === null) return;
     const path: number[] = [];
-    let current: LayoutNode | null = focused;
-    while (current !== instance) {
-      const parent: LayoutNode | null = current.parent;
+    for (const current of selfAndAncestors(focused)) {
+      if (current === instance) break;
+      const parent = current.parent;
       if (parent === null) return; // the focus is not inside this instance
       path.unshift(parent.children.indexOf(current));
-      current = parent;
     }
     const identity = identityOf(repeat.repeat?.instances, instance);
     if (identity === null) return;
@@ -1234,8 +1240,10 @@ class WebView implements InputView {
     if (pending === null || pending.repeat !== repeat || pending.identity !== identity) return;
     // Realized again, whatever comes of the walk: it stops being pending here.
     this.pendingFocus = null;
-    let target: LayoutNode | undefined = instance;
-    for (const index of pending.path) target = target?.children[index];
+    const target = pending.path.reduce<LayoutNode | undefined>(
+      (at, index) => at?.children[index],
+      instance,
+    );
     if (target && this.isFocusable(target)) this.setFocus(target);
   }
 
@@ -1247,9 +1255,7 @@ class WebView implements InputView {
    */
   private applyOpen(node: LayoutNode): void {
     const shown = node.open || node.collapseAnimating;
-    for (let i = 1; i < node.children.length; i++) {
-      node.children[i].sectionShown = shown;
-    }
+    for (const content of node.children.slice(1)) content.sectionShown = shown;
   }
 
   /**
@@ -1309,8 +1315,8 @@ class WebView implements InputView {
   /** Only the selected panel stays in layout; its button carries `states.selected`. */
   private applySelection(group: LayoutNode): void {
     const { buttons, panels } = this.tabsOf(group);
-    for (let i = 0; i < panels.length; i++) {
-      panels[i].sectionShown = i === group.selectedIndex;
+    for (const [i, panel] of panels.entries()) {
+      panel.sectionShown = i === group.selectedIndex;
       buttons[i].selected = i === group.selectedIndex;
     }
   }
@@ -1386,11 +1392,9 @@ class WebView implements InputView {
 
   /** The nearest `"exclusive-check"` ancestor, if this Toggle is one of its options. */
   private exclusiveGroupOf(node: LayoutNode): LayoutNode | null {
-    let current = node.parent;
-    while (current) {
+    for (const current of selfAndAncestors(node.parent)) {
       const any = current.ir as AnyNode;
       if (any.type === "Container" && any.group === "exclusive-check") return current;
-      current = current.parent;
     }
     return null;
   }
@@ -1422,7 +1426,9 @@ class WebView implements InputView {
   private setToggleChecked(node: LayoutNode, checked: boolean): void {
     const any = node.ir as AnyNode;
     const group = this.exclusiveGroupOf(node);
-    let groupAction: string | undefined;
+    // The group speaks only when the selection actually MOVED; a slot, because
+    // the branch below is also the one that can bail out early.
+    const fired: { groupAction?: string } = {};
 
     if (group) {
       // A radio only ever turns ON; the group's value is the state that moves.
@@ -1442,7 +1448,7 @@ class WebView implements InputView {
       // The selection MOVED — the early return above is what keeps re-picking
       // the current option silent — so the group speaks too. Its hook is the one
       // a `<Select>` declares: the option only ever says "me".
-      groupAction = (group.ir as AnyNode).onChange;
+      fired.groupAction = (group.ir as AnyNode).onChange;
     } else {
       if (node.checked === checked) return;
       node.checked = checked;
@@ -1456,7 +1462,7 @@ class WebView implements InputView {
     // the context of the OPTION — inside a `Repeat` that is the item the choice
     // was made in, which is strictly more than the group could say (ZAB-29).
     if (any.onChange) this.onAction?.(any.onChange, this.contextOf(node));
-    if (groupAction) this.onAction?.(groupAction, this.contextOf(node));
+    if (fired.groupAction) this.onAction?.(fired.groupAction, this.contextOf(node));
     this.render();
   }
 
@@ -1822,22 +1828,21 @@ class WebView implements InputView {
     }
 
     const from = center(current.rect);
-    let best: LayoutNode | null = null;
-    let bestScore = Number.POSITIVE_INFINITY;
-    for (const candidate of candidates) {
-      if (candidate === current) continue;
+    const scored = candidates.flatMap((candidate) => {
+      if (candidate === current) return [];
       const to = center(candidate.rect);
       const deltaX = to.x - from.x;
       const deltaY = to.y - from.y;
       const projection = deltaX * dx + deltaY * dy;
-      if (projection <= 0.5) continue; // must lie in the direction of travel
+      if (projection <= 0.5) return []; // must lie in the direction of travel
       const orthogonal = Math.abs(deltaX * dy) + Math.abs(deltaY * dx);
-      const score = projection + orthogonal * 2;
-      if (score < bestScore) {
-        bestScore = score;
-        best = candidate;
-      }
-    }
+      return [{ candidate, score: projection + orthogonal * 2 }];
+    });
+    // First one wins a tie, as the old scan did with its strict `<`.
+    const best = scored.reduce<(typeof scored)[number] | null>(
+      (winner, entry) => (winner === null || entry.score < winner.score ? entry : winner),
+      null,
+    )?.candidate;
     if (best) {
       this.setFocus(best);
       this.revealFocused(best);
@@ -1862,18 +1867,20 @@ class WebView implements InputView {
    * scroll of its own would be a frame late anyway.
    */
   private revealFocused(node: LayoutNode): void {
-    let target: LayoutNode = node;
-    let scroller = this.scrollerOf(node);
-    while (scroller) {
+    // Outward through the nested scrollers, each one revealing the one inside it.
+    const reveal = { target: node, scroller: this.scrollerOf(node) };
+    while (reveal.scroller) {
+      const scroller = reveal.scroller;
       const view = deflate(scroller.rect, scroller.resolved.padding ?? 0);
       this.setScrollOffset(
         scroller,
-        scroller.scrollOffset.x + revealDelta(target.rect.x, target.rect.width, view.x, view.width),
+        scroller.scrollOffset.x +
+          revealDelta(reveal.target.rect.x, reveal.target.rect.width, view.x, view.width),
         scroller.scrollOffset.y +
-          revealDelta(target.rect.y, target.rect.height, view.y, view.height),
+          revealDelta(reveal.target.rect.y, reveal.target.rect.height, view.y, view.height),
       );
-      target = scroller;
-      scroller = this.scrollerOf(scroller);
+      reveal.target = scroller;
+      reveal.scroller = this.scrollerOf(scroller);
     }
   }
 
@@ -2213,11 +2220,11 @@ class WebView implements InputView {
 
   /** `#rrggbb[aa]` → a `Color`, memoized in this view's `parsedColors`. */
   private parseColor(hex: string): Color | null {
-    let color = this.parsedColors.get(hex);
-    if (color === undefined) {
-      color = parseColorLiteral(hex);
-      this.parsedColors.set(hex, color);
-    }
+    const cached = this.parsedColors.get(hex);
+    if (cached !== undefined) return cached;
+
+    const color = parseColorLiteral(hex);
+    this.parsedColors.set(hex, color);
     return color;
   }
 
@@ -2429,8 +2436,7 @@ class WebView implements InputView {
     const stepped = stepValue(node.anim, "checked", node.checked ? 1 : 0, transition, now);
     node.checkedProgress = stepped.value;
     if (stepped.animating) this.animating = true;
-    for (let i = 0; i < node.children.length && i < 2; i++) {
-      const slot = node.children[i];
+    for (const [i, slot] of node.children.slice(0, 2).entries()) {
       if (!inLayout(slot)) continue;
       slot.resolved.opacity = (slot.resolved.opacity ?? 1) * slotOpacity(i, stepped.value);
     }
@@ -2473,8 +2479,7 @@ class WebView implements InputView {
     const running = period > 0 && Number.isFinite(period);
     if (node.loopStartedAt === null) node.loopStartedAt = now;
     const phase = running ? loopPhase(node.loopStartedAt, now, period) : 0;
-    for (let i = 0; i < beads.length; i++) {
-      const bead = beads[i];
+    for (const [i, bead] of beads.entries()) {
       const pulse = beadOpacity(i, beads.length, phase, any.min, any.easing);
       bead.resolved.opacity = (bead.resolved.opacity ?? 1) * pulse;
     }
@@ -2654,13 +2659,15 @@ class WebView implements InputView {
       const options = this.textOptions(style, atlas.lineHeight, availableWidth);
       const content = this.resolveText(node);
       const key: TextKey = { content, metrics: atlas, options: textOptionsKey(options) };
-      let block = node.textBlock;
-      if (block === null || !sameTextKey(node.textKey, key)) {
-        block = layoutText(content, atlas, options);
-        node.textBlock = block;
-        node.textKey = key;
-        this.textLayoutCount++;
+      const cached = node.textBlock;
+      if (cached !== null && sameTextKey(node.textKey, key)) {
+        return { x: cached.width, y: cached.height };
       }
+
+      const block = layoutText(content, atlas, options);
+      node.textBlock = block;
+      node.textKey = key;
+      this.textLayoutCount++;
       return { x: block.width, y: block.height };
     }
     if (ir.type === "Image") {
@@ -2779,21 +2786,17 @@ class WebView implements InputView {
   }
 
   private frameStats(batches: Batch[], repaintOnly: boolean): FrameStats {
-    let drawCalls = 0;
-    let vertices = 0;
-    let indices = 0;
-    for (const batch of batches) {
-      if (batch.indices.length === 0) continue;
-      drawCalls++;
-      vertices += batch.vertices.length / 8;
-      indices += batch.indices.length;
-    }
-    let atlases = 0;
-    let atlasBytes = 0;
-    for (const atlas of this.fonts.all()) {
-      atlases++;
-      atlasBytes += atlas.canvas.width * atlas.canvas.height * 4;
-    }
+    const drawn = batches.filter((batch) => batch.indices.length > 0);
+    const drawCalls = drawn.length;
+    const vertices = drawn.reduce((sum, batch) => sum + batch.vertices.length / 8, 0);
+    const indices = drawn.reduce((sum, batch) => sum + batch.indices.length, 0);
+
+    const live = [...this.fonts.all()];
+    const atlases = live.length;
+    const atlasBytes = live.reduce(
+      (sum, atlas) => sum + atlas.canvas.width * atlas.canvas.height * 4,
+      0,
+    );
     return {
       drawCalls,
       vertices,
@@ -3158,3 +3161,6 @@ function parseColorLiteral(hex: string): Color | null {
   const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
   return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
 }
+
+export type { FrameStats, MountOptions, ZablooHandle };
+export { mount };

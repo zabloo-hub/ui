@@ -18,7 +18,7 @@
 
 import type { StbFont } from "./ttf.js";
 
-export interface GlyphInfo {
+interface GlyphInfo {
   advance: number;
   /** Quad extents in px: X from the pen, Y from the baseline (maxY = top, up+). */
   minX: number;
@@ -44,7 +44,7 @@ const PADDING = 2;
 /** Arial ≈ Unity's LegacyRuntime metrics, and what the shipped TTF matches. */
 const FALLBACK_FONT_FAMILY = "Arial, Helvetica, sans-serif";
 
-export class GlyphAtlas {
+class GlyphAtlas {
   readonly lineHeight: number;
   readonly ascent: number;
 
@@ -143,11 +143,11 @@ export class GlyphAtlas {
   }
 
   get(char: string): GlyphInfo | undefined {
-    let glyph = this.glyphs.get(char);
-    if (glyph === undefined) {
-      glyph = this.font ? this.rasterizeStb(char, this.font) : this.rasterizeCanvas(char);
-      this.glyphs.set(char, glyph);
-    }
+    const cached = this.glyphs.get(char);
+    if (cached !== undefined) return cached;
+
+    const glyph = this.font ? this.rasterizeStb(char, this.font) : this.rasterizeCanvas(char);
+    this.glyphs.set(char, glyph);
     return glyph;
   }
 
@@ -170,11 +170,11 @@ export class GlyphAtlas {
   kern(previous: string, char: string): number {
     if (!this.font) return 0;
     const key = previous + char;
-    let value = this.kerns.get(key);
-    if (value === undefined) {
-      value = this.font.kern(previous, char, this.devicePointSize) / this.scale;
-      this.kerns.set(key, value);
-    }
+    const cached = this.kerns.get(key);
+    if (cached !== undefined) return cached;
+
+    const value = this.font.kern(previous, char, this.devicePointSize) / this.scale;
+    this.kerns.set(key, value);
     return value;
   }
 
@@ -216,12 +216,12 @@ export class GlyphAtlas {
     // this working on an OffscreenCanvas too.
     const image = this.ctx.createImageData(bitmap.width, bitmap.height);
     const pixels = image.data;
-    for (let i = 0; i < bitmap.coverage.length; i++) {
+    for (const [i, coverage] of bitmap.coverage.entries()) {
       const p = i * 4;
       pixels[p] = 255;
       pixels[p + 1] = 255;
       pixels[p + 2] = 255;
-      pixels[p + 3] = bitmap.coverage[i];
+      pixels[p + 3] = coverage;
     }
     this.ctx.putImageData(image, spot.x, spot.y);
     this._version++;
@@ -389,7 +389,7 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
 const MAX_ATLASES = 8;
 
 /** One atlas per requested point size (same shape as the SDK's FontLibrary). */
-export class FontLibrary {
+class FontLibrary {
   private readonly atlases = new Map<number, GlyphAtlas>();
   /** Point size at the newest end of the LRU — the fast path of `get` (ZAB-73). */
   private newest: number | null = null;
@@ -410,15 +410,15 @@ export class FontLibrary {
       const current = this.atlases.get(pointSize);
       if (current) return current;
     }
-    let atlas = this.atlases.get(pointSize);
-    if (atlas) {
+    const cached = this.atlases.get(pointSize);
+    if (cached) {
       // Map order is the recency order: re-inserting marks it just used.
       this.atlases.delete(pointSize);
-      this.atlases.set(pointSize, atlas);
+      this.atlases.set(pointSize, cached);
       this.newest = pointSize;
-      return atlas;
+      return cached;
     }
-    atlas = new GlyphAtlas(pointSize, this.scale, this.font);
+    const atlas = new GlyphAtlas(pointSize, this.scale, this.font);
     this.atlases.set(pointSize, atlas);
     this.newest = pointSize;
     if (this.atlases.size > MAX_ATLASES) {
@@ -462,3 +462,6 @@ export class FontLibrary {
     this.newest = null;
   }
 }
+
+export type { GlyphInfo };
+export { FontLibrary, GlyphAtlas };

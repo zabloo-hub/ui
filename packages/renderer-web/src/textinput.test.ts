@@ -246,7 +246,7 @@ describe("the bridge to the browser's own field", () => {
 
   it("round-trips a caret through both conversions", () => {
     const text = "hola 🎮 mundo";
-    for (let i = 0; i <= 12; i++) {
+    for (const i of Array(13).keys()) {
       expect(codePointIndex(text, utf16Offset(text, i))).toBe(i);
     }
   });

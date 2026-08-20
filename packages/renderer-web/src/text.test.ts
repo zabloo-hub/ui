@@ -229,21 +229,21 @@ describe("layoutText — truncation", () => {
  * and it does not go flaky on a loaded CI box the way a stopwatch would.
  */
 function countingFont(): { font: TextMetrics; calls: () => number } {
-  let calls = 0;
+  const counted: true[] = [];
   return {
     font: {
       advance: (char) => {
-        calls++;
+        counted.push(true);
         return FONT.advance(char);
       },
       kern: (previous, char) => {
-        calls++;
+        counted.push(true);
         return FONT.kern(previous, char);
       },
       lineHeight: FONT.lineHeight,
       ascent: FONT.ascent,
     },
-    calls: () => calls,
+    calls: () => counted.length,
   };
 }
 

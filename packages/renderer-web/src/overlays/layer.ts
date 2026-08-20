@@ -7,7 +7,7 @@
  * keyed by node identity.
  */
 
-import { arrange, inLayout, type LayoutNode, type Rect } from "../layout.js";
+import { arrange, inLayout, type LayoutNode, type Rect, selfAndAncestors } from "../layout.js";
 import {
   ANCHOR_OFFSET,
   anchorBox,
@@ -112,10 +112,14 @@ export class OverlayLayer {
    */
   forget(node: LayoutNode): void {
     this.anims.delete(node);
-    for (let i = this.modalStack.length - 1; i >= 0; i--) {
-      if (this.modalStack[i].overlay === node) this.modalStack.splice(i, 1);
-      else if (this.modalStack[i].previousFocus === node) this.modalStack[i].previousFocus = null;
+    for (const entry of this.modalStack) {
+      if (entry.previousFocus === node) entry.previousFocus = null;
     }
+    // Rebuilt rather than spliced in place: removing while counting down is the
+    // only reason the loop above ever had to run backwards.
+    const kept = this.modalStack.filter((entry) => entry.overlay !== node);
+    this.modalStack.length = 0;
+    this.modalStack.push(...kept);
   }
 
   /** A rebuild: the tree is new, so every node identity this state referenced is gone. */
@@ -141,19 +145,23 @@ export class OverlayLayer {
 
     // Gone from the layer (closed or hidden): the OUTERMOST one that left owns
     // the restore, so closing a whole stack returns to what preceded all of it.
-    let restored: LayoutNode | null = null;
-    for (let i = this.modalStack.length - 1; i >= 0; i--) {
-      if (modals.includes(this.modalStack[i].overlay)) continue;
-      restored = this.modalStack[i].previousFocus;
-      this.modalStack.splice(i, 1);
-    }
-    let opened = false;
-    for (const modal of modals) {
-      if (this.modalStack.some((entry) => entry.overlay === modal)) continue;
+    const left = this.modalStack.filter((entry) => !modals.includes(entry.overlay));
+    const kept = this.modalStack.filter((entry) => modals.includes(entry.overlay));
+    this.modalStack.length = 0;
+    this.modalStack.push(...kept);
+    // The OUTERMOST one that left owns the restore, and it is the first in the
+    // stack — so the last one read while walking it backwards.
+    const closedFocus = left.at(0)?.previousFocus ?? null;
+
+    const opening = modals.filter(
+      (modal) => !this.modalStack.some((entry) => entry.overlay === modal),
+    );
+    for (const modal of opening) {
       this.modalStack.push({ overlay: modal, previousFocus: this.host.focused() });
-      restored = null; // opening wins over closing: the new modal owns the focus
-      opened = true;
     }
+    // Opening wins over closing: the new modal owns the focus.
+    const restored = opening.length > 0 ? null : closedFocus;
+    const opened = opening.length > 0;
 
     const scope = this.host.scope();
     const current = this.host.focused();
@@ -181,7 +189,7 @@ export class OverlayLayer {
    * layout flags — but nothing paints it, so the focus must not rest there.
    */
   private onPresentLayer(node: LayoutNode): boolean {
-    for (let current: LayoutNode | null = node; current; current = current.parent) {
+    for (const current of selfAndAncestors(node)) {
       if (current.ir.type === "Overlay" && !this.host.layer().includes(current)) return false;
     }
     return true;
@@ -222,11 +230,8 @@ export class OverlayLayer {
     this.exiting.clear();
     const layer = this.host.layer();
     this.host.eachOverlay((overlay) => {
-      let anim = this.anims.get(overlay);
-      if (!anim) {
-        anim = createNodeAnim();
-        this.anims.set(overlay, anim);
-      }
+      const anim = this.anims.get(overlay) ?? createNodeAnim();
+      this.anims.set(overlay, anim);
       const live = layer.includes(overlay);
       const stepped = stepPresence(anim, live, this.host.transitionOf(overlay), now);
       if (stepped.animating) this.host.markAnimating();
@@ -324,7 +329,7 @@ export class OverlayLayer {
 
   /** Closes the popover this node lives in, if any — what a selection inside does. */
   closeEnclosingPopover(node: LayoutNode): void {
-    for (let current: LayoutNode | null = node; current; current = current.parent) {
+    for (const current of selfAndAncestors(node)) {
       if (current.ir.type === "Overlay" && isPressTriggered(current)) {
         current.popoverOpen = false;
         return;

@@ -97,9 +97,12 @@ interface Rig {
  * every tree here builds: a control that is not disabled.
  */
 function rig(root: LayoutNode): Rig {
-  let focused: LayoutNode | null = null;
-  let pending = false;
-  let transition: ResolvedTransition | null = null;
+  // Slots, because the host's callbacks are the ones that write them.
+  const held: {
+    focused: LayoutNode | null;
+    pending: boolean;
+    transition: ResolvedTransition | null;
+  } = { focused: null, pending: false, transition: null };
 
   const host = {
     root: () => root,
@@ -109,8 +112,8 @@ function rig(root: LayoutNode): Rig {
       for (const overlay of overlaysOf(root)) visit(overlay);
     },
     layer: () => live(),
-    focused: () => focused,
-    focusPending: () => pending,
+    focused: () => held.focused,
+    focusPending: () => held.pending,
     nodeById: (id: string) => find(root, id),
     scope: () => focusScope(root, live()),
     isFocusable: (target: LayoutNode) =>
@@ -118,11 +121,11 @@ function rig(root: LayoutNode): Rig {
       (target.ir.type === "Button" || target.ir.type === "Toggle" || target.ir.type === "Slider"),
     autofocus: vi.fn((scope: LayoutNode) => firstFocusable(scope)),
     setFocus: vi.fn((target: LayoutNode | null) => {
-      focused = target;
+      held.focused = target;
     }),
     closeVisible: vi.fn(),
     dismissed: vi.fn(),
-    transitionOf: () => transition,
+    transitionOf: () => held.transition,
     markAnimating: vi.fn(),
     radiusOf: () => 0,
     dim: (value: unknown, fallback: number) => (typeof value === "number" ? value : fallback),
@@ -137,14 +140,14 @@ function rig(root: LayoutNode): Rig {
     host: host as unknown as Rig["host"],
     live,
     focus: (target) => {
-      focused = target;
+      held.focused = target;
     },
-    focused: () => focused,
+    focused: () => held.focused,
     pending: (value) => {
-      pending = value;
+      held.pending = value;
     },
     transition: (value) => {
-      transition = value;
+      held.transition = value;
     },
   };
 }

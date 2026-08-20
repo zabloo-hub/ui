@@ -12,7 +12,7 @@ import { type Clip, scissorBox } from "./clip.js";
  * Structural on purpose: the GL layer knows about pixels and versions, not about
  * what produced them.
  */
-export interface TextureSource {
+interface TextureSource {
   /** Bumped whenever the pixels change; the upload is skipped while it holds. */
   readonly version: number;
   /** Null while an async decode is still in flight (falls back to white). */
@@ -24,7 +24,7 @@ export interface TextureSource {
  * arrays are VIEWS over the tessellator's reused buffers, live for one frame
  * (ZAB-55) — the upload below copies them into GPU memory within it.
  */
-export interface Batch {
+interface Batch {
   /** Null = solid geometry (bound to a built-in 1×1 white texture). */
   texture: TextureSource | null;
   /** Interleaved: x,y, u,v, r,g,b,a (logical px; colors 0..1). */
@@ -85,7 +85,7 @@ void main() {
   }
 }`;
 
-export class GLRenderer {
+class GLRenderer {
   private readonly gl: WebGL2RenderingContext;
   private program!: WebGLProgram;
   private vbo!: WebGLBuffer;
@@ -203,15 +203,17 @@ export class GLRenderer {
 
     // Batches arrive grouped by clip (same region → same object), so the state
     // only changes at group boundaries.
-    let currentClip: Clip | null | undefined;
+    // A slot, not a `let`: which clip is bound right now is state that has to
+    // survive from one batch to the next.
+    const bound: { clip?: Clip | null } = {};
     const dpr = logicalWidth > 0 ? this.canvas.width / logicalWidth : 1;
 
     for (const batch of batches) {
       if (batch.indices.length === 0) continue;
       const clip = batch.clip ?? null;
-      if (clip !== currentClip) {
+      if (clip !== bound.clip) {
         this.applyClip(clip, dpr);
-        currentClip = clip;
+        bound.clip = clip;
       }
       gl.bindTexture(gl.TEXTURE_2D, this.textureFor(batch.texture));
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
@@ -220,7 +222,7 @@ export class GLRenderer {
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, batch.indices, gl.DYNAMIC_DRAW);
       gl.drawElements(gl.TRIANGLES, batch.indices.length, gl.UNSIGNED_INT, 0);
     }
-    if (currentClip) this.applyClip(null, dpr);
+    if (bound.clip) this.applyClip(null, dpr);
   }
 
   /**
@@ -278,11 +280,11 @@ export class GLRenderer {
     const bitmap = source?.bitmap;
     if (!source || !bitmap) return this.whiteTexture;
     const gl = this.gl;
-    let entry = this.textures.get(source);
-    if (!entry) {
-      entry = { texture: gl.createTexture() as WebGLTexture, version: -1 };
-      this.textures.set(source, entry);
-    }
+    const entry = this.textures.get(source) ?? {
+      texture: gl.createTexture() as WebGLTexture,
+      version: -1,
+    };
+    this.textures.set(source, entry);
     if (entry.version !== source.version) {
       gl.bindTexture(gl.TEXTURE_2D, entry.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
@@ -348,3 +350,6 @@ function createProgram(gl: WebGL2RenderingContext, vertSrc: string, fragSrc: str
     for (const shader of shaders) gl.deleteShader(shader);
   }
 }
+
+export type { Batch, TextureSource };
+export { GLRenderer };

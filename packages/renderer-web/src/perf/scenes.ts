@@ -20,7 +20,7 @@
  */
 
 /** A scene to measure: everything `mountGolden` needs, plus what it is for. */
-export interface PerfScene {
+interface PerfScene {
   /** What this scene puts under load — the first thing a reader of a diff needs. */
   about: string;
   envelope: object;
@@ -31,7 +31,7 @@ export interface PerfScene {
 }
 
 /** A screen, not a postcard: the size the budgets below are stated at. */
-export const PERF_SIZE = { width: 960, height: 600 };
+const PERF_SIZE = { width: 960, height: 600 };
 
 const BG = "#101218";
 const PANEL = "#1e293b";
@@ -40,7 +40,7 @@ const INK = "#e2e8f0";
 const HOT = "#f97316";
 
 /** Duration every transition in `motion` runs at — the tests step to its middle. */
-export const MOTION_MS = 400;
+const MOTION_MS = 400;
 
 // --- 1.000 unequal rows, virtualized ---
 
@@ -49,7 +49,7 @@ export const MOTION_MS = 400;
  * the list exercises the unequal-extent path (the one virtualization's "biggest
  * instance wins" rule is about) instead of a thousand identical boxes.
  */
-export function unequalItems(count: number): Array<{ id: string; label: string; note: string }> {
+function unequalItems(count: number): Array<{ id: string; label: string; note: string }> {
   return Array.from({ length: count }, (_, i) => ({
     id: `it-${i}`,
     label: `Item ${i} — ${"content ".repeat(1 + ((i * 7) % 9))}`,
@@ -346,7 +346,7 @@ function denseEnvelope(spinner: boolean): object {
  * The scenes, by name. `budgets.test.ts` walks them for the geometry budgets and
  * then drives the ones with motion in them; `bench.test.ts` times the same set.
  */
-export const PERF_SCENES: Record<string, PerfScene> = {
+const PERF_SCENES: Record<string, PerfScene> = {
   list: {
     about:
       "1.000 unequal rows virtualized inside a scroller — the biggest list a real screen shows.",
@@ -380,3 +380,6 @@ export const PERF_SCENES: Record<string, PerfScene> = {
     ...PERF_SIZE,
   },
 };
+
+export type { PerfScene };
+export { MOTION_MS, PERF_SCENES, PERF_SIZE, unequalItems };

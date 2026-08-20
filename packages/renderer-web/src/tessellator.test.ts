@@ -148,7 +148,7 @@ describe("GeometryBuilder.image", () => {
     expect(count).toBe(1 + 4 * (6 + 1)); // centroid + 4 corner arcs
     // The centroid samples the middle of the texture.
     expect(vertex(batch.vertices, 0)).toMatchObject({ x: 60, y: 70, u: 0.5, v: 0.5 });
-    for (let i = 0; i < count; i++) {
+    for (const i of Array(count).keys()) {
       const { x, y, u, v } = vertex(batch.vertices, i);
       expect(x).toBeGreaterThanOrEqual(RECT.x);
       expect(x).toBeLessThanOrEqual(RECT.x + RECT.width);
@@ -168,7 +168,7 @@ describe("GeometryBuilder.image", () => {
 
     const batch = geometry.batches().find((b) => b.indices.length > 0);
     if (!batch) throw new Error("expected an image batch");
-    for (let i = 0; i < batch.vertices.length / 8; i++) {
+    for (const i of Array(batch.vertices.length / 8).keys()) {
       const { y } = vertex(batch.vertices, i);
       expect(y).toBeGreaterThanOrEqual(45);
       expect(y).toBeLessThanOrEqual(95);
@@ -305,7 +305,7 @@ describe("index space (ZAB-68)", () => {
     // ≈2.260 rounded rects fill the 16-bit space; this crosses it comfortably —
     // a long unvirtualized list under one clip gets here on its own.
     const COUNT = 2500;
-    for (let i = 0; i < COUNT; i++) {
+    for (const i of Array(COUNT).keys()) {
       geometry.roundedRect({ x: i, y: 0, width: 10, height: 10 }, 3, [1, 1, 1, 1]);
     }
     const [batch] = geometry.batches();
@@ -316,20 +316,17 @@ describe("index space (ZAB-68)", () => {
     // 32-bit indices: `UNSIGNED_SHORT` would have wrapped these mod 65536 and
     // scrambled the geometry with no warning at all.
     expect(batch.indices).toBeInstanceOf(Uint32Array);
-    let highest = 0;
-    let allInRange = true;
-    for (const index of batch.indices) {
-      if (index >= vertexCount) allInRange = false;
-      if (index > highest) highest = index;
-    }
-    expect(allInRange).toBe(true);
-    expect(highest).toBeGreaterThan(65535);
+    const indices = [...batch.indices];
+    expect(indices.every((index) => index < vertexCount)).toBe(true);
+    // `reduce`, not `Math.max(...)`: this batch has six figures of indices and
+    // spreading them blows the argument limit.
+    expect(indices.reduce((highest, index) => Math.max(highest, index), 0)).toBeGreaterThan(65535);
   });
 
   it("keeps the last rect's fan on its own vertices across the boundary", () => {
     const geometry = new GeometryBuilder();
     const COUNT = 2500;
-    for (let i = 0; i < COUNT; i++) {
+    for (const i of Array(COUNT).keys()) {
       geometry.roundedRect({ x: i, y: 0, width: 10, height: 10 }, 3, [1, 1, 1, 1]);
     }
     const [batch] = geometry.batches();

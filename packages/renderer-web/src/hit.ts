@@ -9,7 +9,7 @@
  */
 
 import { type Clip, clipContains, intersectClip, isEmptyClip } from "./clip.js";
-import { contains, inFlow, type LayoutNode } from "./layout.js";
+import { contains, inFlow, type LayoutNode, selfAndAncestors } from "./layout.js";
 
 /** Resolves a node's painted corner radius (effective style + tokens live in the view). */
 export type NodeRadius = (node: LayoutNode) => number;
@@ -56,8 +56,9 @@ export function hitTest(
   // Outside this node's own clip: it prunes the subtree (`clip === inherited`
   // when the node doesn't clip, so this only ever costs a re-check).
   if (!isEmptyClip(clip) && clipContains(clip, point)) {
-    for (let i = root.children.length - 1; i >= 0; i--) {
-      const hit = hitTest(root.children[i], point, radiusOf, clip);
+    // Last child first: later siblings paint over earlier ones.
+    for (const child of [...root.children].reverse()) {
+      const hit = hitTest(child, point, radiusOf, clip);
       if (hit) return hit;
     }
   }
@@ -75,15 +76,17 @@ export function hitTest(
  * boundary `findUp` and the paint pass draw.
  */
 export function effectiveClip(node: LayoutNode, radiusOf: NodeRadius): Clip | null {
+  // Up to and INCLUDING the enclosing Overlay: its own clip still applies to
+  // its children.
   const ancestors: LayoutNode[] = [];
-  for (let current = node.parent; current; current = current.parent) {
-    ancestors.push(current); // the Overlay's own clip still applies to its children
+  for (const current of selfAndAncestors(node.parent)) {
+    ancestors.push(current);
     if (current.ir.type === "Overlay") break;
   }
 
-  let clip: Clip | null = null;
-  for (let i = ancestors.length - 1; i >= 0; i--) {
-    clip = childClip(ancestors[i], clip, radiusOf);
-  }
-  return clip;
+  // Outermost first, each clip narrowing the one above it.
+  return ancestors.reduceRight<Clip | null>(
+    (clip, current) => childClip(current, clip, radiusOf),
+    null,
+  );
 }

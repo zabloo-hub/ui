@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode } from "./snapshot.js";
@@ -20,16 +20,22 @@ const ENVELOPE = JSON.parse(
   ),
 );
 
-let view: GoldenView | null = null;
-
-afterEach(() => {
-  view?.dispose();
-  view = null;
-});
+/**
+ * Mounts for ONE test and disposes it when that test ends. A helper rather than
+ * a `let` shared through `afterEach`: the view a test works with is then a
+ * `const` the test owns, and nothing survives into the next one.
+ */
+async function mountForTest(...args: Parameters<typeof mountGolden>): Promise<GoldenView> {
+  const view = await mountGolden(...args);
+  onTestFinished(() => {
+    view.dispose();
+  });
+  return view;
+}
 
 describe("the headless rig", () => {
   it("mounts an envelope and lays it out at the golden viewport", async () => {
-    view = await mountGolden(ENVELOPE);
+    const view = await mountForTest(ENVELOPE);
     const snapshot = view.snapshot();
 
     expect(snapshot.view).toBe("flex-layout");
@@ -38,7 +44,7 @@ describe("the headless rig", () => {
   });
 
   it("measures text with the renderer's OWN rasterizer, never the fallback", async () => {
-    view = await mountGolden({
+    const view = await mountForTest({
       v: 1,
       tokens: {},
       views: { probe: { type: "Text", id: "probe", text: "Hola" } },
@@ -50,12 +56,12 @@ describe("the headless rig", () => {
     // numbers are plausible enough that a loose bound would not tell them apart,
     // and every baseline in the corpus rests on this being the real thing.
     const font = await loadFont(decodeBase64(DEFAULT_FONT_BASE64));
-    let expected = 0;
-    let previous = "";
-    for (const char of "Hola") {
-      expected += font.advance(char, 16) + (previous ? font.kern(previous, char, 16) : 0);
-      previous = char;
-    }
+    const glyphs = [..."Hola"];
+    const expected = glyphs.reduce(
+      (width, char, i) =>
+        width + font.advance(char, 16) + (i > 0 ? font.kern(glyphs[i - 1], char, 16) : 0),
+      0,
+    );
     font.dispose();
 
     expect(line?.text).toBe("Hola");

@@ -44,15 +44,32 @@ interface FakeHandle extends ZablooHandle {
   disposed: boolean;
 }
 
-let mounts: Mount[] = [];
-let client: PreviewClient | null = null;
-/** Replies `fetch` is programmed with, by URL. */
-let routes: Map<string, { ok: boolean; body: string }>;
-let fetches: string[] = [];
-/** The SSE stream the page opened, so a test can push a reload down it. */
-let stream: FakeEventSource | null = null;
-/** Thrown by the next `mount` when set — the "envelope the renderer refuses" case. */
-let mountError: Error | null = null;
+/**
+ * Everything the fakes below write to and the assertions read back. One slot each
+ * on a `const` holder, reset in `beforeEach` — the page under test drives them
+ * from the outside, so they cannot be values a test owns.
+ */
+const fake: {
+  mounts: Mount[];
+  client: PreviewClient | null;
+  /** Replies `fetch` is programmed with, by URL. */
+  routes: Map<string, { ok: boolean; body: string }>;
+  fetches: string[];
+  /** The SSE stream the page opened, so a test can push a reload down it. */
+  stream: FakeEventSource | null;
+  /** Thrown by the next `mount` when set — the "envelope the renderer refuses" case. */
+  mountError: Error | null;
+  /** jsdom serves the page from an opaque origin, where `localStorage` is absent. */
+  storage: Map<string, string>;
+} = {
+  mounts: [],
+  client: null,
+  routes: new Map(),
+  fetches: [],
+  stream: null,
+  mountError: null,
+  storage: new Map(),
+};
 
 class FakeEventSource {
   onopen: (() => void) | null = null;
@@ -60,7 +77,7 @@ class FakeEventSource {
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
   closed = false;
   constructor(readonly url: string) {
-    stream = this;
+    fake.stream = this;
   }
   close(): void {
     this.closed = true;
@@ -69,16 +86,18 @@ class FakeEventSource {
 
 /** What the dev loop pushes down the stream, as the page receives it. */
 function push(event: PreviewEvent): void {
-  stream?.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>);
+  fake.stream?.onmessage?.({ data: JSON.stringify(event) } as MessageEvent<string>);
 }
 
 function fakeHandle(envelope: Envelope): FakeHandle {
-  let live = envelope;
+  // The envelope currently mounted: `reload()` swaps it, and `viewIds` is a
+  // getter that has to see the swap.
+  const mounted = { envelope };
   const handle = {
     // A getter, like the real handle's since ZAB-72: a hot-update can bring a
     // different set of views, and the page reads it fresh after every reload.
     get viewIds(): string[] {
-      return Object.keys(live.views);
+      return Object.keys(mounted.envelope.views);
     },
     ready: Promise.resolve(),
     data: [] as Array<[string, unknown]>,
@@ -86,7 +105,7 @@ function fakeHandle(envelope: Envelope): FakeHandle {
     disposed: false,
     reload(json: string | object) {
       handle.reloads.push(String(json));
-      live = (typeof json === "string" ? JSON.parse(json) : json) as Envelope;
+      mounted.envelope = (typeof json === "string" ? JSON.parse(json) : json) as Envelope;
     },
     setData(path: string, value: unknown) {
       handle.data.push([path, value]);
@@ -108,9 +127,9 @@ function fakeHandle(envelope: Envelope): FakeHandle {
 
 /** Programs the server side: the envelope `/envelope` answers with, plus raw asset replies. */
 function serve(envelope: unknown, assets: Record<string, string> = {}): void {
-  routes.set("/envelope", { ok: true, body: JSON.stringify(envelope) });
+  fake.routes.set("/envelope", { ok: true, body: JSON.stringify(envelope) });
   for (const [hash, body] of Object.entries(assets)) {
-    routes.set(`/asset/${hash}`, { ok: true, body });
+    fake.routes.set(`/asset/${hash}`, { ok: true, body });
   }
 }
 
@@ -148,29 +167,26 @@ function type(input: HTMLInputElement, value: string): void {
 
 /**
  * The page remembers the viewport preset and the stats toggle across reloads, and
- * the dev loop reloads on every save. jsdom serves the page from an opaque origin,
- * where a real `localStorage` is not available — so it is stubbed here, which also
+ * the dev loop reloads on every save, so `localStorage` is stubbed — which also
  * makes each test start from a clean slate.
  */
-let storage: Map<string, string>;
-
 beforeEach(() => {
   document.body.innerHTML = PREVIEW_BODY;
-  storage = new Map();
+  fake.storage = new Map();
   vi.stubGlobal("localStorage", {
-    getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => storage.set(key, value),
-    removeItem: (key: string) => storage.delete(key),
+    getItem: (key: string) => fake.storage.get(key) ?? null,
+    setItem: (key: string, value: string) => fake.storage.set(key, value),
+    removeItem: (key: string) => fake.storage.delete(key),
   });
-  mounts = [];
-  routes = new Map();
-  fetches = [];
-  stream = null;
-  mountError = null;
+  fake.mounts = [];
+  fake.routes = new Map();
+  fake.fetches = [];
+  fake.stream = null;
+  fake.mountError = null;
 
   vi.stubGlobal("fetch", async (url: string) => {
-    fetches.push(url);
-    const route = routes.get(url);
+    fake.fetches.push(url);
+    const route = fake.routes.get(url);
     if (!route) return { ok: false, status: 404, text: async () => "" };
     return {
       ok: route.ok,
@@ -182,18 +198,18 @@ beforeEach(() => {
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("ZablooRenderer", {
     mount(_canvas: HTMLCanvasElement, json: string, options: MountOptions) {
-      if (mountError) throw mountError;
+      if (fake.mountError) throw fake.mountError;
       const envelope = JSON.parse(json) as Envelope;
       const handle = fakeHandle(envelope);
-      mounts.push({ envelope, options, handle });
+      fake.mounts.push({ envelope, options, handle });
       return handle;
     },
   });
 });
 
 afterEach(() => {
-  client?.stop();
-  client = null;
+  fake.client?.stop();
+  fake.client = null;
   vi.unstubAllGlobals();
 });
 
@@ -204,9 +220,9 @@ function settle(): Promise<void> {
 
 /** Starts the page against whatever `serve` last programmed, after the first load. */
 async function open(): Promise<PreviewClient> {
-  client = start();
-  await client.ready;
-  return client;
+  fake.client = start();
+  await fake.client.ready;
+  return fake.client;
 }
 
 const GOLD: Envelope = {
@@ -299,7 +315,7 @@ describe("coerce", () => {
 });
 
 describe("parseEvent", () => {
-  it("reads a failed export off the stream", () => {
+  it("reads a failed export off the fake.stream", () => {
     expect(parseEvent('{"kind":"error","message":"boom"}')).toEqual({
       kind: "error",
       message: "boom",
@@ -324,7 +340,7 @@ describe("hydrateAssets", () => {
   });
 
   it("fetches the bytes an envelope arrived without", async () => {
-    routes.set("/asset/abcdef01", { ok: true, body: "QUJD" });
+    fake.routes.set("/asset/abcdef01", { ok: true, body: "QUJD" });
     const cache = new Map<string, string>();
 
     const envelope = await hydrateAssets(withAsset(), cache, () => {});
@@ -332,15 +348,15 @@ describe("hydrateAssets", () => {
     expect(envelope.assets?.["hero.png"].data).toBe("QUJD");
   });
 
-  it("re-fetches nothing on the next reload — the bytes behind a hash never change", async () => {
-    routes.set("/asset/abcdef01", { ok: true, body: "QUJD" });
+  it("re-fake.fetches nothing on the next reload — the bytes behind a hash never change", async () => {
+    fake.routes.set("/asset/abcdef01", { ok: true, body: "QUJD" });
     const cache = new Map<string, string>();
 
     await hydrateAssets(withAsset(), cache, () => {});
     const second = await hydrateAssets(withAsset(), cache, () => {});
 
     expect(second.assets?.["hero.png"].data).toBe("QUJD");
-    expect(fetches).toEqual(["/asset/abcdef01"]);
+    expect(fake.fetches).toEqual(["/asset/abcdef01"]);
   });
 
   it("caches the bytes of an envelope that did inline them", async () => {
@@ -349,7 +365,7 @@ describe("hydrateAssets", () => {
     await hydrateAssets(withAsset("QUJD"), cache, () => {});
 
     expect(cache.get("abcdef01")).toBe("QUJD");
-    expect(fetches).toEqual([]);
+    expect(fake.fetches).toEqual([]);
   });
 
   it("reports an asset the server cannot serve and renders the rest", async () => {
@@ -370,7 +386,7 @@ describe("the preview page", () => {
 
     await open();
 
-    expect(mounts).toHaveLength(1);
+    expect(fake.mounts).toHaveLength(1);
     expect([...document.querySelectorAll("#views option")].map((o) => o.textContent)).toEqual([
       "main",
       "settings",
@@ -384,7 +400,7 @@ describe("the preview page", () => {
     type(panelInput("player.gold"), "900");
 
     expect(panelPaths()).toEqual(["player.gold"]);
-    expect(mounts[0].handle.data).toEqual([["player.gold", 900]]);
+    expect(fake.mounts[0].handle.data).toEqual([["player.gold", 900]]);
     expect(page.values().get("player.gold")).toBe("900");
   });
 
@@ -400,7 +416,7 @@ describe("the preview page", () => {
     serve(GOLD);
     await open();
 
-    mounts[0].options.onDataChanged?.("player.gold", 850);
+    fake.mounts[0].options.onDataChanged?.("player.gold", 850);
 
     expect(panelInput("player.gold").value).toBe("850");
     expect(logLines()).toEqual(["player.gold = 850"]);
@@ -410,8 +426,8 @@ describe("the preview page", () => {
     serve(GOLD);
     await open();
 
-    mounts[0].options.onAction?.("buy", { path: "shop.items.3", index: 3 });
-    mounts[0].options.onAction?.("close");
+    fake.mounts[0].options.onAction?.("buy", { path: "shop.items.3", index: 3 });
+    fake.mounts[0].options.onAction?.("close");
 
     expect(logLines()).toEqual(["action: close", "buy → shop.items.3 (#3)"]);
   });
@@ -423,20 +439,20 @@ describe("the preview page", () => {
 
     await page.load();
 
-    expect(mounts).toHaveLength(1);
-    expect(mounts[0].handle.reloads).toHaveLength(1);
-    expect(mounts[0].handle.disposed).toBe(false);
+    expect(fake.mounts).toHaveLength(1);
+    expect(fake.mounts[0].handle.reloads).toHaveLength(1);
+    expect(fake.mounts[0].handle.disposed).toBe(false);
   });
 
   it("replays the data the panel is holding, so a reload does not blank the view", async () => {
     serve(GOLD);
     const page = await open();
     type(panelInput("player.gold"), "900");
-    mounts[0].handle.data.length = 0;
+    fake.mounts[0].handle.data.length = 0;
 
     await page.load();
 
-    expect(mounts[0].handle.data).toEqual([["player.gold", 900]]);
+    expect(fake.mounts[0].handle.data).toEqual([["player.gold", 900]]);
   });
 
   it("remounts on the view picker, and only then", async () => {
@@ -446,10 +462,10 @@ describe("the preview page", () => {
     const picker = document.getElementById("views") as HTMLSelectElement;
     picker.value = "settings";
     picker.dispatchEvent(new window.Event("change"));
-    await vi.waitFor(() => expect(mounts).toHaveLength(2));
+    await vi.waitFor(() => expect(fake.mounts).toHaveLength(2));
 
-    expect(mounts[1].options.view).toBe("settings");
-    expect(mounts[0].handle.disposed).toBe(true);
+    expect(fake.mounts[1].options.view).toBe("settings");
+    expect(fake.mounts[0].handle.disposed).toBe(true);
   });
 
   it("reloads when the server says the export landed", async () => {
@@ -457,7 +473,7 @@ describe("the preview page", () => {
     await open();
 
     push({ kind: "reload" });
-    await vi.waitFor(() => expect(mounts[0].handle.reloads).toHaveLength(1));
+    await vi.waitFor(() => expect(fake.mounts[0].handle.reloads).toHaveLength(1));
   });
 
   it("lights the status dot with the live connection", async () => {
@@ -465,16 +481,16 @@ describe("the preview page", () => {
     await open();
     const dot = document.getElementById("status");
 
-    stream?.onopen?.();
+    fake.stream?.onopen?.();
     expect(dot?.classList.contains("ok")).toBe(true);
 
-    stream?.onerror?.();
+    fake.stream?.onerror?.();
     expect(dot?.classList.contains("ok")).toBe(false);
   });
 
   it("reports an envelope the renderer refuses instead of stopping dead (ZAB-37)", async () => {
     serve(GOLD);
-    mountError = new Error("unsupported major version 2");
+    fake.mountError = new Error("unsupported major version 2");
 
     await open();
 
@@ -484,7 +500,7 @@ describe("the preview page", () => {
   it("says nothing until the first export lands", async () => {
     await open();
 
-    expect(mounts).toEqual([]);
+    expect(fake.mounts).toEqual([]);
     expect(logLines()).toEqual([]);
   });
 
@@ -500,7 +516,7 @@ describe("the preview page", () => {
     expect(overlay()).toBe("zabloo export: main.tsx\n  Unexpected token");
     expect(statusDot()).toContain("err");
     // What is on screen is the last good export; nothing was reloaded.
-    expect(mounts[0].handle.reloads).toEqual([]);
+    expect(fake.mounts[0].handle.reloads).toEqual([]);
   });
 
   it("takes the overlay down when an export lands again", async () => {
@@ -517,18 +533,18 @@ describe("the preview page", () => {
   it("remounts after a mount that threw, instead of reloading the view it disposed", async () => {
     serve({ ...GOLD, views: { ...GOLD.views, broken: { type: "Container" } } });
     await open();
-    const first = mounts[0].handle;
-    mountError = new Error("unsupported node");
+    const first = fake.mounts[0].handle;
+    fake.mountError = new Error("unsupported node");
 
     const picker = document.getElementById("views") as HTMLSelectElement;
     picker.value = "broken";
     picker.dispatchEvent(new window.Event("change"));
     await vi.waitFor(() => expect(overlay()).toContain("unsupported node"));
 
-    mountError = null;
+    fake.mountError = null;
     push({ kind: "reload" });
 
-    await vi.waitFor(() => expect(mounts).toHaveLength(2));
+    await vi.waitFor(() => expect(fake.mounts).toHaveLength(2));
     // The handle the failed mount left behind was disposed: reloading THAT is the
     // bug, and a fresh mount is the only way back.
     expect(first.disposed).toBe(true);
@@ -545,7 +561,7 @@ describe("the preview page", () => {
     serve(GOLD);
     await open();
 
-    mounts[0].options.onDiagnostic?.({
+    fake.mounts[0].options.onDiagnostic?.({
       level: "warn",
       code: "unknown-token",
       path: 'views["main"].style.background',
@@ -565,7 +581,7 @@ describe("the preview page", () => {
     serve(GOLD);
     await open();
 
-    mounts[0].options.onDiagnostic?.({
+    fake.mounts[0].options.onDiagnostic?.({
       level: "fatal",
       code: "unsupported-version",
       path: "",
@@ -578,7 +594,7 @@ describe("the preview page", () => {
 
   it("reports a refused envelope once, by its code and not by the exception too", async () => {
     serve(GOLD);
-    mountError = Object.assign(new Error("unsupported major version 2"), {});
+    fake.mountError = Object.assign(new Error("unsupported major version 2"), {});
     // A real mount reports through the sink and THEN throws; the page must not
     // say the same thing twice.
     vi.stubGlobal("ZablooRenderer", {
@@ -589,7 +605,7 @@ describe("the preview page", () => {
           path: "",
           message: "unsupported major version 2",
         });
-        throw mountError;
+        throw fake.mountError;
       },
     });
 
@@ -610,24 +626,27 @@ describe("the preview page", () => {
     serve({ ...GOLD, views: { ...GOLD.views, settings: { type: "Container" } } });
     await page.load();
 
-    expect(mounts).toHaveLength(1); // hot-swapped, not remounted
+    expect(fake.mounts).toHaveLength(1); // hot-swapped, not remounted
     expect([...picker.options].map((option) => option.value)).toEqual(["main", "settings"]);
   });
 
   it("shows the gamepad badge only while a pad is connected (ZAB-47)", async () => {
-    let pads: Array<{ connected: boolean } | null> = [];
-    Object.defineProperty(navigator, "getGamepads", { value: () => pads, configurable: true });
+    const pad: { connected: Array<{ connected: boolean } | null> } = { connected: [] };
+    Object.defineProperty(navigator, "getGamepads", {
+      value: () => pad.connected,
+      configurable: true,
+    });
     serve(GOLD);
     await open();
     const badge = document.getElementById("pad");
 
     expect(badge?.classList.contains("off")).toBe(true);
 
-    pads = [{ connected: true }];
+    pad.connected = [{ connected: true }];
     window.dispatchEvent(new window.Event("gamepadconnected"));
     expect(badge?.classList.contains("off")).toBe(false);
 
-    pads = [null];
+    pad.connected = [null];
     window.dispatchEvent(new window.Event("gamepaddisconnected"));
     expect(badge?.classList.contains("off")).toBe(true);
   });
@@ -757,7 +776,7 @@ describe("the viewport picker", () => {
     await open();
     pick("1280x720");
 
-    client?.stop();
+    fake.client?.stop();
     document.body.innerHTML = PREVIEW_BODY;
     await open();
 
@@ -771,7 +790,7 @@ describe("the dpr picker", () => {
     serve(GOLD);
     await open();
 
-    expect(mounts[0].options.dpr).toBeUndefined();
+    expect(fake.mounts[0].options.dpr).toBeUndefined();
   });
 
   it("remounts at the forced ratio — the atlases are rasterized at it", async () => {
@@ -783,10 +802,10 @@ describe("the dpr picker", () => {
     picker.dispatchEvent(new window.Event("change"));
     await settle();
 
-    expect(mounts.length).toBeGreaterThan(1);
-    expect(mounts.at(-1)?.options.dpr).toBe(2);
+    expect(fake.mounts.length).toBeGreaterThan(1);
+    expect(fake.mounts.at(-1)?.options.dpr).toBe(2);
     // A remount, not a reload: the previous view had to be thrown away.
-    expect(mounts[0].handle.disposed).toBe(true);
+    expect(fake.mounts[0].handle.disposed).toBe(true);
   });
 });
 
@@ -857,7 +876,7 @@ describe("the stats badge", () => {
 
     // The renderer paints on demand, so only it knows when it drew. This is the
     // callback it reports through.
-    const onFrame = mounts[0].options.onFrame;
+    const onFrame = fake.mounts[0].options.onFrame;
     expect(onFrame).toBeTypeOf("function");
     onFrame?.({
       drawCalls: 9,
@@ -884,7 +903,7 @@ describe("the stats badge", () => {
     await open();
     toggle().click();
 
-    client?.stop();
+    fake.client?.stop();
     document.body.innerHTML = PREVIEW_BODY;
     await open();
 
