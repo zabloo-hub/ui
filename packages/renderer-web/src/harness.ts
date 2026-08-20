@@ -229,24 +229,25 @@ async function mountGolden(
 
   const actions: FiredAction[] = [];
   const writes: DataWrite[] = [];
-  let handle: ZablooHandle;
-  try {
-    handle = mount(canvas as unknown as HTMLCanvasElement, envelope, {
-      view: options.view,
-      onAction: (action, context) => actions.push(context ? { action, context } : { action }),
-      onDataChanged: (path, value) => writes.push({ path, value }),
-      ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
-      ...(options.dpr !== undefined && { dpr: options.dpr }),
-      ...(options.onFrame && { onFrame: options.onFrame }),
-    });
-  } catch (error) {
-    // A payload the loader REFUSES never becomes a view, so there is no handle
-    // to dispose and nobody to take the page down (ZAB-74). Left installed, the
-    // stand-in `document` and the hijacked console would outlive this call and
-    // land on whatever test ran next.
-    if (shared === null) dom.uninstall();
-    throw error;
-  }
+  const handle = ((): ZablooHandle => {
+    try {
+      return mount(canvas as unknown as HTMLCanvasElement, envelope, {
+        view: options.view,
+        onAction: (action, context) => actions.push(context ? { action, context } : { action }),
+        onDataChanged: (path, value) => writes.push({ path, value }),
+        ...(options.onDiagnostic && { onDiagnostic: options.onDiagnostic }),
+        ...(options.dpr !== undefined && { dpr: options.dpr }),
+        ...(options.onFrame && { onFrame: options.onFrame }),
+      });
+    } catch (error) {
+      // A payload the loader REFUSES never becomes a view, so there is no handle
+      // to dispose and nobody to take the page down (ZAB-74). Left installed, the
+      // stand-in `document` and the hijacked console would outlive this call and
+      // land on whatever test ran next.
+      if (shared === null) dom.uninstall();
+      throw error;
+    }
+  })();
 
   // The first frames measured text with the browser's rasterizer; from here on
   // they are measured with ours, which is the one the corpus is a record of.

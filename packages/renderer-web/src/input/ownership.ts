@@ -23,19 +23,20 @@ interface InputView {
 
 /** Mounted views, in mount order — the head is the default owner. */
 const views: InputView[] = [];
-let owner: InputView | null = null;
+/** Who owns input right now. A slot: this module IS the process-wide singleton. */
+const current: { owner: InputView | null } = { owner: null };
 
 /** A view that has just mounted. The first one to arrive owns input. */
 function registerView(view: InputView): void {
   views.push(view);
-  if (owner === null) setOwner(view);
+  if (current.owner === null) setOwner(view);
 }
 
 /** A view that has been disposed: ownership falls back to the oldest one left. */
 function unregisterView(view: InputView): void {
   const index = views.indexOf(view);
   if (index >= 0) views.splice(index, 1);
-  if (owner === view) setOwner(views[0] ?? null);
+  if (current.owner === view) setOwner(views[0] ?? null);
 }
 
 /**
@@ -43,12 +44,12 @@ function unregisterView(view: InputView): void {
  * keyboard and the pad. A view that is not mounted claims nothing.
  */
 function claimInput(view: InputView): void {
-  if (owner === view || !views.includes(view)) return;
+  if (current.owner === view || !views.includes(view)) return;
   setOwner(view);
 }
 
 function ownsInput(view: InputView): boolean {
-  return owner === view;
+  return current.owner === view;
 }
 
 /**
@@ -56,8 +57,8 @@ function ownsInput(view: InputView): boolean {
  * losing input has to stop its loop before the one taking it starts.
  */
 function setOwner(next: InputView | null): void {
-  const previous = owner;
-  owner = next;
+  const previous = current.owner;
+  current.owner = next;
   previous?.syncPad();
   next?.syncPad();
 }
