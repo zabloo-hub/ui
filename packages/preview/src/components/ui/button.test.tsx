@@ -37,14 +37,15 @@ describe("Button", () => {
     expect(screen.getByText("Trigger")).toHaveClass("h-[28px]");
     expect(screen.getByText("Icon")).toHaveClass("size-[28px]");
     expect(screen.getByText("Zen")).toHaveClass("size-[26px]", "rounded-full");
-    expect(screen.getByText("Set")).toHaveClass("text-[11px]", "rounded-[5px]");
+    expect(screen.getByText("Set")).toHaveClass("text-caption", "rounded-sm");
   });
 
-  it("carries the design's focus ring instead of shadcn's ring-offset", () => {
+  it("wears V2's focus ring, not shadcn's ring-offset", () => {
     render(<Button>Focus</Button>);
 
     const button = screen.getByText("Focus");
-    expect(button).toHaveClass("focus-visible:border-[var(--indigo)]");
+    expect(button).toHaveClass("focus-visible:focus-ring");
+    // The offset would leave a gap of page background between border and halo.
     expect(button.className).not.toMatch(/ring-offset/);
   });
 
@@ -60,7 +61,7 @@ describe("Button", () => {
       "aria-pressed:bg-accent",
     );
     expect(screen.getByText("Zen")).toHaveAttribute("data-active", "true");
-    expect(screen.getByText("Zen")).toHaveClass("data-active:bg-[var(--indigo-soft)]");
+    expect(screen.getByText("Zen")).toHaveClass("data-active:bg-indigo-soft");
   });
 
   it("renders as its child under asChild, keeping the variant", () => {

@@ -63,9 +63,3 @@ export {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-export {
-  controlShadow,
-  focusRing,
-  focusRingInset,
-  focusRingWithin,
-} from "@/components/ui/variants";

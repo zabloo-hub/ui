@@ -1,7 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { Tabs as TabsPrimitive } from "radix-ui";
 import type * as React from "react";
-import { focusRing } from "@/components/ui/variants";
 import { cn } from "@/lib/utils";
 
 /**
@@ -31,7 +30,7 @@ function Tabs({ className, ...props }: React.ComponentProps<typeof TabsPrimitive
 const tabsListVariants = cva("inline-flex w-fit items-center", {
   variants: {
     variant: {
-      pill: "gap-[2px] rounded-[8px] bg-muted p-[3px]",
+      pill: "gap-[2px] rounded-lg bg-muted p-[3px]",
     },
   },
   defaultVariants: {
@@ -60,11 +59,11 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
       data-slot="tabs-trigger"
       className={cn(
         "inline-flex w-fit shrink-0 items-center justify-center gap-[6px] whitespace-nowrap",
-        "rounded-[6px] border border-transparent px-[12px] py-[3px]",
-        "text-[12px] leading-[1.5] font-medium text-muted-foreground transition-colors",
+        "rounded-md border border-transparent px-[12px] py-[3px]",
+        "text-ui leading-[1.5] font-medium text-muted-foreground transition-colors",
         "hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
-        "data-active:bg-card data-active:text-foreground data-active:shadow-[var(--shadow-tab)]",
-        focusRing,
+        "data-active:bg-card data-active:text-foreground data-active:shadow-tab",
+        "focus-visible:focus-ring",
         className,
       )}
       {...props}

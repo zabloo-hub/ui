@@ -26,10 +26,10 @@ describe("Tabs", () => {
   it("is a pill track with a raised card on the active tab", () => {
     render(<ConsoleTabs />);
 
-    expect(screen.getByRole("tablist")).toHaveClass("bg-muted", "rounded-[8px]", "p-[3px]");
+    expect(screen.getByRole("tablist")).toHaveClass("bg-muted", "rounded-lg", "p-[3px]");
     expect(screen.getByRole("tab", { name: "Actions" })).toHaveClass(
       "data-active:bg-card",
-      "data-active:shadow-[var(--shadow-tab)]",
+      "data-active:shadow-tab",
     );
   });
 

@@ -1,7 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
 import * as React from "react";
-import { controlShadow, focusRingInset } from "@/components/ui/variants";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,9 +11,8 @@ import { cn } from "@/lib/utils";
  * later that wants separate buttons.
  *
  * `border-l` on every item but the first draws the dividers, which means the
- * items must not be rounded and the box must clip them; that clipping is also
- * why the focus ring goes inwards here ({@link focusRingInset}) instead of
- * haloing outwards like it does everywhere else.
+ * items must not be rounded and the box must clip them. That is also why this is
+ * the one primitive that does not wear V2's `focus-ring`: see the note below.
  *
  * The mockup writes the segments at 5px 8px in the topbar and 5px 9px in the kit
  * (artboards 1a and 1e); ZAB-84 fixes 9.
@@ -24,9 +22,8 @@ const toggleGroupVariants = cva("flex w-fit items-center", {
     variant: {
       default: "gap-1",
       segmented: cn(
-        "overflow-hidden rounded-[6px] border border-border",
+        "overflow-hidden rounded-md border border-border shadow-control",
         "data-vertical:flex-col data-vertical:items-stretch",
-        controlShadow,
       ),
     },
   },
@@ -44,18 +41,22 @@ const toggleGroupItemVariants = cva(
     variants: {
       variant: {
         default: cn(
-          "rounded-[6px] border border-transparent px-[10px] py-[5px] text-[12px] font-medium",
+          "rounded-md border border-transparent px-[10px] py-[5px] text-ui font-medium",
           "text-muted-foreground hover:bg-accent data-[state=on]:bg-muted",
           "data-[state=on]:font-medium data-[state=on]:text-foreground",
         ),
         segmented: cn(
-          "border-border border-l px-[9px] py-[5px] text-[11.5px] first:border-l-0",
+          "border-border border-l px-[9px] py-[5px] text-log first:border-l-0",
           "text-muted-foreground hover:bg-accent",
           // No shadow and no lift on the active segment: the box already has one,
           // and a second one inside it reads as a bug.
           "data-[state=on]:bg-muted data-[state=on]:font-medium data-[state=on]:text-foreground",
           "data-vertical:border-t data-vertical:border-l-0 data-vertical:first:border-t-0",
-          focusRingInset,
+          // Not V2's `focus-ring`: it thickens all four borders (these items have
+          // one edge) and its halo is an outline the box would clip. Same colour,
+          // drawn inwards.
+          "outline-none focus-visible:outline-[1.5px] focus-visible:outline-indigo",
+          "focus-visible:-outline-offset-[1.5px]",
         ),
       },
     },

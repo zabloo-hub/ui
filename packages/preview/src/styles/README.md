@@ -53,6 +53,7 @@ manual and the choice is persisted.
 | log `view` | = muted | = muted | — | `text-muted-foreground` |
 | brand gradient | `135deg, #818cf8 → #4f46e5` | `135deg, #a5b0fc → #6366f1` | `--brand-gradient` | `brand-gradient` |
 | switch on | `#4f46e5` | `#6366f1` | `--switch-on` | `bg-switch-on` |
+| switch thumb, off | `#ffffff` | `#a1a1aa` | `--switch-thumb-off` | `bg-switch-thumb-off` |
 | stale veil | `rgba(246,246,248,.55)` | `rgba(9,9,11,.55)` | `--veil` | `bg-veil` |
 | zen pill bg | `rgba(255,255,255,.88)` | `rgba(24,24,27,.88)` | `--glass` | `bg-glass` |
 

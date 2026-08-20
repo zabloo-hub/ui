@@ -73,6 +73,10 @@
 
   --brand-gradient: linear-gradient(135deg, #818cf8, #4f46e5);
   --switch-on: #4f46e5;
+  /* The switch thumb when off. White in light, and the one value the design does
+     NOT take from a token in dark: the artboard paints it #a1a1aa with the drop
+     shadow removed, so a `--border`-coloured track keeps a visible thumb (ZAB-84). */
+  --switch-thumb-off: #ffffff;
   --veil: rgba(246, 246, 248, 0.55);
   --glass: rgba(255, 255, 255, 0.88);
 
@@ -149,6 +153,7 @@
 
   --brand-gradient: linear-gradient(135deg, #a5b0fc, #6366f1);
   --switch-on: #6366f1;
+  --switch-thumb-off: #a1a1aa;
   --veil: rgba(9, 9, 11, 0.55);
   --glass: rgba(24, 24, 27, 0.88);
 

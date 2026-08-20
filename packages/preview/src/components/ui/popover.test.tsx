@@ -14,11 +14,7 @@ describe("Popover", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Steam Deck" }));
-    expect(screen.getByText("presets")).toHaveClass(
-      "rounded-[8px]",
-      "p-[6px]",
-      "shadow-[var(--shadow-menu)]",
-    );
+    expect(screen.getByText("presets")).toHaveClass("rounded-lg", "p-[6px]", "shadow-menu");
   });
 
   it("lets an input inside it keep the typing", async () => {

@@ -34,7 +34,7 @@ describe("Tooltip", () => {
     await user.hover(screen.getByRole("button", { name: "gamepad" }));
     const tooltip = await screen.findByRole("tooltip");
 
-    expect(tooltip).toHaveClass("bg-zinc-950", "text-zinc-100", "text-[11px]", "rounded-[6px]");
+    expect(tooltip).toHaveClass("bg-zinc-950", "text-zinc-100", "text-caption", "rounded-md");
     // `--foreground`/`--background` would flip with `.dark`; this must not.
     expect(tooltip.className).not.toMatch(/bg-foreground|text-background/);
   });

@@ -70,7 +70,7 @@ function NumberInput({
         data-slot="number-input-field"
         className={cn(
           "h-full min-w-0 flex-1 border-0 bg-transparent px-[10px] outline-none",
-          "font-mono text-[12px] text-foreground placeholder:text-muted-foreground",
+          "font-mono text-ui text-foreground placeholder:text-muted-foreground",
           "disabled:pointer-events-none disabled:opacity-50",
           // The native spinner would sit exactly where our stepper is.
           "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none",
@@ -142,7 +142,7 @@ function NumberInputStep({
       aria-label={label}
       className={cn(
         "flex flex-1 items-center justify-center px-[7px] py-px",
-        "text-[8px] leading-[1.2] text-muted-foreground transition-colors",
+        "text-micro leading-[1.2] text-muted-foreground transition-colors",
         "hover:bg-accent disabled:pointer-events-none disabled:opacity-50",
         className,
       )}

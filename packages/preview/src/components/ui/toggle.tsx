@@ -1,7 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { Toggle as TogglePrimitive } from "radix-ui";
 import type * as React from "react";
-import { focusRing } from "@/components/ui/variants";
 import { cn } from "@/lib/utils";
 
 /**
@@ -16,20 +15,20 @@ import { cn } from "@/lib/utils";
 const toggleVariants = cva(
   cn(
     "inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap",
-    "rounded-[6px] border border-transparent px-[10px] py-[5px]",
-    "text-[12px] leading-[1.5] font-medium transition-colors",
+    "rounded-md border border-transparent px-[10px] py-[5px]",
+    "text-ui leading-[1.5] font-medium transition-colors",
     "disabled:pointer-events-none disabled:opacity-50",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[14px]",
-    focusRing,
+    "focus-visible:focus-ring",
   ),
   {
     variants: {
       variant: {
         outline: cn(
-          "border-border text-[var(--text-secondary)] hover:bg-accent",
-          "data-[state=on]:border-[var(--indigo-soft-border)]",
-          "data-[state=on]:bg-[var(--indigo-soft)] data-[state=on]:text-[var(--indigo)]",
-          "data-[state=on]:hover:bg-[var(--indigo-soft)]",
+          "border-border text-subtle hover:bg-accent",
+          "data-[state=on]:border-indigo-soft-border",
+          "data-[state=on]:bg-indigo-soft data-[state=on]:text-indigo",
+          "data-[state=on]:hover:bg-indigo-soft",
         ),
       },
     },

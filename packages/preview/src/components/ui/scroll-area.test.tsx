@@ -7,7 +7,7 @@ describe("ScrollArea", () => {
 
     const viewport = container.querySelector('[data-slot="scroll-area-viewport"]');
     expect(viewport).toContainElement(screen.getByText(/loaded → controls/));
-    expect(viewport).toHaveClass("focus-visible:border-[var(--indigo)]");
+    expect(viewport).toHaveClass("focus-visible:focus-ring");
   });
 
   it("thins the scrollbar to match an 11.5px log", () => {

@@ -11,12 +11,9 @@ describe("Badge", () => {
       </>,
     );
 
-    expect(screen.getByText("Live")).toHaveClass("bg-[var(--ok-bg)]", "text-[var(--ok-fg)]");
-    expect(screen.getByText("Stale")).toHaveClass("bg-[var(--warn-bg)]", "text-[var(--warn-fg)]");
-    expect(screen.getByText("Disconnected")).toHaveClass(
-      "bg-[var(--danger-bg)]",
-      "text-[var(--danger-fg)]",
-    );
+    expect(screen.getByText("Live")).toHaveClass("bg-ok-bg", "text-ok-fg");
+    expect(screen.getByText("Stale")).toHaveClass("bg-warn-bg", "text-warn-fg");
+    expect(screen.getByText("Disconnected")).toHaveClass("bg-danger-bg", "text-danger-fg");
   });
 
   it("hands the dot its colour through the pill, so the pair cannot drift", () => {
@@ -46,10 +43,10 @@ describe("Badge", () => {
       </>,
     );
 
-    expect(screen.getByText("3")).toHaveClass("text-[9.5px]", "rounded-full");
-    expect(screen.getByText("60 fps")).toHaveClass("text-[10.5px]", "font-mono", "rounded-[5px]");
-    expect(screen.getByText("number")).toHaveClass("text-[9.5px]", "rounded-[4px]", "border");
-    expect(screen.getByText("← UI")).toHaveClass("bg-[var(--indigo-chip)]", "text-[var(--indigo)]");
+    expect(screen.getByText("3")).toHaveClass("text-tag", "rounded-full");
+    expect(screen.getByText("60 fps")).toHaveClass("text-code", "font-mono", "rounded-sm");
+    expect(screen.getByText("number")).toHaveClass("text-tag", "rounded-xs", "border");
+    expect(screen.getByText("← UI")).toHaveClass("bg-indigo-chip", "text-indigo");
   });
 
   it("fixes both severity chips at the same padding", () => {

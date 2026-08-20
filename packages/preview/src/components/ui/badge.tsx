@@ -21,42 +21,41 @@ const badgeVariants = cva("inline-flex w-fit shrink-0 items-center whitespace-no
     variant: {
       /** Connection pills. Padding is asymmetric: the dot needs less room than the text. */
       live: cn(
-        "gap-1.5 rounded-full border py-[3px] pr-[10px] pl-[8px] text-[12px] font-medium",
-        "border-[var(--ok-border)] bg-[var(--ok-bg)] text-[var(--ok-fg)] [--badge-dot:var(--ok)]",
+        "gap-1.5 rounded-full border py-[3px] pr-[10px] pl-[8px] text-ui font-medium",
+        "border-ok-border bg-ok-bg text-ok-fg [--badge-dot:var(--ok)]",
       ),
       stale: cn(
-        "gap-1.5 rounded-full border py-[3px] pr-[10px] pl-[8px] text-[12px] font-medium",
-        "border-[var(--warn-border)] bg-[var(--warn-bg)] text-[var(--warn-fg)] [--badge-dot:var(--warn)]",
+        "gap-1.5 rounded-full border py-[3px] pr-[10px] pl-[8px] text-ui font-medium",
+        "border-warn-border bg-warn-bg text-warn-fg [--badge-dot:var(--warn)]",
       ),
       disconnected: cn(
-        "gap-1.5 rounded-full border py-[3px] pr-[10px] pl-[8px] text-[12px] font-medium",
-        "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-fg)]",
+        "gap-1.5 rounded-full border py-[3px] pr-[10px] pl-[8px] text-ui font-medium",
+        "border-danger-border bg-danger-bg text-danger-fg",
         "[--badge-dot:var(--danger)]",
       ),
       /** The problem count on the Problems tab. White on red in both themes. */
-      count: "rounded-full bg-[var(--danger)] px-[6px] py-px text-[9.5px] font-semibold text-white",
+      count: "rounded-full bg-danger px-[6px] py-px text-tag font-semibold text-white",
       /** The fps readout in the statusbar. */
       "mono-chip":
-        "rounded-[5px] border border-border px-[7px] py-[2px] font-mono text-[10.5px] text-muted-foreground",
+        "rounded-sm border border-border px-[7px] py-[2px] font-mono text-code text-muted-foreground",
       /** `number`, `string`, `boolean`, `array(4)` next to a binding path. */
-      "type-tag":
-        "rounded-[4px] border border-border px-[5px] py-px text-[9.5px] text-muted-foreground",
+      "type-tag": "rounded-xs border border-border px-[5px] py-px text-tag text-muted-foreground",
       /** `← UI`: the canvas wrote this value back. */
       "ui-chip": cn(
-        "rounded-[4px] bg-[var(--indigo-chip)] px-[5px] py-px",
-        "font-mono text-[9.5px] font-medium text-[var(--indigo)]",
+        "rounded-xs bg-indigo-chip px-[5px] py-px",
+        "font-mono text-tag font-medium text-indigo",
       ),
       /**
        * Diagnostic severity. The mockup draws 1px 6px in artboard 1b and 2px 7px
        * in 1e for the same chip; ZAB-84 fixes it at 1px 6px.
        */
       "severity-fatal": cn(
-        "rounded-[4px] bg-[var(--danger-bg)] px-[6px] py-px",
-        "font-mono text-[9.5px] font-medium text-[var(--danger-fg)]",
+        "rounded-xs bg-danger-bg px-[6px] py-px",
+        "font-mono text-tag font-medium text-danger-fg",
       ),
       "severity-warn": cn(
-        "rounded-[4px] bg-[var(--warn-bg)] px-[6px] py-px",
-        "font-mono text-[9.5px] font-medium text-[var(--warn-fg)]",
+        "rounded-xs bg-warn-bg px-[6px] py-px",
+        "font-mono text-tag font-medium text-warn-fg",
       ),
     },
   },

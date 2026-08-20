@@ -1,30 +1,29 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
-import { controlShadow, focusRing, focusRingWithin } from "@/components/ui/variants";
 import { cn } from "@/lib/utils";
 
 /**
  * A 28px input in Geist Mono — every value this chrome edits is data (a path's
  * value, a resolution), so mono is the default and not an override.
  *
- * The interesting part is the focus state. The mockup draws a focused input as
- * 27px tall with a 1.5px border, because it is compensating by hand for the
- * border growing; here the ring is painted INSIDE the box instead
- * ({@link focusRing}) so the control keeps its 28px and nothing around it moves.
+ * Focus is V2's `focus-ring` utility. The mockup draws a focused input as 27px
+ * tall with a 1.5px border because it is compensating by hand for the border
+ * growing; nothing here has to, since `border-box` spends the extra half pixel
+ * on the content and the control stays 28px.
  */
 const inputVariants = cva(
   cn(
-    "w-full min-w-0 rounded-[6px] border border-border bg-card",
+    "w-full min-w-0 rounded-md border border-border bg-card",
     "font-mono text-foreground transition-colors placeholder:text-muted-foreground",
     "disabled:pointer-events-none disabled:opacity-50",
-    controlShadow,
+    "shadow-control",
   ),
   {
     variants: {
       size: {
-        default: "h-[28px] px-[10px] text-[12px]",
+        default: "h-[28px] px-[10px] text-ui",
         /** The W×H pair in the viewport picker's custom row. */
-        xs: "w-[44px] rounded-[5px] px-[6px] py-[3px] text-center text-[11px]",
+        xs: "w-[44px] rounded-sm px-[6px] py-[3px] text-center text-caption",
       },
     },
     defaultVariants: {
@@ -44,7 +43,7 @@ function Input({
       type={type}
       data-slot="input"
       data-size={size}
-      className={cn(inputVariants({ size }), focusRing, className)}
+      className={cn(inputVariants({ size }), "focus-visible:focus-ring", className)}
       {...props}
     />
   );
@@ -67,8 +66,7 @@ function InputFrame({
       data-size={size}
       className={cn(
         inputVariants({ size }),
-        "flex items-center overflow-hidden",
-        focusRingWithin,
+        "flex items-center overflow-hidden focus-within:focus-ring",
         className,
       )}
       {...props}

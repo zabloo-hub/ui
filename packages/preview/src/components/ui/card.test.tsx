@@ -10,12 +10,8 @@ describe("Card", () => {
       </>,
     );
 
-    expect(screen.getByText("panel")).toHaveClass(
-      "rounded-[10px]",
-      "shadow-[var(--shadow-panel)]",
-      "border",
-    );
-    expect(screen.getByText("json")).toHaveClass("rounded-[8px]");
+    expect(screen.getByText("panel")).toHaveClass("rounded-xl", "shadow-panel", "border");
+    expect(screen.getByText("json")).toHaveClass("rounded-lg");
     expect(screen.getByText("json").className).not.toMatch(/shadow-\[var\(--shadow-panel\)\]/);
   });
 
@@ -29,7 +25,7 @@ describe("Card", () => {
       </Card>,
     );
 
-    expect(screen.getByText("Data bindings")).toHaveClass("text-[12px]", "font-semibold");
+    expect(screen.getByText("Data bindings")).toHaveClass("text-ui", "font-semibold");
     expect(screen.getByText("fields")).toHaveClass("px-[14px]", "py-[12px]");
   });
 });

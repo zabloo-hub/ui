@@ -40,8 +40,8 @@ function DropdownMenuGroup(props: React.ComponentProps<typeof DropdownMenuPrimit
  * primitive, so each content component adds its own below.
  */
 const menuSurface = cn(
-  "z-50 flex flex-col gap-px overflow-y-auto rounded-[8px] border border-border",
-  "bg-popover p-[6px] text-popover-foreground shadow-[var(--shadow-menu)] duration-100",
+  "z-50 flex flex-col gap-px overflow-y-auto rounded-lg border border-border",
+  "bg-popover p-[6px] text-popover-foreground shadow-menu duration-100",
   "data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95",
   "data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
 );
@@ -78,18 +78,18 @@ function DropdownMenuContent({
 const dropdownMenuItemVariants = cva(
   cn(
     "group/dropdown-menu-item relative flex cursor-default select-none items-center gap-1.5",
-    "rounded-[6px] px-[9px] py-[5px] text-[var(--text-secondary)] outline-hidden transition-colors",
+    "rounded-md px-[9px] py-[5px] text-subtle outline-hidden transition-colors",
     "focus:bg-accent focus:text-foreground",
-    "data-active:bg-[var(--indigo-soft)] data-active:font-medium data-active:text-[var(--indigo)]",
+    "data-active:bg-indigo-soft data-active:font-medium data-active:text-indigo",
     "data-disabled:pointer-events-none data-disabled:opacity-50",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[14px]",
   ),
   {
     variants: {
       size: {
-        default: "text-[12px]",
+        default: "text-ui",
         /** The view selector runs half a point larger than the rest of the chrome. */
-        lg: "text-[12.5px]",
+        lg: "text-item",
       },
     },
     defaultVariants: {
@@ -123,8 +123,8 @@ function DropdownMenuValue({ className, ...props }: React.ComponentProps<"span">
     <span
       data-slot="dropdown-menu-value"
       className={cn(
-        "ml-auto pl-4 font-mono text-[11px] font-normal text-muted-foreground",
-        "group-data-active/dropdown-menu-item:text-[var(--indigo-foreground)]",
+        "ml-auto pl-4 font-mono text-caption font-normal text-muted-foreground",
+        "group-data-active/dropdown-menu-item:text-indigo-foreground",
         className,
       )}
       {...props}
@@ -137,7 +137,7 @@ function DropdownMenuDot({ className, ...props }: React.ComponentProps<"span">) 
   return (
     <span
       data-slot="dropdown-menu-dot"
-      className={cn("ml-auto size-[6px] shrink-0 rounded-full bg-[var(--danger)]", className)}
+      className={cn("ml-auto size-[6px] shrink-0 rounded-full bg-danger", className)}
       {...props}
     />
   );
@@ -151,7 +151,7 @@ function DropdownMenuLabel({
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
       className={cn(
-        "px-[9px] py-[5px] text-[10px] font-semibold tracking-[.09em] text-muted-foreground uppercase",
+        "px-[9px] py-[5px] text-label font-semibold tracking-[.09em] text-muted-foreground uppercase",
         className,
       )}
       {...props}

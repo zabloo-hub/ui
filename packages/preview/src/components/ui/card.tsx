@@ -16,9 +16,9 @@ const cardVariants = cva("flex min-w-0 flex-col overflow-hidden border border-bo
   variants: {
     variant: {
       /** The bindings panel, over the stage. */
-      floating: "rounded-[10px] shadow-[var(--shadow-panel)]",
+      floating: "rounded-xl shadow-panel",
       /** The JSON editor, inside it. */
-      inset: "rounded-[8px]",
+      inset: "rounded-lg",
     },
   },
   defaultVariants: {
@@ -56,7 +56,7 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
 
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div data-slot="card-title" className={cn("text-[12px] font-semibold", className)} {...props} />
+    <div data-slot="card-title" className={cn("text-ui font-semibold", className)} {...props} />
   );
 }
 
@@ -64,7 +64,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-description"
-      className={cn("text-[10.5px] text-muted-foreground", className)}
+      className={cn("text-code text-muted-foreground", className)}
       {...props}
     />
   );

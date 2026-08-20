@@ -77,6 +77,7 @@
   --color-log-action: var(--log-action);
 
   --color-switch-on: var(--switch-on);
+  --color-switch-thumb-off: var(--switch-thumb-off);
   --color-veil: var(--veil);
   --color-glass: var(--glass);
 }

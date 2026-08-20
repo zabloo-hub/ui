@@ -21,9 +21,9 @@ describe("Toggle", () => {
 
     const toggle = screen.getByRole("button");
     expect(toggle).toHaveClass(
-      "data-[state=on]:bg-[var(--indigo-soft)]",
-      "data-[state=on]:text-[var(--indigo)]",
-      "data-[state=on]:border-[var(--indigo-soft-border)]",
+      "data-[state=on]:bg-indigo-soft",
+      "data-[state=on]:text-indigo",
+      "data-[state=on]:border-indigo-soft-border",
     );
     // Outline-off is flat: the design keeps the trigger shadow for triggers.
     expect(toggle.className).not.toMatch(/shadow-\[var\(--shadow-control\)\]/);

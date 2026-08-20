@@ -1,6 +1,5 @@
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
 import type * as React from "react";
-import { focusRing } from "@/components/ui/variants";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,7 +21,7 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className={cn("size-full rounded-[inherit] border border-transparent", focusRing)}
+        className={"size-full rounded-[inherit] border border-transparent focus-visible:focus-ring"}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

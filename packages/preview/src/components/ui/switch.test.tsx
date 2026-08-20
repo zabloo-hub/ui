@@ -31,12 +31,12 @@ describe("Switch", () => {
     );
   });
 
-  it("asks V2 for the dark off-thumb rather than writing one", () => {
+  it("takes the off thumb from the token this branch added to V2", () => {
     const { container } = render(<Switch aria-label="off" />);
 
-    // ZAB-83 owes us `--switch-thumb-off`; no literal fallback lives here on purpose.
+    // `--switch-thumb-off`: white in light, #a1a1aa in dark. Not a colour in here.
     expect(container.querySelector('[data-slot="switch-thumb"]')).toHaveClass(
-      "dark:data-unchecked:bg-[var(--switch-thumb-off)]",
+      "data-unchecked:bg-switch-thumb-off",
     );
   });
 

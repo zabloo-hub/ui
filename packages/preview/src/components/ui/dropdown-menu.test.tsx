@@ -48,16 +48,11 @@ describe("DropdownMenu", () => {
     render(<ViewSelector />);
     await user.click(screen.getByRole("button", { name: "controls" }));
 
-    expect(screen.getByRole("menu")).toHaveClass(
-      "rounded-[8px]",
-      "p-[6px]",
-      "gap-px",
-      "shadow-[var(--shadow-menu)]",
-    );
+    expect(screen.getByRole("menu")).toHaveClass("rounded-lg", "p-[6px]", "gap-px", "shadow-menu");
     expect(screen.getByRole("menuitem", { name: "layout" })).toHaveClass(
       "px-[9px]",
       "py-[5px]",
-      "rounded-[6px]",
+      "rounded-md",
     );
   });
 
@@ -76,10 +71,7 @@ describe("DropdownMenu", () => {
     await user.click(screen.getByRole("button", { name: "controls" }));
 
     const active = screen.getAllByRole("menuitem").find((item) => item.dataset.active === "true");
-    expect(active).toHaveClass(
-      "data-active:bg-[var(--indigo-soft)]",
-      "data-active:text-[var(--indigo)]",
-    );
+    expect(active).toHaveClass("data-active:bg-indigo-soft", "data-active:text-indigo");
     expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
   });
 
@@ -88,9 +80,9 @@ describe("DropdownMenu", () => {
     render(<ViewSelector />);
     await user.click(screen.getByRole("button", { name: "controls" }));
 
-    expect(screen.getByText("1280×800")).toHaveClass("ml-auto", "font-mono", "text-[11px]");
+    expect(screen.getByText("1280×800")).toHaveClass("ml-auto", "font-mono", "text-caption");
     const dot = screen.getByRole("menuitem", { name: "overlays" }).querySelector("span");
-    expect(dot).toHaveClass("size-[6px]", "bg-[var(--danger)]");
+    expect(dot).toHaveClass("size-[6px]", "bg-danger");
   });
 
   it("walks the menu with the arrow keys", async () => {

@@ -1,7 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import type * as React from "react";
-import { controlShadow, focusRing } from "@/components/ui/variants";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,20 +22,19 @@ import { cn } from "@/lib/utils";
 const buttonVariants = cva(
   cn(
     "inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap",
-    "rounded-[6px] border border-transparent text-[12px] leading-[1.5] font-medium transition-colors",
+    "rounded-md border border-transparent text-ui leading-[1.5] font-medium transition-colors",
     "disabled:pointer-events-none disabled:opacity-50",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[14px]",
-    focusRing,
+    "focus-visible:focus-ring",
   ),
   {
     variants: {
       variant: {
-        default: cn("bg-primary text-primary-foreground hover:bg-primary/90", controlShadow),
+        default: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-control",
         secondary: "bg-muted text-foreground hover:bg-border",
         outline: cn(
           "border-border bg-card text-foreground hover:bg-accent",
-          "aria-expanded:bg-accent",
-          controlShadow,
+          "aria-expanded:bg-accent shadow-control",
         ),
         ghost: "text-muted-foreground hover:bg-accent hover:text-foreground",
       },
@@ -46,7 +44,7 @@ const buttonVariants = cva(
         /** The 28px trigger the whole topbar is built out of. */
         sm: "h-[28px] px-[10px]",
         /** The "Set" button in the viewport picker's custom row (artboard 1e). */
-        xs: "h-auto rounded-[5px] px-[9px] py-[3px] text-[11px]",
+        xs: "h-auto rounded-sm px-[9px] py-[3px] text-caption",
         icon: "size-[28px]",
         /** Exit zen: the one round control in the chrome. */
         "icon-round": "size-[26px] rounded-full",
@@ -86,7 +84,7 @@ function Button({
         "aria-pressed:bg-accent aria-pressed:text-muted-foreground",
         "data-[state=on]:bg-accent data-[state=on]:text-muted-foreground",
         // Toggled, indigo: zen mode active.
-        "data-active:bg-[var(--indigo-soft)] data-active:text-[var(--indigo)]",
+        "data-active:bg-indigo-soft data-active:text-indigo",
         className,
       )}
       {...props}

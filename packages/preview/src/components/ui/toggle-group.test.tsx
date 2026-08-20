@@ -21,7 +21,7 @@ describe("ToggleGroup", () => {
 
     expect(screen.getByRole("radiogroup", { name: "Device pixel ratio" })).toHaveClass(
       "overflow-hidden",
-      "rounded-[6px]",
+      "rounded-md",
       "border",
     );
     // Every segment but the first draws the divider itself.
@@ -40,7 +40,11 @@ describe("ToggleGroup", () => {
   it("rings inwards, because the box clips a halo", () => {
     render(<Dpr />);
 
-    expect(screen.getByText("2×")).toHaveClass("focus-visible:-outline-offset-[1.5px]");
+    // The one primitive that cannot wear V2's `focus-ring`: it thickens all four
+    // borders, and these segments have one edge each.
+    const segment = screen.getByText("2×");
+    expect(segment).toHaveClass("focus-visible:-outline-offset-[1.5px]");
+    expect(segment.className).not.toMatch(/focus-visible:focus-ring/);
   });
 
   it("walks the segments with the arrow keys", async () => {
