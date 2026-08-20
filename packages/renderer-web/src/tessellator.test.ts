@@ -316,14 +316,11 @@ describe("index space (ZAB-68)", () => {
     // 32-bit indices: `UNSIGNED_SHORT` would have wrapped these mod 65536 and
     // scrambled the geometry with no warning at all.
     expect(batch.indices).toBeInstanceOf(Uint32Array);
-    let highest = 0;
-    let allInRange = true;
-    for (const index of batch.indices) {
-      if (index >= vertexCount) allInRange = false;
-      if (index > highest) highest = index;
-    }
-    expect(allInRange).toBe(true);
-    expect(highest).toBeGreaterThan(65535);
+    const indices = [...batch.indices];
+    expect(indices.every((index) => index < vertexCount)).toBe(true);
+    // `reduce`, not `Math.max(...)`: this batch has six figures of indices and
+    // spreading them blows the argument limit.
+    expect(indices.reduce((highest, index) => Math.max(highest, index), 0)).toBeGreaterThan(65535);
   });
 
   it("keeps the last rect's fan on its own vertices across the boundary", () => {

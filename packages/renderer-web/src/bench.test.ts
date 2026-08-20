@@ -41,7 +41,7 @@ async function measure(frames: number, tick: () => void): Promise<{ ms: number; 
   for (const _i of Array(30).keys()) tick();
 
   const start = process.hrtime.bigint();
-  for (let i = 0; i < frames; i++) tick();
+  for (const _ of Array(frames).keys()) tick();
   const elapsed = Number(process.hrtime.bigint() - start) / 1e6;
 
   const session = new Session();
@@ -58,17 +58,14 @@ async function measure(frames: number, tick: () => void): Promise<{ ms: number; 
     includeObjectsCollectedByMajorGC: true,
     includeObjectsCollectedByMinorGC: true,
   });
-  for (let i = 0; i < frames; i++) tick();
+  for (const _ of Array(frames).keys()) tick();
   const { profile } = (await post("HeapProfiler.stopSampling")) as {
     profile: { head: SamplingProfileNode };
   };
   session.disconnect();
-  let allocated = 0;
-  const walk = (node: SamplingProfileNode): void => {
-    allocated += node.selfSize;
-    for (const child of node.children) walk(child);
-  };
-  walk(profile.head);
+  const sizeOf = (node: SamplingProfileNode): number =>
+    node.selfSize + node.children.reduce((sum, child) => sum + sizeOf(child), 0);
+  const allocated = sizeOf(profile.head);
 
   return { ms: elapsed / frames, kb: allocated / 1024 / frames };
 }

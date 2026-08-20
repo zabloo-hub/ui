@@ -1734,17 +1734,16 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
   });
 
   it("holds no more after ten cycles than after one", async () => {
-    let first: { listeners: number; frames: number; timers: number } | null = null;
-    for (const _i of Array(10).keys()) {
+    const cycles: Array<{ listeners: number; frames: number; timers: number }> = [];
+    for (const _ of Array(10).keys()) {
       const cycle = await mountCase(CORPUS.settings);
-      const held = cycle.held();
+      // Read while it is UP: a leak that survives disposal shows up in the next
+      // cycle's own count, which is the number that grows.
+      cycles.push(cycle.held());
       cycle.dispose();
-      // Compared while it is UP: a leak that survives disposal would show up in
-      // the next cycle's own count, which is the number that grows.
-      first ??= held;
-      expect(held).toEqual(first);
       expect(cycle.held()).toEqual({ listeners: 0, frames: 0, timers: 0 });
     }
+    for (const held of cycles) expect(held).toEqual(cycles[0]);
   });
 
   it("comes back up whole: focus, input and the data channel all live again", async () => {
@@ -1845,12 +1844,13 @@ describe("onFrame", () => {
   });
 
   it("agrees with stats(), which is the same frame read the other way", async () => {
-    let last: (FrameStats & { ms: number }) | null = null;
+    const frames: Array<FrameStats & { ms: number }> = [];
     const view = await mountForTest(CORPUS["states-tokens"], {
       onFrame: (stats) => {
-        last = stats;
+        frames.push(stats);
       },
     });
+    const last = frames.at(-1) ?? null;
 
     // `stats()` answers "what did the last frame cost"; `onFrame` answers "when".
     // They must never be two different numbers for one frame.

@@ -230,14 +230,11 @@ function unknownTypes(golden: GoldenCase): Set<string> {
 
 /** How many children the envelope gives the first node of that type. */
 function declaredChildren(golden: GoldenCase, type: string): number {
-  let count = 0;
-  let seen = false;
+  const found: RawNode[] = [];
   walk(readEnvelope(golden.envelope), (node) => {
-    if (seen || node.type !== type) return;
-    seen = true;
-    count = node.children?.length ?? 0;
+    if (node.type === type) found.push(node);
   });
-  return count;
+  return found[0]?.children?.length ?? 0;
 }
 
 interface RawNode {

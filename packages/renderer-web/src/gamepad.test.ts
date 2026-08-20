@@ -168,13 +168,14 @@ describe("stepRepeat", () => {
   });
 
   it("repeats at the repeat rate once the delay is spent", () => {
-    let state = stepRepeat(null, DOWN, 0).state;
-    const fired: number[] = [0];
-    for (let time = 1; time <= REPEAT_DELAY_MS + REPEAT_RATE_MS * 3; time++) {
-      const step = stepRepeat(state, DOWN, time);
-      state = step.state;
-      if (step.fire) fired.push(time);
-    }
+    const span = REPEAT_DELAY_MS + REPEAT_RATE_MS * 3;
+    const fired = Array.from({ length: span }, (_, i) => i + 1).reduce(
+      (run, time) => {
+        const step = stepRepeat(run.state, DOWN, time);
+        return { state: step.state, fired: step.fire ? [...run.fired, time] : run.fired };
+      },
+      { state: stepRepeat(null, DOWN, 0).state, fired: [0] },
+    ).fired;
     expect(fired).toEqual([
       0,
       REPEAT_DELAY_MS,

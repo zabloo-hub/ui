@@ -56,12 +56,12 @@ describe("the headless rig", () => {
     // numbers are plausible enough that a loose bound would not tell them apart,
     // and every baseline in the corpus rests on this being the real thing.
     const font = await loadFont(decodeBase64(DEFAULT_FONT_BASE64));
-    let expected = 0;
-    let previous = "";
-    for (const char of "Hola") {
-      expected += font.advance(char, 16) + (previous ? font.kern(previous, char, 16) : 0);
-      previous = char;
-    }
+    const glyphs = [..."Hola"];
+    const expected = glyphs.reduce(
+      (width, char, i) =>
+        width + font.advance(char, 16) + (i > 0 ? font.kern(glyphs[i - 1], char, 16) : 0),
+      0,
+    );
     font.dispose();
 
     expect(line?.text).toBe("Hola");

@@ -197,9 +197,12 @@ function rig(root: LayoutNode, layer: readonly LayoutNode[] = []): Rig {
       canvas.dispatch("pointerup", event(x, y));
     },
     wheel: (x, y, deltaX, deltaY) => {
-      let prevented = 0;
-      canvas.dispatch("wheel", event(x, y, { deltaX, deltaY, preventDefault: () => prevented++ }));
-      return prevented;
+      const prevented: true[] = [];
+      canvas.dispatch(
+        "wheel",
+        event(x, y, { deltaX, deltaY, preventDefault: () => prevented.push(true) }),
+      );
+      return prevented.length;
     },
     leave: () => canvas.dispatch("pointerleave", {}),
   };
@@ -427,10 +430,10 @@ describe("a press that does not conclude", () => {
   it("commits a cancelled Slider AFTER the state is clean", () => {
     const volume = slider("volume");
     const state = rig(box([volume]));
-    let draggingWhenCommitted: boolean | null = null;
+    const commit: { dragging: boolean | null } = { dragging: null };
     (state.host.commitSlider as unknown as ReturnType<typeof vi.fn>).mockImplementation(
       (gesture: SliderGesture) => {
-        draggingWhenCommitted = state.pointer.isSliderDragging(gesture.node);
+        commit.dragging = state.pointer.isSliderDragging(gesture.node);
       },
     );
 
@@ -439,7 +442,7 @@ describe("a press that does not conclude", () => {
 
     // The handler an `onCommit` runs can re-enter this view: it must not find a
     // gesture that is already over still in flight.
-    expect(draggingWhenCommitted).toBe(false);
+    expect(commit.dragging).toBe(false);
   });
 });
 
