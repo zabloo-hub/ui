@@ -1,10 +1,14 @@
-"use client"
+import { ScrollArea as ScrollAreaPrimitive } from "radix-ui";
+import type * as React from "react";
+import { focusRing } from "@/components/ui/variants";
+import { cn } from "@/lib/utils";
 
-import * as React from "react"
-import { ScrollArea as ScrollAreaPrimitive } from "radix-ui"
-
-import { cn } from "@/lib/utils"
-
+/**
+ * The actions log and the problems list. Kept close to what the CLI generated —
+ * only the scrollbar is compacted (10px → 8px, to match an 11.5px mono log) and
+ * the viewport's focus ring is the design's rather than shadcn's, so a
+ * keyboard-scrolled log outlines like everything else on the page.
+ */
 function ScrollArea({
   className,
   children,
@@ -18,14 +22,14 @@ function ScrollArea({
     >
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        className={cn("size-full rounded-[inherit] border border-transparent", focusRing)}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
       <ScrollBar />
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
-  )
+  );
 }
 
 function ScrollBar({
@@ -39,8 +43,9 @@ function ScrollBar({
       data-orientation={orientation}
       orientation={orientation}
       className={cn(
-        "flex touch-none p-px transition-colors select-none data-horizontal:h-2.5 data-horizontal:flex-col data-horizontal:border-t data-horizontal:border-t-transparent data-vertical:h-full data-vertical:w-2.5 data-vertical:border-l data-vertical:border-l-transparent",
-        className
+        "flex touch-none select-none p-px transition-colors",
+        "data-horizontal:h-2 data-horizontal:flex-col data-vertical:h-full data-vertical:w-2",
+        className,
       )}
       {...props}
     >
@@ -49,7 +54,7 @@ function ScrollBar({
         className="relative flex-1 rounded-full bg-border"
       />
     </ScrollAreaPrimitive.ScrollAreaScrollbar>
-  )
+  );
 }
 
-export { ScrollArea, ScrollBar }
+export { ScrollArea, ScrollBar };

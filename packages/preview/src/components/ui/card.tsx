@@ -1,23 +1,44 @@
-import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority";
+import type * as React from "react";
+import { cn } from "@/lib/utils";
 
-import { cn } from "@/lib/utils"
+/**
+ * Two cards in the design and they are not the same object: the bindings panel
+ * floats over the canvas (radius 10, big soft shadow) and the JSON editor sits
+ * inside it (radius 8, flat). Hence `floating` and `inset` rather than shadcn's
+ * one size with a `sm` spacing knob.
+ *
+ * The generated card's `--card-spacing` machinery, its `ring-1` outline and its
+ * first/last-image rounding are gone — a 1px border is what the design draws,
+ * and no card in this chrome holds an image.
+ */
+const cardVariants = cva("flex min-w-0 flex-col overflow-hidden border border-border bg-card", {
+  variants: {
+    variant: {
+      /** The bindings panel, over the stage. */
+      floating: "rounded-[10px] shadow-[var(--shadow-panel)]",
+      /** The JSON editor, inside it. */
+      inset: "rounded-[8px]",
+    },
+  },
+  defaultVariants: {
+    variant: "floating",
+  },
+});
 
 function Card({
   className,
-  size = "default",
+  variant = "floating",
   ...props
-}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+}: React.ComponentProps<"div"> & VariantProps<typeof cardVariants>) {
   return (
     <div
       data-slot="card"
-      data-size={size}
-      className={cn(
-        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
-        className
-      )}
+      data-variant={variant}
+      className={cn(cardVariants({ variant }), className)}
       {...props}
     />
-  )
+  );
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -25,79 +46,68 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-header"
       className={cn(
-        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-(--card-spacing)",
-        className
+        "flex items-center gap-2 border-border border-b px-[14px] pt-[12px] pb-[10px]",
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div
-      data-slot="card-title"
-      className={cn(
-        "text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
-        className
-      )}
-      {...props}
-    />
-  )
+    <div data-slot="card-title" className={cn("text-[12px] font-semibold", className)} {...props} />
+  );
 }
 
 function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-description"
-      className={cn("text-sm text-muted-foreground", className)}
+      className={cn("text-[10.5px] text-muted-foreground", className)}
       {...props}
     />
-  )
+  );
 }
 
 function CardAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-action"
-      className={cn(
-        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
-        className
-      )}
+      className={cn("ml-auto flex shrink-0 items-center gap-2.5", className)}
       {...props}
     />
-  )
+  );
 }
 
 function CardContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-content"
-      className={cn("px-(--card-spacing)", className)}
+      className={cn("min-h-0 px-[14px] py-[12px]", className)}
       {...props}
     />
-  )
+  );
 }
 
+/** The amber "values held" note under a disabled panel. */
 function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-footer"
-      className={cn(
-        "flex items-center rounded-b-xl border-t bg-muted/50 p-(--card-spacing)",
-        className
-      )}
+      className={cn("flex items-center border-border border-t px-[14px] py-[8px]", className)}
       {...props}
     />
-  )
+  );
 }
 
 export {
   Card,
-  CardHeader,
-  CardFooter,
-  CardTitle,
   CardAction,
-  CardDescription,
   CardContent,
-}
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  cardVariants,
+};

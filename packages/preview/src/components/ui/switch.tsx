@@ -1,31 +1,48 @@
-import * as React from "react"
-import { Switch as SwitchPrimitive } from "radix-ui"
+import { Switch as SwitchPrimitive } from "radix-ui";
+import type * as React from "react";
+import { focusRing } from "@/components/ui/variants";
+import { cn } from "@/lib/utils";
 
-import { cn } from "@/lib/utils"
-
-function Switch({
-  className,
-  size = "default",
-  ...props
-}: React.ComponentProps<typeof SwitchPrimitive.Root> & {
-  size?: "sm" | "default"
-}) {
+/**
+ * 36×20 with a 16px thumb inset 2, against shadcn's 44×24 — the switch sits in a
+ * 296px panel next to an 11.5px mono path, and the stock one dwarfs it. The
+ * generated `sm`/`default` sizes are gone: there is one switch in this chrome.
+ *
+ * The thumb is white in three of the four states; the fourth (dark, off) is
+ * `#a1a1aa` with no shadow, which is not a token V2 ships. It is requested as
+ * `--switch-thumb-off` in ZAB-83 rather than written literally here — if V2 does
+ * not land it the thumb goes transparent, which is loud enough to notice, and
+ * that is the point of not putting a fallback colour in a component.
+ *
+ * Track travel is written as absolute translations (2 → 18) instead of shadcn's
+ * `translate-x-[calc(100%-2px)]`: with a 36px track and a 16px thumb the
+ * percentage maths is off by the border, and 2/18 is what the mockup measures.
+ */
+function Switch({ className, ...props }: React.ComponentProps<typeof SwitchPrimitive.Root>) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
-      data-size={size}
       className={cn(
-        "peer group/switch relative inline-flex shrink-0 items-center rounded-full border border-transparent transition-all outline-none group-has-[:focus-visible]/field-label:border-transparent group-has-[:focus-visible]/field-label:ring-0 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-[size=default]:h-[18.4px] data-[size=default]:w-[32px] data-[size=sm]:h-[14px] data-[size=sm]:w-[24px] dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:bg-primary data-unchecked:bg-input dark:data-unchecked:bg-input/80 data-disabled:cursor-not-allowed data-disabled:opacity-50",
-        className
+        "peer group/switch relative inline-flex h-[20px] w-[36px] shrink-0 items-center",
+        "rounded-full border border-transparent transition-colors",
+        "data-unchecked:bg-border data-checked:bg-[var(--switch-on)]",
+        "data-disabled:pointer-events-none data-disabled:opacity-50",
+        focusRing,
+        className,
       )}
       {...props}
     >
       <SwitchPrimitive.Thumb
         data-slot="switch-thumb"
-        className="pointer-events-none block rounded-full bg-background ring-0 transition-transform group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 group-data-[size=default]/switch:data-checked:translate-x-[calc(100%-2px)] group-data-[size=sm]/switch:data-checked:translate-x-[calc(100%-2px)] dark:data-checked:bg-primary-foreground group-data-[size=default]/switch:data-unchecked:translate-x-0 group-data-[size=sm]/switch:data-unchecked:translate-x-0 dark:data-unchecked:bg-foreground"
+        className={cn(
+          "pointer-events-none block size-[16px] rounded-full bg-white transition-transform",
+          "data-unchecked:translate-x-[2px] data-checked:translate-x-[18px]",
+          "data-unchecked:shadow-[0_1px_2px_rgba(0,0,0,.15)]",
+          "dark:data-unchecked:bg-[var(--switch-thumb-off)] dark:data-unchecked:shadow-none",
+        )}
       />
     </SwitchPrimitive.Root>
-  )
+  );
 }
 
-export { Switch }
+export { Switch };

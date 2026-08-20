@@ -1,89 +1,113 @@
-"use client"
+import { cva, type VariantProps } from "class-variance-authority";
+import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
+import * as React from "react";
+import { controlShadow, focusRingInset } from "@/components/ui/variants";
+import { cn } from "@/lib/utils";
 
-import * as React from "react"
-import { type VariantProps } from "class-variance-authority"
-import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui"
+/**
+ * The DPR control (`auto · 1× · 2× · 3×`), which shadcn has no component for: it
+ * is not a row of toggles with a shared border, it is ONE box with hairlines
+ * inside it. So the generated `spacing`/`toggleVariants` machinery is replaced
+ * by two variants of its own — the segmented box, and a plain row for anything
+ * later that wants separate buttons.
+ *
+ * `border-l` on every item but the first draws the dividers, which means the
+ * items must not be rounded and the box must clip them; that clipping is also
+ * why the focus ring goes inwards here ({@link focusRingInset}) instead of
+ * haloing outwards like it does everywhere else.
+ *
+ * The mockup writes the segments at 5px 8px in the topbar and 5px 9px in the kit
+ * (artboards 1a and 1e); ZAB-84 fixes 9.
+ */
+const toggleGroupVariants = cva("flex w-fit items-center", {
+  variants: {
+    variant: {
+      default: "gap-1",
+      segmented: cn(
+        "overflow-hidden rounded-[6px] border border-border",
+        "data-vertical:flex-col data-vertical:items-stretch",
+        controlShadow,
+      ),
+    },
+  },
+  defaultVariants: {
+    variant: "segmented",
+  },
+});
 
-import { cn } from "@/lib/utils"
-import { toggleVariants } from "@/components/ui/toggle"
+const toggleGroupItemVariants = cva(
+  cn(
+    "inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap",
+    "transition-colors disabled:pointer-events-none disabled:opacity-50",
+  ),
+  {
+    variants: {
+      variant: {
+        default: cn(
+          "rounded-[6px] border border-transparent px-[10px] py-[5px] text-[12px] font-medium",
+          "text-muted-foreground hover:bg-accent data-[state=on]:bg-muted",
+          "data-[state=on]:font-medium data-[state=on]:text-foreground",
+        ),
+        segmented: cn(
+          "border-border border-l px-[9px] py-[5px] text-[11.5px] first:border-l-0",
+          "text-muted-foreground hover:bg-accent",
+          // No shadow and no lift on the active segment: the box already has one,
+          // and a second one inside it reads as a bug.
+          "data-[state=on]:bg-muted data-[state=on]:font-medium data-[state=on]:text-foreground",
+          "data-vertical:border-t data-vertical:border-l-0 data-vertical:first:border-t-0",
+          focusRingInset,
+        ),
+      },
+    },
+    defaultVariants: {
+      variant: "segmented",
+    },
+  },
+);
 
-const ToggleGroupContext = React.createContext<
-  VariantProps<typeof toggleVariants> & {
-    spacing?: number
-    orientation?: "horizontal" | "vertical"
-  }
->({
-  size: "default",
-  variant: "default",
-  spacing: 2,
-  orientation: "horizontal",
-})
+const ToggleGroupContext = React.createContext<VariantProps<typeof toggleGroupVariants>>({
+  variant: "segmented",
+});
 
 function ToggleGroup({
   className,
-  variant,
-  size,
-  spacing = 2,
+  variant = "segmented",
   orientation = "horizontal",
   children,
   ...props
 }: React.ComponentProps<typeof ToggleGroupPrimitive.Root> &
-  VariantProps<typeof toggleVariants> & {
-    spacing?: number
-    orientation?: "horizontal" | "vertical"
-  }) {
+  VariantProps<typeof toggleGroupVariants>) {
   return (
     <ToggleGroupPrimitive.Root
       data-slot="toggle-group"
       data-variant={variant}
-      data-size={size}
-      data-spacing={spacing}
       data-orientation={orientation}
-      style={{ "--gap": spacing } as React.CSSProperties}
-      className={cn(
-        "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-vertical:flex-col data-vertical:items-stretch",
-        className
-      )}
+      orientation={orientation}
+      className={cn(toggleGroupVariants({ variant }), className)}
       {...props}
     >
-      <ToggleGroupContext.Provider
-        value={{ variant, size, spacing, orientation }}
-      >
-        {children}
-      </ToggleGroupContext.Provider>
+      <ToggleGroupContext.Provider value={{ variant }}>{children}</ToggleGroupContext.Provider>
     </ToggleGroupPrimitive.Root>
-  )
+  );
 }
 
 function ToggleGroupItem({
   className,
-  children,
-  variant = "default",
-  size = "default",
+  variant,
   ...props
 }: React.ComponentProps<typeof ToggleGroupPrimitive.Item> &
-  VariantProps<typeof toggleVariants>) {
-  const context = React.useContext(ToggleGroupContext)
+  VariantProps<typeof toggleGroupItemVariants>) {
+  const context = React.useContext(ToggleGroupContext);
+  const resolved = variant ?? context.variant ?? "segmented";
 
   return (
     <ToggleGroupPrimitive.Item
       data-slot="toggle-group-item"
-      data-variant={context.variant || variant}
-      data-size={context.size || size}
-      data-spacing={context.spacing}
-      className={cn(
-        "shrink-0 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-horizontal/toggle-group:data-[spacing=0]:first:rounded-l-lg group-data-vertical/toggle-group:data-[spacing=0]:first:rounded-t-lg group-data-horizontal/toggle-group:data-[spacing=0]:last:rounded-r-lg group-data-vertical/toggle-group:data-[spacing=0]:last:rounded-b-lg group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:border-l-0 group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:border-t-0 group-data-horizontal/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-l group-data-vertical/toggle-group:data-[spacing=0]:data-[variant=outline]:first:border-t",
-        toggleVariants({
-          variant: context.variant || variant,
-          size: context.size || size,
-        }),
-        className
-      )}
+      data-variant={resolved}
+      className={cn(toggleGroupItemVariants({ variant: resolved }), className)}
       {...props}
-    >
-      {children}
-    </ToggleGroupPrimitive.Item>
-  )
+    />
+  );
 }
 
-export { ToggleGroup, ToggleGroupItem }
+export { ToggleGroup, ToggleGroupItem, toggleGroupItemVariants, toggleGroupVariants };

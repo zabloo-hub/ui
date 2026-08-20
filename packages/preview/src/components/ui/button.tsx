@@ -1,45 +1,67 @@
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { Slot } from "radix-ui"
+import { cva, type VariantProps } from "class-variance-authority";
+import { Slot } from "radix-ui";
+import type * as React from "react";
+import { controlShadow, focusRing } from "@/components/ui/variants";
+import { cn } from "@/lib/utils";
 
-import { cn } from "@/lib/utils"
-
+/**
+ * shadcn's Button, compacted: 12px text instead of 14, a 28px trigger instead of
+ * 36, and radius 6 instead of the style's `rounded-lg`.
+ *
+ * Four variants survive from what `shadcn add` generated (`destructive` and
+ * `link` are not in the design, and dead variants are variants the kit page of
+ * V17 would have to invent states for). The design's own shape shows up as two
+ * extra sizes — `icon-round`, the 26px circle that exits zen mode — and as two
+ * toggled states, because the chrome uses this button as a toggle in three
+ * places: `aria-pressed`/`data-state=on` is the muted "on" of the theme button,
+ * and `data-active` is the indigo "on" of the zen button (artboard 1e labels the
+ * three icon buttons "rest · toggled · zen active").
+ *
+ * `active:translate-y-px` from the generated file is gone: nothing in a 44px
+ * toolbar should move under the cursor.
+ */
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  cn(
+    "inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap",
+    "rounded-[6px] border border-transparent text-[12px] leading-[1.5] font-medium transition-colors",
+    "disabled:pointer-events-none disabled:opacity-50",
+    "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[14px]",
+    focusRing,
+  ),
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
-        outline:
-          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
-        ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
-        destructive:
-          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
-        link: "text-primary underline-offset-4 hover:underline",
+        default: cn("bg-primary text-primary-foreground hover:bg-primary/90", controlShadow),
+        secondary: "bg-muted text-foreground hover:bg-border",
+        outline: cn(
+          "border-border bg-card text-foreground hover:bg-accent",
+          "aria-expanded:bg-accent",
+          controlShadow,
+        ),
+        ghost: "text-muted-foreground hover:bg-accent hover:text-foreground",
       },
       size: {
-        default:
-          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-        icon: "size-8",
-        "icon-xs":
-          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
-        "icon-sm":
-          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
-        "icon-lg": "size-9",
+        /** The design fixes padding, not height: 12px/1.5 + 6px twice lands on 30px. */
+        default: "px-[14px] py-[6px]",
+        /** The 28px trigger the whole topbar is built out of. */
+        sm: "h-[28px] px-[10px]",
+        /** The "Set" button in the viewport picker's custom row (artboard 1e). */
+        xs: "h-auto rounded-[5px] px-[9px] py-[3px] text-[11px]",
+        icon: "size-[28px]",
+        /** Exit zen: the one round control in the chrome. */
+        "icon-round": "size-[26px] rounded-full",
       },
     },
+    compoundVariants: [
+      /** Ghost is the only variant the design gives a tighter horizontal padding. */
+      { variant: "ghost", size: "default", class: "px-[10px]" },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",
     },
-  }
-)
+  },
+);
 
 function Button({
   className,
@@ -49,19 +71,27 @@ function Button({
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
-    asChild?: boolean
+    asChild?: boolean;
   }) {
-  const Comp = asChild ? Slot.Root : "button"
+  const Comp = asChild ? Slot.Root : "button";
 
   return (
     <Comp
       data-slot="button"
       data-variant={variant}
       data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={cn(
+        buttonVariants({ variant, size }),
+        // Toggled, muted: the theme button once a theme is forced.
+        "aria-pressed:bg-accent aria-pressed:text-muted-foreground",
+        "data-[state=on]:bg-accent data-[state=on]:text-muted-foreground",
+        // Toggled, indigo: zen mode active.
+        "data-active:bg-[var(--indigo-soft)] data-active:text-[var(--indigo)]",
+        className,
+      )}
       {...props}
     />
-  )
+  );
 }
 
-export { Button, buttonVariants }
+export { Button, buttonVariants };
