@@ -49,24 +49,31 @@ describe("parseEvent", () => {
 });
 
 describe("connectEvents", () => {
-  let stream: FakeEventSource;
+  const opened: FakeEventSource[] = [];
   const open = (url: string): EventSourceLike => {
-    stream = new FakeEventSource(url);
-    return stream;
+    const source = new FakeEventSource(url);
+    opened.push(source);
+    return source;
+  };
+  /** The stream the call under test just opened. */
+  const stream = (): FakeEventSource => {
+    const last = opened.at(-1);
+    if (last === undefined) throw new Error("connectEvents opened no stream");
+    return last;
   };
 
   it("opens the stream it was pointed at", () => {
     connectEvents("/events", spies(), open);
 
-    expect(stream.url).toBe("/events");
+    expect(stream().url).toBe("/events");
   });
 
   it("reports the connection coming up and going down", () => {
     const handlers = spies();
     connectEvents("/events", handlers, open);
 
-    stream.onopen?.(new Event("open"));
-    stream.onerror?.(new Event("error"));
+    stream().onopen?.(new Event("open"));
+    stream().onerror?.(new Event("error"));
 
     expect(handlers.calls).toEqual(["open", "lost"]);
   });
@@ -75,7 +82,7 @@ describe("connectEvents", () => {
     const handlers = spies();
     connectEvents("/events", handlers, open);
 
-    stream.push({ kind: "reload" });
+    stream().push({ kind: "reload" });
 
     expect(handlers.calls).toEqual(["reload"]);
   });
@@ -84,7 +91,7 @@ describe("connectEvents", () => {
     const handlers = spies();
     connectEvents("/events", handlers, open);
 
-    stream.push({ kind: "error", message: "zabloo export: main.tsx" });
+    stream().push({ kind: "error", message: "zabloo export: main.tsx" });
 
     expect(handlers.calls).toEqual(["error: zabloo export: main.tsx"]);
   });
@@ -93,7 +100,7 @@ describe("connectEvents", () => {
     const handlers = spies();
     connectEvents("/events", handlers, open);
 
-    stream.onmessage?.({ data: "who knows" } as MessageEvent<string>);
+    stream().onmessage?.({ data: "who knows" } as MessageEvent<string>);
 
     expect(handlers.calls).toEqual(["reload"]);
   });
@@ -103,6 +110,6 @@ describe("connectEvents", () => {
 
     connection.close();
 
-    expect(stream.closed).toBe(true);
+    expect(stream().closed).toBe(true);
   });
 });

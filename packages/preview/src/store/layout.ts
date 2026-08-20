@@ -14,14 +14,14 @@
 
 import type { Getter, Setter } from "./state";
 
-export type ConsoleTab = "actions" | "problems" | "stats";
+type ConsoleTab = "actions" | "problems" | "stats";
 
-export interface PanelPos {
+interface PanelPos {
   x: number;
   y: number;
 }
 
-export interface Layout {
+interface Layout {
   panelOpen: boolean;
   panelPos: PanelPos | null;
   consoleOpen: boolean;
@@ -29,7 +29,7 @@ export interface Layout {
   zen: boolean;
 }
 
-export interface LayoutSlice {
+interface LayoutSlice {
   layout: Layout;
   setPanelOpen(open: boolean): void;
   togglePanel(): void;
@@ -41,7 +41,7 @@ export interface LayoutSlice {
   toggleZen(): void;
 }
 
-export const DEFAULT_LAYOUT: Layout = {
+const DEFAULT_LAYOUT: Layout = {
   panelOpen: true,
   panelPos: null,
   consoleOpen: true,
@@ -49,7 +49,7 @@ export const DEFAULT_LAYOUT: Layout = {
   zen: false,
 };
 
-export function createLayoutSlice(set: Setter, get: Getter): LayoutSlice {
+function createLayoutSlice(set: Setter, get: Getter): LayoutSlice {
   const patch = (change: Partial<Layout>): void => set({ layout: { ...get().layout, ...change } });
   return {
     layout: DEFAULT_LAYOUT,
@@ -64,7 +64,7 @@ export function createLayoutSlice(set: Setter, get: Getter): LayoutSlice {
   };
 }
 
-export function isConsoleTab(value: unknown): value is ConsoleTab {
+function isConsoleTab(value: unknown): value is ConsoleTab {
   return value === "actions" || value === "problems" || value === "stats";
 }
 
@@ -76,7 +76,7 @@ export function isConsoleTab(value: unknown): value is ConsoleTab {
  * (see above) — a plain spread would set it to `undefined` and leave the chrome
  * in a state that is neither zen nor not.
  */
-export function mergeLayout(current: Layout, saved: Partial<Layout> | undefined): Layout {
+function mergeLayout(current: Layout, saved: Partial<Layout> | undefined): Layout {
   if (saved === undefined) return current;
   return {
     panelOpen: typeof saved.panelOpen === "boolean" ? saved.panelOpen : current.panelOpen,
@@ -92,3 +92,6 @@ function isPanelPos(value: unknown): value is PanelPos {
   const pos = value as PanelPos;
   return Number.isFinite(pos.x) && Number.isFinite(pos.y);
 }
+
+export type { ConsoleTab, Layout, LayoutSlice, PanelPos };
+export { createLayoutSlice, DEFAULT_LAYOUT, isConsoleTab, mergeLayout };

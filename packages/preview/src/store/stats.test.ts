@@ -19,12 +19,12 @@ const FRAME: FrameSample = {
 
 /** A clock the test moves by hand — `performance.now()` is not faked by default. */
 function clocked() {
-  let at = 0;
-  const store = createPreviewStore({ storage: memoryStorage(), now: () => at });
+  const clock = { at: 0 };
+  const store = createPreviewStore({ storage: memoryStorage(), now: () => clock.at });
   return {
     store,
     advance(ms: number) {
-      at += ms;
+      clock.at += ms;
     },
   };
 }

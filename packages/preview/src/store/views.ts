@@ -21,7 +21,7 @@
 import type { Getter, Setter } from "./state";
 import { type PreviewStorage, viewKey } from "./storage";
 
-export interface ViewsSlice {
+interface ViewsSlice {
   /** In the envelope's own order, which is the order the picker shows. */
   views: string[];
   activeView: string | null;
@@ -33,7 +33,7 @@ export interface ViewsSlice {
   clearFatalViews(): void;
 }
 
-export function createViewsSlice(set: Setter, get: Getter, storage: PreviewStorage): ViewsSlice {
+function createViewsSlice(set: Setter, get: Getter, storage: PreviewStorage): ViewsSlice {
   return {
     views: [],
     activeView: null,
@@ -77,7 +77,7 @@ export function createViewsSlice(set: Setter, get: Getter, storage: PreviewStora
  * Shared with `setIdentity`, which has to answer the same question the moment it
  * learns WHICH envelope's memory to read.
  */
-export function resolveActiveView(
+function resolveActiveView(
   get: Getter,
   storage: PreviewStorage,
   ids: string[],
@@ -94,3 +94,6 @@ function prune(marked: ReadonlySet<string>, ids: string[]): ReadonlySet<string> 
   const kept = [...marked].filter((id) => ids.includes(id));
   return kept.length === marked.size ? marked : new Set(kept);
 }
+
+export type { ViewsSlice };
+export { createViewsSlice, resolveActiveView };

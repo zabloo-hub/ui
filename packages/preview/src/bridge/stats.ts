@@ -17,7 +17,7 @@ const WINDOW_MS = 1000;
  * `idle` rather than `0 fps` because the renderer paints ON DEMAND: a still scene
  * painting nothing is the system working, not a stall.
  */
-export function formatStats(frame: (FrameStats & { ms: number }) | null, fps: number): string {
+function formatStats(frame: (FrameStats & { ms: number }) | null, fps: number): string {
   if (frame === null) return "no frame painted yet";
   return [
     fps > 0 ? `${fps} fps` : "idle",
@@ -38,7 +38,9 @@ function compact(value: number): string {
  * against `now` and not only on arrival, or a scene that stopped painting would
  * keep reporting the rate it had when it stopped.
  */
-export function fpsWindow(timestamps: readonly number[], now: number): number[] {
+function fpsWindow(timestamps: readonly number[], now: number): number[] {
   const cutoff = now - WINDOW_MS;
   return timestamps.filter((at) => at >= cutoff);
 }
+
+export { formatStats, fpsWindow };

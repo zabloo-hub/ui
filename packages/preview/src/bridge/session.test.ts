@@ -22,12 +22,13 @@ interface FakeHandle extends ZablooHandle {
 }
 
 function fakeHandle(envelope: Envelope): FakeHandle {
-  let live = envelope;
+  // Reassigned by `reload`, so the getter below has to read it through a slot.
+  const current = { envelope };
   const handle = {
     // A getter, like the real handle's since ZAB-72: a hot-update can bring a
     // different set of views, and the session reads it fresh after every load.
     get viewIds(): string[] {
-      return Object.keys(live.views);
+      return Object.keys(current.envelope.views);
     },
     ready: Promise.resolve(),
     data: [] as Array<[string, unknown]>,
@@ -35,7 +36,7 @@ function fakeHandle(envelope: Envelope): FakeHandle {
     disposed: false,
     reload(json: string | object) {
       handle.reloads.push(String(json));
-      live = (typeof json === "string" ? JSON.parse(json) : json) as Envelope;
+      current.envelope = (typeof json === "string" ? JSON.parse(json) : json) as Envelope;
     },
     setData(path: string, value: unknown) {
       handle.data.push([path, value]);
@@ -90,29 +91,40 @@ interface World {
 function world(initial: Envelope | null = GOLD): World {
   const mounts: Mount[] = [];
   const reported: string[] = [];
-  let served: Envelope | null = initial;
-  let serverError: Error | null = null;
-  let mountError: Error | null = null;
-  let mountDiagnostic: Parameters<SessionCallbacks["onDiagnostic"]>[0] | null = null;
-  let dpr: number | undefined;
-  let fetches = 0;
+  // The knobs the returned World turns, as one slot object: they are read by the
+  // session long after `world()` returned, so they are state, not values.
+  const slot: {
+    served: Envelope | null;
+    serverError: Error | null;
+    mountError: Error | null;
+    mountDiagnostic: Parameters<SessionCallbacks["onDiagnostic"]>[0] | null;
+    dpr: number | undefined;
+    fetches: number;
+  } = {
+    served: initial,
+    serverError: null,
+    mountError: null,
+    mountDiagnostic: null,
+    dpr: undefined,
+    fetches: 0,
+  };
 
   const session = createSession({
     canvas: document.createElement("canvas"),
     fetchEnvelope: async () => {
-      fetches += 1;
-      if (serverError) throw serverError;
-      return served === null ? null : (JSON.parse(JSON.stringify(served)) as Envelope);
+      slot.fetches += 1;
+      if (slot.serverError) throw slot.serverError;
+      return slot.served === null ? null : (JSON.parse(JSON.stringify(slot.served)) as Envelope);
     },
     mount(_canvas, json, options) {
-      if (mountDiagnostic) options.onDiagnostic?.(mountDiagnostic);
-      if (mountError) throw mountError;
+      if (slot.mountDiagnostic) options.onDiagnostic?.(slot.mountDiagnostic);
+      if (slot.mountError) throw slot.mountError;
       const envelope = JSON.parse(json) as Envelope;
       const handle = fakeHandle(envelope);
       mounts.push({ envelope, options, handle });
       return handle;
     },
-    dpr: () => dpr,
+    dpr: () => slot.dpr,
     callbacks: {
       onEnvelope: (_envelope, bindings) =>
         reported.push(`envelope: ${bindings.map((b) => `${b.path}:${b.type}`).join(",")}`),
@@ -133,22 +145,22 @@ function world(initial: Envelope | null = GOLD): World {
     mounts,
     reported,
     serve: (envelope) => {
-      served = envelope;
+      slot.served = envelope;
     },
     breakServer: (error) => {
-      serverError = error;
+      slot.serverError = error;
     },
     refuse: (error) => {
-      mountError = error;
+      slot.mountError = error;
     },
     refuseWith: (diagnostic) => {
-      mountDiagnostic = diagnostic;
+      slot.mountDiagnostic = diagnostic;
     },
     setDpr: (value) => {
-      dpr = value;
+      slot.dpr = value;
     },
     get fetches() {
-      return fetches;
+      return slot.fetches;
     },
   };
 }
