@@ -26,7 +26,6 @@
  */
 
 import { GripVertical, X } from "lucide-react";
-import { BindingField } from "@/components/editors/BindingField";
 import {
   Card,
   CardAction,
@@ -39,6 +38,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useBindings, useConnection, useLayout, useProblems } from "@/store/hooks";
 import { EmptyState } from "./EmptyState";
+import { BindingField } from "./editors";
 import { useDrag } from "./useDrag";
 
 function BindingsPanel() {
@@ -105,7 +105,9 @@ function BindingsPanel() {
           order.map((path) => (
             <div key={path} data-binding-path={path}>
               {/* V15 fills the field in; the panel owns the list and its order. */}
-              <BindingField binding={byPath[path]} />
+              {/* `disabled` as well as the container's `pointer-events-none`:
+                  that one stops the mouse, not a field the Tab key reached. */}
+              <BindingField binding={byPath[path]} disabled={held} />
             </div>
           ))
         )}
