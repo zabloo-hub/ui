@@ -1,0 +1,37 @@
+/*
+ * Placeholder — V2 (ZAB-83) writes the real theme here, from the artboards.
+ *
+ * What is here is the minimum that compiles and shows the fonts: Tailwind, the
+ * two Geist families, and the two stylesheets `shadcn add` expects to find
+ * imported (its own variants/keyframes, and tw-animate-css). Deliberately NO
+ * `:root`/`.dark` token block: `shadcn init` seeds one from its neutral palette,
+ * and the design's tokens are not that — indigo primary, a stage colour that is
+ * not the background, tinted state colours. V2 writes them once, from the source,
+ * instead of V2 diffing against a set nobody chose.
+ *
+ * The fonts are bundled (@fontsource) rather than pulled from a CDN: `zabloo dev`
+ * is a local tool and has to look the same with the network unplugged.
+ */
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
+@import "tw-animate-css";
+
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Plain `@theme`, not `@theme inline`: inline only bakes the value into the
+   utilities, and half the design reads a font off `var(--font-mono)` rather than
+   a class. shadcn's own block is `inline` because its values are already
+   `var(--token)` indirections — these two are literals. */
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    @apply font-sans;
+  }
+}

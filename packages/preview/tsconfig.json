@@ -1,0 +1,16 @@
+{
+  "//": "`paths` REPLACES the base's map, it does not merge with it — so the workspace-source aliases of tsconfig.base.json (ZAB-62: on a fresh clone `dist/` does not exist yet) have to be repeated here next to `@/*`, now relative to this file. Their counterpart at runtime is `resolve.alias` in vite.config.ts.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@zabloo/format": ["../format/src/index.ts"],
+      "@zabloo/react": ["../react/src/index.ts"],
+      "@zabloo/renderer-web": ["../renderer-web/src/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}
