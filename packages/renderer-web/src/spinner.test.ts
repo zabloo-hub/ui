@@ -16,7 +16,7 @@ describe("beadOpacity", () => {
   });
 
   it("never leaves the floor..1 band, whatever the phase", () => {
-    for (let step = 0; step <= 40; step++) {
+    for (const step of Array(41).keys()) {
       const value = beadOpacity(1, 3, step / 40);
       expect(value).toBeGreaterThanOrEqual(DEFAULT_MIN - 1e-12);
       expect(value).toBeLessThanOrEqual(1);

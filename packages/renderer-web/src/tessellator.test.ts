@@ -148,7 +148,7 @@ describe("GeometryBuilder.image", () => {
     expect(count).toBe(1 + 4 * (6 + 1)); // centroid + 4 corner arcs
     // The centroid samples the middle of the texture.
     expect(vertex(batch.vertices, 0)).toMatchObject({ x: 60, y: 70, u: 0.5, v: 0.5 });
-    for (let i = 0; i < count; i++) {
+    for (const i of Array(count).keys()) {
       const { x, y, u, v } = vertex(batch.vertices, i);
       expect(x).toBeGreaterThanOrEqual(RECT.x);
       expect(x).toBeLessThanOrEqual(RECT.x + RECT.width);
@@ -168,7 +168,7 @@ describe("GeometryBuilder.image", () => {
 
     const batch = geometry.batches().find((b) => b.indices.length > 0);
     if (!batch) throw new Error("expected an image batch");
-    for (let i = 0; i < batch.vertices.length / 8; i++) {
+    for (const i of Array(batch.vertices.length / 8).keys()) {
       const { y } = vertex(batch.vertices, i);
       expect(y).toBeGreaterThanOrEqual(45);
       expect(y).toBeLessThanOrEqual(95);

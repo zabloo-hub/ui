@@ -1863,18 +1863,18 @@ describe("onFrame", () => {
   it("is what a frame RATE can be built from — polling stats() cannot", async () => {
     // The renderer paints on demand: a still scene paints nothing at all, so a
     // caller's own rAF would be measuring the page and not the renderer.
-    let painted = 0;
+    const painted: true[] = [];
     const view = await mountForTest(CORPUS["states-tokens"], {
       onFrame: () => {
-        painted++;
+        painted.push(true);
       },
     });
-    const afterMount = painted;
+    const afterMount = painted.length;
 
     view.advance(500);
 
     // Nothing is animating, so nothing was painted — and that IS the answer.
-    expect(painted).toBe(afterMount);
+    expect(painted.length).toBe(afterMount);
     expect(view.handle.stats().drawCalls).toBeGreaterThan(0);
   });
 });
