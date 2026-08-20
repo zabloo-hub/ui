@@ -1,0 +1,451 @@
+/**
+ * The mount/reload decision and everything that has to survive a save (ported
+ * from `preview-client.test.ts`, ZAB-57/ZAB-67/ZAB-72).
+ *
+ * What is stubbed is what a headless test cannot have: the WebGL renderer and the
+ * HTTP server. Both are contracts the session CONSUMES and both arrive as
+ * arguments here, so no global is touched and the assertions are about the
+ * session — which is the whole reason this logic was pulled out of the page.
+ */
+
+import type { Envelope } from "@zabloo/format";
+import type { MountOptions, ZablooHandle } from "@zabloo/renderer-web";
+import { createSession, type Session, type SessionCallbacks } from "@/bridge/session";
+
+/** A mount, as the session made it — what the renderer would have been asked for. */
+interface Mount {
+  envelope: Envelope;
+  options: MountOptions;
+  handle: FakeHandle;
+}
+
+interface FakeHandle extends ZablooHandle {
+  readonly data: Array<[string, unknown]>;
+  readonly reloads: string[];
+  disposed: boolean;
+}
+
+function fakeHandle(envelope: Envelope): FakeHandle {
+  let live = envelope;
+  const handle = {
+    // A getter, like the real handle's since ZAB-72: a hot-update can bring a
+    // different set of views, and the session reads it fresh after every load.
+    get viewIds(): string[] {
+      return Object.keys(live.views);
+    },
+    ready: Promise.resolve(),
+    data: [] as Array<[string, unknown]>,
+    reloads: [] as string[],
+    disposed: false,
+    reload(json: string | object) {
+      handle.reloads.push(String(json));
+      live = (typeof json === "string" ? JSON.parse(json) : json) as Envelope;
+    },
+    setData(path: string, value: unknown) {
+      handle.data.push([path, value]);
+    },
+    setOpen: () => true,
+    setSelectedTab: () => true,
+    setChecked: () => true,
+    setValue: () => true,
+    setText: () => true,
+    setScroll: () => true,
+    snapshot: () => ({}) as ReturnType<ZablooHandle["snapshot"]>,
+    stats: () => ({}) as ReturnType<ZablooHandle["stats"]>,
+    dispose() {
+      handle.disposed = true;
+    },
+  };
+  return handle as unknown as FakeHandle;
+}
+
+const GOLD: Envelope = {
+  v: 1,
+  tokens: {},
+  views: {
+    main: {
+      type: "Container",
+      children: [{ type: "Text", text: { bind: "player.gold" } }],
+    },
+  },
+};
+
+const TWO_VIEWS: Envelope = { ...GOLD, views: { ...GOLD.views, settings: { type: "Container" } } };
+
+/** The world around one session: what the server serves, what the renderer does. */
+interface World {
+  session: Session;
+  mounts: Mount[];
+  /** Everything the session reported, in order, as `name: detail` lines. */
+  reported: string[];
+  /** The envelope `/envelope` answers with; null is a server with nothing to give. */
+  serve(envelope: Envelope | null): void;
+  /** Makes the fetch itself fail — what never becomes a diagnostic. */
+  breakServer(error: Error): void;
+  /** Thrown by the next mount — the "envelope the renderer refuses" case. */
+  refuse(error: Error | null): void;
+  /** What a refusing mount reports through the sink before it throws. */
+  refuseWith(diagnostic: Parameters<SessionCallbacks["onDiagnostic"]>[0] | null): void;
+  /** The ratio the picker is on. */
+  setDpr(value: number | undefined): void;
+  fetches: number;
+}
+
+function world(initial: Envelope | null = GOLD): World {
+  const mounts: Mount[] = [];
+  const reported: string[] = [];
+  let served: Envelope | null = initial;
+  let serverError: Error | null = null;
+  let mountError: Error | null = null;
+  let mountDiagnostic: Parameters<SessionCallbacks["onDiagnostic"]>[0] | null = null;
+  let dpr: number | undefined;
+  let fetches = 0;
+
+  const session = createSession({
+    canvas: document.createElement("canvas"),
+    fetchEnvelope: async () => {
+      fetches += 1;
+      if (serverError) throw serverError;
+      // A fresh copy every time: the real one comes off the wire, and the session
+      // hydrates assets INTO it.
+      return served === null ? null : (JSON.parse(JSON.stringify(served)) as Envelope);
+    },
+    mount(_canvas, json, options) {
+      if (mountDiagnostic) options.onDiagnostic?.(mountDiagnostic);
+      if (mountError) throw mountError;
+      const envelope = JSON.parse(json) as Envelope;
+      const handle = fakeHandle(envelope);
+      mounts.push({ envelope, options, handle });
+      return handle;
+    },
+    dpr: () => dpr,
+    callbacks: {
+      onEnvelope: (_envelope, bindings) =>
+        reported.push(`envelope: ${bindings.map((b) => `${b.path}:${b.type}`).join(",")}`),
+      onMounted: (viewIds) => reported.push(`mounted: ${viewIds.join(",")}`),
+      onReloaded: (viewIds, state) =>
+        reported.push(`reloaded${state.stale ? " (stale)" : ""}: ${viewIds.join(",")}`),
+      onAction: (action, context) =>
+        reported.push(context ? `action: ${action} @${context.path}` : `action: ${action}`),
+      onDataChanged: (path, value) => reported.push(`changed: ${path}=${String(value)}`),
+      onDiagnostic: (diagnostic) => reported.push(`diagnostic: ${diagnostic.code}`),
+      onFrame: (frame) => reported.push(`frame: ${frame.drawCalls}`),
+      onLoadError: (message) => reported.push(`load error: ${message}`),
+    },
+  });
+
+  return {
+    session,
+    mounts,
+    reported,
+    serve: (envelope) => {
+      served = envelope;
+    },
+    breakServer: (error) => {
+      serverError = error;
+    },
+    refuse: (error) => {
+      mountError = error;
+    },
+    refuseWith: (diagnostic) => {
+      mountDiagnostic = diagnostic;
+    },
+    setDpr: (value) => {
+      dpr = value;
+    },
+    get fetches() {
+      return fetches;
+    },
+  };
+}
+
+afterEach(() => {
+  window.zabloo = undefined;
+});
+
+describe("the first load", () => {
+  it("mounts what the server published and names its views", async () => {
+    const it = world(TWO_VIEWS);
+
+    await it.session.load();
+
+    expect(it.mounts).toHaveLength(1);
+    expect(it.reported).toContain("mounted: main,settings");
+  });
+
+  it("reports the paths the envelope binds before putting it on screen", async () => {
+    const it = world();
+
+    await it.session.load();
+
+    // The panel is built from this, and the order matters: a view the renderer
+    // refuses still tells you which data it wanted.
+    expect(it.reported).toEqual(["envelope: player.gold:string", "mounted: main"]);
+  });
+
+  it("puts the handle on the console's own name", async () => {
+    const it = world();
+
+    await it.session.load();
+
+    // The public docs name it: `zabloo.setData(...)` in the browser console.
+    expect(window.zabloo).toBe(it.session.handle());
+  });
+
+  it("says nothing until the first export lands", async () => {
+    const it = world(null);
+
+    await it.session.load();
+
+    expect(it.mounts).toEqual([]);
+    expect(it.reported).toEqual([]);
+  });
+});
+
+describe("the data channel", () => {
+  it("pushes what the panel holds and keeps it", async () => {
+    const it = world();
+    await it.session.load();
+
+    it.session.setData("player.gold", 900);
+
+    expect(it.mounts[0].handle.data).toEqual([["player.gold", 900]]);
+    expect(it.session.values().get("player.gold")).toBe(900);
+  });
+
+  it("keeps what a control wrote back, typed as the control wrote it (ZAB-29)", async () => {
+    const it = world();
+    await it.session.load();
+
+    it.mounts[0].options.onDataChanged?.("shop.items.3.fav", true);
+
+    expect(it.session.values().get("shop.items.3.fav")).toBe(true);
+    expect(it.reported).toContain("changed: shop.items.3.fav=true");
+  });
+
+  it("replays the data the panel is holding, so a reload does not blank the view", async () => {
+    const it = world();
+    await it.session.load();
+    it.session.setData("player.gold", 900);
+    it.mounts[0].handle.data.length = 0;
+
+    await it.session.load();
+
+    expect(it.mounts[0].handle.data).toEqual([["player.gold", 900]]);
+  });
+
+  it("replays it into a fresh mount too", async () => {
+    const it = world(TWO_VIEWS);
+    await it.session.load();
+    it.session.setData("player.gold", 900);
+
+    await it.session.load("settings");
+
+    expect(it.mounts[1].handle.data).toEqual([["player.gold", 900]]);
+  });
+
+  it("forwards the actions and the frames of the live view", async () => {
+    const it = world();
+    await it.session.load();
+
+    it.mounts[0].options.onAction?.("buy", { path: "shop.items.3", index: 3, key: "3" });
+    it.mounts[0].options.onFrame?.({
+      drawCalls: 9,
+      vertices: 120,
+      indices: 180,
+      atlases: 1,
+      atlasBytes: 1048576,
+      resolved: 40,
+      textLayouts: 0,
+      bufferGrowths: 0,
+      repaintOnly: false,
+      ms: 0.5,
+    });
+
+    expect(it.reported).toContain("action: buy @shop.items.3");
+    expect(it.reported).toContain("frame: 9");
+  });
+});
+
+describe("the next save", () => {
+  it("hot-swaps the envelope instead of remounting", async () => {
+    const it = world();
+    await it.session.load();
+
+    await it.session.load();
+
+    expect(it.mounts).toHaveLength(1);
+    expect(it.mounts[0].handle.reloads).toHaveLength(1);
+    expect(it.mounts[0].handle.disposed).toBe(false);
+  });
+
+  // The picker was filled once, on mount, so a save that added a view left it
+  // invisible until the page was reloaded by hand (ZAB-72).
+  it("follows the envelope's views across a hot-update", async () => {
+    const it = world();
+    await it.session.load();
+    expect(it.reported).toContain("mounted: main");
+
+    it.serve(TWO_VIEWS);
+    await it.session.load();
+
+    expect(it.mounts).toHaveLength(1); // hot-swapped, not remounted
+    expect(it.reported).toContain("reloaded: main,settings");
+  });
+
+  it("remounts on the view picker, and only then", async () => {
+    const it = world(TWO_VIEWS);
+    await it.session.load();
+
+    await it.session.load("settings");
+
+    expect(it.mounts).toHaveLength(2);
+    expect(it.mounts[1].options.view).toBe("settings");
+    expect(it.mounts[0].handle.disposed).toBe(true);
+  });
+
+  it("remounts when the ratio moves — the atlases are rasterized at it", async () => {
+    const it = world();
+    await it.session.load();
+    expect(it.mounts[0].options.dpr).toBeUndefined();
+
+    it.setDpr(2);
+    await it.session.load();
+
+    expect(it.mounts).toHaveLength(2);
+    expect(it.mounts[1].options.dpr).toBe(2);
+    // A remount, not a reload: the previous view had to be thrown away.
+    expect(it.mounts[0].handle.disposed).toBe(true);
+  });
+
+  it("goes back to hot-swapping once the ratio settles", async () => {
+    const it = world();
+    it.setDpr(2);
+    await it.session.load();
+
+    await it.session.load();
+
+    expect(it.mounts).toHaveLength(1);
+    expect(it.mounts[0].handle.reloads).toHaveLength(1);
+  });
+});
+
+describe("a load that does not make it onto the canvas", () => {
+  const FATAL = {
+    level: "fatal",
+    code: "unsupported-version",
+    path: "",
+    message: "unsupported major version 2",
+  } as const;
+
+  it("reports an envelope the renderer refuses instead of stopping dead (ZAB-37)", async () => {
+    const it = world();
+    it.refuse(new Error("unsupported node"));
+
+    await it.session.load();
+
+    expect(it.reported).toContain("load error: envelope error: unsupported node");
+  });
+
+  it("reports a refused envelope once, by its code and not by the exception too", async () => {
+    const it = world();
+    // A real mount reports through the sink and THEN throws; saying the same
+    // thing twice is what the `sawFatal` flag exists to prevent.
+    it.refuseWith(FATAL);
+    it.refuse(new Error("unsupported major version 2"));
+
+    await it.session.load();
+
+    expect(it.reported).toContain("diagnostic: unsupported-version");
+    expect(it.reported.some((line) => line.startsWith("load error:"))).toBe(false);
+  });
+
+  it("reports what never becomes a diagnostic — the fetch itself", async () => {
+    const it = world();
+    it.breakServer(new Error("connection refused"));
+
+    await it.session.load();
+
+    // No diagnostic was ever emitted for this, so the exception IS the report.
+    expect(it.reported).toEqual(["load error: envelope error: connection refused"]);
+    expect(it.mounts).toEqual([]);
+  });
+
+  it("remounts after a mount that threw, instead of reloading the view it disposed", async () => {
+    const it = world(TWO_VIEWS);
+    await it.session.load();
+    const first = it.mounts[0].handle;
+    it.refuse(new Error("unsupported node"));
+
+    await it.session.load("settings");
+    it.refuse(null);
+    await it.session.load();
+
+    // The handle the failed mount left behind was disposed: reloading THAT is the
+    // bug (ZAB-67), and a fresh mount is the only way back.
+    expect(first.disposed).toBe(true);
+    expect(first.reloads).toEqual([]);
+    expect(it.mounts).toHaveLength(2);
+    expect(it.session.handle()).toBe(it.mounts[1].handle);
+  });
+
+  it("marks the view stale when a hot-update is refused", async () => {
+    const it = world();
+    await it.session.load();
+    it.refuseWith(FATAL);
+
+    // `reload` never throws: a refused hot-update comes back as a fatal
+    // diagnostic and the PREVIOUS view stays on screen.
+    it.mounts[0].handle.reload = () => {
+      it.mounts[0].options.onDiagnostic?.(FATAL);
+    };
+    await it.session.load();
+
+    // Whoever owns the overlay must leave it up: the canvas is stale, and this
+    // report is the only one there is (ZAB-67).
+    expect(it.reported).toContain("reloaded (stale): main");
+  });
+
+  it("does not mark it stale when the update landed", async () => {
+    const it = world();
+    await it.session.load();
+
+    await it.session.load();
+
+    expect(it.reported).toContain("reloaded: main");
+  });
+
+  it("still tells the panel which data the refused envelope wanted", async () => {
+    const it = world();
+    it.refuse(new Error("unsupported node"));
+
+    await it.session.load();
+
+    expect(it.reported[0]).toBe("envelope: player.gold:string");
+  });
+});
+
+describe("dispose", () => {
+  it("drops the mounted view and the console's handle", async () => {
+    const it = world();
+    await it.session.load();
+    const mounted = it.mounts[0].handle;
+
+    it.session.dispose();
+
+    expect(mounted.disposed).toBe(true);
+    expect(it.session.handle()).toBeNull();
+    expect(window.zabloo).toBeUndefined();
+  });
+
+  it("mounts again on the next load, rather than reloading what it threw away", async () => {
+    const it = world();
+    await it.session.load();
+    it.session.dispose();
+
+    await it.session.load();
+
+    expect(it.mounts).toHaveLength(2);
+    expect(it.mounts[0].handle.reloads).toEqual([]);
+  });
+});
