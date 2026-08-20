@@ -2,6 +2,7 @@ import { Console } from "@/components/console/Console";
 import { Stage } from "@/components/stage/Stage";
 import { Statusbar } from "@/components/statusbar/Statusbar";
 import { Topbar } from "@/components/topbar/Topbar";
+import { useSession } from "@/session";
 
 /**
  * The static stack the whole chrome hangs off: topbar 44px, stage taking what is
@@ -14,8 +15,14 @@ import { Topbar } from "@/components/topbar/Topbar";
  *
  * No store and no layout state yet: collapsing the console and zen mode arrive
  * with V4 and V16.
+ *
+ * The one thing that is not layout is `useSession()`: the whole dev loop — the
+ * stream, the loads, the mounted view — hangs off this single call, mounted here
+ * because it must outlive every region below it.
  */
 export function App() {
+  useSession();
+
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <header data-region="topbar" className="h-11 shrink-0 border-b">
