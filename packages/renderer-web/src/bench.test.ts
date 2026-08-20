@@ -38,7 +38,7 @@ interface SamplingProfileNode {
  * timed loop runs bare and a second, profiled loop counts the allocations.
  */
 async function measure(frames: number, tick: () => void): Promise<{ ms: number; kb: number }> {
-  for (const i of Array(30).keys()) tick();
+  for (const _i of Array(30).keys()) tick();
 
   const start = process.hrtime.bigint();
   for (let i = 0; i < frames; i++) tick();
@@ -163,7 +163,7 @@ describe.runIf(process.env.BENCH)("performance bench (ZAB-55, ZAB-73)", () => {
     report("1000-row scroll frame", cost, `window ${JSON.stringify(windowOf())}`);
 
     // Scroll back to the top: does the window recover, or did "biggest wins" pin it?
-    for (const i of Array(400).keys()) {
+    for (const _i of Array(400).keys()) {
       view.pointer.wheel(400, 300, 0, -400);
       view.advance(16);
     }

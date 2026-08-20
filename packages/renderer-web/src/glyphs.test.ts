@@ -359,7 +359,7 @@ describe("GlyphAtlas hardening (ZAB-69)", () => {
 
     // Ten frames measuring the same run — and the real renderer walks it twice a
     // frame, since the tessellator kerns the paint loop the same way.
-    for (const frame of Array(10).keys()) expect(runWidth(atlas, "AVAV")).toBe(34);
+    for (const _frame of Array(10).keys()) expect(runWidth(atlas, "AVAV")).toBe(34);
 
     // "AVAV" has two distinct pairs, AV and VA. That is the whole cost.
     expect(kern).toHaveBeenCalledTimes(2);
