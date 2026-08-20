@@ -50,7 +50,5 @@
       }
     }
   },
-  "plugins": [
-    "./scripts/lint/no-let.grit"
-  ]
+  "plugins": ["./scripts/lint/no-let.grit"]
 }

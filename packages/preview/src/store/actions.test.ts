@@ -28,7 +28,7 @@ describe("action log", () => {
   it("drops the oldest once the cap is reached", () => {
     const preview = store();
 
-    for (let i = 0; i < ACTION_LOG_CAP + 20; i++) {
+    for (const i of Array(ACTION_LOG_CAP + 20).keys()) {
       preview.getState().appendAction("action", `buy #${i}`);
     }
 

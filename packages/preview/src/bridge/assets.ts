@@ -6,7 +6,7 @@
 import type { AssetEntry, Envelope } from "@zabloo/format";
 
 /** How the bytes behind a hash are fetched — `globalThis.fetch` in the browser. */
-export type FetchLike = (url: string) => Promise<{ ok: boolean; text(): Promise<string> }>;
+type FetchLike = (url: string) => Promise<{ ok: boolean; text(): Promise<string> }>;
 
 /**
  * Puts the asset bytes back into the manifest. They travel apart from the tree
@@ -17,7 +17,7 @@ export type FetchLike = (url: string) => Promise<{ ok: boolean; text(): Promise<
  * An asset the server cannot serve is reported and left without bytes rather
  * than failing the reload: the rest of the view is still worth showing.
  */
-export async function hydrateAssets(
+async function hydrateAssets(
   envelope: Envelope,
   cache: Map<string, string>,
   report: (message: string) => void,
@@ -30,18 +30,24 @@ export async function hydrateAssets(
         cache.set(entry.hash, entry.data);
         return;
       }
-      let data = cache.get(entry.hash);
+      const cached = cache.get(entry.hash);
+      const data = cached ?? (await download(entry.hash, fetchImpl));
       if (data === undefined) {
-        const res = await fetchImpl(`/asset/${entry.hash}`);
-        if (!res.ok) {
-          report(`asset unavailable: ${entry.hash.slice(0, 8)}`);
-          return;
-        }
-        data = await res.text();
-        cache.set(entry.hash, data);
+        report(`asset unavailable: ${entry.hash.slice(0, 8)}`);
+        return;
       }
+      if (cached === undefined) cache.set(entry.hash, data);
       entry.data = data;
     }),
   );
   return envelope;
 }
+
+/** The bytes behind a hash, or undefined if the server has none. */
+async function download(hash: string, fetchImpl: FetchLike): Promise<string | undefined> {
+  const res = await fetchImpl(`/asset/${hash}`);
+  return res.ok ? await res.text() : undefined;
+}
+
+export type { FetchLike };
+export { hydrateAssets };

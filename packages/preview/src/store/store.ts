@@ -31,7 +31,7 @@ import { createViewportSlice } from "./viewport";
 import { createViewsSlice } from "./views";
 
 /** Exactly what goes to storage — a whitelist, because `runtime.canvas` exists. */
-export interface PersistedState {
+interface PersistedState {
   theme: Theme;
   viewport: { preset: PresetId };
   custom: Size;
@@ -39,7 +39,7 @@ export interface PersistedState {
   layout: Omit<Layout, "zen">;
 }
 
-export interface PreviewStoreOptions {
+interface PreviewStoreOptions {
   /** Defaults to `localStorage`, wrapped so it cannot throw. */
   storage?: PreviewStorage;
   /**
@@ -50,7 +50,7 @@ export interface PreviewStoreOptions {
   now?: () => number;
 }
 
-export function createPreviewStore(options: PreviewStoreOptions = {}) {
+function createPreviewStore(options: PreviewStoreOptions = {}) {
   const storage = options.storage ?? browserStorage();
   const now = options.now ?? (() => performance.now());
 
@@ -100,7 +100,7 @@ export function createPreviewStore(options: PreviewStoreOptions = {}) {
  * put anything at all in a field the chrome then renders. Every value is checked
  * and anything unrecognizable falls back to the running default.
  */
-export function mergePersisted(persisted: unknown, current: PreviewState): PreviewState {
+function mergePersisted(persisted: unknown, current: PreviewState): PreviewState {
   const saved = persisted as Partial<PersistedState> | undefined;
   if (saved === undefined || saved === null) return current;
   const preset = saved.viewport?.preset;
@@ -121,6 +121,9 @@ function isSize(value: unknown): value is Size {
 }
 
 /** The one the chrome uses. */
-export const useStore = createPreviewStore();
+const useStore = createPreviewStore();
 
-export type PreviewStore = ReturnType<typeof createPreviewStore>;
+type PreviewStore = ReturnType<typeof createPreviewStore>;
+
+export type { PersistedState, PreviewStore, PreviewStoreOptions };
+export { createPreviewStore, mergePersisted, useStore };

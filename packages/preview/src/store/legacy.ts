@@ -23,13 +23,13 @@ import {
 } from "./presets";
 import { NAMESPACE, type PreviewStorage } from "./storage";
 
-export interface LegacyViewport {
+interface LegacyViewport {
   preset: PresetId;
   custom: Size;
   dpr: Dpr;
 }
 
-export function readLegacyViewport(storage: PreviewStorage): LegacyViewport {
+function readLegacyViewport(storage: PreviewStorage): LegacyViewport {
   return {
     preset: legacyPreset(storage.read(`${NAMESPACE}.viewport`)),
     custom: parseSize(storage.read(`${NAMESPACE}.custom`) ?? "") ?? DEFAULT_CUSTOM,
@@ -55,3 +55,6 @@ function legacyDpr(raw: string | null): Dpr {
   const dpr = Number(raw);
   return dpr === 1 || dpr === 2 || dpr === 3 ? dpr : "auto";
 }
+
+export type { LegacyViewport };
+export { readLegacyViewport };

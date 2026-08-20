@@ -7,9 +7,9 @@
  * what lets the panel offer a checkbox instead of a box you type `true` into.
  */
 
-export type BindingType = "boolean" | "number" | "string" | "array" | "object";
+type BindingType = "boolean" | "number" | "string" | "array" | "object";
 
-export interface Binding {
+interface Binding {
   path: string;
   type: BindingType;
 }
@@ -70,7 +70,7 @@ const ROOT: Site = { nodeType: "", prop: "" };
  *
  * Sorted by path, so a save does not reshuffle the panel under the cursor.
  */
-export function collectBindings(node: unknown): Binding[] {
+function collectBindings(node: unknown): Binding[] {
   const found = new Map<string, BindingType>();
   walk(node, ROOT, found);
   return [...found]
@@ -118,3 +118,6 @@ function add(found: Map<string, BindingType>, path: string, type: BindingType): 
   );
   found.set(path, winner);
 }
+
+export type { Binding, BindingType };
+export { collectBindings };

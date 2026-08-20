@@ -39,16 +39,16 @@ describe("selector hooks", () => {
   });
 
   it("does not re-render for a write to another slice", () => {
-    let renders = 0;
+    const renders: string[] = [];
     renderHook(() => {
-      renders++;
+      renders.push("render");
       return useViewport();
     });
-    const before = renders;
+    const before = renders.length;
 
     act(() => useStore.getState().appendAction("action", "buy"));
 
-    expect(renders).toBe(before);
+    expect(renders).toHaveLength(before);
   });
 
   it("re-renders for a write to its own slice", () => {

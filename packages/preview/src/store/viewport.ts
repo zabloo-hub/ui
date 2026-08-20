@@ -17,7 +17,7 @@ import { type Dpr, type PresetId, parseSize, type Size } from "./presets";
 import type { Getter, Setter } from "./state";
 import type { PreviewStorage } from "./storage";
 
-export interface ViewportSlice {
+interface ViewportSlice {
   /** An object rather than a bare id: the picker's value is going to grow. */
   viewport: { preset: PresetId };
   /** What the `custom` preset lays out at, remembered even while another preset is on. */
@@ -31,11 +31,7 @@ export interface ViewportSlice {
   setStageSize(size: Size): void;
 }
 
-export function createViewportSlice(
-  set: Setter,
-  get: Getter,
-  storage: PreviewStorage,
-): ViewportSlice {
+function createViewportSlice(set: Setter, get: Getter, storage: PreviewStorage): ViewportSlice {
   // Seeds only: whatever `persist` has under the new key lands on top of this.
   const legacy = readLegacyViewport(storage);
   return {
@@ -74,3 +70,6 @@ export function createViewportSlice(
 function normalize(size: Size): Size | null {
   return parseSize(`${Math.floor(size.width)}x${Math.floor(size.height)}`);
 }
+
+export type { ViewportSlice };
+export { createViewportSlice };

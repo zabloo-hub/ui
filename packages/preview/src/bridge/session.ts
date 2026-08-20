@@ -81,11 +81,15 @@ export interface Session {
 export function createSession(options: SessionOptions): Session {
   const { canvas, fetchEnvelope, fetchAsset, mount, dpr, callbacks } = options;
 
-  let handle: ZablooHandle | null = null;
-  /** The ratio the live view was mounted at — a change is a remount, not a reload. */
-  let mountedDpr: number | undefined;
-  /** Whether this load already reported a fatal — see the catch in `load`. */
-  let sawFatal = false;
+  // The session's mutable state, in one slot object: a session outlives every
+  // call on it, so this is genuinely state and not a value being folded.
+  const live: {
+    handle: ZablooHandle | null;
+    /** The ratio the live view was mounted at — a change is a remount, not a reload. */
+    mountedDpr: number | undefined;
+    /** Whether this load already reported a fatal — see the catch in `load`. */
+    sawFatal: boolean;
+  } = { handle: null, mountedDpr: undefined, sawFatal: false };
 
   // The preview plays the role of "the game": it pushes values into bound paths,
   // and the traffic runs both ways — controls write their value back, which is
@@ -95,7 +99,7 @@ export function createSession(options: SessionOptions): Session {
 
   function setData(path: string, value: unknown): void {
     dataValues.set(path, value);
-    handle?.setData(path, value);
+    live.handle?.setData(path, value);
   }
 
   // From inside a repeated item the path addresses the element
@@ -106,26 +110,26 @@ export function createSession(options: SessionOptions): Session {
   }
 
   function onDiagnostic(diagnostic: Diagnostic): void {
-    if (diagnostic.level === "fatal") sawFatal = true;
+    if (diagnostic.level === "fatal") live.sawFatal = true;
     callbacks.onDiagnostic(diagnostic);
   }
 
   function replayData(): void {
-    for (const [path, value] of dataValues) handle?.setData(path, value);
+    for (const [path, value] of dataValues) live.handle?.setData(path, value);
   }
 
   // A mount that refuses the envelope must say WHY (ZAB-37): an uncaught
   // rejection in the reload loop would leave a canvas that simply stopped
   // updating, which is the worst report of all.
   async function load(viewId?: string): Promise<void> {
-    sawFatal = false;
+    live.sawFatal = false;
     try {
       await loadOrFail(viewId);
     } catch (error) {
       // A refused envelope already reported itself through `onDiagnostic`, with
       // its code. This path covers what never becomes a diagnostic: the fetch,
       // the JSON of the response, the asset hydration.
-      if (sawFatal) return;
+      if (live.sawFatal) return;
       callbacks.onLoadError(
         `envelope error: ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -139,24 +143,24 @@ export function createSession(options: SessionOptions): Session {
     const json = JSON.stringify(envelope);
     callbacks.onEnvelope(envelope, collectBindings(envelope));
     const ratio = dpr();
-    if (handle && viewId === undefined && ratio === mountedDpr) {
-      handle.reload(json);
+    if (live.handle && viewId === undefined && ratio === live.mountedDpr) {
+      live.handle.reload(json);
       replayData();
       // `reload` never throws: a refused hot-update comes back as a fatal
       // diagnostic and the previous view stays on screen. The ids are read fresh
       // because an update may add, drop or rename views (ZAB-72).
-      callbacks.onReloaded([...handle.viewIds], { stale: sawFatal });
+      callbacks.onReloaded([...live.handle.viewIds], { stale: live.sawFatal });
       return;
     }
     // Dropped BEFORE mounting, not after: a `mount` that throws used to leave
     // `handle` pointing at the view it had just disposed, and the next SSE reload
     // called `reload()` on the dead one (ZAB-67).
-    if (handle) {
-      handle.dispose();
-      handle = null;
+    if (live.handle) {
+      live.handle.dispose();
+      live.handle = null;
       window.zabloo = undefined;
     }
-    handle = mount(canvas, json, {
+    live.handle = mount(canvas, json, {
       view: viewId,
       onAction: (action: string, context?: ActionContext) => callbacks.onAction(action, context),
       onDataChanged,
@@ -164,20 +168,20 @@ export function createSession(options: SessionOptions): Session {
       dpr: ratio,
       onFrame: (frame) => callbacks.onFrame(frame),
     });
-    mountedDpr = ratio;
-    window.zabloo = handle;
+    live.mountedDpr = ratio;
+    window.zabloo = live.handle;
     replayData();
-    callbacks.onMounted([...handle.viewIds]);
+    callbacks.onMounted([...live.handle.viewIds]);
   }
 
   return {
     load,
-    handle: () => handle,
+    handle: () => live.handle,
     setData,
     values: () => dataValues,
     dispose() {
-      handle?.dispose();
-      handle = null;
+      live.handle?.dispose();
+      live.handle = null;
       window.zabloo = undefined;
     },
   };

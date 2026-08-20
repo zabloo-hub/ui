@@ -42,21 +42,23 @@ export interface StatsSlice {
 }
 
 export function createStatsSlice(set: Setter, get: Getter, now: () => number): StatsSlice {
-  let painted: number[] = [];
+  // A slot, because `tickStats` REPLACES the array (filtered) rather than
+  // mutating it: the window is a value recomputed each tick.
+  const window = { painted: [] as number[] };
   return {
     stats: { last: null, fps: 0 },
 
     recordFrame: (frame) => {
-      painted.push(now());
+      window.painted.push(now());
       set({ stats: { last: frame, fps: get().stats.fps } });
     },
 
     tickStats: () => {
       const cutoff = now() - FPS_WINDOW_MS;
-      painted = painted.filter((at) => at >= cutoff);
+      window.painted = window.painted.filter((at) => at >= cutoff);
       const { last, fps } = get().stats;
-      if (painted.length === fps) return;
-      set({ stats: { last, fps: painted.length } });
+      if (window.painted.length === fps) return;
+      set({ stats: { last, fps: window.painted.length } });
     },
   };
 }
