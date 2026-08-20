@@ -1,0 +1,207 @@
+/*
+ * The design's palette, light and dark, as plain CSS custom properties.
+ *
+ * Why this is a file of its own and not part of `globals.css` (ZAB-83): it is
+ * the ONE piece of the theme that has to survive outside a Tailwind build.
+ * `globals.css` is full of `@import "tailwindcss"`, `@theme` and `@utility`,
+ * which mean nothing to a browser — or to jsdom. This file is CSS a browser can
+ * read as-is, so `tokens.test.ts` injects it whole into a `<style>` and asks
+ * `getComputedStyle` what the tokens resolve to, with and without `.dark`. No
+ * regex over a source file, nothing to keep in sync.
+ *
+ * Two rules keep that test honest, and they are why the file looks repetitive:
+ *
+ * 1. **Values are literal.** Where the design has one colour behind several
+ *    shadcn names (`--card` and `--popover` are both "panel"; `--muted` and
+ *    `--accent` are both "hover bg"), the literal is written twice instead of
+ *    chained through `var()`. jsdom does not resolve `var()`, and a token file
+ *    that can only be read by a real browser is a token file nobody checks.
+ *    The single exception is `--ring`, below, where the indirection IS the point.
+ * 2. **`.dark` comes after `:root`.** Both selectors weigh the same (`:root` is
+ *    a pseudo-class), and V16 puts the class on `<html>` — which is `:root` —
+ *    so the two blocks land on the same element and only source order separates
+ *    them. Moving `.dark` up silently disables dark mode.
+ *
+ * Source of truth is the table in `README.md`, taken from the artboards; the
+ * design's HTML has every colour inline and no variables of its own.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* --- shadcn's own names ------------------------------------------------ */
+  /* Mapped so that the primitives V3 generates come out in the design's
+     colours untouched. The chrome background; the topbar, console and floating
+     panel are `--card`. */
+  --background: #fafafa;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: #09090b;
+  /* The zinc theme's Primary is near-black, NOT the indigo — the indigo is for
+     selection and active state, and a page full of indigo buttons was not the
+     design. */
+  --primary: #09090b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #09090b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #09090b;
+  --destructive: #dc2626;
+  --destructive-foreground: #fafafa;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+
+  /* The focus treatment is a border AND a halo, and shadcn spends `--ring` on
+     the border (`focus-visible:border-ring`). So `--ring` is the indigo and the
+     halo gets a name of its own; `focus-ring` in `globals.css` combines them
+     into the design's recipe. This is the one `var()` in the file, and it works
+     in both themes precisely because it is late-bound: `.dark` moves
+     `--indigo`, and `--ring` follows without being redeclared. */
+  --ring: var(--indigo);
+  --ring-halo: #e0e7ff;
+
+  /* --- tokens the design has and shadcn does not -------------------------- */
+  /* The surface the canvas sits on. In light it is a shade below the chrome; in
+     dark it collapses onto the background, which is why it cannot just be
+     `--background` or `--muted`. */
+  --stage: #f4f4f5;
+
+  /* Text below `--foreground` and above `--muted-foreground`: the console log
+     body. `--text-faint` is dimmer still — timestamps, the panel's grip. */
+  --text-secondary: #3f3f46;
+  --text-faint: #d4d4d8;
+
+  /* Selection and active state. `--indigo-foreground` is the text colour ON the
+     soft backgrounds, which in light is the indigo itself and in dark is not. */
+  --indigo: #4f46e5;
+  --indigo-foreground: #4f46e5;
+  --indigo-soft: #eef2ff;
+  --indigo-soft-border: #c7d2fe;
+  --indigo-chip: #e0e7ff;
+
+  /* Status: a saturated dot, then a tinted pill (fg / bg / border) around it. */
+  --ok: #22a04d;
+  --ok-fg: #3f9152;
+  --ok-bg: #eaf6ee;
+  --ok-border: #cde8d6;
+  --warn: #d99711;
+  --warn-fg: #96690f;
+  --warn-bg: #fdf5e3;
+  --warn-border: #f0dfb2;
+  /* Paler than `--warn-bg`: it covers the whole footer of the bindings panel
+     when values are held, and the pill tint at that size reads as an error. */
+  --warn-surface: #fdf9ef;
+  --danger: #dc2626;
+  --danger-fg: #b91c1c;
+  --danger-bg: #fdecec;
+  --danger-border: #f5c9c9;
+
+  /* Console log keywords. `view` lines use `--muted-foreground`. */
+  --log-write: #0e8a5f;
+  --log-action: #4f46e5;
+
+  /* The wordmark square. Its dark pair is lighter, not darker: it sits on
+     `--card`, and the light gradient disappears against #18181b. */
+  --brand-gradient: linear-gradient(135deg, #818cf8, #4f46e5);
+  /* A switch that is on is indigo even though Primary is not. */
+  --switch-on: #4f46e5;
+  /* Over the last good render when the export failed. Not black at 55%: the
+     point is that the stale frame stays readable underneath. */
+  --veil: rgba(246, 246, 248, 0.55);
+  /* The zen-mode pill, over a full-bleed canvas, with a blur behind it. */
+  --glass: rgba(255, 255, 255, 0.88);
+
+  /* --- the shadows that change with the theme ----------------------------- */
+  /* Only these four; the ones that do not move (`--shadow-sm`, `--shadow-menu`,
+     `--shadow-tooltip`, `--shadow-pill`) are `@theme` keys in `globals.css`.
+     They are here, as plain tokens with `@utility` wrappers over them, because
+     a `@theme` shadow is compiled into the utility as a literal — Tailwind
+     splits the colour out of it to support `shadow-<color>` — and a literal is
+     not something `.dark` can move. */
+  --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-panel: 0 10px 32px rgba(20, 20, 30, 0.16);
+  --shadow-frame: 0 2px 10px rgba(20, 20, 30, 0.08);
+
+  /* --- radii -------------------------------------------------------------- */
+  /* shadcn's base. The scale built on it lives in `globals.css`, where Tailwind
+     can turn it into `rounded-*` utilities; this one is here because some
+     generated components read it directly as `calc(var(--radius) - 2px)`. */
+  --radius: 6px;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #18181b;
+  --card-foreground: #fafafa;
+  --popover: #18181b;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #09090b;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #27272a;
+  --accent-foreground: #fafafa;
+  --destructive: #f87171;
+  --destructive-foreground: #09090b;
+  --border: #27272a;
+  --input: #27272a;
+
+  /* `--ring` is not repeated: it is `var(--indigo)` and `--indigo` moves here. */
+  --ring-halo: rgba(129, 140, 248, 0.25);
+
+  /* The stage stops being a separate shade in dark — a lighter canvas surround
+     would glow around the render. */
+  --stage: #09090b;
+
+  --text-secondary: #d4d4d8;
+  --text-faint: #52525b;
+
+  --indigo: #818cf8;
+  --indigo-foreground: #a5b0fc;
+  --indigo-soft: rgba(129, 140, 248, 0.12);
+  --indigo-soft-border: rgba(129, 140, 248, 0.35);
+  --indigo-chip: rgba(129, 140, 248, 0.18);
+
+  /* The tints are alphas of the dot colour rather than fixed hexes: they sit on
+     `--card` in the console and on `--background` in the statusbar, and a solid
+     tint mixed for one of them banded on the other. */
+  --ok: #34c778;
+  --ok-fg: #6ee7a0;
+  --ok-bg: rgba(52, 199, 120, 0.1);
+  --ok-border: rgba(52, 199, 120, 0.28);
+  --warn: #fbbf24;
+  --warn-fg: #fbbf24;
+  --warn-bg: rgba(251, 191, 36, 0.1);
+  --warn-border: rgba(251, 191, 36, 0.28);
+  --warn-surface: rgba(251, 191, 36, 0.06);
+  --danger: #f87171;
+  --danger-fg: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.1);
+  --danger-border: rgba(248, 113, 113, 0.28);
+
+  --log-write: #4cc79a;
+  --log-action: #a5b0fc;
+
+  --brand-gradient: linear-gradient(135deg, #a5b0fc, #6366f1);
+  --switch-on: #6366f1;
+  --veil: rgba(9, 9, 11, 0.55);
+  --glass: rgba(24, 24, 27, 0.88);
+
+  /* Dark drops the shadow off triggers entirely — over #18181b it reads as
+     grime rather than lift. `0 0 #0000` rather than `none`, so the token stays
+     a valid shadow wherever it ends up composed into a list. */
+  --shadow-control: 0 0 #0000;
+  --shadow-tab: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-panel: 0 10px 32px rgba(0, 0, 0, 0.45);
+  --shadow-frame: 0 4px 18px rgba(0, 0, 0, 0.4);
+}

@@ -1,17 +1,18 @@
 /*
- * Placeholder — V2 (ZAB-83) writes the real theme here, from the artboards.
+ * The preview chrome's stylesheet: Tailwind, the fonts, and the bridge between
+ * the palette in `tokens.css` and the utilities the components are written with.
  *
- * What is here is the minimum that compiles and shows the fonts: Tailwind, the
- * two Geist families, and the two stylesheets `shadcn add` expects to find
- * imported (its own variants/keyframes, and tw-animate-css). Deliberately NO
- * `:root`/`.dark` token block: `shadcn init` seeds one from its neutral palette,
- * and the design's tokens are not that — indigo primary, a stage colour that is
- * not the background, tinted state colours. V2 writes them once, from the source,
- * instead of V2 diffing against a set nobody chose.
+ * The design (see `README.md`) is high fidelity and has no variables of its own
+ * — every colour in the artboards is inline. So the mapping happens here, once,
+ * and V3 onwards never writes a literal colour: the shadcn names are pointed at
+ * the design's values so the generated primitives come out right untouched, and
+ * the tokens shadcn has no name for (`--stage`, the indigo family, the status
+ * tints, the log colours) become utilities of their own.
  *
  * The fonts are bundled (@fontsource) rather than pulled from a CDN: `zabloo dev`
  * is a local tool and has to look the same with the network unplugged.
  */
+
 @import "tailwindcss";
 @import "shadcn/tailwind.css";
 @import "tw-animate-css";
@@ -19,19 +20,208 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
+@import "./tokens.css";
+
 @custom-variant dark (&:is(.dark *));
 
-/* Plain `@theme`, not `@theme inline`: inline only bakes the value into the
-   utilities, and half the design reads a font off `var(--font-mono)` rather than
-   a class. shadcn's own block is `inline` because its values are already
-   `var(--token)` indirections — these two are literals. */
+/*
+ * Colours. `inline` is what shadcn does and it is right here: the value baked
+ * into each utility is the literal text `var(--background)`, so the utility is
+ * theme-agnostic and `.dark` retheming it is a plain cascade override. The
+ * `--color-*` prefix is also what keeps this from being self-referential —
+ * `--color-background` and `--background` are different names.
+ *
+ * Two tokens are aliased rather than passed through. `--text-secondary` and
+ * `--text-faint` collide with Tailwind's font-size namespace, and mapping them
+ * straight across would spell `text-text-secondary`; they surface as `subtle`
+ * and `faint` instead. Everything else keeps the name from the table.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-stage: var(--stage);
+  --color-subtle: var(--text-secondary);
+  --color-faint: var(--text-faint);
+
+  --color-indigo: var(--indigo);
+  --color-indigo-foreground: var(--indigo-foreground);
+  --color-indigo-soft: var(--indigo-soft);
+  --color-indigo-soft-border: var(--indigo-soft-border);
+  --color-indigo-chip: var(--indigo-chip);
+
+  --color-ok: var(--ok);
+  --color-ok-fg: var(--ok-fg);
+  --color-ok-bg: var(--ok-bg);
+  --color-ok-border: var(--ok-border);
+  --color-warn: var(--warn);
+  --color-warn-fg: var(--warn-fg);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-border: var(--warn-border);
+  --color-warn-surface: var(--warn-surface);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-border: var(--danger-border);
+
+  --color-log-write: var(--log-write);
+  --color-log-action: var(--log-action);
+
+  --color-switch-on: var(--switch-on);
+  --color-veil: var(--veil);
+  --color-glass: var(--glass);
+}
+
+/*
+ * Everything that is not a colour, and does not change with the theme. Plain
+ * `@theme`, NOT `@theme inline`: inline only bakes the value into the utilities
+ * and half the design reads a font off `var(--font-mono)` rather than a class.
+ */
 @theme {
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  /* The design's five radii, mapped onto shadcn's names instead of onto its
+     `calc(var(--radius) ± 4px)` chain, which would put buttons and inputs at
+     4px. Landing them on `md`/`lg`/`xl` is what makes the generated primitives
+     come out at the drawn radius: Button and Input are `rounded-md`, TabsList
+     is `rounded-lg`, Card is `rounded-xl`. `--radius` itself is in
+     `tokens.css`, next to the colours the components read alongside it. */
+  --radius-xs: 4px; /* type tags, severity chips, the ← UI chip */
+  --radius-sm: 5px; /* micro controls: Set, the W×H inputs, Clear on hover */
+  --radius-md: 6px; /* inputs, buttons, menu items, canvas frame, tooltip */
+  --radius-lg: 8px; /* menus, TabsList, accent-soft rows, JSON card, empty state */
+  --radius-xl: 10px; /* the floating bindings panel */
+
+  /* The chrome's type scale. Named rather than numbered, because the sizes are
+     half-pixel and `text-[11.5px]` scattered across twenty files is how a scale
+     stops being one. Tailwind's own `text-xs`/`text-sm` are left alone: they
+     mean 12px and 14px everywhere else and quietly redefining them would make
+     every snippet from the shadcn docs render at the wrong size. */
+  --text-micro: 8px; /* the number stepper's arrows */
+  --text-tag: 9.5px; /* type tags, count badge, severity chips, stat labels */
+  --text-label: 10px; /* section labels (600, .09em), "Edit JSON", "dev" */
+  --text-code: 10.5px; /* mono: log/JSON/filename/fps, "N paths" */
+  --text-caption: 11px; /* statusbar, captions, resolutions */
+  --text-log: 11.5px; /* mono: log lines, paths, segmented control, stale pill */
+  --text-log--line-height: 1.9;
+  --text-ui: 12px; /* the base: controls, tabs, buttons, panel title */
+  --text-item: 12.5px; /* view selector items */
+  --text-brand: 13px; /* the wordmark */
+  --text-stat: 14px; /* stat values, the × close */
+
+  /* Elevation, the half that is the same in both themes. The big ones are
+     tinted blue-black (`rgba(20,20,30,…)`) rather than neutral, which is what
+     keeps a menu from looking dirty over #fafafa. Redefining `--shadow-sm` is
+     deliberate: it is Tailwind's own key and the design's is flatter than the
+     default. The four that DO change with the theme are `@utility` blocks
+     below, for a reason spelled out there. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-menu: 0 6px 20px rgba(20, 20, 30, 0.1);
+  --shadow-tooltip: 0 4px 14px rgba(0, 0, 0, 0.2);
+  --shadow-pill: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/*
+ * The shadows that differ between light and dark: triggers lose theirs, tabs,
+ * the floating panel and the canvas frame get deeper ones.
+ *
+ * They are utilities over tokens instead of `@theme` keys because a `@theme`
+ * shadow does NOT compile to `var(--shadow-x)` the way a `@theme` colour does.
+ * Tailwind picks the value apart to make `shadow-<color>` work and bakes the
+ * result in literally (`--tw-shadow: 0 1px 2px var(--tw-shadow-color,#0000000d)`),
+ * so there is no variable left for `.dark` in `tokens.css` to move. Written this
+ * way the call site is unchanged — `shadow-panel` — and the theme follows.
+ *
+ * The trade is that these set `box-shadow` outright rather than joining
+ * Tailwind's `--tw-shadow` chain, so they do not stack with `ring-*` on the
+ * same element. (`focus-ring` deliberately uses `outline` and is unaffected.)
+ */
+@utility shadow-control {
+  box-shadow: var(--shadow-control);
+}
+
+@utility shadow-tab {
+  box-shadow: var(--shadow-tab);
+}
+
+@utility shadow-panel {
+  box-shadow: var(--shadow-panel);
+}
+
+@utility shadow-frame {
+  box-shadow: var(--shadow-frame);
+}
+
+/*
+ * The design's focus ring, as one utility, so that V3 can spend a class on it
+ * instead of respelling three colours per primitive: a 1.5px indigo border plus
+ * a 3px halo, no offset.
+ *
+ * shadcn's generated primitives spell this `focus-visible:border-ring
+ * focus-visible:ring-ring/50 focus-visible:ring-[3px]`, which is close but not
+ * this — the halo is a tint of its own, not the border at half alpha. Use it as
+ * `focus-visible:focus-ring`.
+ *
+ * The halo is an `outline` and not the `0 0 0 3px` box-shadow the design was
+ * drawn with. Same geometry — an outline with no offset hugs the border box and
+ * follows the radius — but it stays out of the way of `shadow-control`, which
+ * every control this lands on is already wearing and which would otherwise
+ * simply overwrite the ring depending on which utility Tailwind emitted last.
+ *
+ * It thickens the border on all four sides, which is what the design does and
+ * is only safe on the fully-bordered controls it is meant for (inputs, triggers,
+ * the outline buttons). On something with a single edge — a `border-b` tab — it
+ * would draw the other three.
+ */
+@utility focus-ring {
+  border-width: 1.5px;
+  border-color: var(--indigo);
+  outline: 3px solid var(--ring-halo);
+  outline-offset: 0;
+}
+
+/* The wordmark square, and the only gradient in the chrome. */
+@utility brand-gradient {
+  background-image: var(--brand-gradient);
 }
 
 @layer base {
+  /* Tailwind v4 defaults every border to `currentColor`, so a bare `border-b`
+     — which the layout already uses — would draw a near-black line instead of
+     the design's #e4e4e7. */
+  *,
+  ::after,
+  ::before {
+    @apply border-border;
+  }
+
   html {
     @apply font-sans;
+  }
+
+  body {
+    /* 12px, not Tailwind's 16 and not shadcn's 14: this is a tool chrome and
+       the whole scale is built down from here. */
+    @apply bg-background text-foreground text-ui;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 }
