@@ -1,11 +1,7 @@
 /**
  * The mount/reload decision and everything that has to survive a save (ported
- * from `preview-client.test.ts`, ZAB-57/ZAB-67/ZAB-72).
- *
- * What is stubbed is what a headless test cannot have: the WebGL renderer and the
- * HTTP server. Both are contracts the session CONSUMES and both arrive as
- * arguments here, so no global is touched and the assertions are about the
- * session — which is the whole reason this logic was pulled out of the page.
+ * from `preview-client.test.ts`, ZAB-57/ZAB-67/ZAB-72). The renderer and the
+ * server are injected, so nothing here touches a global.
  */
 
 import type { Envelope } from "@zabloo/format";
@@ -106,8 +102,6 @@ function world(initial: Envelope | null = GOLD): World {
     fetchEnvelope: async () => {
       fetches += 1;
       if (serverError) throw serverError;
-      // A fresh copy every time: the real one comes off the wire, and the session
-      // hydrates assets INTO it.
       return served === null ? null : (JSON.parse(JSON.stringify(served)) as Envelope);
     },
     mount(_canvas, json, options) {
@@ -178,8 +172,6 @@ describe("the first load", () => {
 
     await it.session.load();
 
-    // The panel is built from this, and the order matters: a view the renderer
-    // refuses still tells you which data it wanted.
     expect(it.reported).toEqual(["envelope: player.gold:string", "mounted: main"]);
   });
 
@@ -188,7 +180,6 @@ describe("the first load", () => {
 
     await it.session.load();
 
-    // The public docs name it: `zabloo.setData(...)` in the browser console.
     expect(window.zabloo).toBe(it.session.handle());
   });
 
@@ -349,8 +340,6 @@ describe("a load that does not make it onto the canvas", () => {
 
   it("reports a refused envelope once, by its code and not by the exception too", async () => {
     const it = world();
-    // A real mount reports through the sink and THEN throws; saying the same
-    // thing twice is what the `sawFatal` flag exists to prevent.
     it.refuseWith(FATAL);
     it.refuse(new Error("unsupported major version 2"));
 
@@ -366,7 +355,6 @@ describe("a load that does not make it onto the canvas", () => {
 
     await it.session.load();
 
-    // No diagnostic was ever emitted for this, so the exception IS the report.
     expect(it.reported).toEqual(["load error: envelope error: connection refused"]);
     expect(it.mounts).toEqual([]);
   });
@@ -394,15 +382,11 @@ describe("a load that does not make it onto the canvas", () => {
     await it.session.load();
     it.refuseWith(FATAL);
 
-    // `reload` never throws: a refused hot-update comes back as a fatal
-    // diagnostic and the PREVIOUS view stays on screen.
     it.mounts[0].handle.reload = () => {
       it.mounts[0].options.onDiagnostic?.(FATAL);
     };
     await it.session.load();
 
-    // Whoever owns the overlay must leave it up: the canvas is stale, and this
-    // report is the only one there is (ZAB-67).
     expect(it.reported).toContain("reloaded (stale): main");
   });
 

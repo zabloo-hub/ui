@@ -1,8 +1,4 @@
-/**
- * Reading the panel's fields (ported from `preview-client.test.ts`, ZAB-57) and
- * what the typed panel adds: an editor that knows what it edits does not have to
- * be guessed at.
- */
+/** Reading the panel's fields (ported from `preview-client.test.ts`, plus the typed editors). */
 
 import { coerce, coerceTyped, show } from "@/bridge/values";
 
@@ -32,8 +28,6 @@ describe("coerce", () => {
 
 describe("coerceTyped", () => {
   it("passes through what a typed editor already holds", () => {
-    // A checkbox holds a boolean and a spinner a number: making them stringify
-    // themselves so this could parse them back would invent an error case.
     expect(coerceTyped("boolean", true)).toBe(true);
     expect(coerceTyped("number", 0.5)).toBe(0.5);
   });
@@ -47,14 +41,10 @@ describe("coerceTyped", () => {
     for (const text of ["", "-", "nope"]) {
       expect(coerceTyped("number", text), text).toBe(text);
     }
-    // `"1."` is not mid-edit as far as anyone can tell: it IS one, and pushing
-    // it keeps the view following the field while the decimals are typed.
     expect(coerceTyped("number", "1.")).toBe(1);
   });
 
   it("stops guessing on a text field — the site already said it is text", () => {
-    // The word `true` in a field bound to a `Text` is the WORD true. `coerce`,
-    // which has nothing but the characters to go on, would push a boolean.
     expect(coerceTyped("string", "true")).toBe("true");
     expect(coerceTyped("string", "900")).toBe("900");
     expect(coerceTyped("string", "[1,2]")).toBe("[1,2]");

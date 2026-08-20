@@ -1,12 +1,9 @@
 /**
- * The reload channel of `zabloo dev`, as the page consumes it.
- *
- * Ported from `packages/cli/src/preview-client.ts` (ZAB-57). `PreviewEvent` is
- * DECLARED here rather than imported: the wire contract belongs to the CLI's
- * preview server, and this app is served as static files by it — depending on
- * `@zabloo/cli` to read three lines of JSON would put the whole CLI in the
- * browser bundle's graph. Keep the two in step; the server's copy is the
- * authority (`packages/cli/src/preview-server.ts`).
+ * The reload channel of `zabloo dev`, from `packages/cli/src/preview-client.ts`
+ * (ZAB-57). `PreviewEvent` is declared here rather than imported: the contract
+ * belongs to the CLI's preview server, and depending on `@zabloo/cli` for three
+ * lines of JSON would put the whole CLI in the browser bundle's graph. Its copy
+ * in `packages/cli/src/preview-server.ts` is the authority.
  */
 
 /** What the dev loop pushes down the stream on every export. */
@@ -25,28 +22,19 @@ export function parseEvent(data: string): PreviewEvent {
   return { kind: "reload" };
 }
 
-/** What the chrome does with the stream, once the frames are read for it. */
 export interface EventHandlers {
-  /** The connection is live — the status dot goes green. */
   onOpen(): void;
-  /** The connection dropped (the browser retries on its own). */
   onLost(): void;
-  /** An export landed: fetch it. */
   onReload(): void;
   /** The export FAILED, with the message to show over the now-stale view (ZAB-67). */
   onError(message: string): void;
 }
 
-/** The stream, as anything that can be closed. */
 export interface EventConnection {
   close(): void;
 }
 
-/**
- * The minimum of `EventSource` this needs, so a test can pass a fake one in
- * instead of stubbing a global — the same `FakeEventSource` the CLI's test has,
- * now injected rather than smuggled through `globalThis`.
- */
+/** The minimum of `EventSource` this needs, so a test can pass a fake one in. */
 export interface EventSourceLike {
   onopen: ((event: Event) => unknown) | null;
   onerror: ((event: Event) => unknown) | null;

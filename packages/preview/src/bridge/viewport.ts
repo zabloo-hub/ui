@@ -1,11 +1,9 @@
 /**
  * The size a view is laid out at, and how much of it fits on screen.
  *
- * Ported from `packages/cli/src/preview-client.ts` (ZAB-78), where the picker's
- * value was a raw `string` off a `<select>`. Here the presets are a union the
- * chrome is built from — the picker renders `VIEWPORT_PRESETS`, the store
- * validates what it recalled from storage against `isViewportPreset`, and a
- * preset nobody declared stops being representable.
+ * From `packages/cli/src/preview-client.ts` (ZAB-78), where the picker's value
+ * was a raw string off a `<select>`. Here the presets are a union the chrome is
+ * built from, and one nobody declared stops being representable.
  */
 
 /**
@@ -21,10 +19,7 @@ export const VIEWPORT_PRESETS = ["fit", "1920x1080", "1280x720", "custom"] as co
 
 export type ViewportPreset = (typeof VIEWPORT_PRESETS)[number];
 
-/**
- * Whether a remembered string is still a preset we offer. Preferences outlive the
- * page (and this list), so what comes back from storage is checked, not trusted.
- */
+/** Preferences outlive the page and this list, so what storage returns is checked. */
 export function isViewportPreset(value: string): value is ViewportPreset {
   return (VIEWPORT_PRESETS as readonly string[]).includes(value);
 }

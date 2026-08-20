@@ -1,9 +1,4 @@
-/**
- * The reload channel (ported from `preview-client.test.ts`, ZAB-57/ZAB-67). The
- * `EventSource` is injected rather than stubbed onto `globalThis`: the CLI page
- * reached for the global because it wired itself up at import time, and this one
- * takes what it opens as an argument.
- */
+/** The reload channel (ported from `preview-client.test.ts`), with the stream injected. */
 
 import {
   connectEvents,
@@ -91,8 +86,6 @@ describe("connectEvents", () => {
 
     stream.push({ kind: "error", message: "zabloo export: main.tsx" });
 
-    // Nothing to fetch: what is on screen is the last good export, and the only
-    // report of the failure is this message.
     expect(handlers.calls).toEqual(["error: zabloo export: main.tsx"]);
   });
 

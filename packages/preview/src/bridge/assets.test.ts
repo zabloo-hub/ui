@@ -1,8 +1,4 @@
-/**
- * The asset cache (ported from `preview-client.test.ts`, ZAB-14). The bytes
- * travel apart from the tree, so a save must re-transfer only what changed —
- * and the renderer must still receive a COMPLETE envelope.
- */
+/** The asset cache (ported from `preview-client.test.ts`, ZAB-14). */
 
 import type { Envelope } from "@zabloo/format";
 import { hydrateAssets } from "@/bridge/assets";

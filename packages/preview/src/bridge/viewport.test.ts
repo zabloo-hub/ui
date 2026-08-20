@@ -1,9 +1,4 @@
-/**
- * Viewport presets (ported from `preview-client.test.ts`, ZAB-78). The canvas used
- * to be `flex: 1` and take the window, so a UI authored for 1080p could not be
- * checked at 720p without resizing the browser — and no window shape at all
- * answers "how does this read on a console".
- */
+/** Viewport presets (ported from `preview-client.test.ts`, ZAB-78). */
 
 import {
   fitScale,
@@ -50,8 +45,6 @@ describe("parseViewport", () => {
 
 describe("isViewportPreset", () => {
   it("accepts what the picker offers and rejects the rest", () => {
-    // Preferences outlive the page AND this list: what storage hands back is a
-    // string from whatever version wrote it, so it is checked, not trusted.
     expect(isViewportPreset("1920x1080")).toBe(true);
     expect(isViewportPreset("fit")).toBe(true);
     expect(isViewportPreset("800x600")).toBe(false);

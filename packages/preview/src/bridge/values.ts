@@ -1,12 +1,9 @@
 /**
- * Reading what the bindings panel holds as the value the game would have pushed,
- * and showing what a control wrote back.
+ * Reading what the panel holds as the value the game would have pushed.
  *
- * `coerce` and `show` are ported unchanged from `packages/cli/src/preview-client.ts`
- * (ZAB-57): the CLI panel is one text box per path, so everything went through
- * text. `coerceTyped` is what the typed panel of this milestone needs instead —
- * a checkbox already holds a boolean, and making it stringify itself so this
- * module can parse it back would be inventing an error case for nothing.
+ * `coerce` and `show` are unchanged from `packages/cli/src/preview-client.ts`
+ * (ZAB-57), where one text box per path meant everything went through text.
+ * `coerceTyped` is what the typed panel needs instead.
  */
 
 import type { BindingType } from "./bindings.js";
@@ -33,17 +30,10 @@ export function coerce(text: string): unknown {
 }
 
 /**
- * Reads an editor that already knows what it is editing (V7's typed panel).
- *
- * The type comes from the binding site, so guessing is over: `"true"` in a field
- * bound to a `Text` is the WORD true, and `coerce` — which has to guess, because
- * a single text box is all the CLI panel ever had — would have pushed a boolean
- * into it. The editors that hold a real value (a checkbox, a number spinner) pass
- * it through untouched.
- *
- * A field mid-edit keeps the same treatment it gets in `coerce`: `"1."` or a
- * half-typed array stays text rather than becoming `NaN` or an exception. It is a
- * box someone is still typing in, not a report worth making.
+ * Reads an editor that already knows what it is editing, so the guessing stops:
+ * `"true"` in a field bound to a `Text` is the WORD true, and a checkbox hands
+ * over its boolean untouched. A field mid-edit still keeps the treatment it gets
+ * in `coerce` — text, rather than `NaN` or an exception.
  */
 export function coerceTyped(type: BindingType, raw: unknown): unknown {
   switch (type) {

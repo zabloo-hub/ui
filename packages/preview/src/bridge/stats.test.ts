@@ -1,8 +1,4 @@
-/**
- * The stats badge (ported from `preview-client.test.ts`, ZAB-78). `stats()` has
- * been on the handle all along, reachable only by typing `zabloo.stats()` into
- * the console — which is precisely when you are not looking at the screen.
- */
+/** The stats badge (ported from `preview-client.test.ts`, ZAB-78). */
 
 import { formatStats, fpsWindow } from "@/bridge/stats";
 
@@ -31,8 +27,6 @@ describe("formatStats", () => {
   });
 
   it("says `idle`, not `0 fps` — the renderer paints on demand", () => {
-    // A still scene painting nothing is the system working. Reporting it as zero
-    // frames per second reads as a stall.
     expect(formatStats(frame, 0)).toContain("idle");
     expect(formatStats(frame, 0)).not.toContain("0 fps");
   });
@@ -56,8 +50,6 @@ describe("fpsWindow", () => {
   });
 
   it("falls to zero on a scene that stopped painting", () => {
-    // Re-derived against `now`, not only on arrival: a view that stopped drawing
-    // would otherwise keep reporting the rate it had when it stopped.
     const painted = [9000, 9500];
     expect(fpsWindow(painted, 10000)).toHaveLength(2);
     expect(fpsWindow(painted, 12000)).toEqual([]);

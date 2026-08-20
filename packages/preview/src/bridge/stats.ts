@@ -1,10 +1,7 @@
 /**
- * What the last painted frame cost, as the badge shows it.
- *
- * Ported from `packages/cli/src/preview-client.ts` (ZAB-78). `formatStats` is
- * unchanged; the one-second window the CLI page kept inline — a `filter` inside
- * the redraw timer — is `fpsWindow` here so the store can hold the timestamps
- * and the counting stays testable without a timer.
+ * What the last painted frame cost. From `packages/cli/src/preview-client.ts`
+ * (ZAB-78); the one-second window it kept inline in its redraw timer is
+ * `fpsWindow` here, so the store can hold the timestamps.
  */
 
 import type { FrameStats } from "@zabloo/renderer-web";
@@ -37,13 +34,9 @@ function compact(value: number): string {
 }
 
 /**
- * The frames painted in the last second, which is the frame RATE: its length.
- *
- * Frames are counted as the RENDERER reports them (`onFrame`), never with the
- * page's own `requestAnimationFrame` — the renderer paints on demand, so a rAF
- * loop here would be measuring the page instead. The window has to be re-derived
- * against `now` rather than only on arrival, or a scene that stopped painting
- * would keep reporting the rate it had when it stopped.
+ * The frames painted in the last second — the rate is its length. Re-derived
+ * against `now` and not only on arrival, or a scene that stopped painting would
+ * keep reporting the rate it had when it stopped.
  */
 export function fpsWindow(timestamps: readonly number[], now: number): number[] {
   const cutoff = now - WINDOW_MS;

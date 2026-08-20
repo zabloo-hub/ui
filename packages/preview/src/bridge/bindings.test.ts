@@ -1,12 +1,4 @@
-/**
- * The binding walk (ported from `preview-client.test.ts`, ZAB-57) plus what V5
- * adds to it: the type each path is edited as.
- *
- * The walk's own cases are the ones that were already covered, and they are here
- * verbatim on purpose — this is a COPY of live logic, and the port is only honest
- * if it keeps answering the same things. The `Repeat` rule is the one to watch:
- * a template's paths are addresses into an array, not values anyone pushes.
- */
+/** The binding walk (ported from `preview-client.test.ts`) and the type it now carries. */
 
 import type { Envelope } from "@zabloo/format";
 import { type Binding, collectBindings } from "@/bridge/bindings";
@@ -94,16 +86,10 @@ describe("collectBindings", () => {
       ],
     });
 
-    // A save must not reshuffle the fields under the cursor.
     expect(found).toEqual(["alpha", "mid", "zeta"]);
   });
 });
 
-/**
- * The envelope declares no types for data — a binding says where a value goes,
- * never what it is — but the design does: the SITE is the type, which is what
- * lets the panel offer a checkbox instead of a box you type `true` into.
- */
 describe("the type a binding is edited as", () => {
   it("reads the boolean sites off the design", () => {
     expect(
@@ -156,8 +142,6 @@ describe("the type a binding is edited as", () => {
   });
 
   it("falls back to text on a prop it does not know", () => {
-    // The format is forward-tolerant: a prop from a later version degrades into
-    // the editor that can express anything, not into a guess.
     expect(typed({ type: "Text", futureProp: { bind: "some.path" } })).toEqual({
       "some.path": "string",
     });
@@ -183,8 +167,6 @@ describe("a path bound in two places at once", () => {
     });
 
     expect(found).toEqual({ "shop.open": "boolean" });
-    // One editor for a path the envelope reads two ways: which one it picked is
-    // the difference between a bug and a decision, so it is said out loud.
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("shop.open"));
     warn.mockRestore();
   });
@@ -208,8 +190,6 @@ describe("a path bound in two places at once", () => {
   it("settles a tie between two committed sites on the first one walked", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    // Neither is a fallback, so nothing decides it but the walk — and the panel
-    // being stable across saves is worth more than the choice itself.
     expect(
       typed({
         type: "Container",

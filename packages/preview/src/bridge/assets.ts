@@ -1,10 +1,6 @@
 /**
- * The asset bytes an envelope arrived without.
- *
- * Ported unchanged from `packages/cli/src/preview-client.ts` (ZAB-14), down to
- * the cache being the caller's: it has to outlive a reload, which is the entire
- * point of keying it by hash. The only addition is the injected `fetch`, so a
- * test can program the server side without stubbing a global.
+ * The asset bytes an envelope arrived without. Unchanged from
+ * `packages/cli/src/preview-client.ts` (ZAB-14) but for the injected `fetch`.
  */
 
 import type { AssetEntry, Envelope } from "@zabloo/format";
