@@ -91,10 +91,11 @@ function effectiveStyle(
   states: NodeStates,
 ): Style | undefined {
   if (!overrides) return base;
-  return STATE_ORDER.reduce((style, name) => {
-    const override = overrides[name]?.style;
-    return override && isActive(name, states) ? { ...style, ...override } : style;
-  }, base);
+  // Collected, then merged once. Spreading inside the fold rebuilt the whole
+  // style object per state, and this runs per node per frame.
+  const active = STATE_ORDER.filter((name) => overrides[name]?.style && isActive(name, states));
+  if (active.length === 0) return base;
+  return Object.assign({}, base, ...active.map((name) => overrides[name]?.style));
 }
 
 export type { NodeStates };
