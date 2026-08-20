@@ -82,7 +82,12 @@ const workspace = readdirSync(packagesDir)
   .map((entry) => ({
     ...entry,
     pkg: JSON.parse(readFileSync(join(entry.path, "package.json"), "utf8")),
-  }));
+  }))
+  // `private: true` means npm refuses to publish it, so there is no tarball to
+  // dry-run (ZAB-82). `@zabloo/preview` is the first of them: the CLI copies its
+  // build output into its own, and what verifies THAT is @zabloo/cli's tarball.
+  // Same test `changeset-gate.mjs` applies, for the same reason.
+  .filter(({ pkg }) => pkg.private !== true);
 
 if (workspace.length === 0) {
   console.error("verify-pack: no packages found under packages/");

@@ -13,7 +13,8 @@
       "!examples/unity-playground",
       "!packages/renderer-web/native/vendor",
       "!packages/renderer-web/src/generated",
-      "!golden/metrics"
+      "!golden/metrics",
+      "!wip"
     ]
   },
   "formatter": {
@@ -31,6 +32,11 @@
   "javascript": {
     "formatter": {
       "quoteStyle": "double"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   },
   "assist": {
