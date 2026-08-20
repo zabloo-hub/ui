@@ -755,5 +755,26 @@ function crossOf(node: LayoutNode, horizontal: boolean, fallback: number): numbe
   return horizontal ? node.measured.y : node.measured.x;
 }
 
+/**
+ * `node` and every ancestor above it, innermost first — the walk half this
+ * package used to spell out by hand. Recursive rather than a cursor loop; the
+ * validator caps tree depth, so there is no unbounded chain to blow the stack.
+ */
+function* selfAndAncestors(node: LayoutNode | null | undefined): Generator<LayoutNode> {
+  if (!node) return;
+  yield node;
+  yield* selfAndAncestors(node.parent);
+}
+
 export type { LayoutNode, MeasureLeaf, Rect, RepeatState, TextKey };
-export { arrange, contains, createLayoutNode, flowItems, inFlow, inLayout, measure, wrapsLines };
+export {
+  arrange,
+  contains,
+  createLayoutNode,
+  flowItems,
+  inFlow,
+  inLayout,
+  measure,
+  selfAndAncestors,
+  wrapsLines,
+};

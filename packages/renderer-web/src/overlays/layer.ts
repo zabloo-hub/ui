@@ -7,7 +7,7 @@
  * keyed by node identity.
  */
 
-import { arrange, inLayout, type LayoutNode, type Rect } from "../layout.js";
+import { arrange, inLayout, type LayoutNode, type Rect, selfAndAncestors } from "../layout.js";
 import {
   ANCHOR_OFFSET,
   anchorBox,
@@ -181,7 +181,7 @@ export class OverlayLayer {
    * layout flags — but nothing paints it, so the focus must not rest there.
    */
   private onPresentLayer(node: LayoutNode): boolean {
-    for (let current: LayoutNode | null = node; current; current = current.parent) {
+    for (const current of selfAndAncestors(node)) {
       if (current.ir.type === "Overlay" && !this.host.layer().includes(current)) return false;
     }
     return true;
@@ -321,7 +321,7 @@ export class OverlayLayer {
 
   /** Closes the popover this node lives in, if any — what a selection inside does. */
   closeEnclosingPopover(node: LayoutNode): void {
-    for (let current: LayoutNode | null = node; current; current = current.parent) {
+    for (const current of selfAndAncestors(node)) {
       if (current.ir.type === "Overlay" && isPressTriggered(current)) {
         current.popoverOpen = false;
         return;

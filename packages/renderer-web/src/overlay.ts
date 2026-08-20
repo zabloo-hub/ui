@@ -31,7 +31,7 @@
 import type { AnchorAt, Dim, OverlayAnchor, OverlayTrigger } from "@zabloo/format";
 import { intersectClip, isEmptyClip } from "./clip.js";
 import { childClip, effectiveClip, hitTest, type NodeRadius } from "./hit.js";
-import { contains, inLayout, type LayoutNode, type Rect } from "./layout.js";
+import { contains, inLayout, type LayoutNode, type Rect, selfAndAncestors } from "./layout.js";
 import { type NodeAnim, type ResolvedTransition, stepValue } from "./transition.js";
 
 interface Point {
@@ -188,7 +188,7 @@ function checkedOption(node: LayoutNode): LayoutNode | null {
  * be laying the tree out twice per frame to answer a question about a bubble.
  */
 function isOnScreen(node: LayoutNode, radiusOf: NodeRadius): boolean {
-  for (let current: LayoutNode | null = node; current; current = current.parent) {
+  for (const current of selfAndAncestors(node)) {
     if (!inLayout(current)) return false;
   }
   const clip = effectiveClip(node, radiusOf);
@@ -370,7 +370,7 @@ function collectLayer(overlays: Iterable<LayoutNode>, present: Present = inLayou
 }
 
 function chainPresent(node: LayoutNode, present: Present): boolean {
-  for (let current: LayoutNode | null = node; current; current = current.parent) {
+  for (const current of selfAndAncestors(node)) {
     if (!present(current)) return false;
   }
   return true;
@@ -383,8 +383,8 @@ function chainPresent(node: LayoutNode, present: Present): boolean {
  */
 function documentPath(node: LayoutNode): number[] {
   const path: number[] = [];
-  for (let current = node; current.parent; current = current.parent) {
-    path.push(current.parent.children.indexOf(current));
+  for (const current of selfAndAncestors(node)) {
+    if (current.parent) path.push(current.parent.children.indexOf(current));
   }
   return path.reverse();
 }
@@ -442,10 +442,8 @@ function focusScope(root: LayoutNode, layer: readonly LayoutNode[]): LayoutNode 
 
 /** Whether `node` is `ancestor` or lives inside it. */
 function isWithin(node: LayoutNode, ancestor: LayoutNode): boolean {
-  let current: LayoutNode | null = node;
-  while (current) {
+  for (const current of selfAndAncestors(node)) {
     if (current === ancestor) return true;
-    current = current.parent;
   }
   return false;
 }
