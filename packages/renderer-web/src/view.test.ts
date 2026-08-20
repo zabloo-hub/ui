@@ -1,5 +1,5 @@
 import type { Diagnostic } from "@zabloo/format";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { GlyphAtlas } from "./glyphs.js";
 import { mountCase, readCorpus, readEnvelope } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
@@ -1085,7 +1085,7 @@ async function mountRecycling(count: number): Promise<GoldenView> {
 describe("repeat recycling × transitions", () => {
   it("settles a reused instance on the element it now shows, subtree included", async () => {
     const mounted = await mountRecycling(4);
-    const view = mounted;
+    const _view = mounted;
     // Same keys reversed, and every element's own flags flipped: each instance
     // travels with its item to another index — the rescope — and lands on data
     // that really did move. What it must NOT do is slide there from the row it
@@ -1112,7 +1112,7 @@ describe("repeat recycling × transitions", () => {
 
   it("keeps animating when it is the item's OWN data that changed", async () => {
     const mounted = await mountRecycling(4);
-    const view = mounted;
+    const _view = mounted;
     // No instance moves — the array keeps its order and its keys — so this is a
     // value change on the row that is already showing that element, and the CSS
     // model applies: it tweens (decision 2026-08-11 §4).
@@ -1135,7 +1135,7 @@ describe("repeat recycling × transitions", () => {
 
   it("shows the rows a scroll brought in with their own values, from the first frame", async () => {
     const mounted = await mountRecycling(30);
-    const view = mounted;
+    const _view = mounted;
     const target = center(mounted.snapshot(), "scroller");
 
     // Several viewports in one gesture: the window is computed from the previous
@@ -1232,7 +1232,7 @@ function wheelList(mounted: GoldenView, delta: number): void {
 describe("focus on a virtualized row (ZAB-70)", () => {
   it("does not hand the focus to the view's autofocus when the row leaves the window", async () => {
     const mounted = await mountVirtualFocus();
-    const view = mounted;
+    const _view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(0));
     mounted.pointer.click(target.x, target.y);
     expect(mounted.snapshot().focus).toBe(ROW_BUTTON(0));
@@ -1249,7 +1249,7 @@ describe("focus on a virtualized row (ZAB-70)", () => {
 
   it("gives it back to the same item when the row is realized again", async () => {
     const mounted = await mountVirtualFocus();
-    const view = mounted;
+    const _view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(1));
     mounted.pointer.click(target.x, target.y);
     const name = node(mounted.snapshot(), "1.0.1.0").text?.lines[0]?.text;
@@ -1266,7 +1266,7 @@ describe("focus on a virtualized row (ZAB-70)", () => {
 
   it("keeps the right stick scrolling the list the focus was in", async () => {
     const mounted = await mountVirtualFocus();
-    const view = mounted;
+    const _view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(0));
     mounted.pointer.click(target.x, target.y);
     const pad = mounted.connectGamepad();
@@ -1284,7 +1284,7 @@ describe("focus on a virtualized row (ZAB-70)", () => {
 
   it("starts the walk again from `autofocus` when the player presses a direction", async () => {
     const mounted = await mountVirtualFocus();
-    const view = mounted;
+    const _view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(0));
     mounted.pointer.click(target.x, target.y);
     wheelList(mounted, 600);
@@ -1321,7 +1321,7 @@ const TWO_BUTTONS = {
 describe("two views mounted on one page (ZAB-70)", () => {
   it("gives the keyboard to the view the player last touched, and to it alone", async () => {
     const first = await mountEnvelope(TWO_BUTTONS);
-    const view = first;
+    const _view = first;
     const second = await mountEnvelope(TWO_BUTTONS, { share: first });
     try {
       expect(first.snapshot().focus).toBe("a");
@@ -1346,7 +1346,7 @@ describe("two views mounted on one page (ZAB-70)", () => {
 
   it("lets exactly one view poll the pad, and hands it over with the keyboard", async () => {
     const first = await mountEnvelope(TWO_BUTTONS);
-    const view = first;
+    const _view = first;
     const second = await mountEnvelope(TWO_BUTTONS, { share: first });
     try {
       const pad = first.connectGamepad();
@@ -1560,7 +1560,7 @@ describe("GPU robustness (ZAB-68)", () => {
 
   it("ignores calls on a disposed view instead of driving dead GL objects", async () => {
     const disposed = await mountCase(CORPUS["states-tokens"]);
-    const view = disposed;
+    const _view = disposed;
     const drawn = disposed.drawCalls();
     disposed.handle.dispose();
 
@@ -1763,7 +1763,7 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
 
   it("hands the input back to the view still standing", async () => {
     const first = await mountEnvelope(TWO_BUTTONS);
-    const view = first;
+    const _view = first;
     const second = await mountEnvelope(TWO_BUTTONS, { share: first });
     try {
       // The owner is the first view; disposing it must not leave the page with
@@ -1781,7 +1781,7 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
 
   it("does not run a frame the disposed view had already scheduled", async () => {
     const mounted = await mountCase(CORPUS.transitions);
-    const view = mounted;
+    const _view = mounted;
     // A transition in flight: there IS a frame pending when the view goes down.
     mounted.handle.setData("job.progress", 0.9);
     expect(mounted.held().frames).toBeGreaterThan(0);
@@ -1835,7 +1835,7 @@ describe("device pixel ratio", () => {
 describe("onFrame", () => {
   it("reports every frame the view actually painted, with what it cost", async () => {
     const frames: Array<{ drawCalls: number; ms: number }> = [];
-    const view = await mountForTest(CORPUS["states-tokens"], {
+    const _view = await mountForTest(CORPUS["states-tokens"], {
       onFrame: (stats) => frames.push({ drawCalls: stats.drawCalls, ms: stats.ms }),
     });
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   activePad,
   type Direction,

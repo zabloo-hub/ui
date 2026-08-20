@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode } from "./snapshot.js";
