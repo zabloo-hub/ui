@@ -24,11 +24,11 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".jpeg": "image/jpeg",
 };
 
-export const ASSET_WARN_BYTES = 2 * 1024 * 1024;
-export const TOTAL_WARN_BYTES = 15 * 1024 * 1024;
-export const TOTAL_MAX_BYTES = 50 * 1024 * 1024;
+const ASSET_WARN_BYTES = 2 * 1024 * 1024;
+const TOTAL_WARN_BYTES = 15 * 1024 * 1024;
+const TOTAL_MAX_BYTES = 50 * 1024 * 1024;
 
-export interface CollectedAssets {
+interface CollectedAssets {
   /** Manifest for the envelope; empty when the project uses no assets. */
   assets: Record<string, AssetEntry>;
   /** Size warnings (per-asset > 2 MB, total > 15 MB) for the export summary. */
@@ -39,13 +39,16 @@ export interface CollectedAssets {
 
 const mb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
 
-export async function collectAssets(
+/** What the manifest weighs so far. The entries are the running total. */
+const sizeOf = (entries: Record<string, AssetEntry>): number =>
+  Object.values(entries).reduce((sum, entry) => sum + entry.size, 0);
+
+async function collectAssets(
   views: Record<string, ZNode>,
   assetsDir: string,
 ): Promise<CollectedAssets> {
   const assets: Record<string, AssetEntry> = {};
   const warnings: string[] = [];
-  let totalBytes = 0;
 
   for (const [viewId, rootNode] of Object.entries(views)) {
     const stack: ZNode[] = [rootNode];
@@ -70,10 +73,12 @@ export async function collectAssets(
         if (!(id in assets)) {
           const entry = await readAsset(id, join(assetsDir, id), where);
           assets[id] = entry;
-          totalBytes += entry.size;
-          if (totalBytes > TOTAL_MAX_BYTES) {
+          // Checked as they are read, not at the end: a project 200 MB over the
+          // limit should not have to base64 all of it to be told.
+          const soFar = sizeOf(assets);
+          if (soFar > TOTAL_MAX_BYTES) {
             throw new Error(
-              `assets exceed the 50 MB hot-update limit (total: ${mb(totalBytes)} MB) — reduce or split the project`,
+              `assets exceed the 50 MB hot-update limit (total: ${mb(soFar)} MB) — reduce or split the project`,
             );
           }
           if (entry.size > ASSET_WARN_BYTES) {
@@ -88,6 +93,7 @@ export async function collectAssets(
     }
   }
 
+  const totalBytes = sizeOf(assets);
   if (totalBytes > TOTAL_WARN_BYTES) {
     warnings.push(`assets total ${mb(totalBytes)} MB (> 15 MB) — hot-updates will be heavy`);
   }
@@ -101,12 +107,9 @@ async function readAsset(id: string, absPath: string, where: string): Promise<As
     const accepted = Object.keys(MIME_BY_EXTENSION).join(", ");
     throw new Error(`${where}: asset "${id}" has an unsupported type (accepted: ${accepted})`);
   }
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(absPath);
-  } catch {
+  const bytes = await readFile(absPath).catch(() => {
     throw new Error(`${where}: asset "${id}" not found at ${absPath}`);
-  }
+  });
   const meta = imageMeta(mime, bytes);
   if (meta === null && (mime === "image/png" || mime === "image/jpeg")) {
     throw new Error(
@@ -121,3 +124,6 @@ async function readAsset(id: string, absPath: string, where: string): Promise<As
     data: bytes.toString("base64"),
   };
 }
+
+export type { CollectedAssets };
+export { ASSET_WARN_BYTES, collectAssets, TOTAL_MAX_BYTES, TOTAL_WARN_BYTES };

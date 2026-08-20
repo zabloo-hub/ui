@@ -51,14 +51,15 @@ function slugify(heading) {
 
 /** Strips fenced code blocks, keeping line numbers intact so reports stay accurate. */
 function withoutFences(source) {
-  let fenced = false;
-  return source.split("\n").map((line) => {
-    if (/^\s{0,3}(```|~~~)/.test(line)) {
-      fenced = !fenced;
-      return "";
-    }
-    return fenced ? "" : line;
-  });
+  const { lines } = source.split("\n").reduce(
+    (state, line) => {
+      const isFence = /^\s{0,3}(```|~~~)/.test(line);
+      state.lines.push(isFence || state.fenced ? "" : line);
+      return { fenced: isFence ? !state.fenced : state.fenced, lines: state.lines };
+    },
+    { fenced: false, lines: [] },
+  );
+  return lines;
 }
 
 /** The anchors a page offers, in GitHub's order — duplicates get `-1`, `-2`, … */
@@ -69,9 +70,7 @@ function anchorsOf(file) {
     if (!heading) continue;
     const base = slugify(heading[1]);
     if (!base) continue;
-    let slug = base;
-    for (let n = 1; anchors.has(slug); n++) slug = `${base}-${n}`;
-    anchors.add(slug);
+    anchors.add(uniqueSlug(base, anchors));
   }
   return anchors;
 }
@@ -94,6 +93,40 @@ function targetsOn(line) {
   return targets;
 }
 
+/** GitHub's suffix for a repeated heading: `x`, then `x-1`, `x-2`, … */
+function uniqueSlug(base, taken) {
+  if (!taken.has(base)) return base;
+  const free = Array.from({ length: taken.size + 1 }, (_, i) => i + 1).find(
+    (n) => !taken.has(`${base}-${n}`),
+  );
+  return `${base}-${free}`;
+}
+
+/** The file's stats, or `null` if it is not there. */
+function statIfPresent(path) {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A link's path resolved back to a repo path: `{ destination }` for a markdown
+ * file, `{ destination: null }` for a directory or a non-markdown file (valid,
+ * nothing to anchor into), `{ why }` when it does not exist.
+ */
+function resolveTarget(from, path) {
+  // Repo-absolute (`/docs/x.md`) and relative alike, always back to a repo path.
+  const absolute = path.startsWith("/") ? join(repo, path) : resolve(repo, dirname(from), path);
+  const destination = relative(repo, absolute).split(sep).join(posix.sep);
+  const stats = statIfPresent(absolute);
+  if (stats === null) return { why: "no such file or directory" };
+  // A directory link is valid — GitHub serves its listing — and has no headings.
+  if (stats.isDirectory() || !destination.endsWith(".md")) return { destination: null };
+  return { destination };
+}
+
 /** Absolute URLs and in-page-only protocols: not ours to resolve. */
 const EXTERNAL = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
 
@@ -107,25 +140,15 @@ for (const file of files) {
       const anchor = hash === -1 ? "" : decodeURIComponent(target.slice(hash + 1));
       const at = { file, line: index + 1, target };
 
-      let destination = file;
-      if (path) {
-        // Repo-absolute (`/docs/x.md`) and relative alike, always back to a repo path.
-        const absolute = path.startsWith("/")
-          ? join(repo, path)
-          : resolve(repo, dirname(file), path);
-        destination = relative(repo, absolute).split(sep).join(posix.sep);
-        let stats;
-        try {
-          stats = statSync(absolute);
-        } catch {
-          broken.push({ ...at, why: "no such file or directory" });
-          continue;
-        }
-        // A directory link is valid — GitHub serves its listing — and has no headings.
-        if (stats.isDirectory() || !destination.endsWith(".md")) continue;
+      const resolved = path ? resolveTarget(file, path) : { destination: file };
+      if (resolved.why) {
+        broken.push({ ...at, why: resolved.why });
+        continue;
       }
-
-      if (!anchor) continue;
+      const destination = resolved.destination;
+      // `null` is a directory or a non-markdown file: a valid link with no
+      // headings to check.
+      if (destination === null || !anchor) continue;
       const anchors = anchorsByFile.get(destination) ?? anchorsOf(destination);
       if (!anchors.has(anchor)) {
         broken.push({ ...at, why: `no heading in ${destination} slugs to "${anchor}"` });

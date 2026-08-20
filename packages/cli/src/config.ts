@@ -13,15 +13,15 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createJiti, type Jiti } from "jiti";
 
-export interface ZablooConfig {
+interface ZablooConfig {
   outDir?: string;
 }
 
 /** Where the envelope goes when `zabloo.config.ts` does not say otherwise. */
-export const DEFAULT_OUT_DIR = "dist";
+const DEFAULT_OUT_DIR = "dist";
 
 /** The envelope's filename inside `outDir` — the name every SDK example loads. */
-export const ENVELOPE_FILENAME = "zabloo.ir.json";
+const ENVELOPE_FILENAME = "zabloo.ir.json";
 
 /**
  * The filename `createProjectJiti` resolves from. It does not exist and never
@@ -36,7 +36,7 @@ const RESOLUTION_BASE = "__zabloo_export__.mjs";
  * project's own `node_modules` win and user components share one React instance
  * with the reconciler.
  */
-export function createProjectJiti(root: string): Jiti {
+function createProjectJiti(root: string): Jiti {
   return createJiti(pathToFileURL(join(root, RESOLUTION_BASE)).href, {
     interopDefault: true,
     jsx: { runtime: "automatic" },
@@ -44,7 +44,7 @@ export function createProjectJiti(root: string): Jiti {
 }
 
 /** The project's `zabloo.config.ts`, or an empty config when it has none. */
-export async function loadConfig(
+async function loadConfig(
   root: string,
   jiti: Jiti = createProjectJiti(root),
 ): Promise<ZablooConfig> {
@@ -56,7 +56,7 @@ export async function loadConfig(
  * project root, like every other path the CLI takes), otherwise
  * `<outDir>/zabloo.ir.json`.
  */
-export function resolveOutFile(root: string, config: ZablooConfig, out?: string): string {
+function resolveOutFile(root: string, config: ZablooConfig, out?: string): string {
   if (out !== undefined) return resolve(root, out);
   return join(resolve(root, config.outDir ?? DEFAULT_OUT_DIR), ENVELOPE_FILENAME);
 }
@@ -74,7 +74,7 @@ export function resolveOutFile(root: string, config: ZablooConfig, out?: string)
  * Asking first also keeps a REAL error inside the file — a broken import, a typo —
  * from being swallowed as "not there", whatever code it arrives with.
  */
-export async function tryImport(jiti: Jiti, path: string): Promise<unknown> {
+async function tryImport(jiti: Jiti, path: string): Promise<unknown> {
   try {
     await access(path);
   } catch {
@@ -99,7 +99,7 @@ export async function tryImport(jiti: Jiti, path: string): Promise<unknown> {
  * and telling that person to run `pnpm install` again would send them in a
  * circle. Those errors travel on untouched.
  */
-export async function importProjectDependency(
+async function importProjectDependency(
   jiti: Jiti,
   specifier: string,
   root: string,
@@ -130,10 +130,22 @@ export async function importProjectDependency(
  * `Require stack:` left with nothing under it goes too — a header over an empty
  * list reads like something got lost, which is worse than not printing it.
  */
-export function sanitize(message: string): string {
+function sanitize(message: string): string {
   const lines = message.split("\n").filter((line) => !line.includes(RESOLUTION_BASE));
   return lines
     .filter((line, i) => line.trim() !== "Require stack:" || lines[i + 1]?.startsWith("- "))
     .join("\n")
     .trimEnd();
 }
+
+export type { ZablooConfig };
+export {
+  createProjectJiti,
+  DEFAULT_OUT_DIR,
+  ENVELOPE_FILENAME,
+  importProjectDependency,
+  loadConfig,
+  resolveOutFile,
+  sanitize,
+  tryImport,
+};

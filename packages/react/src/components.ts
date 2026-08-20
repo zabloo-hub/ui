@@ -35,7 +35,7 @@ import {
 import type { CommonProps } from "./host.js";
 import { useVariant } from "./theme.js";
 
-export interface ContainerProps extends CommonProps {
+interface ContainerProps extends CommonProps {
   /** Cross-child behavior the SDK enforces generically (decision 2026-08-03). */
   group?: GroupBehavior;
   /** Initially selected index of an `"exclusive-select"` group (default: 0). */
@@ -50,27 +50,27 @@ export interface ContainerProps extends CommonProps {
   children?: ReactNode;
 }
 
-export interface TextProps extends CommonProps {
+interface TextProps extends CommonProps {
   /** Static text content. */
   children?: string | number | Array<string | number>;
   /** Data-path binding, e.g. `bind="player.gold"` — mutually exclusive with children. */
   bind?: string;
 }
 
-export interface ButtonProps extends CommonProps {
+interface ButtonProps extends CommonProps {
   /** Named action the game subscribes to (C# event / signal / Blueprint). */
   onClick?: string;
   children?: ReactNode;
 }
 
-export interface CollapseProps extends CommonProps {
+interface CollapseProps extends CommonProps {
   /** Initial open state (default: true). The SDK owns the runtime state. */
   open?: boolean;
   /** First child = header (always visible, tapping toggles); rest = content. */
   children?: ReactNode;
 }
 
-export interface ScrollViewProps extends CommonProps {
+interface ScrollViewProps extends CommonProps {
   /**
    * Scrollable axis — the one children are measured unconstrained on. Default:
    * "vertical". `"both"` frees both axes, which is what a map or a big grid
@@ -87,7 +87,7 @@ export interface ScrollViewProps extends CommonProps {
   children?: ReactNode;
 }
 
-export interface OverlayProps extends CommonProps {
+interface OverlayProps extends CommonProps {
   /**
    * Blocks input to everything below (lower overlays included) and confines focus
    * navigation to this subtree. Default: true. `false` — a toast, a tooltip —
@@ -119,7 +119,7 @@ export interface OverlayProps extends CommonProps {
  * drift apart (ZAB-72). The alias stays because `position` is what the prop is
  * called on this side — a placement on the layer is not "an anchor".
  */
-export type OverlayPosition = AnchorAt;
+type OverlayPosition = AnchorAt;
 
 /** Props shared by the three overlay composites — a modal is always modal, hence the Omit. */
 interface OverlaySugarProps extends Omit<OverlayProps, "modal" | "anchor"> {
@@ -140,26 +140,26 @@ interface OverlaySugarProps extends Omit<OverlayProps, "modal" | "anchor"> {
   trigger?: OverlayTrigger;
 }
 
-export interface ModalProps extends OverlaySugarProps {
+interface ModalProps extends OverlaySugarProps {
   /** The panel that holds the content. Its `style` is the card; `style` is the backdrop. */
   panel?: Omit<ContainerProps, "children">;
 }
 
-export interface ToastProps extends OverlaySugarProps {
+interface ToastProps extends OverlaySugarProps {
   /** The pill that holds the message. */
   panel?: Omit<ContainerProps, "children">;
   /** Style of the auto-wrapped message, when `children` is a bare string. */
   label?: Style;
 }
 
-export interface TooltipProps extends OverlaySugarProps {
+interface TooltipProps extends OverlaySugarProps {
   /** The bubble that holds the hint. */
   panel?: Omit<ContainerProps, "children">;
   /** Style of the auto-wrapped hint, when `children` is a bare string. */
   label?: Style;
 }
 
-export interface ImageProps extends CommonProps {
+interface ImageProps extends CommonProps {
   /**
    * Path to the image, relative to the project's `src/assets/` (Flutter-style
    * convention): `"logo.png"`, `"icons/coin.png"`. `zabloo export` reads the file,
@@ -178,7 +178,7 @@ export interface ImageProps extends CommonProps {
  * `Radio` — but this base type is public on purpose, so a wrapper over any of
  * them can be typed without copying the prop list (decision 2026-08-13, ZAB-56).
  */
-export interface ToggleControlProps extends CommonProps {
+interface ToggleControlProps extends CommonProps {
   /**
    * Initial state, or a READ/WRITE data-path binding (`{ bind: "settings.sfx" }`):
    * the SDK writes the new value back and notifies the game.
@@ -201,7 +201,7 @@ export interface ToggleControlProps extends CommonProps {
   children?: ReactNode;
 }
 
-export interface CheckboxProps extends ToggleControlProps {
+interface CheckboxProps extends ToggleControlProps {
   /** Box style in both states. */
   box?: Style;
   /** Box style while checked, merged over `box`. */
@@ -210,7 +210,7 @@ export interface CheckboxProps extends ToggleControlProps {
   mark?: Style;
 }
 
-export interface SwitchProps extends ToggleControlProps {
+interface SwitchProps extends ToggleControlProps {
   /** Track style in both states. */
   track?: Style;
   /** Track style while checked, merged over `track`. */
@@ -219,12 +219,12 @@ export interface SwitchProps extends ToggleControlProps {
   knob?: Style;
 }
 
-export interface RadioProps extends Omit<CheckboxProps, "checked"> {
+interface RadioProps extends Omit<CheckboxProps, "checked"> {
   /** This option's value. Checked while it equals the `<RadioGroup>` value. */
   value: string | number;
 }
 
-export interface SliderProps extends CommonProps {
+interface SliderProps extends CommonProps {
   /**
    * Current value, or a READ/WRITE data-path binding (`{ bind: "settings.volume" }`):
    * the SDK writes every new value back and notifies the game. Default: `min`.
@@ -253,7 +253,7 @@ export interface SliderProps extends CommonProps {
   thumb?: Style;
 }
 
-export interface TextInputProps extends CommonProps {
+interface TextInputProps extends CommonProps {
   /**
    * Current text, or a READ/WRITE data-path binding (`{ bind: "profile.name" }`):
    * the SDK writes every edit back and notifies the game. Default: "".
@@ -277,7 +277,7 @@ export interface TextInputProps extends CommonProps {
   padding?: number;
 }
 
-export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
+interface RadioGroupProps extends Omit<ContainerProps, "group"> {
   /**
    * The selected value — usually a read/write binding (`{ bind: "settings.quality" }`).
    * A `<Radio>` is checked while its `value` equals this one.
@@ -291,7 +291,7 @@ export interface RadioGroupProps extends Omit<ContainerProps, "group"> {
   onChange?: string;
 }
 
-export interface SelectProps extends Omit<ContainerProps, "group" | "value"> {
+interface SelectProps extends Omit<ContainerProps, "group" | "value"> {
   /**
    * REQUIRED: the dropdown hangs off the closed button by this `id`, and an anchor
    * relation is the one thing in v1 that addresses another node by name.
@@ -328,7 +328,7 @@ export interface SelectProps extends Omit<ContainerProps, "group" | "value"> {
   panel?: Style;
 }
 
-export interface OptionProps extends CommonProps {
+interface OptionProps extends CommonProps {
   /** This option's value. Selected while it equals the `<Select>`'s. */
   value: string | number;
   /** The row's content — usually a `<Text>`. */
@@ -339,7 +339,7 @@ export interface OptionProps extends CommonProps {
   mark?: Style;
 }
 
-export interface ProgressBarProps extends CommonProps {
+interface ProgressBarProps extends CommonProps {
   /**
    * Progress in 0..1 (clamped), usually a read binding (`{ bind: "player.hp" }`):
    * `SetData` moves the bar. Give the node a `transition` and it glides there
@@ -352,7 +352,7 @@ export interface ProgressBarProps extends CommonProps {
   size?: number;
 }
 
-export interface SpinnerProps extends CommonProps {
+interface SpinnerProps extends CommonProps {
   /** How many beads to build when you pass no children of your own. Default: 3. */
   dots?: number;
   /** Bead diameter in px (generated beads only). Default: 8. */
@@ -369,7 +369,7 @@ export interface SpinnerProps extends CommonProps {
   children?: ReactNode;
 }
 
-export interface BadgeProps extends CommonProps {
+interface BadgeProps extends CommonProps {
   /**
    * The counter: a literal or a read binding (`{ bind: "inbox.unread" }`). There is
    * no "hide at zero" — the IR has no expressions; bind `visible` to a flag the game
@@ -402,7 +402,7 @@ function primitive<P extends CommonProps>(type: string): FC<P> {
   return Component as FC<P>;
 }
 
-export const Container: FC<ContainerProps> = primitive<ContainerProps>("Container");
+const Container: FC<ContainerProps> = primitive<ContainerProps>("Container");
 
 /**
  * A run of text, sized by the font (a leaf with an intrinsic size, like `<Image>`).
@@ -412,9 +412,9 @@ export const Container: FC<ContainerProps> = primitive<ContainerProps>("Containe
  * `style.wrap`, `textAlign`, `textAlignY`, `lineHeight`, `overflow` and `maxLines`,
  * so a `variant` themes them and `states` overrides them like any other style.
  */
-export const Text: FC<TextProps> = primitive<TextProps>("Text");
-export const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
-export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
+const Text: FC<TextProps> = primitive<TextProps>("Text");
+const Button: FC<ButtonProps> = primitive<ButtonProps>("Button");
+const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
 
 /**
  * A window onto content bigger than itself. It is a normal flex container on
@@ -448,7 +448,7 @@ export const Collapse: FC<CollapseProps> = primitive<CollapseProps>("Collapse");
  * </ScrollView>
  * ```
  */
-export const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("ScrollView");
+const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("ScrollView");
 
 /**
  * A layer above the whole view, declared where the UI that opens it lives but
@@ -467,7 +467,7 @@ export const ScrollView: FC<ScrollViewProps> = primitive<ScrollViewProps>("Scrol
  * Unlike `<Toggle>` and `<Slider>` it has no positional slots, so it is exported
  * raw; `<Modal>`, `<Toast>` and `<Tooltip>` below are the ready-made shapes.
  */
-export const Overlay: FC<OverlayProps> = primitive<OverlayProps>("Overlay");
+const Overlay: FC<OverlayProps> = primitive<OverlayProps>("Overlay");
 
 /**
  * A textured rectangle, sized by default to the source's own pixels (it is a leaf
@@ -478,15 +478,15 @@ export const Overlay: FC<OverlayProps> = primitive<OverlayProps>("Overlay");
  * it, `style.radius` rounds it, and `style.background` shows through while the bytes
  * are still being decoded — that background IS the loading placeholder.
  */
-export const Image: FC<ImageProps> = primitive<ImageProps>("Image");
+const Image: FC<ImageProps> = primitive<ImageProps>("Image");
 
 /** `<Container>` with `direction: "row"` (authoring sugar, not a primitive). */
-export function Row({ layout, ...rest }: ContainerProps): ReturnType<FC> {
+function Row({ layout, ...rest }: ContainerProps): ReturnType<FC> {
   return createElement(Container, { ...rest, layout: { direction: "row", ...layout } });
 }
 
 /** `<Container>` with `direction: "column"` (authoring sugar, not a primitive). */
-export function Column({ layout, ...rest }: ContainerProps): ReturnType<FC> {
+function Column({ layout, ...rest }: ContainerProps): ReturnType<FC> {
   return createElement(Container, { ...rest, layout: { direction: "column", ...layout } });
 }
 
@@ -496,7 +496,7 @@ export function Column({ layout, ...rest }: ContainerProps): ReturnType<FC> {
  * `<Collapse>`s. The SDK enforces "only one open" generically; older SDKs ignore
  * the `group` prop and degrade to independent Collapses.
  */
-export function Accordion({ layout, ...rest }: Omit<ContainerProps, "group">): ReturnType<FC> {
+function Accordion({ layout, ...rest }: Omit<ContainerProps, "group">): ReturnType<FC> {
   return createElement(Container, {
     ...rest,
     group: "exclusive-open",
@@ -570,7 +570,7 @@ function boxControl(
  * Checkbox: an independent boolean. `checked` may be a read/write binding, and
  * `onChange` fires the named action — the two ways the game hears about it.
  */
-export function Checkbox(props: CheckboxProps): ReturnType<FC> {
+function Checkbox(props: CheckboxProps): ReturnType<FC> {
   return boxControl(false, props);
 }
 
@@ -580,7 +580,7 @@ export function Checkbox(props: CheckboxProps): ReturnType<FC> {
  * animation; a `transition` on the node crossfades the two indicator slots as it
  * swaps.
  */
-export function Switch({
+function Switch({
   size = TOGGLE_SIZE,
   track,
   checkedTrack,
@@ -616,7 +616,7 @@ export function Switch({
 }
 
 /** One option of a `<RadioGroup>`: same control as `<Checkbox>`, round, with a value. */
-export function Radio(props: RadioProps): ReturnType<FC> {
+function Radio(props: RadioProps): ReturnType<FC> {
   return boxControl(true, props);
 }
 
@@ -626,7 +626,7 @@ export function Radio(props: RadioProps): ReturnType<FC> {
  * "only one checked" generically; older SDKs ignore the group and degrade to
  * independent checkboxes.
  */
-export function RadioGroup({ layout, ...rest }: RadioGroupProps): ReturnType<FC> {
+function RadioGroup({ layout, ...rest }: RadioGroupProps): ReturnType<FC> {
   return createElement(Container, {
     ...rest,
     group: "exclusive-check",
@@ -667,7 +667,7 @@ const OPTION_STATES: NonNullable<CommonProps["states"]> = {
  * Tapping it selects, writes the group's binding and closes the dropdown; the
  * closing is the popover's rule, not the option's (decision 2026-08-12, ZAB-25).
  */
-export function Option({
+function Option({
   size = OPTION_MARK,
   mark,
   layout,
@@ -714,7 +714,7 @@ export function Option({
  * the display strings as the values when they are for the player to read; an empty
  * value leaves the button blank (there is no placeholder for the same reason).
  */
-export function Select({
+function Select({
   id,
   value,
   onChange,
@@ -829,7 +829,7 @@ const THUMB: Style = { background: "#ffffff" };
  * <Slider min={0} max={100} step={10} axis="vertical" length={120} />
  * ```
  */
-export function Slider({
+function Slider({
   length = SLIDER_LENGTH,
   thickness = SLIDER_THICKNESS,
   thumbSize = SLIDER_THUMB,
@@ -902,7 +902,7 @@ const FIELD: Style = { background: "#1b1f2e", radius: 6, color: "#ffffff" };
  * />
  * ```
  */
-export function TextInput({
+function TextInput({
   width = FIELD_WIDTH,
   padding = FIELD_PADDING,
   layout,
@@ -918,7 +918,7 @@ export function TextInput({
   });
 }
 
-export interface TabProps extends CommonProps {
+interface TabProps extends CommonProps {
   /**
    * Tab label. A bare string/number is wrapped in `<Text>`; pass a node (e.g. a
    * styled `<Text>` or a `<Row>` with an icon) for full control.
@@ -934,11 +934,11 @@ export interface TabProps extends CommonProps {
  * One tab of a `<Tabs>`. A marker component: it never renders itself — `<Tabs>`
  * reads its props at authoring time and emits the button/panel pair.
  */
-export function Tab(_props: TabProps): ReturnType<FC> {
+function Tab(_props: TabProps): ReturnType<FC> {
   throw new Error("<Tab> must be a direct child of <Tabs>.");
 }
 
-export interface TabsProps extends Omit<ContainerProps, "group" | "children"> {
+interface TabsProps extends Omit<ContainerProps, "group" | "children"> {
   /** Initially selected tab (default: 0). The SDK owns the runtime selection. */
   selected?: number;
   /** Props for the tab bar container (`children[0]`) — a row unless overridden. */
@@ -956,7 +956,7 @@ export interface TabsProps extends Omit<ContainerProps, "group" | "children"> {
  * button with `states.selected`. Older SDKs ignore the `group` prop and degrade
  * to the bar plus every panel stacked.
  */
-export function Tabs({ bar, layout, selected, children, ...rest }: TabsProps): ReturnType<FC> {
+function Tabs({ bar, layout, selected, children, ...rest }: TabsProps): ReturnType<FC> {
   const tabs = Children.toArray(children).map((child, index) => {
     if (!isValidElement(child) || child.type !== Tab) {
       throw new Error("<Tabs> children must all be <Tab> elements.");
@@ -1041,7 +1041,7 @@ const BADGE_LABEL: Style = { color: "#ffffff", fontSize: 12 };
  * default so a square fill stays inside a rounded track. `layout.justify: "end"`
  * makes it drain from the other side.
  */
-export function ProgressBar({
+function ProgressBar({
   value,
   fill,
   size = BAR_SIZE,
@@ -1077,7 +1077,7 @@ export function ProgressBar({
  * With no children it builds `dots` round beads; pass your own (bars of different
  * heights, icons) and they become the beads, in wave order.
  */
-export function Spinner({
+function Spinner({
   dots = 3,
   size = DOT_SIZE,
   dot,
@@ -1109,14 +1109,7 @@ export function Spinner({
  * counter inside. NOT an IR type; nothing about it needs one, since `<Text>` has
  * been bindable since v1.
  */
-export function Badge({
-  count,
-  label,
-  layout,
-  style,
-  children,
-  ...rest
-}: BadgeProps): ReturnType<FC> {
+function Badge({ count, label, layout, style, children, ...rest }: BadgeProps): ReturnType<FC> {
   const text =
     typeof count === "object"
       ? createElement(Text, { bind: count.bind, style: { ...BADGE_LABEL, ...label } })
@@ -1237,7 +1230,7 @@ function message(children: ReactNode, style: Style): ReactNode {
  * </Modal>
  * ```
  */
-export function Modal({
+function Modal({
   position = "center",
   panel,
   layout,
@@ -1291,14 +1284,14 @@ const Repeat: FC<RepeatPrimitiveProps> = primitive<RepeatPrimitiveProps>("Repeat
  * template follows, which is what makes nested lists (each with its own alias)
  * readable.
  */
-export interface ItemRef {
+interface ItemRef {
   (path?: string): string;
   /** The element's position in the array — a number the data does not contain. */
   readonly $index: string;
 }
 
 /** An item template: nodes that bind by hand, or a function given the item's paths. */
-export type ItemTemplate = ReactNode | ((item: ItemRef) => ReactNode);
+type ItemTemplate = ReactNode | ((item: ItemRef) => ReactNode);
 
 /**
  * Props shared by the two ways of laying repeated items out. There is no
@@ -1306,7 +1299,7 @@ export type ItemTemplate = ReactNode | ((item: ItemRef) => ReactNode);
  * primitive — but this base type is public on purpose, so a wrapper over either
  * can be typed without copying the prop list (decision 2026-08-13, ZAB-56).
  */
-export interface RepeatProps extends CommonProps {
+interface RepeatProps extends CommonProps {
   /**
    * Data path of the array to repeat, e.g. `"shop.items"`. Always a binding: the
    * game owns the data and the document carries only structure.
@@ -1330,14 +1323,14 @@ export interface RepeatProps extends CommonProps {
   empty?: ReactNode;
 }
 
-export interface ListProps extends RepeatProps {
+interface ListProps extends RepeatProps {
   /** Item flow. Default: "vertical". */
   axis?: "vertical" | "horizontal";
   /** The item template — a single node, or a function that receives its paths. */
   children?: ItemTemplate;
 }
 
-export interface GridProps extends RepeatProps {
+interface GridProps extends RepeatProps {
   /** Items per line. The grid's geometry is resolved from it at authoring time. */
   columns: number;
   /**
@@ -1385,7 +1378,7 @@ function templateNodes(children: ItemTemplate | undefined, alias: string): React
  * The template is a single node because `children[0]` IS the template and
  * `children[1..]` are the empty state — the positional convention of the primitive.
  */
-export function List({ axis, empty, as, layout, children, ...rest }: ListProps): ReturnType<FC> {
+function List({ axis, empty, as, layout, children, ...rest }: ListProps): ReturnType<FC> {
   const nodes = templateNodes(children, as ?? ITEM_ALIAS);
   if (nodes.length === 0) throw new Error("<List> needs an item template as its children.");
   if (nodes.length > 1 || isFragment(nodes[0])) {
@@ -1421,7 +1414,7 @@ export function List({ axis, empty, as, layout, children, ...rest }: ListProps):
  * </Toast>
  * ```
  */
-export function Toast({
+function Toast({
   position = "bottom",
   panel,
   label,
@@ -1479,7 +1472,7 @@ export function Toast({
  * <Tooltip visible={{ bind: "ui.hint" }} position="top">Press A to jump</Tooltip>
  * ```
  */
-export function Tooltip({
+function Tooltip({
   position = "top",
   panel,
   label,
@@ -1530,7 +1523,7 @@ export function Tooltip({
  * time and each cell carries the resulting px. That is also why `gap`/`padding` must
  * be numbers here — a token only resolves inside the SDK, too late for this sum.
  */
-export function Grid({
+function Grid({
   columns,
   itemWidth,
   cell,
@@ -1644,3 +1637,65 @@ for (const [name, component] of Object.entries({
 
 /** Re-exported prop aliases for user components. */
 export type { CommonProps } from "./host.js";
+export type {
+  BadgeProps,
+  ButtonProps,
+  CheckboxProps,
+  CollapseProps,
+  ContainerProps,
+  GridProps,
+  ImageProps,
+  ItemRef,
+  ItemTemplate,
+  ListProps,
+  ModalProps,
+  OptionProps,
+  OverlayPosition,
+  OverlayProps,
+  ProgressBarProps,
+  RadioGroupProps,
+  RadioProps,
+  RepeatProps,
+  ScrollViewProps,
+  SelectProps,
+  SliderProps,
+  SpinnerProps,
+  SwitchProps,
+  TabProps,
+  TabsProps,
+  TextInputProps,
+  TextProps,
+  ToastProps,
+  ToggleControlProps,
+  TooltipProps,
+};
+export {
+  Accordion,
+  Badge,
+  Button,
+  Checkbox,
+  Collapse,
+  Column,
+  Container,
+  Grid,
+  Image,
+  List,
+  Modal,
+  Option,
+  Overlay,
+  ProgressBar,
+  Radio,
+  RadioGroup,
+  Row,
+  ScrollView,
+  Select,
+  Slider,
+  Spinner,
+  Switch,
+  Tab,
+  Tabs,
+  Text,
+  TextInput,
+  Toast,
+  Tooltip,
+};

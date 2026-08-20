@@ -8,18 +8,21 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { isValidProjectName, ScaffoldError, scaffold } from "./scaffold.js";
 
-let root: string;
-
-beforeEach(async () => {
-  root = await mkdtemp(join(tmpdir(), "zabloo-scaffold-"));
-});
-
-afterEach(async () => {
-  await rm(root, { recursive: true, force: true });
-});
+/**
+ * A tmpdir for one test, removed when it ends. Called from inside the test
+ * rather than a `beforeEach` so the path can be a `const` the test owns — and
+ * so the cleanup is registered next to the directory it cleans up.
+ */
+async function tempRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "zabloo-scaffold-"));
+  onTestFinished(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+  return root;
+}
 
 /** Reads the generated `package.json` — the file every assertion about versions goes through. */
 async function readPkg(dir: string): Promise<Record<string, unknown>> {
@@ -42,7 +45,7 @@ describe("project names", () => {
 
 describe("scaffold", () => {
   it("lays down the template, the dotfile and the generated package.json", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
 
     const name = await scaffold(dir);
 
@@ -63,7 +66,7 @@ describe("scaffold", () => {
   });
 
   it("copies the starter views and the example component", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
 
     await scaffold(dir);
 
@@ -76,7 +79,7 @@ describe("scaffold", () => {
   });
 
   it("names the package after the directory and depends on the published range", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
 
     await scaffold(dir);
 
@@ -88,7 +91,7 @@ describe("scaffold", () => {
   });
 
   it("uses workspace:* under --workspace, so the monorepo can scaffold itself", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
 
     await scaffold(dir, { workspace: true });
 
@@ -98,7 +101,7 @@ describe("scaffold", () => {
   });
 
   it("ships the dev loop as scripts of the generated project", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
 
     await scaffold(dir);
 
@@ -111,7 +114,7 @@ describe("scaffold", () => {
   });
 
   it("substitutes the project name into the README", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
 
     await scaffold(dir);
 
@@ -121,14 +124,14 @@ describe("scaffold", () => {
   });
 
   it("refuses a name npm would reject, before touching the disk", async () => {
-    const dir = join(root, "My-UI");
+    const dir = join(await tempRoot(), "My-UI");
 
     await expect(scaffold(dir)).rejects.toBeInstanceOf(ScaffoldError);
     await expect(readdir(dir)).rejects.toThrow();
   });
 
   it("refuses a directory that already has something in it", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
     await mkdir(dir);
     await writeFile(join(dir, "keep-me.txt"), "mine");
 
@@ -137,7 +140,7 @@ describe("scaffold", () => {
   });
 
   it("scaffolds into an empty directory that already exists", async () => {
-    const dir = join(root, "my-ui");
+    const dir = join(await tempRoot(), "my-ui");
     await mkdir(dir);
 
     await expect(scaffold(dir)).resolves.toBe("my-ui");

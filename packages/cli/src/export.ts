@@ -41,7 +41,7 @@ interface ProjectZablooReact {
   ThemeProvider: unknown;
 }
 
-export interface ExportResult {
+interface ExportResult {
   outFile: string;
   viewIds: string[];
   /** Per-asset breakdown for the CLI summary (decision: the summary prints the breakdown). */
@@ -55,7 +55,7 @@ export interface ExportResult {
   warnings: string[];
 }
 
-export interface ExportOptions {
+interface ExportOptions {
   /**
    * Write the envelope here instead of `<outDir>/zabloo.ir.json`, path and filename
    * both. Relative to the project root, like every other path the CLI takes. It is
@@ -65,10 +65,7 @@ export interface ExportOptions {
   out?: string;
 }
 
-export async function exportProject(
-  rootDir: string,
-  options: ExportOptions = {},
-): Promise<ExportResult> {
+async function exportProject(rootDir: string, options: ExportOptions = {}): Promise<ExportResult> {
   try {
     return await run(resolve(rootDir), options);
   } catch (error) {
@@ -96,12 +93,10 @@ async function run(root: string, options: ExportOptions): Promise<ExportResult> 
   // `node_modules`, so it used to be told about a missing `react` it never asked
   // for instead of about the views it is actually missing.
   const viewsDir = join(root, "src", "views");
-  let files: string[];
-  try {
-    files = (await readdir(viewsDir)).filter((f) => /\.tsx?$/.test(f));
-  } catch {
+  const entries = await readdir(viewsDir).catch(() => {
     throw new Error(`No views directory found at ${viewsDir}`);
-  }
+  });
+  const files = entries.filter((f) => /\.tsx?$/.test(f));
   if (files.length === 0) {
     throw new Error(`No view files (*.tsx) found in ${viewsDir}`);
   }
@@ -166,3 +161,6 @@ async function run(root: string, options: ExportOptions): Promise<ExportResult> 
     warnings,
   };
 }
+
+export type { ExportOptions, ExportResult };
+export { exportProject };

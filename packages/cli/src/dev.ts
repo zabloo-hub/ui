@@ -21,14 +21,14 @@ import { join } from "node:path";
 import { openBrowser } from "./open.js";
 import { startPreviewServer } from "./preview-server.js";
 
-export interface DevOptions {
+interface DevOptions {
   /** Extra `Host` values the preview answers to — see `PreviewOptions`. */
   allowedHosts?: readonly string[];
   /** Open the preview in the browser once it is up. */
   open?: boolean;
 }
 
-export async function devLoop(
+async function devLoop(
   root: string,
   previewPort: number,
   unity: { port: number } | null,
@@ -62,15 +62,15 @@ export async function devLoop(
     );
   }
 
-  let running = false;
-  let queued = false;
+  // One export at a time; saves that land during a run collapse into one rerun.
+  const state = { running: false, queued: false };
 
   const run = async () => {
-    if (running) {
-      queued = true;
+    if (state.running) {
+      state.queued = true;
       return;
     }
-    running = true;
+    state.running = true;
     try {
       const { outFile, error } = await exportInChild(root);
       if (outFile) {
@@ -85,18 +85,18 @@ export async function devLoop(
         preview.notifyError(error);
       }
     } finally {
-      running = false;
-      if (queued) {
-        queued = false;
+      state.running = false;
+      if (state.queued) {
+        state.queued = false;
         void run();
       }
     }
   };
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const debounce: { timer?: ReturnType<typeof setTimeout> } = {};
   const schedule = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => void run(), 150);
+    clearTimeout(debounce.timer);
+    debounce.timer = setTimeout(() => void run(), 150);
   };
 
   watch(srcDir, { recursive: true }, schedule);
@@ -109,7 +109,7 @@ export async function devLoop(
 }
 
 /** Push an envelope to the engine editor's dev mode; no-op when there is no target. */
-export function createPusher(url: string | null): (body: string) => Promise<void> {
+function createPusher(url: string | null): (body: string) => Promise<void> {
   if (!url) return async () => {};
   return async (body) => {
     try {
@@ -155,18 +155,18 @@ function exportInChild(root: string): Promise<ChildExport> {
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
-    let stdout = "";
-    let stderr = "";
+    const stdout: string[] = [];
+    const stderr: string[] = [];
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
+      stdout.push(chunk.toString());
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      stderr.push(chunk.toString());
       process.stderr.write(chunk);
     });
     child.on("close", (code) => {
       if (code === 0) {
-        const outFile = stdout.trim().split("\n").at(-1)?.trim();
+        const outFile = stdout.join("").trim().split("\n").at(-1)?.trim();
         resolvePromise(
           outFile
             ? { outFile, error: "" }
@@ -174,8 +174,14 @@ function exportInChild(root: string): Promise<ChildExport> {
         );
       } else {
         console.error("zabloo dev: export failed — fix the error above and save again.");
-        resolvePromise({ outFile: null, error: stderr.trim() || `export failed (exit ${code})` });
+        resolvePromise({
+          outFile: null,
+          error: stderr.join("").trim() || `export failed (exit ${code})`,
+        });
       }
     });
   });
 }
+
+export type { DevOptions };
+export { createPusher, devLoop };

@@ -31,7 +31,11 @@ type Props = HostInstance["props"] & { children?: ReactNode };
 const HOST_CONTEXT = {};
 type HostContext = typeof HOST_CONTEXT;
 
-let currentUpdatePriority: number = DefaultEventPriority;
+/**
+ * React's event-priority protocol is a getter/setter pair over one mutable slot,
+ * so the slot is a field of a `const` holder rather than a module-level `let`.
+ */
+const updatePriority = { current: DefaultEventPriority as number };
 
 const reconciler = Reconciler<
   string, // Type
@@ -147,13 +151,13 @@ const reconciler = Reconciler<
 
   // --- update priority (React 19 event-priority protocol) ---
   setCurrentUpdatePriority(newPriority) {
-    currentUpdatePriority = newPriority;
+    updatePriority.current = newPriority;
   },
   getCurrentUpdatePriority() {
-    return currentUpdatePriority;
+    return updatePriority.current;
   },
   resolveUpdatePriority() {
-    return currentUpdatePriority || DefaultEventPriority;
+    return updatePriority.current || DefaultEventPriority;
   },
 
   // --- transitions / forms (unused) ---

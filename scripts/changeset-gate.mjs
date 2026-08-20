@@ -51,6 +51,15 @@ function git(...args) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
 }
 
+/** The file's contents, or `null` if it is not there. */
+function readIfPresent(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** The publishable workspace packages, by the directory they live in. */
 const packages = new Map();
 for (const dir of readdirSync(join(repo, "packages"))) {
@@ -60,16 +69,19 @@ for (const dir of readdirSync(join(repo, "packages"))) {
   } catch {} // not a package
 }
 
-let changed;
-try {
-  // Three dots: what THIS branch added, not whatever main did meanwhile.
-  changed = git("diff", "--name-only", `${since}...HEAD`).split("\n").filter(Boolean);
-} catch {
-  console.error(
-    `changeset-gate: cannot diff against ${since} — is the history deep enough (fetch-depth: 0)?`,
-  );
-  process.exit(1);
+/** Three dots: what THIS branch added, not whatever main did meanwhile. */
+function changedSince(ref) {
+  try {
+    return git("diff", "--name-only", `${ref}...HEAD`).split("\n").filter(Boolean);
+  } catch {
+    console.error(
+      `changeset-gate: cannot diff against ${ref} — is the history deep enough (fetch-depth: 0)?`,
+    );
+    process.exit(1);
+  }
 }
+
+const changed = changedSince(since);
 
 /** Package name → the files in it that a consumer would actually receive. */
 const touched = new Map();
@@ -108,12 +120,9 @@ const changesets = git(
   .split("\n")
   .filter((file) => file.endsWith(".md") && !file.endsWith("README.md"));
 for (const file of changesets) {
-  let body;
-  try {
-    body = readFileSync(join(repo, file), "utf8");
-  } catch {
-    continue; // written earlier in the branch and deleted before HEAD
-  }
+  // A changeset written earlier in the branch and deleted before HEAD is gone.
+  const body = readIfPresent(join(repo, file));
+  if (body === null) continue;
   const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body);
   if (!frontmatter) continue;
   for (const line of frontmatter[1].split("\n")) {

@@ -9,7 +9,7 @@
 import type { StateName, StateOverride, Style, Transition } from "@zabloo/format";
 import { createContext, createElement, type ReactNode, useContext } from "react";
 
-export interface VariantDef {
+interface VariantDef {
   style?: Style;
   states?: Partial<Record<StateName, StateOverride>>;
   /**
@@ -21,7 +21,7 @@ export interface VariantDef {
 }
 
 /** Variants keyed by component name, then variant name: `{ Button: { primary: {…} } }`. */
-export type ThemeVariants = Record<string, Record<string, VariantDef>>;
+type ThemeVariants = Record<string, Record<string, VariantDef>>;
 
 /**
  * Default motion keyed by component name — the same key as `variants`, because
@@ -35,9 +35,9 @@ export type ThemeVariants = Record<string, Record<string, VariantDef>>;
  * Keying by primitive means the containers the sugar builds (`<Switch>`'s rails,
  * `<Tabs>`' panels) count as `Container` — that is the price of one flat key.
  */
-export type ThemeTransitions = Record<string, Transition>;
+type ThemeTransitions = Record<string, Transition>;
 
-export interface ZablooTheme {
+interface ZablooTheme {
   variants?: ThemeVariants;
   transitions?: ThemeTransitions;
 }
@@ -45,8 +45,27 @@ export interface ZablooTheme {
 const ThemeContext = createContext<ZablooTheme>({});
 
 /** Provides the project theme to the component tree (the exporter wraps views). */
-export function ThemeProvider({ theme, children }: { theme: ZablooTheme; children?: ReactNode }) {
+function ThemeProvider({ theme, children }: { theme: ZablooTheme; children?: ReactNode }) {
   return createElement(ThemeContext.Provider, { value: theme }, children);
+}
+
+/**
+ * Per-state style overrides, theme first and props on top.
+ *
+ * A state whose merge carries no style is not an override: emitting it would put
+ * a `{style:{}}` in the envelope that says nothing and paints nothing. Same for
+ * the whole map — `undefined`, not an empty object.
+ */
+function mergeStates(from: VariantDef["states"], over: VariantDef["states"]): VariantDef["states"] {
+  if (!from && !over) return undefined;
+
+  const names = new Set([...Object.keys(from ?? {}), ...Object.keys(over ?? {})] as StateName[]);
+  const merged: NonNullable<VariantDef["states"]> = {};
+  for (const name of names) {
+    const style = { ...from?.[name]?.style, ...over?.[name]?.style };
+    if (Object.keys(style).length > 0) merged[name] = { style };
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
 /**
@@ -57,11 +76,7 @@ export function ThemeProvider({ theme, children }: { theme: ZablooTheme; childre
  * The theme's default `transition` for the component applies even with no
  * variant: motion is a property of the component type, not of one of its looks.
  */
-export function useVariant(
-  component: string,
-  variant: string | undefined,
-  props: VariantDef,
-): VariantDef {
+function useVariant(component: string, variant: string | undefined, props: VariantDef): VariantDef {
   const theme = useContext(ThemeContext);
   if (variant === undefined) {
     const transition = props.transition ?? theme.transitions?.[component];
@@ -82,22 +97,11 @@ export function useVariant(
   const style: Style | undefined =
     def.style || props.style ? { ...def.style, ...props.style } : undefined;
 
-  // A state whose merge carries no style is not an override: emitting it would
-  // put a `{style:{}}` in the envelope that says nothing and paints nothing.
-  let states: VariantDef["states"];
-  if (def.states || props.states) {
-    const merged: NonNullable<VariantDef["states"]> = {};
-    const names = new Set([
-      ...Object.keys(def.states ?? {}),
-      ...Object.keys(props.states ?? {}),
-    ] as StateName[]);
-    for (const name of names) {
-      const style = { ...def.states?.[name]?.style, ...props.states?.[name]?.style };
-      if (Object.keys(style).length > 0) merged[name] = { style };
-    }
-    if (Object.keys(merged).length > 0) states = merged;
-  }
+  const states = mergeStates(def.states, props.states);
 
   const transition = props.transition ?? def.transition ?? theme.transitions?.[component];
   return { style, states, ...(transition !== undefined && { transition }) };
 }
+
+export type { ThemeTransitions, ThemeVariants, VariantDef, ZablooTheme };
+export { ThemeProvider, useVariant };

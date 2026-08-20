@@ -24,7 +24,7 @@
 import { readFileSync } from "node:fs";
 
 /** The zabloo packages a scaffolded project depends on. */
-export type ScaffoldedPackage = "@zabloo/react" | "@zabloo/cli";
+type ScaffoldedPackage = "@zabloo/react" | "@zabloo/cli";
 
 interface PackageJson {
   version?: string;
@@ -42,7 +42,7 @@ function read(url: URL): PackageJson {
  * a fixture directory in the tests, which is what lets both branches be exercised
  * without publishing anything.
  */
-export function scaffoldedVersion(
+function scaffoldedVersion(
   name: ScaffoldedPackage,
   base: URL = new URL("../package.json", import.meta.url),
 ): string {
@@ -62,3 +62,6 @@ export function scaffoldedVersion(
   }
   return `^${sibling.version}`;
 }
+
+export type { ScaffoldedPackage };
+export { scaffoldedVersion };

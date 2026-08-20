@@ -18,6 +18,22 @@ const HELP = `Usage: create-zabloo-app <project-directory> [--workspace]
   --workspace          use workspace:* versions (for the zabloo monorepo itself)
 `;
 
+/**
+ * Scaffolds, or prints the failure and sets the exit code. `null` means the
+ * caller has nothing left to say — the message is already out.
+ */
+async function scaffoldOrReport(dir: string, workspace: boolean): Promise<string | null> {
+  try {
+    return await scaffold(dir, { workspace });
+  } catch (error) {
+    // Anything that is not a ScaffoldError is a bug, and keeps its stack.
+    if (!(error instanceof ScaffoldError)) throw error;
+    console.error(`create-zabloo-app: ${error.message}`);
+    process.exitCode = 1;
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const workspace = args.includes("--workspace");
@@ -30,16 +46,8 @@ async function main(): Promise<void> {
   }
 
   const dir = resolve(target);
-  let name: string;
-  try {
-    name = await scaffold(dir, { workspace });
-  } catch (error) {
-    // Anything that is not a ScaffoldError is a bug, and keeps its stack.
-    if (!(error instanceof ScaffoldError)) throw error;
-    console.error(`create-zabloo-app: ${error.message}`);
-    process.exitCode = 1;
-    return;
-  }
+  const name = await scaffoldOrReport(dir, workspace);
+  if (name === null) return;
 
   console.log(`
   Scaffolded ${name} in ${dir}

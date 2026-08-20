@@ -40,6 +40,16 @@ function fatalOf(diagnostics: Diagnostic[]): Diagnostic | undefined {
   return diagnostics.find((d) => d.level === "fatal");
 }
 
+/** What a call threw, or `undefined` if it returned — for asserting ON the error. */
+function thrownBy(run: () => unknown): unknown {
+  try {
+    run();
+    return undefined;
+  } catch (error) {
+    return error;
+  }
+}
+
 describe("readEnvelope: fatal cases", () => {
   it("never throws — a fatal comes back as a diagnostic", () => {
     for (const input of [undefined, null, 42, "{", [], {}, Number.NaN]) {
@@ -483,12 +493,7 @@ describe("readEnvelope: repeat", () => {
 
 describe("parseEnvelope", () => {
   it("throws an EnvelopeError carrying every diagnostic found", () => {
-    let thrown: unknown;
-    try {
-      parseEnvelope({ ...base, views: { hud: { type: "Text" } } });
-    } catch (error) {
-      thrown = error;
-    }
+    const thrown = thrownBy(() => parseEnvelope({ ...base, views: { hud: { type: "Text" } } }));
     expect(thrown).toBeInstanceOf(EnvelopeError);
     const error = thrown as EnvelopeError;
     expect(error.message).toContain("no usable views");
@@ -509,9 +514,10 @@ describe("parseEnvelope", () => {
 describe("readEnvelope: hostile payloads", () => {
   /** A chain of nested Containers `depth` levels deep. */
   function nest(depth: number): Record<string, unknown> {
-    let node: Record<string, unknown> = { type: "Text", text: "bottom" };
-    for (let i = 0; i < depth; i++) node = { type: "Container", children: [node] };
-    return node;
+    return Array.from({ length: depth }).reduce<Record<string, unknown>>(
+      (node) => ({ type: "Container", children: [node] }),
+      { type: "Text", text: "bottom" },
+    );
   }
 
   it("walks a deep but sane tree", () => {

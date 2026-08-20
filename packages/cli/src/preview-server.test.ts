@@ -59,19 +59,21 @@ async function openEvents(server: PreviewServer): Promise<{ next(): Promise<Prev
   const res = await fetch(`${server.url}events`, { signal: abort.signal });
   const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   const decoder = new TextDecoder();
-  let buffer = "";
+  // A slot, not a `let`: `next()` reads across chunk boundaries, so what is left
+  // over from the last read has to survive the call.
+  const pending = { buffer: "" };
   return {
     async next(): Promise<PreviewEvent> {
       for (;;) {
-        const end = buffer.indexOf("\n\n");
+        const end = pending.buffer.indexOf("\n\n");
         if (end === -1) {
           const { value, done } = await reader.read();
           if (done) throw new Error("the stream ended");
-          buffer += decoder.decode(value, { stream: true });
+          pending.buffer += decoder.decode(value, { stream: true });
           continue;
         }
-        const record = buffer.slice(0, end);
-        buffer = buffer.slice(end + 2);
+        const record = pending.buffer.slice(0, end);
+        pending.buffer = pending.buffer.slice(end + 2);
         // The opening `retry:` record carries no data; skip to the next one.
         const data = record.split("\n").find((line) => line.startsWith("data: "));
         if (data !== undefined) return JSON.parse(data.slice("data: ".length)) as PreviewEvent;
@@ -185,7 +187,7 @@ describe("preview server, on a busy port", () => {
   it("refuses to start when the whole range is taken", async () => {
     // Everything the walk would try. A port somebody else already holds counts as
     // taken too, so a squat that fails still leaves the range unavailable.
-    for (let port = FULL_BASE; port < FULL_BASE + 10; port++) await squat(port);
+    for (const port of Array.from({ length: 10 }, (_, i) => FULL_BASE + i)) await squat(port);
 
     await expect(startPreviewServer(FULL_BASE)).rejects.toThrow(
       new RegExp(`preview ports ${FULL_BASE}-${FULL_BASE + 9} are all in use`),
@@ -270,12 +272,12 @@ describe("host guard", () => {
           headers: host === undefined ? {} : { host },
         },
         (res) => {
-          let body = "";
+          const body: string[] = [];
           res.setEncoding("utf8");
           res.on("data", (chunk: string) => {
-            body += chunk;
+            body.push(chunk);
           });
-          res.on("end", () => done({ status: res.statusCode ?? 0, body }));
+          res.on("end", () => done({ status: res.statusCode ?? 0, body: body.join("") }));
         },
       );
       req.on("error", fail);

@@ -60,11 +60,11 @@ export async function previewFile(file: string, options: PreviewCommandOptions):
   // (write to a temp name, rename over it), which silently kills a watcher bound
   // to the old inode — the page would just stop updating.
   const name = basename(path);
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const debounce: { timer?: ReturnType<typeof setTimeout> } = {};
   watch(dirname(path), (_event, filename) => {
     if (filename !== name) return;
-    clearTimeout(timer);
-    timer = setTimeout(() => void reload(), 100);
+    clearTimeout(debounce.timer);
+    debounce.timer = setTimeout(() => void reload(), 100);
   });
 
   await new Promise<never>(() => {}); // serve until Ctrl+C
@@ -79,12 +79,8 @@ export type PreviewSource = { json: string; error: null } | { json?: undefined; 
  * itself never returns, so it cannot be called from a test.
  */
 export async function readPreviewEnvelope(path: string): Promise<PreviewSource> {
-  let json: string;
-  try {
-    json = await readFile(path, "utf8");
-  } catch {
-    return { error: `cannot read ${path}` };
-  }
+  const json = await readFile(path, "utf8").catch(() => null);
+  if (json === null) return { error: `cannot read ${path}` };
   // The same contract an SDK applies (ZAB-37): a `warn` was repaired and the view
   // is still worth showing, so only a fatal stops us. The page reports the rest
   // through `onDiagnostic` exactly as it does under `dev`.

@@ -26,7 +26,10 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "style": {
+        "useExportsLast": "error"
+      }
     }
   },
   "javascript": {
@@ -46,5 +49,8 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "plugins": [
+    "./scripts/lint/no-let.grit"
+  ]
 }

@@ -491,12 +491,10 @@ describe("easeProgress", () => {
 
   it("is monotonic and stays within 0..1", () => {
     for (const easing of curves) {
-      let previous = 0;
-      for (let i = 1; i <= 20; i++) {
-        const value = easeProgress(easing, i / 20);
-        expect(value).toBeGreaterThanOrEqual(previous);
-        expect(value).toBeLessThanOrEqual(1);
-        previous = value;
+      const values = Array.from({ length: 20 }, (_, i) => easeProgress(easing, (i + 1) / 20));
+      for (const [i, value] of values.entries()) {
+        expect(value, `${easing} at ${i + 1}/20`).toBeGreaterThanOrEqual(values[i - 1] ?? 0);
+        expect(value, `${easing} at ${i + 1}/20`).toBeLessThanOrEqual(1);
       }
     }
   });
@@ -1029,8 +1027,7 @@ describe("spinnerPulse", () => {
 
   it("is symmetric around the crest", () => {
     for (const easing of ["linear", "ease-in", "ease-out", "ease-in-out"] as Easing[]) {
-      for (let i = 1; i < 10; i++) {
-        const p = i / 20;
+      for (const p of Array.from({ length: 9 }, (_, i) => (i + 1) / 20)) {
         expect(spinnerPulse(p, easing)).toBeCloseTo(spinnerPulse(1 - p, easing), 10);
       }
     }
@@ -1045,8 +1042,7 @@ describe("spinnerPulse", () => {
   });
 
   it("stays within 0..1 and matches the closed-form ramp (the cross-target contract)", () => {
-    for (let i = 0; i <= 40; i++) {
-      const value = spinnerPulse(i / 40);
+    for (const value of Array.from({ length: 41 }, (_, i) => spinnerPulse(i / 40))) {
       expect(value).toBeGreaterThanOrEqual(0);
       expect(value).toBeLessThanOrEqual(1);
     }

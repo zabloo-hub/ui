@@ -39,7 +39,7 @@ import type {
 } from "@zabloo/format";
 
 /** Host vocabulary — the IR primitives authorable in v1. */
-export type HostType =
+type HostType =
   | "Container"
   | "Text"
   | "Button"
@@ -55,7 +55,7 @@ export type HostType =
   | "TextInput";
 
 /** Props common to every zabloo primitive (mirrors the IR's NodeBase). */
-export interface CommonProps {
+interface CommonProps {
   id?: string;
   visible?: Bindable<boolean>;
   /**
@@ -88,7 +88,7 @@ export interface CommonProps {
   clip?: boolean;
 }
 
-export interface HostInstance {
+interface HostInstance {
   kind: "instance";
   type: HostType;
   props: CommonProps & {
@@ -160,15 +160,15 @@ export interface HostInstance {
   children: HostNode[];
 }
 
-export interface HostTextInstance {
+interface HostTextInstance {
   kind: "text";
   text: string;
 }
 
-export type HostNode = HostInstance | HostTextInstance;
+type HostNode = HostInstance | HostTextInstance;
 
 /** The root container the reconciler renders into. */
-export interface HostContainer {
+interface HostContainer {
   children: HostNode[];
 }
 
@@ -188,11 +188,11 @@ const HOST_TYPES: ReadonlySet<string> = new Set([
   "TextInput",
 ]);
 
-export function isHostType(type: string): type is HostType {
+function isHostType(type: string): type is HostType {
   return HOST_TYPES.has(type);
 }
 
-export function createHostInstance(type: string, props: HostInstance["props"]): HostInstance {
+function createHostInstance(type: string, props: HostInstance["props"]): HostInstance {
   if (!isHostType(type)) {
     throw new Error(
       `<${type}> is not a zabloo primitive. The v1 vocabulary is Container, Text, Button, ` +
@@ -205,7 +205,7 @@ export function createHostInstance(type: string, props: HostInstance["props"]): 
 }
 
 /** Serializes a mounted host instance into an IR node. */
-export function toIR(instance: HostInstance): ZNode {
+function toIR(instance: HostInstance): ZNode {
   // `variant` is intentionally NOT serialized — resolved at authoring time.
   const { id, visible, disabled, layout, style, states, transition, autofocus, clip } =
     instance.props;
@@ -496,14 +496,14 @@ export function toIR(instance: HostInstance): ZNode {
 /** Text content: a data-path binding (`bind` prop) or the joined text children. */
 function textContent(instance: HostInstance): Bindable<string> {
   if (instance.props.bind !== undefined) return { bind: instance.props.bind };
-  let text = "";
-  for (const child of instance.children) {
-    if (child.kind !== "text") {
-      throw new Error("<Text> children must be plain text (or use the `bind` prop).");
-    }
-    text += child.text;
-  }
-  return text;
+  return instance.children
+    .map((child) => {
+      if (child.kind !== "text") {
+        throw new Error("<Text> children must be plain text (or use the `bind` prop).");
+      }
+      return child.text;
+    })
+    .join("");
 }
 
 function childrenIR(instance: HostInstance): { children?: ZNode[] } {
@@ -519,3 +519,6 @@ function childrenIR(instance: HostInstance): { children?: ZNode[] } {
   }
   return out.length > 0 ? { children: out } : {};
 }
+
+export type { CommonProps, HostContainer, HostInstance, HostNode, HostTextInstance, HostType };
+export { createHostInstance, isHostType, toIR };
