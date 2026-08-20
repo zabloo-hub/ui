@@ -71,7 +71,7 @@ describe("DataStore — the descendant index (ZAB-73)", () => {
 
   it("keeps working after the same subtree is written over and over", () => {
     const store = new DataStore();
-    for (let round = 0; round < 3; round++) {
+    for (const round of Array(3).keys()) {
       store.set("shop.items", [{ enabled: false }]);
       store.set("shop.items.0.enabled", true);
       expect(store.get("shop.items.0.enabled")).toBe(true);

@@ -5,7 +5,7 @@ import { loopPhase } from "./transition.js";
 describe("beadOpacity", () => {
   it("spreads the crest over the beads: each one peaks at its own phase", () => {
     // Bead i peaks when the cycle phase is i/n + 0.5 — the crest travels.
-    for (let i = 0; i < 3; i++) {
+    for (const i of Array(3).keys()) {
       expect(beadOpacity(i, 3, i / 3 + 0.5)).toBe(1);
     }
   });

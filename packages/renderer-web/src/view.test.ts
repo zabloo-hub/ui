@@ -1721,7 +1721,7 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
 
   it("holds no more after ten cycles than after one", async () => {
     let first: { listeners: number; frames: number; timers: number } | null = null;
-    for (let i = 0; i < 10; i++) {
+    for (const i of Array(10).keys()) {
       const cycle = await mountCase(CORPUS.settings);
       const held = cycle.held();
       cycle.dispose();

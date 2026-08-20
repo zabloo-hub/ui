@@ -305,7 +305,7 @@ describe("index space (ZAB-68)", () => {
     // ≈2.260 rounded rects fill the 16-bit space; this crosses it comfortably —
     // a long unvirtualized list under one clip gets here on its own.
     const COUNT = 2500;
-    for (let i = 0; i < COUNT; i++) {
+    for (const i of Array(COUNT).keys()) {
       geometry.roundedRect({ x: i, y: 0, width: 10, height: 10 }, 3, [1, 1, 1, 1]);
     }
     const [batch] = geometry.batches();
@@ -329,7 +329,7 @@ describe("index space (ZAB-68)", () => {
   it("keeps the last rect's fan on its own vertices across the boundary", () => {
     const geometry = new GeometryBuilder();
     const COUNT = 2500;
-    for (let i = 0; i < COUNT; i++) {
+    for (const i of Array(COUNT).keys()) {
       geometry.roundedRect({ x: i, y: 0, width: 10, height: 10 }, 3, [1, 1, 1, 1]);
     }
     const [batch] = geometry.batches();

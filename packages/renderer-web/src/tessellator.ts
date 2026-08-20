@@ -208,10 +208,10 @@ class GeometryBuilder {
     // around the centroid — identical to the SDK.
     pushVertex(batch, rect.x + rect.width / 2, rect.y + rect.height / 2, 0, 0, color);
     fillPerimeter(rect, r);
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
     }
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushIndex(batch, base);
       pushIndex(batch, base + 1 + i);
       pushIndex(batch, base + 1 + ((i + 1) % PERIMETER_POINTS));
@@ -247,11 +247,11 @@ class GeometryBuilder {
     // the other lands. (radius 0 degenerates corner arcs to repeated points —
     // harmless.)
     fillPerimeter(rect, r);
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
     }
     fillPerimeter(inner, Math.max(0, r - width));
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushVertex(batch, perimeterX[i], perimeterY[i], 0, 0, color);
     }
 
@@ -315,12 +315,12 @@ class GeometryBuilder {
     const cy = box.y + box.height / 2;
     pushVertex(batch, cx, cy, uAt(cx), vAt(cy), color);
     fillPerimeter(box, r);
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       const x = perimeterX[i];
       const y = perimeterY[i];
       pushVertex(batch, x, y, uAt(x), vAt(y), color);
     }
-    for (let i = 0; i < PERIMETER_POINTS; i++) {
+    for (const i of PERIMETER_INDICES) {
       pushIndex(batch, base);
       pushIndex(batch, base + 1 + i);
       pushIndex(batch, base + 1 + ((i + 1) % PERIMETER_POINTS));
@@ -528,12 +528,18 @@ function pushQuadIndices(batch: BatchStore, base: number): void {
  * fill) so a frame full of rounded rects allocates no point arrays (ZAB-55).
  */
 const PERIMETER_POINTS = 4 * (CORNER_SEGMENTS + 1);
+/**
+ * `0…PERIMETER_POINTS-1`, built once. The perimeter walk runs per rounded rect
+ * per frame, and an index range materialised inside it would be garbage the
+ * frame budget can feel.
+ */
+const PERIMETER_INDICES = [...Array(PERIMETER_POINTS).keys()];
 const perimeterX = new Float64Array(PERIMETER_POINTS);
 const perimeterY = new Float64Array(PERIMETER_POINTS);
 
 function fillPerimeter(rect: Rect, r: number): void {
   let at = 0;
-  for (let corner = 0; corner < 4; corner++) {
+  for (const corner of Array(4).keys()) {
     // TL: 180 → 270, TR: 270 → 360, BR: 0 → 90, BL: 90 → 180.
     const cx = corner === 0 || corner === 3 ? rect.x + r : rect.x + rect.width - r;
     const cy = corner < 2 ? rect.y + r : rect.y + rect.height - r;
