@@ -17,7 +17,7 @@ import type { Rect } from "./layout.js";
 const ELLIPSIS = "…";
 
 /** Everything the algorithm needs from a font, in logical px. */
-export interface TextMetrics {
+interface TextMetrics {
   /** Horizontal advance of one character. */
   advance(char: string): number;
   /**
@@ -32,7 +32,7 @@ export interface TextMetrics {
   readonly ascent: number;
 }
 
-export interface TextLayoutOptions {
+interface TextLayoutOptions {
   /** Word wrap to `maxWidth`. */
   wrap: boolean;
   /** Width to wrap and cut to. `null` (or <= 0) means unconstrained. */
@@ -44,13 +44,13 @@ export interface TextLayoutOptions {
   overflow: TextOverflow;
 }
 
-export interface TextLine {
+interface TextLine {
   text: string;
   /** Painted width — trailing spaces excluded. */
   width: number;
 }
 
-export interface TextBlock {
+interface TextBlock {
   lines: TextLine[];
   /** The widest line. */
   width: number;
@@ -63,7 +63,7 @@ export interface TextBlock {
 }
 
 /** A line ready to paint: the run's top-left, half-leading already applied. */
-export interface PlacedLine {
+interface PlacedLine {
   text: string;
   x: number;
   y: number;
@@ -136,11 +136,7 @@ function lineOf(text: string, metrics: TextMetrics): TextLine {
  * Lays out `content` into lines. The result is the node's intrinsic size (`width` ×
  * `height`) as far as the flexbox is concerned, and the input of `placeLines`.
  */
-export function layoutText(
-  content: string,
-  metrics: TextMetrics,
-  options: TextLayoutOptions,
-): TextBlock {
+function layoutText(content: string, metrics: TextMetrics, options: TextLayoutOptions): TextBlock {
   const limit = options.maxWidth !== null && options.maxWidth > 0 ? options.maxWidth : null;
   const lines: TextLine[] = [];
   const maxLines = options.maxLines;
@@ -372,7 +368,7 @@ function alignOffset(align: TextAlign, outer: number, inner: number): number {
  * itself — so the half-leading that centers the glyphs in a taller line box is
  * already folded in.
  */
-export function placeLines(
+function placeLines(
   block: TextBlock,
   rect: Rect,
   metrics: TextMetrics,
@@ -387,3 +383,6 @@ export function placeLines(
     y: top + i * block.lineHeight + halfLeading,
   }));
 }
+
+export type { PlacedLine, TextBlock, TextLayoutOptions, TextLine, TextMetrics };
+export { layoutText, placeLines };

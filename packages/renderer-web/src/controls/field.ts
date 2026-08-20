@@ -41,13 +41,13 @@ import {
  * and styling either of them is a compatible extension, exactly as it is for the
  * ScrollView's scrollbar.
  */
-export const CARET = { width: 2, blinkMs: 1060, selectionAlpha: 0.3 };
+const CARET = { width: 2, blinkMs: 1060, selectionAlpha: 0.3 };
 
 /**
  * What the field asks of the view: where the focus is, what the text measures
  * with, and the return leg of the data channel when an edit settles.
  */
-export interface FieldHost {
+interface FieldHost {
   /** The node that owns the keyboard, if any. */
   focused(): LayoutNode | null;
   /** The metrics this field measures with — the caret and the paint share them. */
@@ -77,7 +77,7 @@ interface FieldIR {
 }
 
 /** The buffer, the caret and the hidden `<textarea>` of the focused TextInput. */
-export class FieldEditor {
+class FieldEditor {
   /**
    * The hidden field the browser types into while a TextInput has the focus. It is
    * what buys real IME composition, the clipboard and the mobile keyboard — none of
@@ -309,3 +309,6 @@ export class FieldEditor {
     if (document.activeElement !== editor) editor.focus({ preventScroll: true });
   }
 }
+
+export type { FieldHost };
+export { CARET, FieldEditor };

@@ -34,13 +34,13 @@ import { childClip, effectiveClip, hitTest, type NodeRadius } from "./hit.js";
 import { contains, inLayout, type LayoutNode, type Rect } from "./layout.js";
 import { type NodeAnim, type ResolvedTransition, stepValue } from "./transition.js";
 
-export interface Point {
+interface Point {
   x: number;
   y: number;
 }
 
 /** An Overlay's layer props with the IR defaults applied. */
-export interface OverlaySpec {
+interface OverlaySpec {
   /** Captures input below and confines focus. Default: true. */
   modal: boolean;
   /** Order inside the layer; ties break by document order. Default: 0. */
@@ -52,7 +52,7 @@ export interface OverlaySpec {
 }
 
 /** The layer props of an Overlay node, or null for anything else. */
-export function overlaySpec(node: LayoutNode): OverlaySpec | null {
+function overlaySpec(node: LayoutNode): OverlaySpec | null {
   const ir = node.ir;
   if (ir.type !== "Overlay") return null;
   return {
@@ -64,12 +64,12 @@ export function overlaySpec(node: LayoutNode): OverlaySpec | null {
   };
 }
 
-export function isModal(node: LayoutNode): boolean {
+function isModal(node: LayoutNode): boolean {
   return overlaySpec(node)?.modal === true;
 }
 
 /** Distance kept from the anchor's edge when the node declares none. */
-export const ANCHOR_OFFSET = 8;
+const ANCHOR_OFFSET = 8;
 
 const ANCHOR_AT: readonly AnchorAt[] = [
   "center",
@@ -84,7 +84,7 @@ const ANCHOR_AT: readonly AnchorAt[] = [
 ];
 
 /** An Overlay's anchor with the IR defaults applied. `offset` is still a `Dim`. */
-export interface AnchorSpec {
+interface AnchorSpec {
   id: string;
   at: AnchorAt;
   offset: Dim | undefined;
@@ -99,7 +99,7 @@ export interface AnchorSpec {
  * back to the default instead of failing, so a newer placement degrades to a
  * tooltip in the wrong-ish place rather than to no tooltip.
  */
-export function anchorSpec(node: LayoutNode): AnchorSpec | null {
+function anchorSpec(node: LayoutNode): AnchorSpec | null {
   if (node.ir.type !== "Overlay") return null;
   const anchor = (node.ir as { anchor?: OverlayAnchor }).anchor;
   if (!anchor || typeof anchor.id !== "string" || anchor.id === "") return null;
@@ -119,7 +119,7 @@ export function anchorSpec(node: LayoutNode): AnchorSpec | null {
  * the hover from the very anchor holding it up, and the two would flicker against
  * each other for as long as the pointer sat between them.
  */
-export function isHoverTriggered(node: LayoutNode): boolean {
+function isHoverTriggered(node: LayoutNode): boolean {
   return anchorSpec(node)?.trigger === "hover";
 }
 
@@ -129,7 +129,7 @@ export function isHoverTriggered(node: LayoutNode): boolean {
  * one it is a surface, not a hint — it takes input normally, which is what lets the
  * player pick something inside it.
  */
-export function isPressTriggered(node: LayoutNode): boolean {
+function isPressTriggered(node: LayoutNode): boolean {
   return anchorSpec(node)?.trigger === "press";
 }
 
@@ -138,7 +138,7 @@ export function isPressTriggered(node: LayoutNode): boolean {
  * own lists. Descending stops at each group: a nested one belongs to that group's
  * options, and the popover closes on ITS selection, not on its children's.
  */
-export function checkGroupsIn(node: LayoutNode, out: LayoutNode[] = []): LayoutNode[] {
+function checkGroupsIn(node: LayoutNode, out: LayoutNode[] = []): LayoutNode[] {
   const ir = node.ir as { type: string; group?: string };
   if (ir.type === "Container" && ir.group === "exclusive-check") {
     out.push(node);
@@ -156,7 +156,7 @@ export function checkGroupsIn(node: LayoutNode, out: LayoutNode[] = []): LayoutN
  * It reads `checked`, which an `"exclusive-check"` group derives from its value, so
  * it needs no second notion of "the current one".
  */
-export function selectedOptionIn(overlay: LayoutNode): LayoutNode | null {
+function selectedOptionIn(overlay: LayoutNode): LayoutNode | null {
   for (const group of checkGroupsIn(overlay)) {
     const found = checkedOption(group);
     if (found) return found;
@@ -187,7 +187,7 @@ function checkedOption(node: LayoutNode): LayoutNode | null {
  * the tooltip away one frame later — invisible at 60fps, and the alternative would
  * be laying the tree out twice per frame to answer a question about a bubble.
  */
-export function isOnScreen(node: LayoutNode, radiusOf: NodeRadius): boolean {
+function isOnScreen(node: LayoutNode, radiusOf: NodeRadius): boolean {
   for (let current: LayoutNode | null = node; current; current = current.parent) {
     if (!inLayout(current)) return false;
   }
@@ -225,7 +225,7 @@ function placement(at: AnchorAt): {
 const OPPOSITE = { top: "bottom", bottom: "top", left: "right", right: "left" } as const;
 
 /** A rect's content box: the same inset the measure pass reserved for `padding`. */
-export function deflate(rect: Rect, padding: number): Rect {
+function deflate(rect: Rect, padding: number): Rect {
   if (padding <= 0) return rect;
   return {
     x: rect.x + padding,
@@ -247,7 +247,7 @@ export function deflate(rect: Rect, padding: number): Rect {
  * screen only needs sliding — flipping it there would move it away from the word it
  * points at. `center` neither flips nor offsets: it is placed ON the anchor.
  */
-export function anchorBox(
+function anchorBox(
   anchor: Rect,
   size: { x: number; y: number },
   at: AnchorAt,
@@ -330,7 +330,7 @@ function clampAxis(start: number, size: number, boundsStart: number, boundsSize:
  * to the overlays that are still fading out (`stepPresence`), which is the ONLY
  * difference between the two: an overlay on its way out is pixels, never input.
  */
-export type Present = (node: LayoutNode) => boolean;
+type Present = (node: LayoutNode) => boolean;
 
 /**
  * The Overlays hanging under `root`, present or not — the candidates a layer is
@@ -339,7 +339,7 @@ export type Present = (node: LayoutNode) => boolean;
  * frame to find three overlays is the walk, not the finding. This is here for
  * the rule's own tests and for anyone holding a tree and nothing else.
  */
-export function overlaysOf(root: LayoutNode): LayoutNode[] {
+function overlaysOf(root: LayoutNode): LayoutNode[] {
   const found: LayoutNode[] = [];
   collect(root, found);
   return found;
@@ -360,10 +360,7 @@ function collect(node: LayoutNode, out: LayoutNode[]): void {
  * alone: an overlay inside a closed Collapse is as absent as one with
  * `visible:false`.
  */
-export function collectLayer(
-  overlays: Iterable<LayoutNode>,
-  present: Present = inLayout,
-): LayoutNode[] {
+function collectLayer(overlays: Iterable<LayoutNode>, present: Present = inLayout): LayoutNode[] {
   const found: Array<{ node: LayoutNode; path: number[]; z: number }> = [];
   for (const node of overlays) {
     if (!chainPresent(node, present)) continue;
@@ -417,7 +414,7 @@ function comparePaths(a: number[], b: number[]): number {
  * resolve pass drops whenever a node leaves layout: there would be no exit to
  * animate if the exit erased its own starting point.
  */
-export function stepPresence(
+function stepPresence(
   anim: NodeAnim,
   live: boolean,
   transition: ResolvedTransition | null,
@@ -427,7 +424,7 @@ export function stepPresence(
 }
 
 /** The modal that owns input and focus right now: the highest one in the layer. */
-export function topModal(layer: readonly LayoutNode[]): LayoutNode | null {
+function topModal(layer: readonly LayoutNode[]): LayoutNode | null {
   for (let i = layer.length - 1; i >= 0; i--) {
     if (isModal(layer[i])) return layer[i];
   }
@@ -439,12 +436,12 @@ export function topModal(layer: readonly LayoutNode[]): LayoutNode | null {
  * view when there is none. Non-modal overlays never trap — their children join
  * the normal navigation like any other node.
  */
-export function focusScope(root: LayoutNode, layer: readonly LayoutNode[]): LayoutNode {
+function focusScope(root: LayoutNode, layer: readonly LayoutNode[]): LayoutNode {
   return topModal(layer) ?? root;
 }
 
 /** Whether `node` is `ancestor` or lives inside it. */
-export function isWithin(node: LayoutNode, ancestor: LayoutNode): boolean {
+function isWithin(node: LayoutNode, ancestor: LayoutNode): boolean {
   let current: LayoutNode | null = node;
   while (current) {
     if (current === ancestor) return true;
@@ -458,10 +455,7 @@ export function isWithin(node: LayoutNode, ancestor: LayoutNode): boolean {
  * document order that is in layout and focusable (`accept`). This is what an
  * opening modal focuses.
  */
-export function autofocusIn(
-  scope: LayoutNode,
-  accept: (node: LayoutNode) => boolean,
-): LayoutNode | null {
+function autofocusIn(scope: LayoutNode, accept: (node: LayoutNode) => boolean): LayoutNode | null {
   if (!inLayout(scope)) return null;
   if (scope.ir.autofocus === true && accept(scope)) return scope;
   for (const child of scope.children) {
@@ -472,7 +466,7 @@ export function autofocusIn(
 }
 
 /** What a pointer landed on, once the layer has had its say. */
-export type LayerHit =
+type LayerHit =
   | { kind: "node"; node: LayoutNode }
   | { kind: "backdrop"; overlay: LayoutNode }
   | { kind: "miss" };
@@ -489,7 +483,7 @@ export type LayerHit =
  * Both walks go through `hitTest`, so clipping cuts input here too (`radiusOf`
  * resolves each clipping node's corner radius).
  */
-export function resolveHit(
+function resolveHit(
   root: LayoutNode,
   layer: readonly LayoutNode[],
   point: Point,
@@ -529,3 +523,26 @@ function numberOr(value: unknown, fallback: number): number {
 function positiveOr(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
+
+export type { AnchorSpec, LayerHit, OverlaySpec, Point, Present };
+export {
+  ANCHOR_OFFSET,
+  anchorBox,
+  anchorSpec,
+  autofocusIn,
+  checkGroupsIn,
+  collectLayer,
+  deflate,
+  focusScope,
+  isHoverTriggered,
+  isModal,
+  isOnScreen,
+  isPressTriggered,
+  isWithin,
+  overlaySpec,
+  overlaysOf,
+  resolveHit,
+  selectedOptionIn,
+  stepPresence,
+  topModal,
+};

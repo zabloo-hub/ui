@@ -15,18 +15,11 @@ import { type Easing, easeProgress } from "@zabloo/format";
 import type { Color } from "./tessellator.js";
 
 /** Animatable colors — lerped componentwise in straight sRGB with straight alpha. */
-export type ColorProp = "background" | "borderColor" | "color";
+type ColorProp = "background" | "borderColor" | "color";
 /** Animatable scalars: paint values plus the layout dims, all lerped after token resolution. */
-export type ScalarProp =
-  | "opacity"
-  | "radius"
-  | "borderWidth"
-  | "width"
-  | "height"
-  | "gap"
-  | "padding";
-export type AnimatableProp = ColorProp | ScalarProp;
-export type AnimValue = number | Color;
+type ScalarProp = "opacity" | "radius" | "borderWidth" | "width" | "height" | "gap" | "padding";
+type AnimatableProp = ColorProp | ScalarProp;
+type AnimValue = number | Color;
 
 /**
  * Scalars a COMPONENT'S BEHAVIOR tweens with endpoints it computes itself, rather
@@ -44,11 +37,11 @@ export type AnimValue = number | Color;
  *   measured with the content in (`collapse.ts`).
  * - `checked`: the Toggle's 0..1 crossfade between its two indicator slots.
  */
-export type BehaviorKey = "progress" | "presence" | "value" | "collapse" | "checked";
-export type TrackKey = AnimatableProp | BehaviorKey;
+type BehaviorKey = "progress" | "presence" | "value" | "collapse" | "checked";
+type TrackKey = AnimatableProp | BehaviorKey;
 
 /** Iteration order of the animatable set — the normative list, nothing else animates. */
-export const ANIMATABLE_PROPS: readonly AnimatableProp[] = [
+const ANIMATABLE_PROPS: readonly AnimatableProp[] = [
   "background",
   "borderColor",
   "color",
@@ -66,7 +59,7 @@ export const ANIMATABLE_PROPS: readonly AnimatableProp[] = [
  * interpolated result `stepNode` hands back. Everything else (`fontSize`, `grow`, the
  * layout enums, every structural prop) snaps and never passes through here.
  */
-export interface ResolvedValues {
+interface ResolvedValues {
   /** Absent = not declared: nothing is painted, so there is no honest endpoint — it snaps. */
   background?: Color;
   borderColor?: Color;
@@ -99,24 +92,24 @@ interface Track {
  * an envelope reload — drops it and everything snaps, which is exactly the rule:
  * transitions live INSIDE the life of one loaded document.
  */
-export interface NodeAnim {
+interface NodeAnim {
   tracks: Map<TrackKey, Track>;
   /** Last value handed to the renderer, per key — what an interruption tweens from. */
   current: Map<TrackKey, AnimValue>;
 }
 
 /** A node's `transition` with its `Dim` duration already resolved to milliseconds. */
-export interface ResolvedTransition {
+interface ResolvedTransition {
   duration: number;
   easing: Easing;
 }
 
-export function createNodeAnim(): NodeAnim {
+function createNodeAnim(): NodeAnim {
   return { tracks: new Map(), current: new Map() };
 }
 
 /** Forgets everything: the next step snaps, like a mount. */
-export function clearNodeAnim(anim: NodeAnim): void {
+function clearNodeAnim(anim: NodeAnim): void {
   anim.tracks.clear();
   anim.current.clear();
 }
@@ -131,7 +124,7 @@ export function clearNodeAnim(anim: NodeAnim): void {
  * duration (the CSS model), so releasing a button mid-press leaves from the color
  * actually visible instead of snapping back or exiting unnaturally fast.
  */
-export function stepNode(
+function stepNode(
   anim: NodeAnim,
   targets: ResolvedValues,
   transition: ResolvedTransition | null,
@@ -163,7 +156,7 @@ export function stepNode(
  * moves while this file keeps deciding HOW — one interruption rule and one curve set
  * for declared props and behavior-driven ones alike.
  */
-export function stepValue(
+function stepValue(
   anim: NodeAnim,
   key: BehaviorKey,
   target: number,
@@ -254,7 +247,7 @@ function retarget(
  * half of the machinery is the view's frame loop, which keeps scheduling while
  * anything is animating; a behavior samples this to drive its own endpoints.
  */
-export function loopPhase(startedAt: number, now: number, period: number): number {
+function loopPhase(startedAt: number, now: number, period: number): number {
   if (!(period > 0) || !Number.isFinite(period)) return 0;
   const elapsed = now - startedAt;
   if (!(elapsed > 0)) return 0; // also catches NaN
@@ -262,7 +255,7 @@ export function loopPhase(startedAt: number, now: number, period: number): numbe
 }
 
 /** Componentwise lerp in STRAIGHT sRGB with STRAIGHT alpha — no premultiply, no gamma. */
-export function lerpColor(from: Color, to: Color, t: number): Color {
+function lerpColor(from: Color, to: Color, t: number): Color {
   return [
     from[0] + (to[0] - from[0]) * t,
     from[1] + (to[1] - from[1]) * t,
@@ -280,3 +273,24 @@ function sameValue(a: AnimValue, b: AnimValue): boolean {
   if (typeof a === "number" || typeof b === "number") return a === b;
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
 }
+
+export type {
+  AnimatableProp,
+  AnimValue,
+  BehaviorKey,
+  ColorProp,
+  NodeAnim,
+  ResolvedTransition,
+  ResolvedValues,
+  ScalarProp,
+  TrackKey,
+};
+export {
+  ANIMATABLE_PROPS,
+  clearNodeAnim,
+  createNodeAnim,
+  lerpColor,
+  loopPhase,
+  stepNode,
+  stepValue,
+};

@@ -16,7 +16,7 @@
  */
 
 /** A view that can own input. The registry only ever asks it to re-check its pad. */
-export interface InputView {
+interface InputView {
   /** Start or stop this view's pad poll loop to match what it now owns. */
   syncPad(): void;
 }
@@ -26,13 +26,13 @@ const views: InputView[] = [];
 let owner: InputView | null = null;
 
 /** A view that has just mounted. The first one to arrive owns input. */
-export function registerView(view: InputView): void {
+function registerView(view: InputView): void {
   views.push(view);
   if (owner === null) setOwner(view);
 }
 
 /** A view that has been disposed: ownership falls back to the oldest one left. */
-export function unregisterView(view: InputView): void {
+function unregisterView(view: InputView): void {
   const index = views.indexOf(view);
   if (index >= 0) views.splice(index, 1);
   if (owner === view) setOwner(views[0] ?? null);
@@ -42,12 +42,12 @@ export function unregisterView(view: InputView): void {
  * The player touched this view — a pointer down on its canvas — so it takes the
  * keyboard and the pad. A view that is not mounted claims nothing.
  */
-export function claimInput(view: InputView): void {
+function claimInput(view: InputView): void {
   if (owner === view || !views.includes(view)) return;
   setOwner(view);
 }
 
-export function ownsInput(view: InputView): boolean {
+function ownsInput(view: InputView): boolean {
   return owner === view;
 }
 
@@ -61,3 +61,6 @@ function setOwner(next: InputView | null): void {
   previous?.syncPad();
   next?.syncPad();
 }
+
+export type { InputView };
+export { claimInput, ownsInput, registerView, unregisterView };

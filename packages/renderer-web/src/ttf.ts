@@ -20,7 +20,7 @@
 import { STBTT_WASM_BASE64 } from "./generated/stbtt-wasm.js";
 
 /** Font-wide metrics at a given em size, in px. */
-export interface FontMetrics {
+interface FontMetrics {
   /** Above the baseline, positive. */
   ascent: number;
   /** Below the baseline, positive (stb reports it negative; we flip it). */
@@ -32,7 +32,7 @@ export interface FontMetrics {
 }
 
 /** A rasterized glyph: its ink box plus 8-bit coverage, row-major, top row first. */
-export interface GlyphBitmap {
+interface GlyphBitmap {
   width: number;
   height: number;
   /** Ink box relative to the pen/baseline, in px, Y DOWN. */
@@ -84,7 +84,7 @@ function compile(): Promise<WebAssembly.Module> {
  * Parses a TTF and returns the rasterizer bound to it. Rejects if stb cannot
  * make sense of the bytes.
  */
-export async function loadFont(ttf: Uint8Array): Promise<StbFont> {
+async function loadFont(ttf: Uint8Array): Promise<StbFont> {
   const module = await compile();
   const runtime = new StbRuntime();
   const instance = await WebAssembly.instantiate(module, runtime.imports());
@@ -134,7 +134,7 @@ class StbRuntime {
   }
 }
 
-export class StbFont {
+class StbFont {
   /** Codepoint → glyph index. The lookup walks cmap, so it is worth caching. */
   private readonly glyphIndices = new Map<number, number>();
   private readonly scales = new Map<number, number>();
@@ -269,9 +269,12 @@ const EMPTY = new Uint8Array(0);
  * Base64 → bytes. Deliberately `atob`-based rather than `node:buffer`: this
  * module ships to the browser, and Node has had a global `atob` since 16.
  */
-export function decodeBase64(base64: string): Uint8Array {
+function decodeBase64(base64: string): Uint8Array {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+
+export type { FontMetrics, GlyphBitmap };
+export { decodeBase64, loadFont, StbFont };

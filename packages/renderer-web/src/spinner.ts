@@ -11,9 +11,9 @@
 import { type Easing, spinnerPulse } from "@zabloo/format";
 
 /** Defaults for the `Spinner`'s knobs — the IR leaves them to the SDK. */
-export const DEFAULT_PERIOD = 900;
-export const DEFAULT_MIN = 0.25;
-export const DEFAULT_EASING: Easing = "ease-in-out";
+const DEFAULT_PERIOD = 900;
+const DEFAULT_MIN = 0.25;
+const DEFAULT_EASING: Easing = "ease-in-out";
 
 /**
  * The opacity multiplier of bead `index` of `count` at cycle phase `phase` (0..1).
@@ -24,7 +24,7 @@ export const DEFAULT_EASING: Easing = "ease-in-out";
  * opacity by the caller — a dot authored at `opacity: 0.5` pulses just as much,
  * dimmer, which is how every other opacity in the system composes (2026-08-06).
  */
-export function beadOpacity(
+function beadOpacity(
   index: number,
   count: number,
   phase: number,
@@ -40,3 +40,5 @@ function clamp01(value: number): number {
   if (!(value > 0)) return 0; // also catches NaN
   return value > 1 ? 1 : value;
 }
+
+export { beadOpacity, DEFAULT_EASING, DEFAULT_MIN, DEFAULT_PERIOD };

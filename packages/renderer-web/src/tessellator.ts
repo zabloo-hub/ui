@@ -12,7 +12,7 @@ import type { Batch, TextureSource } from "./gl.js";
 import type { GlyphAtlas } from "./glyphs.js";
 import type { Rect } from "./layout.js";
 
-export type Color = [number, number, number, number];
+type Color = [number, number, number, number];
 
 const CORNER_SEGMENTS = 6;
 
@@ -49,7 +49,7 @@ interface ClipGroup {
 }
 
 /** How an Image node paints — the resolved style the view hands down. */
-export interface ImagePaint {
+interface ImagePaint {
   /** Default: "contain". */
   fit?: ImageFit;
   /** Tint × inherited opacity, already resolved. Default: opaque white (untinted). */
@@ -58,7 +58,7 @@ export interface ImagePaint {
   radius?: number;
 }
 
-export class GeometryBuilder {
+class GeometryBuilder {
   private readonly groups: ClipGroup[] = [];
   private group: ClipGroup;
   /** Retired stores/groups waiting for the next frame — buffers kept (ZAB-55). */
@@ -385,7 +385,7 @@ export class GeometryBuilder {
  * (CSS `object-fit: contain`). Null when either side has no usable size — a
  * manifest without dimensions and a decode still in flight, or a collapsed rect.
  */
-export function aspectFit(rect: Rect, width: number, height: number): Rect | null {
+function aspectFit(rect: Rect, width: number, height: number): Rect | null {
   if (!(rect.width > 0) || !(rect.height > 0) || !(width > 0) || !(height > 0)) return null;
   const scale = Math.min(rect.width / width, rect.height / height);
   const fittedWidth = width * scale;
@@ -399,7 +399,7 @@ export function aspectFit(rect: Rect, width: number, height: number): Rect | nul
 }
 
 /** The painted box and the slice of the texture it samples (both in 0..1 for the UVs). */
-export interface ImageQuad {
+interface ImageQuad {
   rect: Rect;
   uv: Rect;
 }
@@ -416,7 +416,7 @@ const FULL_UV: Rect = { x: 0, y: 0, width: 1, height: 1 };
  * Null when either side has no usable size — a manifest without dimensions and a
  * decode still in flight, or a collapsed rect.
  */
-export function fitImage(
+function fitImage(
   rect: Rect,
   width: number,
   height: number,
@@ -436,7 +436,7 @@ export function fitImage(
 }
 
 /** Applies an inherited opacity to a color (per-vertex alpha, decision 2026-08-06). */
-export function fade(color: Color, opacity: number): Color {
+function fade(color: Color, opacity: number): Color {
   return opacity >= 1 ? color : [color[0], color[1], color[2], color[3] * opacity];
 }
 
@@ -546,3 +546,6 @@ function fillPerimeter(rect: Rect, r: number): void {
     }
   }
 }
+
+export type { Color, ImagePaint, ImageQuad };
+export { aspectFit, fade, fitImage, GeometryBuilder };

@@ -20,7 +20,7 @@ import { type AssetEntry, assetIdFromRef, decodeAssetData, isAssetRef } from "@z
  * A manifest image, cached by hash. Structurally a `TextureSource`, so the GL
  * layer uploads it through the very same path as a glyph atlas.
  */
-export interface ImageAsset {
+interface ImageAsset {
   readonly hash: string;
   /** Intrinsic size in px: the manifest's, or the bitmap's if the manifest omitted it. */
   width: number;
@@ -32,9 +32,9 @@ export interface ImageAsset {
 }
 
 /** Bytes → pixels. Injectable because Node (where the tests run) has no decoder. */
-export type ImageDecoder = (entry: AssetEntry) => Promise<TexImageSource>;
+type ImageDecoder = (entry: AssetEntry) => Promise<TexImageSource>;
 
-export interface ImageLibraryOptions {
+interface ImageLibraryOptions {
   /** A decode landed — the view re-renders. */
   onReady?: () => void;
   /** An asset left the cache — the GL layer deletes its texture. */
@@ -42,7 +42,7 @@ export interface ImageLibraryOptions {
   decode?: ImageDecoder;
 }
 
-export class ImageLibrary {
+class ImageLibrary {
   private manifest: Record<string, AssetEntry>;
   private readonly byHash = new Map<string, ImageAsset>();
   /** Refs already reported as broken — one warning per envelope, not per frame. */
@@ -175,3 +175,6 @@ function closeBitmap(bitmap: TexImageSource | null): void {
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+export type { ImageAsset, ImageDecoder, ImageLibraryOptions };
+export { ImageLibrary };

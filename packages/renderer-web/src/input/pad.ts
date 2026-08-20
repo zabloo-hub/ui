@@ -25,7 +25,7 @@ import {
  * already produces, so the view implements each one with the handler that
  * already serves the equivalent key.
  */
-export interface PadHost {
+interface PadHost {
   /** Disposed views must not run work that was already in flight. */
   readonly disposed: boolean;
   /** Move the focus one step — the arrow keys' own move. */
@@ -79,7 +79,7 @@ function arrowKey([dx, dy]: Direction): string {
  * `gamepad.ts` owns the rules; this owns the loop that runs them and where
  * their intentions land.
  */
-export class PadController {
+class PadController {
   /**
    * The gamepad's own frame loop (ZAB-47). The Gamepad API is polled, never
    * pushed, and the view otherwise paints on change only — so a pad needs a loop
@@ -208,3 +208,6 @@ export class PadController {
     this.host.scrollFocusedBy(scrollDelta(intent.scroll, elapsed));
   }
 }
+
+export type { PadHost };
+export { PadController };

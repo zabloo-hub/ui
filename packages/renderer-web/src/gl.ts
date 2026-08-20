@@ -12,7 +12,7 @@ import { type Clip, scissorBox } from "./clip.js";
  * Structural on purpose: the GL layer knows about pixels and versions, not about
  * what produced them.
  */
-export interface TextureSource {
+interface TextureSource {
   /** Bumped whenever the pixels change; the upload is skipped while it holds. */
   readonly version: number;
   /** Null while an async decode is still in flight (falls back to white). */
@@ -24,7 +24,7 @@ export interface TextureSource {
  * arrays are VIEWS over the tessellator's reused buffers, live for one frame
  * (ZAB-55) — the upload below copies them into GPU memory within it.
  */
-export interface Batch {
+interface Batch {
   /** Null = solid geometry (bound to a built-in 1×1 white texture). */
   texture: TextureSource | null;
   /** Interleaved: x,y, u,v, r,g,b,a (logical px; colors 0..1). */
@@ -85,7 +85,7 @@ void main() {
   }
 }`;
 
-export class GLRenderer {
+class GLRenderer {
   private readonly gl: WebGL2RenderingContext;
   private program!: WebGLProgram;
   private vbo!: WebGLBuffer;
@@ -348,3 +348,6 @@ function createProgram(gl: WebGL2RenderingContext, vertSrc: string, fragSrc: str
     for (const shader of shaders) gl.deleteShader(shader);
   }
 }
+
+export type { Batch, TextureSource };
+export { GLRenderer };

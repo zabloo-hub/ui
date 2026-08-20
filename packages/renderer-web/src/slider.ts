@@ -15,7 +15,7 @@ import type { SliderAxis } from "@zabloo/format";
 const CONTINUOUS_STEPS = 20;
 
 /** A slider's resolved range. `min`/`max` are author input, so they can be nonsense. */
-export interface SliderRange {
+interface SliderRange {
   min: number;
   max: number;
   /** Quantization step, or 0 for a continuous value. */
@@ -28,7 +28,7 @@ export interface SliderRange {
  * than dividing by zero further down: it paints at its minimum and ignores
  * input, which is a visible authoring bug instead of a crash or a NaN rect.
  */
-export function resolveRange(min: unknown, max: unknown, step: unknown): SliderRange {
+function resolveRange(min: unknown, max: unknown, step: unknown): SliderRange {
   const lo = finite(min, 0);
   const hi = finite(max, 1);
   const declared = finite(step, 0);
@@ -47,7 +47,7 @@ export function resolveRange(min: unknown, max: unknown, step: unknown): SliderR
  * leaving it unreachable reads as a stuck control. The price is a short last
  * step, which is the smaller surprise.
  */
-export function quantize(value: number, range: SliderRange): number {
+function quantize(value: number, range: SliderRange): number {
   const clamped = Math.min(range.max, Math.max(range.min, finite(value, range.min)));
   if (range.step <= 0) return clamped;
   const steps = Math.round((clamped - range.min) / range.step);
@@ -56,7 +56,7 @@ export function quantize(value: number, range: SliderRange): number {
 }
 
 /** Position of a value along the track, as a 0..1 fraction. */
-export function fractionOf(value: number, range: SliderRange): number {
+function fractionOf(value: number, range: SliderRange): number {
   const span = range.max - range.min;
   if (!(span > 0)) return 0;
   const clamped = Math.min(range.max, Math.max(range.min, finite(value, range.min)));
@@ -73,7 +73,7 @@ export function fractionOf(value: number, range: SliderRange): number {
  * On a vertical track the value grows upward (`min` at the bottom), like a
  * physical fader: `up` flips the axis mapping for that.
  */
-export function valueAt(
+function valueAt(
   position: number,
   start: number,
   length: number,
@@ -94,7 +94,7 @@ export function valueAt(
  * keyboard is usable without forcing authors to declare a `step` they only
  * wanted for quantization.
  */
-export function stepBy(value: number, direction: number, range: SliderRange): number {
+function stepBy(value: number, direction: number, range: SliderRange): number {
   const span = range.max - range.min;
   if (!(span > 0)) return range.min;
   const step = range.step > 0 ? range.step : span / CONTINUOUS_STEPS;
@@ -102,7 +102,7 @@ export function stepBy(value: number, direction: number, range: SliderRange): nu
 }
 
 /** Distance from the track's start to the thumb's near edge, at that fraction. */
-export function thumbStart(fraction: number, length: number, thumbSize: number): number {
+function thumbStart(fraction: number, length: number, thumbSize: number): number {
   return Math.max(0, length - thumbSize) * fraction;
 }
 
@@ -115,16 +115,12 @@ export function thumbStart(fraction: number, length: number, thumbSize: number):
  * On a vertical track both are measured from the bottom, so `start` is a
  * distance from the track's END; the caller flips it into view space.
  */
-export interface SliderGeometry {
+interface SliderGeometry {
   fillLength: number;
   thumbStart: number;
 }
 
-export function sliderGeometry(
-  fraction: number,
-  length: number,
-  thumbSize: number,
-): SliderGeometry {
+function sliderGeometry(fraction: number, length: number, thumbSize: number): SliderGeometry {
   const clamped = Math.min(1, Math.max(0, fraction));
   return {
     fillLength: length * clamped,
@@ -133,7 +129,7 @@ export function sliderGeometry(
 }
 
 /** True when this axis grows upward — the vertical fader's bottom-to-top mapping. */
-export function growsUpward(axis: SliderAxis | undefined): boolean {
+function growsUpward(axis: SliderAxis | undefined): boolean {
   return axis === "vertical";
 }
 
@@ -151,3 +147,15 @@ function finite(value: unknown, fallback: number): number {
 function tidy(value: number): number {
   return Number.isInteger(value) ? value : Number(value.toFixed(10));
 }
+
+export type { SliderGeometry, SliderRange };
+export {
+  fractionOf,
+  growsUpward,
+  quantize,
+  resolveRange,
+  sliderGeometry,
+  stepBy,
+  thumbStart,
+  valueAt,
+};

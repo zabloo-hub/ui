@@ -250,7 +250,7 @@ interface PendingFocus {
   path: number[];
 }
 
-export interface MountOptions {
+interface MountOptions {
   /** View ID to render (default: the envelope's first view). */
   view?: string;
   /**
@@ -314,7 +314,7 @@ export interface MountOptions {
  * beside `snapshot()` instead of inside it. It is what the performance budgets
  * are asserted against.
  */
-export interface FrameStats {
+interface FrameStats {
   /** Draw calls submitted (batches with geometry in them). */
   drawCalls: number;
   /** Vertices across those batches. */
@@ -352,7 +352,7 @@ export interface FrameStats {
   repaintOnly: boolean;
 }
 
-export interface ZablooHandle {
+interface ZablooHandle {
   /**
    * The envelope's view ids, as of NOW: a hot-update may add, drop or rename
    * views, so this is read on every access instead of frozen when the handle was
@@ -408,7 +408,7 @@ export interface ZablooHandle {
  * because there is no previous UI to protect: the caller has to hear that its
  * payload never became a view. Once mounted, `reload` swallows the same failure.
  */
-export function mount(
+function mount(
   canvas: HTMLCanvasElement,
   envelope: string | object,
   options: MountOptions = {},
@@ -3158,3 +3158,6 @@ function parseColorLiteral(hex: string): Color | null {
   const alpha = match[2] !== undefined ? Number.parseInt(match[2], 16) / 255 : 1;
   return [((rgb >> 16) & 255) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, alpha];
 }
+
+export type { FrameStats, MountOptions, ZablooHandle };
+export { mount };

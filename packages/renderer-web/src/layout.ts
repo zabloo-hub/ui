@@ -18,7 +18,7 @@ import type { TextBlock, TextMetrics } from "./text.js";
 import { caretAt, type Selection } from "./textinput.js";
 import { createNodeAnim, type NodeAnim, type ResolvedValues } from "./transition.js";
 
-export interface Rect {
+interface Rect {
   x: number;
   y: number;
   width: number;
@@ -30,7 +30,7 @@ export interface Rect {
  * function of these, so two frames that match here are two frames whose lines
  * are the same object — and a static label costs one layout, not one per frame.
  */
-export interface TextKey {
+interface TextKey {
   /** The resolved content — a bound `Text` can hand a different string each frame. */
   content: string;
   /**
@@ -48,7 +48,7 @@ export interface TextKey {
  * the identity of the item they show, plus the uniform size the virtualization
  * assumes. Owned by the view; layout only ever reads `virtual`.
  */
-export interface RepeatState {
+interface RepeatState {
   /** Live template instances, by `itemIdentity` — this is what reordering moves. */
   instances: Map<string, LayoutNode>;
   /** The empty-state slot (`children[1..]`), built once and kept out of layout. */
@@ -67,7 +67,7 @@ export interface RepeatState {
 }
 
 /** A layout-ready tree node (built by the view from IR nodes). */
-export interface LayoutNode {
+interface LayoutNode {
   ir: ZNode;
   parent: LayoutNode | null;
   children: LayoutNode[];
@@ -240,7 +240,7 @@ export interface LayoutNode {
  * lives with the type it belongs to, so the view and the tests build it the same
  * way and adding runtime state is one edit, not four.
  */
-export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): LayoutNode {
+function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): LayoutNode {
   return {
     ir,
     parent,
@@ -292,7 +292,7 @@ export function createLayoutNode(ir: ZNode, parent: LayoutNode | null = null): L
 /** The scopes of a node outside every template — shared, and never written to. */
 const NO_SCOPES: readonly ItemScope[] = [];
 
-export function inLayout(node: LayoutNode): boolean {
+function inLayout(node: LayoutNode): boolean {
   return node.visibleFlag && node.sectionShown;
 }
 
@@ -304,7 +304,7 @@ export function inLayout(node: LayoutNode): boolean {
  * `layout.width`/`height` on an Overlay are ignored, and an Overlay inside a
  * `ScrollView` does not scroll with the content.
  */
-export function inFlow(node: LayoutNode): boolean {
+function inFlow(node: LayoutNode): boolean {
   return inLayout(node) && node.ir.type !== "Overlay";
 }
 
@@ -318,7 +318,7 @@ export function inFlow(node: LayoutNode): boolean {
  * The shared box is as big as the larger slot, so the control does not resize
  * when it flips, and everything after them (the label) flows on as usual.
  */
-export function flowItems(node: LayoutNode): LayoutNode[][] {
+function flowItems(node: LayoutNode): LayoutNode[][] {
   const items: LayoutNode[][] = [];
   for (let i = 0; i < node.children.length; i++) {
     const child = node.children[i];
@@ -333,7 +333,7 @@ export function flowItems(node: LayoutNode): LayoutNode[][] {
   return items;
 }
 
-export function contains(rect: Rect, point: { x: number; y: number }): boolean {
+function contains(rect: Rect, point: { x: number; y: number }): boolean {
   return (
     point.x >= rect.x &&
     point.x <= rect.x + rect.width &&
@@ -346,7 +346,7 @@ export function contains(rect: Rect, point: { x: number; y: number }): boolean {
  * Sizes a childless node against the width it may use — `null` when that width is
  * unconstrained, which is what tells a `Text` not to wrap.
  */
-export type MeasureLeaf = (
+type MeasureLeaf = (
   node: LayoutNode,
   availableWidth: number | null,
 ) => {
@@ -376,7 +376,7 @@ function childWidth(node: LayoutNode, inner: number | null): number | null {
  * to break against and lays its children out on one line — the same degradation
  * an SDK that predates the flag gives.
  */
-export function wrapsLines(node: LayoutNode): boolean {
+function wrapsLines(node: LayoutNode): boolean {
   const layout = layoutOf(node);
   return layout?.wrap === true && layout.direction === "row";
 }
@@ -460,7 +460,7 @@ function flowSize(
  * much as in a column, since v1 measures no cross-child competition for it. Only the
  * leaves use it: it is the width a `Text` wraps to (decision 2026-08-11, ZAB-17).
  */
-export function measure(
+function measure(
   node: LayoutNode,
   measureLeaf: MeasureLeaf,
   availableWidth: number | null = null,
@@ -520,7 +520,7 @@ export function measure(
 }
 
 /** Top-down arrange into `rect` (view space). */
-export function arrange(node: LayoutNode, rect: Rect): void {
+function arrange(node: LayoutNode, rect: Rect): void {
   node.rect = rect;
   if (node.ir.type === "Slider") {
     arrangeSlider(node, rect);
@@ -754,3 +754,6 @@ function crossOf(node: LayoutNode, horizontal: boolean, fallback: number): numbe
   if (resolved === undefined) return fallback;
   return horizontal ? node.measured.y : node.measured.x;
 }
+
+export type { LayoutNode, MeasureLeaf, Rect, RepeatState, TextKey };
+export { arrange, contains, createLayoutNode, flowItems, inFlow, inLayout, measure, wrapsLines };

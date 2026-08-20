@@ -31,24 +31,24 @@ import type { Color } from "./tessellator.js";
 import type { PlacedLine } from "./text.js";
 
 /** Decimals kept on every number of a snapshot. */
-export const DEFAULT_PRECISION = 3;
+const DEFAULT_PRECISION = 3;
 
 /** Path of the view's root. Not a valid id, so it can never collide with one. */
 const ROOT_PATH = "$root";
 
-export interface RectSnapshot {
+interface RectSnapshot {
   x: number;
   y: number;
   width: number;
   height: number;
 }
 
-export interface ClipSnapshot extends RectSnapshot {
+interface ClipSnapshot extends RectSnapshot {
   radius: number;
 }
 
 /** One line of a `Text`, as this frame broke and placed it. */
-export interface LineSnapshot {
+interface LineSnapshot {
   text: string;
   /** Painted width — trailing spaces excluded, kerning included. */
   width: number;
@@ -58,7 +58,7 @@ export interface LineSnapshot {
   baseline: number;
 }
 
-export interface TextSnapshot {
+interface TextSnapshot {
   lines: LineSnapshot[];
   /** Distance between the tops of two consecutive lines. */
   lineHeight: number;
@@ -67,16 +67,16 @@ export interface TextSnapshot {
 }
 
 /** A `Text`'s placement this frame, as the paint pass computed it. */
-export interface PlacedText {
+interface PlacedText {
   lines: readonly PlacedLine[];
   /** Top of a line box to its baseline — what turns a placed `y` into a baseline. */
   ascent: number;
 }
 
 /** Why a node is out of layout — both mechanisms have `display:none` semantics. */
-export type OutReason = "visible" | "section";
+type OutReason = "visible" | "section";
 
-export interface NodeSnapshot {
+interface NodeSnapshot {
   type: string;
   /** The node's `id`, or its positional path from the root (`"0.2.1"`). */
   ref: string;
@@ -107,7 +107,7 @@ export interface NodeSnapshot {
 }
 
 /** One entry of the overlay layer, in paint order. */
-export interface LayerSnapshot {
+interface LayerSnapshot {
   ref: string;
   z: number;
   modal: boolean;
@@ -116,7 +116,7 @@ export interface LayerSnapshot {
   rect: RectSnapshot;
 }
 
-export interface ViewSnapshot {
+interface ViewSnapshot {
   view: string;
   size: { width: number; height: number };
   /** Refs of the nodes holding each pointer/keyboard state, or null. */
@@ -128,7 +128,7 @@ export interface ViewSnapshot {
   tree: NodeSnapshot;
 }
 
-export interface SnapshotInput {
+interface SnapshotInput {
   view: string;
   size: { width: number; height: number };
   root: LayoutNode;
@@ -174,7 +174,7 @@ const STYLE_KEYS = [
   "gap",
 ] as const;
 
-export function snapshotView(input: SnapshotInput): ViewSnapshot {
+function snapshotView(input: SnapshotInput): ViewSnapshot {
   const precision = input.precision ?? DEFAULT_PRECISION;
   const refs = refMap(input.root);
   const ctx: Context = { refs, precision, radiusOf: input.radiusOf, textOf: input.textOf };
@@ -384,7 +384,7 @@ function clipOf(clip: Clip, precision: number): ClipSnapshot {
 }
 
 /** `#rrggbb`, or `#rrggbbaa` when the color is not fully opaque. */
-export function hex(color: Color): string {
+function hex(color: Color): string {
   const [r, g, b, a] = color;
   const channel = (v: number): string =>
     Math.max(0, Math.min(255, Math.round(v * 255)))
@@ -400,7 +400,7 @@ export function hex(color: Color): string {
  * values pass through, since hiding a `NaN` is the opposite of what a regression
  * net is for.
  */
-export function round(value: number, precision = DEFAULT_PRECISION): number {
+function round(value: number, precision = DEFAULT_PRECISION): number {
   if (!Number.isFinite(value)) return value;
   const factor = 10 ** precision;
   const rounded = Math.round(value * factor) / factor;
@@ -420,12 +420,12 @@ function numberOr(value: unknown, fallback: number): number {
  * module writes them (never sorted — the reading order of a tree is the order it
  * was built in), two-space indent, trailing newline.
  */
-export function serializeSnapshot(snapshot: ViewSnapshot): string {
+function serializeSnapshot(snapshot: ViewSnapshot): string {
   return `${JSON.stringify(snapshot, null, 2)}\n`;
 }
 
 /** Nodes of a snapshot, depth-first — what an assertion looks a node up in. */
-export function walkSnapshot(node: NodeSnapshot, visit: (node: NodeSnapshot) => void): void {
+function walkSnapshot(node: NodeSnapshot, visit: (node: NodeSnapshot) => void): void {
   visit(node);
   for (const child of node.children ?? []) walkSnapshot(child, visit);
 }
@@ -436,7 +436,7 @@ export function walkSnapshot(node: NodeSnapshot, visit: (node: NodeSnapshot) => 
  * authored with (the golden assertions, an overlay canvas drawing on top of the
  * view, a test driving a control).
  */
-export function findNode(snapshot: ViewSnapshot, ref: string): NodeSnapshot | null {
+function findNode(snapshot: ViewSnapshot, ref: string): NodeSnapshot | null {
   let found: NodeSnapshot | null = null;
   walkSnapshot(snapshot.tree, (node) => {
     if (node.ref === ref) found = node;
@@ -445,8 +445,31 @@ export function findNode(snapshot: ViewSnapshot, ref: string): NodeSnapshot | nu
 }
 
 /** Every node type the snapshot contains — the dispatch coverage check reads this. */
-export function typesIn(snapshot: ViewSnapshot): Set<string> {
+function typesIn(snapshot: ViewSnapshot): Set<string> {
   const types = new Set<string>();
   walkSnapshot(snapshot.tree, (node) => types.add(node.type));
   return types;
 }
+
+export type {
+  ClipSnapshot,
+  LayerSnapshot,
+  LineSnapshot,
+  NodeSnapshot,
+  OutReason,
+  PlacedText,
+  RectSnapshot,
+  SnapshotInput,
+  TextSnapshot,
+  ViewSnapshot,
+};
+export {
+  DEFAULT_PRECISION,
+  findNode,
+  hex,
+  round,
+  serializeSnapshot,
+  snapshotView,
+  typesIn,
+  walkSnapshot,
+};

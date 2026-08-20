@@ -12,7 +12,7 @@
 import type { StateName, StateOverride, Style } from "@zabloo/format";
 
 /** The runtime flags the renderer owns, keyed by component identity. */
-export interface NodeStates {
+interface NodeStates {
   hovered: boolean;
   pressed: boolean;
   focused: boolean;
@@ -47,7 +47,7 @@ export interface NodeStates {
  * field still `empty`. Last is what lets one override speak for the whole control
  * whatever value it happens to hold.
  */
-export const STATE_ORDER: readonly StateName[] = [
+const STATE_ORDER: readonly StateName[] = [
   "empty",
   "selected",
   "checked",
@@ -83,7 +83,7 @@ function isActive(name: StateName, states: NodeStates): boolean {
  * merged over it, in `STATE_ORDER`. Returns the base itself when no state is
  * active, so an untouched node allocates nothing.
  */
-export function effectiveStyle(
+function effectiveStyle(
   base: Style | undefined,
   // Keyed loosely, like the renderer reads the IR: an unknown state name is just
   // one this build never activates (forward tolerance), not a parse error.
@@ -98,3 +98,6 @@ export function effectiveStyle(
   }
   return style;
 }
+
+export type { NodeStates };
+export { effectiveStyle, STATE_ORDER };

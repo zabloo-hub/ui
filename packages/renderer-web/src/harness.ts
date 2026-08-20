@@ -33,7 +33,7 @@ import type { ViewSnapshot } from "./snapshot.js";
 import { type FrameStats, mount, type ZablooHandle } from "./view.js";
 
 /** Viewport every golden envelope is measured at, unless it asks for another. */
-export const GOLDEN_SIZE = { width: 480, height: 320 };
+const GOLDEN_SIZE = { width: 480, height: 320 };
 
 /**
  * Device pixel ratio the corpus is rendered at. 1 on purpose: a golden file is a
@@ -41,9 +41,9 @@ export const GOLDEN_SIZE = { width: 480, height: 320 };
  * glyph boxes (they are rounded in device px) without moving anything the
  * metrics describe.
  */
-export const GOLDEN_DPR = 1;
+const GOLDEN_DPR = 1;
 
-export interface GoldenOptions {
+interface GoldenOptions {
   /** View to render (default: the envelope's first). */
   view?: string;
   width?: number;
@@ -74,18 +74,18 @@ export interface GoldenOptions {
 }
 
 /** An action the view fired, with the item context when it came from a `Repeat`. */
-export interface FiredAction {
+interface FiredAction {
   action: string;
   context?: ActionContext;
 }
 
 /** A value the view wrote back into a bound path (the ZAB-23 return leg). */
-export interface DataWrite {
+interface DataWrite {
   path: string;
   value: unknown;
 }
 
-export interface GoldenView {
+interface GoldenView {
   handle: ZablooHandle;
   /** Metrics of the frame on screen. */
   snapshot(): ViewSnapshot;
@@ -174,7 +174,7 @@ export interface GoldenView {
   dispose(): void;
 }
 
-export interface KeyInit {
+interface KeyInit {
   shiftKey?: boolean;
   ctrlKey?: boolean;
   metaKey?: boolean;
@@ -187,7 +187,7 @@ export interface KeyInit {
  * Indices are the standard mapping (0=A, 1=B, 12–15=d-pad, axes 0/1 left stick,
  * 2/3 right stick), the same numbers `gamepad.ts` documents.
  */
-export interface GoldenPad {
+interface GoldenPad {
   press(index: number): void;
   release(index: number): void;
   axis(index: number, value: number): void;
@@ -196,7 +196,7 @@ export interface GoldenPad {
 }
 
 /** Pointer gestures against the canvas, in logical view coordinates. */
-export interface Pointer {
+interface Pointer {
   down(x: number, y: number): void;
   move(x: number, y: number): void;
   up(x: number, y: number): void;
@@ -217,7 +217,7 @@ export interface Pointer {
  * Mounts an envelope and returns it ready to measure: the rasterizer swapped in,
  * the seed data applied and one frame rendered with both.
  */
-export async function mountGolden(
+async function mountGolden(
   envelope: Envelope | object,
   options: GoldenOptions = {},
 ): Promise<GoldenView> {
@@ -772,3 +772,6 @@ function installDom(): FakeDom {
   dom.install();
   return dom;
 }
+
+export type { DataWrite, FiredAction, GoldenOptions, GoldenPad, GoldenView, KeyInit, Pointer };
+export { GOLDEN_DPR, GOLDEN_SIZE, mountGolden };

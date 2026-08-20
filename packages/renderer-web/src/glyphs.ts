@@ -18,7 +18,7 @@
 
 import type { StbFont } from "./ttf.js";
 
-export interface GlyphInfo {
+interface GlyphInfo {
   advance: number;
   /** Quad extents in px: X from the pen, Y from the baseline (maxY = top, up+). */
   minX: number;
@@ -44,7 +44,7 @@ const PADDING = 2;
 /** Arial ≈ Unity's LegacyRuntime metrics, and what the shipped TTF matches. */
 const FALLBACK_FONT_FAMILY = "Arial, Helvetica, sans-serif";
 
-export class GlyphAtlas {
+class GlyphAtlas {
   readonly lineHeight: number;
   readonly ascent: number;
 
@@ -389,7 +389,7 @@ function createCanvas(width: number, height: number): HTMLCanvasElement | Offscr
 const MAX_ATLASES = 8;
 
 /** One atlas per requested point size (same shape as the SDK's FontLibrary). */
-export class FontLibrary {
+class FontLibrary {
   private readonly atlases = new Map<number, GlyphAtlas>();
   /** Point size at the newest end of the LRU — the fast path of `get` (ZAB-73). */
   private newest: number | null = null;
@@ -462,3 +462,6 @@ export class FontLibrary {
     this.newest = null;
   }
 }
+
+export type { GlyphInfo };
+export { FontLibrary, GlyphAtlas };

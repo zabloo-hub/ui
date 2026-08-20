@@ -16,13 +16,13 @@
  * The slice of a `Gamepad` this reads. Structural on purpose: a test builds one
  * as an object literal, and a real `Gamepad` satisfies it as it comes.
  */
-export interface PadSnapshot {
+interface PadSnapshot {
   buttons: readonly { readonly pressed: boolean }[];
   axes: readonly number[];
 }
 
 /** A unit direction on one axis — exactly what `moveFocus` takes. */
-export type Direction = readonly [number, number];
+type Direction = readonly [number, number];
 
 /** Standard-mapping indices (https://w3c.github.io/gamepad/#remapping). */
 const BUTTON_A = 0;
@@ -47,14 +47,14 @@ const NAV_RELEASE = 0.35;
 const SCROLL_DEADZONE = 0.15;
 
 /** Hold-to-repeat: the pause before a held direction starts repeating, then its period. */
-export const REPEAT_DELAY_MS = 400;
-export const REPEAT_RATE_MS = 90;
+const REPEAT_DELAY_MS = 400;
+const REPEAT_RATE_MS = 90;
 
 /** Scroll speed at full deflection, in px per second. */
-export const SCROLL_SPEED = 1100;
+const SCROLL_SPEED = 1100;
 
 /** What the pad is asking for this frame, in the view's own vocabulary. */
-export interface PadIntent {
+interface PadIntent {
   /** The direction the d-pad or the left stick is pointing at, if any. */
   direction: Direction | null;
   /** A — press/activate the focused node. */
@@ -70,7 +70,7 @@ export interface PadIntent {
  * modelling — the page has one player — so the first one that reports in drives
  * the view, and unplugging it hands the view to whichever is left.
  */
-export function activePad<T extends PadSnapshot>(pads: readonly (T | null)[]): T | null {
+function activePad<T extends PadSnapshot>(pads: readonly (T | null)[]): T | null {
   for (const pad of pads) {
     if (pad) return pad;
   }
@@ -87,7 +87,7 @@ export function activePad<T extends PadSnapshot>(pads: readonly (T | null)[]): T
  * to its horizontal component — spatial navigation moves on ONE axis, and a
  * stable tie-break beats alternating between two on the same input.
  */
-export function readPad(pad: PadSnapshot, held: Direction | null = null): PadIntent {
+function readPad(pad: PadSnapshot, held: Direction | null = null): PadIntent {
   return {
     direction: dpadDirection(pad) ?? stickDirection(pad, held),
     press: pressed(pad, BUTTON_A),
@@ -100,10 +100,7 @@ export function readPad(pad: PadSnapshot, held: Direction | null = null): PadInt
 }
 
 /** How far a scroll stick moves the content over `dtMs` — px on each axis. */
-export function scrollDelta(
-  scroll: { x: number; y: number },
-  dtMs: number,
-): { x: number; y: number } {
+function scrollDelta(scroll: { x: number; y: number }, dtMs: number): { x: number; y: number } {
   const seconds = Math.max(0, dtMs) / 1000;
   return {
     // Squared response: the same stick gives fine control near the center and
@@ -114,7 +111,7 @@ export function scrollDelta(
 }
 
 /** A direction being held, and the clock its repeats are measured against. */
-export interface RepeatState {
+interface RepeatState {
   direction: Direction;
   /** The instant it was first pressed — every repeat is due relative to this. */
   since: number;
@@ -122,7 +119,7 @@ export interface RepeatState {
   fired: number;
 }
 
-export interface RepeatStep {
+interface RepeatStep {
   /** The hold to carry into the next frame, or null once the direction is released. */
   state: RepeatState | null;
   /** Whether this frame owes the view one move. */
@@ -140,7 +137,7 @@ export interface RepeatStep {
  * At most one move per frame, even after a stall (a tab in the background, a long
  * relayout): the pad is a source of intentions, not of a backlog to catch up on.
  */
-export function stepRepeat(
+function stepRepeat(
   previous: RepeatState | null,
   direction: Direction | null,
   now: number,
@@ -199,3 +196,14 @@ function taper(value: number): number {
   const scaled = (magnitude - SCROLL_DEADZONE) / (1 - SCROLL_DEADZONE);
   return Math.sign(value) * Math.min(1, scaled);
 }
+
+export type { Direction, PadIntent, PadSnapshot, RepeatState, RepeatStep };
+export {
+  activePad,
+  REPEAT_DELAY_MS,
+  REPEAT_RATE_MS,
+  readPad,
+  SCROLL_SPEED,
+  scrollDelta,
+  stepRepeat,
+};
