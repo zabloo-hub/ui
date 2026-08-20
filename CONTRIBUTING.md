@@ -112,6 +112,27 @@ task reference at the end when there is one:
 Abarata el frame de caret y mide presupuestos sobre escenas reales (ZAB-73)
 ```
 
+## Code style
+
+Biome owns formatting and most style rules (`pnpm format` writes, `pnpm lint` checks).
+Two house conventions are enforced as errors, and knowing them beats meeting them as CI
+failures:
+
+- **Exports go at the end of the file.** Declare above, export below, in one
+  `export { … }` / `export type { … }` block — no inline `export` on a declaration.
+  Enforced by Biome's `useExportsLast`.
+- **`const`, never `let` — no exceptions**, not even `for (let i = 0; …)`. The
+  reassignment is the smell, not the keyword: an accumulator is a `reduce`, a
+  transformed sequence is a `map`, a counter loop is `entries()` or `keys()`, a
+  conditionally-built value is a function that returns it, and a slot some external API
+  insists on owning is a field of a `const` holder. Enforced by a GritQL plugin
+  ([`scripts/lint/no-let.grit`](scripts/lint/no-let.grit)).
+
+One caution that came out of the sweep that introduced these rules: in the hot paths
+(`layout.ts`, `text.ts`, `tessellator.ts`) do not materialize a range inside a loop that
+runs per node and per frame — hoist it to a module constant, and check the frame budgets
+(`budgets.test.ts`) before and after, not just the suite.
+
 ## Opening a pull request
 
 Before you push, run the four commands CI runs — `pnpm build && pnpm typecheck &&
