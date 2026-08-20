@@ -105,11 +105,8 @@ class FakeTextarea {
     this.attributes[name] = value;
   }
   addEventListener(type: string, listener: (event: unknown) => void): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
+    const set = this.listeners.get(type) ?? new Set();
+    this.listeners.set(type, set);
     set.add(listener);
   }
   removeEventListener(type: string, listener: (event: unknown) => void): void {
@@ -133,9 +130,7 @@ class FakeTextarea {
   }
   /** How many listeners are still hooked up — a leak shows up as a number that never drops. */
   listenerCount(): number {
-    let total = 0;
-    for (const set of this.listeners.values()) total += set.size;
-    return total;
+    return [...this.listeners.values()].reduce((total, set) => total + set.size, 0);
   }
   /** The browser reporting what it did to the text: value, caret, then the event. */
   edit(value: string, caret = value.length, direction: "forward" | "backward" = "forward"): void {

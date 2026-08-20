@@ -143,11 +143,11 @@ class GlyphAtlas {
   }
 
   get(char: string): GlyphInfo | undefined {
-    let glyph = this.glyphs.get(char);
-    if (glyph === undefined) {
-      glyph = this.font ? this.rasterizeStb(char, this.font) : this.rasterizeCanvas(char);
-      this.glyphs.set(char, glyph);
-    }
+    const cached = this.glyphs.get(char);
+    if (cached !== undefined) return cached;
+
+    const glyph = this.font ? this.rasterizeStb(char, this.font) : this.rasterizeCanvas(char);
+    this.glyphs.set(char, glyph);
     return glyph;
   }
 
@@ -170,11 +170,11 @@ class GlyphAtlas {
   kern(previous: string, char: string): number {
     if (!this.font) return 0;
     const key = previous + char;
-    let value = this.kerns.get(key);
-    if (value === undefined) {
-      value = this.font.kern(previous, char, this.devicePointSize) / this.scale;
-      this.kerns.set(key, value);
-    }
+    const cached = this.kerns.get(key);
+    if (cached !== undefined) return cached;
+
+    const value = this.font.kern(previous, char, this.devicePointSize) / this.scale;
+    this.kerns.set(key, value);
     return value;
   }
 
@@ -410,15 +410,15 @@ class FontLibrary {
       const current = this.atlases.get(pointSize);
       if (current) return current;
     }
-    let atlas = this.atlases.get(pointSize);
-    if (atlas) {
+    const cached = this.atlases.get(pointSize);
+    if (cached) {
       // Map order is the recency order: re-inserting marks it just used.
       this.atlases.delete(pointSize);
-      this.atlases.set(pointSize, atlas);
+      this.atlases.set(pointSize, cached);
       this.newest = pointSize;
-      return atlas;
+      return cached;
     }
-    atlas = new GlyphAtlas(pointSize, this.scale, this.font);
+    const atlas = new GlyphAtlas(pointSize, this.scale, this.font);
     this.atlases.set(pointSize, atlas);
     this.newest = pointSize;
     if (this.atlases.size > MAX_ATLASES) {

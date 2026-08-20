@@ -94,11 +94,8 @@ class FakeCanvas {
   }
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
+    const set = this.listeners.get(type) ?? new Set();
+    this.listeners.set(type, set);
     set.add(listener);
   }
 

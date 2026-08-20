@@ -346,11 +346,8 @@ class FakeTarget {
   private readonly listeners = new Map<string, Set<Listener>>();
 
   addEventListener(type: string, listener: Listener): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
+    const set = this.listeners.get(type) ?? new Set();
+    this.listeners.set(type, set);
     set.add(listener);
   }
 
@@ -366,9 +363,7 @@ class FakeTarget {
 
   /** How many listeners are hooked up — what a leak shows up as (ZAB-74). */
   listenerCount(): number {
-    let total = 0;
-    for (const set of this.listeners.values()) total += set.size;
-    return total;
+    return [...this.listeners.values()].reduce((total, set) => total + set.size, 0);
   }
 }
 
@@ -513,14 +508,14 @@ class FakeGl {
               this.draws++;
             };
           }
-          let member = members.get(prop);
-          if (member === undefined) {
-            // One object per name, stable across calls: `createBuffer()` handing
-            // out a new identity every time would defeat the texture cache.
-            const handle = { gl: prop };
-            member = () => handle;
-            members.set(prop, member);
-          }
+          const cached = members.get(prop);
+          if (cached !== undefined) return cached;
+
+          // One object per name, stable across calls: `createBuffer()` handing
+          // out a new identity every time would defeat the texture cache.
+          const handle = { gl: prop };
+          const member = () => handle;
+          members.set(prop, member);
           return member;
         },
       },

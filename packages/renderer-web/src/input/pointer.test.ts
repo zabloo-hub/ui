@@ -58,11 +58,8 @@ class FakeCanvas {
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
-    let set = this.listeners.get(type);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(type, set);
-    }
+    const set = this.listeners.get(type) ?? new Set();
+    this.listeners.set(type, set);
     set.add(listener);
   }
   removeEventListener(type: string, listener: (event: unknown) => void): void {
@@ -75,9 +72,7 @@ class FakeCanvas {
     this.captured.push(id);
   }
   listenerCount(): number {
-    let total = 0;
-    for (const set of this.listeners.values()) total += set.size;
-    return total;
+    return [...this.listeners.values()].reduce((total, set) => total + set.size, 0);
   }
   dispatch(type: string, event: Record<string, unknown>): void {
     for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event);

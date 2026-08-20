@@ -222,11 +222,8 @@ export class OverlayLayer {
     this.exiting.clear();
     const layer = this.host.layer();
     this.host.eachOverlay((overlay) => {
-      let anim = this.anims.get(overlay);
-      if (!anim) {
-        anim = createNodeAnim();
-        this.anims.set(overlay, anim);
-      }
+      const anim = this.anims.get(overlay) ?? createNodeAnim();
+      this.anims.set(overlay, anim);
       const live = layer.includes(overlay);
       const stepped = stepPresence(anim, live, this.host.transitionOf(overlay), now);
       if (stepped.animating) this.host.markAnimating();

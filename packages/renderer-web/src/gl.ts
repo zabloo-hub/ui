@@ -278,11 +278,11 @@ class GLRenderer {
     const bitmap = source?.bitmap;
     if (!source || !bitmap) return this.whiteTexture;
     const gl = this.gl;
-    let entry = this.textures.get(source);
-    if (!entry) {
-      entry = { texture: gl.createTexture() as WebGLTexture, version: -1 };
-      this.textures.set(source, entry);
-    }
+    const entry = this.textures.get(source) ?? {
+      texture: gl.createTexture() as WebGLTexture,
+      version: -1,
+    };
+    this.textures.set(source, entry);
     if (entry.version !== source.version) {
       gl.bindTexture(gl.TEXTURE_2D, entry.texture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
