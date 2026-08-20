@@ -3,26 +3,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * The theme is CSS, so nothing typechecks it and nothing else in the suite will
- * notice a token that silently stopped resolving. This reads the real
- * `tokens.css`, hands it to jsdom as a stylesheet, and asks the browser side
- * what `--background` and friends come out as with and without `.dark` — which
- * is the whole contract V3 onwards builds against.
+ * Nothing typechecks CSS, so this reads the real `tokens.css`, hands it to jsdom
+ * as a stylesheet, and asks what the tokens resolve to with and without `.dark`.
  *
- * Read off disk rather than through Vite's `?raw`, so the test needs no addition
- * to `types` in `tsconfig.json` to typecheck. The path is composed with
- * `node:path` and not with `new URL("./tokens.css", import.meta.url)`, which
- * Vite rewrites at transform time into a bundled asset URL — an `http://` one
- * under jsdom, which `readFileSync` will not take.
- *
- * Two jsdom facts shape what can be asserted:
- *   - custom properties are NOT inherited by descendants there, so every lookup
- *     goes through `document.documentElement` — which is fine, because `:root`
- *     and `.dark` both land on `<html>` in the real app too;
- *   - `var()` is not resolved, so the tokens are literals in `tokens.css` and
- *     the one deliberate indirection (`--ring`) is asserted as the text it is.
- *
- * The visual check is the kit page (V17); this only guards the values.
+ * Three constraints it works around: jsdom does not inherit custom properties to
+ * descendants (so every lookup goes through `documentElement`, which is where
+ * `:root` and `.dark` both land in the real app anyway); it does not resolve
+ * `var()`; and `new URL("./x", import.meta.url)` is rewritten by Vite into an
+ * asset URL that `readFileSync` will not take.
  */
 
 const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "tokens.css"), "utf8");
@@ -35,8 +23,8 @@ const EXPECTED: Record<string, [light: string, dark: string]> = {
   "--border": ["#e4e4e7", "#27272a"],
   "--foreground": ["#09090b", "#fafafa"],
   "--muted-foreground": ["#71717a", "#a1a1aa"],
-  // The zinc theme's Primary is near-black in light and near-white in dark; if
-  // this ever reads as the indigo, the mapping went wrong.
+  // Primary is near-black / near-white. If this ever reads as the indigo, the
+  // mapping went wrong.
   "--primary": ["#09090b", "#fafafa"],
   "--primary-foreground": ["#fafafa", "#09090b"],
   "--indigo": ["#4f46e5", "#818cf8"],
@@ -97,8 +85,6 @@ describe("theme tokens", () => {
   });
 
   it("leaves `--ring` pointing at `--indigo` in both themes", () => {
-    // Late binding is the point: `.dark` moves the indigo and the focus border
-    // follows without the token being redeclared.
     expect(token("--ring")).toBe("var(--indigo)");
 
     document.documentElement.classList.add("dark");
@@ -109,8 +95,6 @@ describe("theme tokens", () => {
     expect(token("--shadow-control")).toBe("0 1px 2px rgba(0, 0, 0, 0.05)");
 
     document.documentElement.classList.add("dark");
-    // `none` would invalidate any composed box-shadow list it landed in; a
-    // fully transparent shadow is the same pixels and always parses.
     expect(token("--shadow-control")).toBe("0 0 #0000");
   });
 
