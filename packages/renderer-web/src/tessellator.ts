@@ -256,7 +256,7 @@ class GeometryBuilder {
     }
 
     const count = PERIMETER_POINTS;
-    for (let i = 0; i < count; i++) {
+    for (const i of PERIMETER_INDICES) {
       const next = (i + 1) % count;
       pushIndex(batch, base + i);
       pushIndex(batch, base + next);
@@ -328,33 +328,35 @@ class GeometryBuilder {
   }
 
   private imageBatchFor(asset: ImageAsset): BatchStore {
-    let batch = this.group.images.get(asset);
-    if (!batch) {
-      batch = this.acquire(asset, this.group.clip);
-      this.group.images.set(asset, batch);
-    }
+    const cached = this.group.images.get(asset);
+    if (cached) return cached;
+
+    const batch = this.acquire(asset, this.group.clip);
+    this.group.images.set(asset, batch);
     return batch;
   }
 
   /** Single-line text run starting at (originX, originY) — top-left of the run. */
   text(originX: number, originY: number, content: string, atlas: GlyphAtlas, color: Color): void {
     const batch = this.batchFor(atlas);
-    let pen = originX;
     const baseline = originY + atlas.ascent;
-    let previous = "";
+    // One cursor per run, not per glyph: the pen and the previous character are
+    // what the loop carries forward, and an object per character is exactly the
+    // garbage this path must not make.
+    const cursor = { pen: originX, previous: "" };
 
     for (const char of content) {
       const glyph = atlas.get(char);
       if (!glyph) continue;
       // Same kerning `measure` applied — otherwise the painted run would not
       // fit the box the layout pass reserved for it.
-      if (previous !== "") pen += atlas.kern(previous, char);
-      previous = char;
+      if (cursor.previous !== "") cursor.pen += atlas.kern(cursor.previous, char);
+      cursor.previous = char;
       if (glyph.hasQuad) {
         // Snap the glyph origin to the physical pixel grid: fractional layout
         // positions + LINEAR filtering would blur the glyph by half a pixel.
         // The extents are integer device px already (atlas raster scale = dpr).
-        const x0 = Math.round((pen + glyph.minX) * this.dpr) / this.dpr;
+        const x0 = Math.round((cursor.pen + glyph.minX) * this.dpr) / this.dpr;
         const y0 = Math.round((baseline - glyph.maxY) * this.dpr) / this.dpr;
         const x1 = x0 + (glyph.maxX - glyph.minX);
         const y1 = y0 + (glyph.maxY - glyph.minY);
@@ -366,16 +368,16 @@ class GeometryBuilder {
         pushVertex(batch, x0, y1, glyph.u0, glyph.v1, color);
         pushQuadIndices(batch, base);
       }
-      pen += glyph.advance;
+      cursor.pen += glyph.advance;
     }
   }
 
   private batchFor(atlas: GlyphAtlas): BatchStore {
-    let batch = this.group.texts.get(atlas);
-    if (!batch) {
-      batch = this.acquire(atlas, this.group.clip);
-      this.group.texts.set(atlas, batch);
-    }
+    const cached = this.group.texts.get(atlas);
+    if (cached) return cached;
+
+    const batch = this.acquire(atlas, this.group.clip);
+    this.group.texts.set(atlas, batch);
     return batch;
   }
 }
@@ -456,27 +458,29 @@ function liveView(store: BatchStore): Batch {
  * no per-batch bookkeeping rides along the write path (`pushVertex` is the
  * hottest function in the renderer).
  */
-let growths = 0;
+const grown = { count: 0 };
 
 function growthCount(): number {
-  return growths;
+  return grown.count;
+}
+
+/** The first doubling of `length` that holds `needed` — the old `while` as a value. */
+function capacityFor(length: number, needed: number): number {
+  const doubled = length * 2;
+  return doubled >= needed ? doubled : capacityFor(doubled, needed);
 }
 
 function growFloats(array: Float32Array, needed: number): Float32Array {
-  let capacity = array.length * 2;
-  while (capacity < needed) capacity *= 2;
-  const next = new Float32Array(capacity);
+  const next = new Float32Array(capacityFor(array.length, needed));
   next.set(array);
-  growths++;
+  grown.count++;
   return next;
 }
 
 function growIndices(array: Uint32Array, needed: number): Uint32Array {
-  let capacity = array.length * 2;
-  while (capacity < needed) capacity *= 2;
-  const next = new Uint32Array(capacity);
+  const next = new Uint32Array(capacityFor(array.length, needed));
   next.set(array);
-  growths++;
+  grown.count++;
   return next;
 }
 
@@ -492,16 +496,16 @@ function pushVertex(
     batch.vertices = growFloats(batch.vertices, batch.floats + 8);
   }
   const out = batch.vertices;
-  let at = batch.floats;
-  out[at++] = x;
-  out[at++] = y;
-  out[at++] = u;
-  out[at++] = v;
-  out[at++] = color[0];
-  out[at++] = color[1];
-  out[at++] = color[2];
-  out[at++] = color[3];
-  batch.floats = at;
+  const at = batch.floats;
+  out[at] = x;
+  out[at + 1] = y;
+  out[at + 2] = u;
+  out[at + 3] = v;
+  out[at + 4] = color[0];
+  out[at + 5] = color[1];
+  out[at + 6] = color[2];
+  out[at + 7] = color[3];
+  batch.floats = at + 8;
 }
 
 function pushIndex(batch: BatchStore, value: number): void {
@@ -534,21 +538,25 @@ const PERIMETER_POINTS = 4 * (CORNER_SEGMENTS + 1);
  * frame budget can feel.
  */
 const PERIMETER_INDICES = [...Array(PERIMETER_POINTS).keys()];
+/** The four corners, and the segments within one — hoisted for the same reason. */
+const CORNERS = [...Array(4).keys()];
+const CORNER_STEPS = [...Array(CORNER_SEGMENTS + 1).keys()];
 const perimeterX = new Float64Array(PERIMETER_POINTS);
 const perimeterY = new Float64Array(PERIMETER_POINTS);
 
 function fillPerimeter(rect: Rect, r: number): void {
-  let at = 0;
-  for (const corner of Array(4).keys()) {
+  for (const corner of CORNERS) {
     // TL: 180 → 270, TR: 270 → 360, BR: 0 → 90, BL: 90 → 180.
     const cx = corner === 0 || corner === 3 ? rect.x + r : rect.x + rect.width - r;
     const cy = corner < 2 ? rect.y + r : rect.y + rect.height - r;
     const start = (180 + corner * 90) * (Math.PI / 180);
-    for (let s = 0; s <= CORNER_SEGMENTS; s++) {
+    for (const s of CORNER_STEPS) {
       const angle = start + (Math.PI / 2) * (s / CORNER_SEGMENTS);
+      // The slot is where the walk would have got to: corners are filled in
+      // order, each contributing the same number of points.
+      const at = corner * CORNER_STEPS.length + s;
       perimeterX[at] = cx + r * Math.cos(angle);
       perimeterY[at] = cy + r * Math.sin(angle);
-      at++;
     }
   }
 }
