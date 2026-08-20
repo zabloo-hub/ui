@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>zabloo dev</title>
+    <!--
+      The remembered theme, before the first paint. React learns it from the store
+      too (`useThemeClass`), but that runs after the bundle has parsed and mounted,
+      which on a dark setup is long enough to show a white window first.
+
+      It reads the blob `persist` writes (one key, `zabloo.preview` — see
+      `store/storage.ts`), and it takes the same vow that file does: NOTHING here
+      throws. `localStorage` is a getter that raises in a denied context, and a
+      preview that failed to boot over a remembered preference would be trading
+      the whole tool for a colour.
+    -->
+    <script>
+      try {
+        const saved = JSON.parse(localStorage.getItem("zabloo.preview") ?? "{}");
+        if (saved?.state?.theme === "dark") {
+          document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = "dark";
+        }
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
