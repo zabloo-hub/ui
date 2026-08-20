@@ -120,11 +120,11 @@ class FieldEditor {
    * Public because paint asks the same question the editor does.
    */
   charsOf(node: LayoutNode): readonly string[] {
-    let glyphs = node.textChars;
-    if (glyphs === null) {
-      glyphs = chars(node.text);
-      node.textChars = glyphs;
-    }
+    const cached = node.textChars;
+    if (cached !== null) return cached;
+
+    const glyphs = chars(node.text);
+    node.textChars = glyphs;
     return glyphs;
   }
 

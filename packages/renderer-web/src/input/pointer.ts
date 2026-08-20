@@ -385,12 +385,14 @@ export class PointerHandler {
   };
 
   private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
-    let bounds = this.bounds;
-    if (bounds === null) {
-      const rect = this.host.canvas.getBoundingClientRect();
-      bounds = { left: rect.left, top: rect.top };
-      this.bounds = bounds;
+    const cached = this.bounds;
+    if (cached !== null) {
+      return { x: event.clientX - cached.left, y: event.clientY - cached.top };
     }
+
+    const rect = this.host.canvas.getBoundingClientRect();
+    const bounds = { left: rect.left, top: rect.top };
+    this.bounds = bounds;
     return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
   }
 

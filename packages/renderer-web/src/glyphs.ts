@@ -216,12 +216,12 @@ class GlyphAtlas {
     // this working on an OffscreenCanvas too.
     const image = this.ctx.createImageData(bitmap.width, bitmap.height);
     const pixels = image.data;
-    for (let i = 0; i < bitmap.coverage.length; i++) {
+    for (const [i, coverage] of bitmap.coverage.entries()) {
       const p = i * 4;
       pixels[p] = 255;
       pixels[p + 1] = 255;
       pixels[p + 2] = 255;
-      pixels[p + 3] = bitmap.coverage[i];
+      pixels[p + 3] = coverage;
     }
     this.ctx.putImageData(image, spot.x, spot.y);
     this._version++;

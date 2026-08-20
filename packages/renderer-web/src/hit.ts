@@ -56,8 +56,9 @@ export function hitTest(
   // Outside this node's own clip: it prunes the subtree (`clip === inherited`
   // when the node doesn't clip, so this only ever costs a re-check).
   if (!isEmptyClip(clip) && clipContains(clip, point)) {
-    for (let i = root.children.length - 1; i >= 0; i--) {
-      const hit = hitTest(root.children[i], point, radiusOf, clip);
+    // Last child first: later siblings paint over earlier ones.
+    for (const child of [...root.children].reverse()) {
+      const hit = hitTest(child, point, radiusOf, clip);
       if (hit) return hit;
     }
   }

@@ -437,11 +437,13 @@ function walkSnapshot(node: NodeSnapshot, visit: (node: NodeSnapshot) => void): 
  * view, a test driving a control).
  */
 function findNode(snapshot: ViewSnapshot, ref: string): NodeSnapshot | null {
-  let found: NodeSnapshot | null = null;
+  const matches: NodeSnapshot[] = [];
   walkSnapshot(snapshot.tree, (node) => {
-    if (node.ref === ref) found = node;
+    if (node.ref === ref) matches.push(node);
   });
-  return found;
+  // The last one, as the walk used to leave it: a duplicated ref is the caller's
+  // problem, and this keeps answering it the same way.
+  return matches.at(-1) ?? null;
 }
 
 /** Every node type the snapshot contains — the dispatch coverage check reads this. */

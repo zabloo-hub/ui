@@ -184,14 +184,24 @@ function caretX(text: string, index: number, metrics: TextMetrics): number {
  * renderer caches the split per node (`FieldEditor.charsOf`); this is the entry
  * point that lets it.
  */
+/**
+ * The x of every caret position in the run: the left edge of each glyph, then the
+ * end of the run — `glyphs.length + 1` entries, one per seam. One linear pass, so
+ * both callers below cost what the old loops did.
+ */
+function seamsOf(glyphs: readonly string[], metrics: TextMetrics): number[] {
+  return glyphs.reduce<number[]>(
+    (seams, glyph, i) => {
+      const kern = i > 0 ? metrics.kern(glyphs[i - 1], glyph) : 0;
+      seams.push(seams[i] + kern + metrics.advance(glyph));
+      return seams;
+    },
+    [0],
+  );
+}
+
 function caretXOf(glyphs: readonly string[], index: number, metrics: TextMetrics): number {
-  const upto = clampIndex(index, glyphs.length);
-  let x = 0;
-  for (let i = 0; i < upto; i++) {
-    if (i > 0) x += metrics.kern(glyphs[i - 1], glyphs[i]);
-    x += metrics.advance(glyphs[i]);
-  }
-  return x;
+  return seamsOf(glyphs, metrics)[clampIndex(index, glyphs.length)];
 }
 
 /**
@@ -206,14 +216,10 @@ function indexAtX(text: string, x: number, metrics: TextMetrics): number {
 
 /** `indexAtX` over code points that are already split — see `caretXOf`. */
 function indexAtXOf(glyphs: readonly string[], x: number, metrics: TextMetrics): number {
-  let left = 0;
-  for (let i = 0; i < glyphs.length; i++) {
-    const step = (i > 0 ? metrics.kern(glyphs[i - 1], glyphs[i]) : 0) + metrics.advance(glyphs[i]);
-    const right = left + step;
-    if (x < left + step / 2) return i;
-    left = right;
-  }
-  return glyphs.length;
+  // The nearest seam: the first glyph whose midpoint the pointer has not passed.
+  const seams = seamsOf(glyphs, metrics);
+  const found = seams.findIndex((left, i) => i < glyphs.length && x < (left + seams[i + 1]) / 2);
+  return found === -1 ? glyphs.length : found;
 }
 
 /**

@@ -91,12 +91,10 @@ function effectiveStyle(
   states: NodeStates,
 ): Style | undefined {
   if (!overrides) return base;
-  let style = base;
-  for (const name of STATE_ORDER) {
+  return STATE_ORDER.reduce((style, name) => {
     const override = overrides[name]?.style;
-    if (override && isActive(name, states)) style = { ...style, ...override };
-  }
-  return style;
+    return override && isActive(name, states) ? { ...style, ...override } : style;
+  }, base);
 }
 
 export type { NodeStates };

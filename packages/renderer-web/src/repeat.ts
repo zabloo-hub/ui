@@ -89,6 +89,11 @@ function itemsOf(value: unknown): unknown[] {
  * the list still reconciles deterministically instead of rebuilding a row per
  * frame; it is only that row that stops travelling with its data.
  */
+/** `from…to-1`, as values — an index range the caller can iterate with `const`. */
+function indexRange(from: number, to: number): number[] {
+  return Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
+}
+
 function windowSlots(
   items: readonly unknown[],
   keyPath: string | undefined,
@@ -98,7 +103,7 @@ function windowSlots(
   const slots: ItemSlot[] = [];
   const seen = new Set<string>();
   const end = Math.min(items.length, first + count);
-  for (let index = Math.max(0, first); index < end; index++) {
+  for (const index of indexRange(Math.max(0, first), end)) {
     const keyed = itemIdentity(itemKey(items[index], keyPath), index);
     const identity = seen.has(keyed) ? itemIdentity(undefined, index) : keyed;
     seen.add(identity);

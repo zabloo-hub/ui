@@ -391,10 +391,9 @@ function documentPath(node: LayoutNode): number[] {
 
 /** Lexicographic, so an ancestor sorts before the descendant it contains. */
 function comparePaths(a: number[], b: number[]): number {
-  for (let i = 0; i < a.length && i < b.length; i++) {
-    if (a[i] !== b[i]) return a[i] - b[i];
-  }
-  return a.length - b.length;
+  const step = a.slice(0, b.length).find((value, i) => value !== b[i]);
+  if (step === undefined) return a.length - b.length;
+  return step - b[a.indexOf(step)];
 }
 
 /**
@@ -425,10 +424,7 @@ function stepPresence(
 
 /** The modal that owns input and focus right now: the highest one in the layer. */
 function topModal(layer: readonly LayoutNode[]): LayoutNode | null {
-  for (let i = layer.length - 1; i >= 0; i--) {
-    if (isModal(layer[i])) return layer[i];
-  }
-  return null;
+  return [...layer].reverse().find(isModal) ?? null;
 }
 
 /**
@@ -487,8 +483,8 @@ function resolveHit(
   point: Point,
   radiusOf: NodeRadius,
 ): LayerHit {
-  for (let i = layer.length - 1; i >= 0; i--) {
-    const overlay = layer[i];
+  // Topmost entry first: it is the one painted over the rest.
+  for (const overlay of [...layer].reverse()) {
     const spec = overlaySpec(overlay);
     if (spec === null || !inLayout(overlay) || isHoverTriggered(overlay)) continue;
     const hit = hitChildren(overlay, point, radiusOf);
@@ -507,8 +503,8 @@ function resolveHit(
  */
 function hitChildren(overlay: LayoutNode, point: Point, radiusOf: NodeRadius): LayoutNode | null {
   const clip = childClip(overlay, null, radiusOf);
-  for (let i = overlay.children.length - 1; i >= 0; i--) {
-    const hit = hitTest(overlay.children[i], point, radiusOf, clip);
+  for (const child of [...overlay.children].reverse()) {
+    const hit = hitTest(child, point, radiusOf, clip);
     if (hit) return hit;
   }
   return null;
