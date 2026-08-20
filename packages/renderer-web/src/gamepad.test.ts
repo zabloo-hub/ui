@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import {
   activePad,
   type Direction,
@@ -236,12 +236,18 @@ const FRAME_MS = 16;
 
 const CORPUS = readCorpus();
 
-let view: GoldenView | null = null;
-
-afterEach(() => {
-  view?.dispose();
-  view = null;
-});
+/**
+ * Mounts for ONE test and disposes it when that test ends. A helper rather than
+ * a `let` shared through `afterEach`: the view a test works with is then a
+ * `const` the test owns, and nothing survives into the next one.
+ */
+async function mountForTest(...args: Parameters<typeof mountCase>): Promise<GoldenView> {
+  const view = await mountCase(...args);
+  onTestFinished(() => {
+    view.dispose();
+  });
+  return view;
+}
 
 function states(mounted: GoldenView, ref: string): string[] {
   return findNode(mounted.snapshot(), ref)?.states ?? [];
@@ -257,7 +263,7 @@ function tap(mounted: GoldenView, padControl: ReturnType<GoldenView["connectGame
 
 describe("integration — d-pad navigation", () => {
   it("moves the focus with the d-pad, through the same spatial step as the arrows", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     expect(view.snapshot().focus).toBe("primary");
     const pad = view.connectGamepad();
 
@@ -269,7 +275,7 @@ describe("integration — d-pad navigation", () => {
   });
 
   it("repeats a held direction on the keyboard's own clock", async () => {
-    view = await mountCase(CORPUS.settings);
+    const view = await mountForTest(CORPUS.settings);
     const pad = view.connectGamepad();
 
     // The first fire is the press itself, landing the focus somewhere at all.
@@ -289,7 +295,7 @@ describe("integration — d-pad navigation", () => {
   });
 
   it("stops repeating the instant the pad is unplugged", async () => {
-    view = await mountCase(CORPUS.settings);
+    const view = await mountForTest(CORPUS.settings);
     const pad = view.connectGamepad();
     pad.press(BTN_DOWN);
     view.advance(FRAME_MS);
@@ -304,7 +310,7 @@ describe("integration — d-pad navigation", () => {
 
 describe("integration — A and B", () => {
   it("presses the focused control with A and activates it on the release edge", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const pad = view.connectGamepad();
 
     pad.press(BTN_A);
@@ -319,7 +325,7 @@ describe("integration — A and B", () => {
   });
 
   it("cancels a press when the pad is unplugged mid-hold, like a pointer leaving", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const pad = view.connectGamepad();
     pad.press(BTN_A);
     view.advance(FRAME_MS);
@@ -332,7 +338,7 @@ describe("integration — A and B", () => {
   });
 
   it("treats B as a dismiss request for the modal that owns the input", async () => {
-    view = await mountCase(CORPUS.overlays);
+    const view = await mountForTest(CORPUS.overlays);
     const pad = view.connectGamepad();
 
     pad.press(BTN_B);
@@ -342,7 +348,7 @@ describe("integration — A and B", () => {
   });
 
   it("makes B do nothing at all while no overlay is up", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const pad = view.connectGamepad();
 
     pad.press(BTN_B);
@@ -356,7 +362,7 @@ describe("integration — A and B", () => {
 
 describe("integration — right-stick scrolling", () => {
   it("scrolls the ScrollView the focus lives in, in px per second", async () => {
-    view = await mountCase(CORPUS.repeat);
+    const view = await mountForTest(CORPUS.repeat);
     const pad = view.connectGamepad();
     // Land the focus on an item of the virtualized list first.
     tap(view, pad);
@@ -374,7 +380,7 @@ describe("integration — right-stick scrolling", () => {
   });
 
   it("leaves the scroller alone while the stick rests in its dead zone", async () => {
-    view = await mountCase(CORPUS.repeat);
+    const view = await mountForTest(CORPUS.repeat);
     const pad = view.connectGamepad();
     tap(view, pad);
 
@@ -390,7 +396,7 @@ describe("integration — sliders", () => {
   async function focusBrightness(): Promise<
     [GoldenView, ReturnType<GoldenView["connectGamepad"]>]
   > {
-    const mounted = await mountCase(CORPUS.settings);
+    const mounted = await mountForTest(CORPUS.settings);
     const pad = mounted.connectGamepad();
     for (const stop of ["tab-general", "quality", "fullscreen", "brightness"]) {
       tap(mounted, pad);
@@ -400,8 +406,7 @@ describe("integration — sliders", () => {
   }
 
   it("nudges the focused Slider along its axis and commits when the direction lifts", async () => {
-    const [mounted, pad] = await focusBrightness();
-    view = mounted;
+    const [view, pad] = await focusBrightness();
 
     pad.press(BTN_RIGHT);
     view.advance(FRAME_MS);
@@ -415,8 +420,7 @@ describe("integration — sliders", () => {
   });
 
   it("still settles the gesture when the pad is unplugged mid-nudge", async () => {
-    const [mounted, pad] = await focusBrightness();
-    view = mounted;
+    const [view, pad] = await focusBrightness();
     pad.press(BTN_RIGHT);
     view.advance(FRAME_MS);
 

@@ -1,5 +1,5 @@
 import { EnvelopeError } from "@zabloo/format";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import {
   envelopeFiles,
   type GoldenCase,
@@ -46,17 +46,23 @@ const CATALOG = [
   "TextInput",
 ] as const;
 
-let view: GoldenView | null = null;
-
-afterEach(() => {
-  view?.dispose();
-  view = null;
-});
+/**
+ * Mounts for ONE test and disposes it when that test ends. A helper rather than
+ * a `let` shared through `afterEach`: the view a test works with is then a
+ * `const` the test owns, and nothing survives into the next one.
+ */
+async function mountForTest(...args: Parameters<typeof mountCase>): Promise<GoldenView> {
+  const view = await mountCase(...args);
+  onTestFinished(() => {
+    view.dispose();
+  });
+  return view;
+}
 
 describe("golden metrics", () => {
   for (const [name, golden] of metricCases(CORPUS)) {
     it(`${name} — ${golden.about}`, async () => {
-      view = await mountCase(golden);
+      const view = await mountForTest(golden);
       await expect(serializeSnapshot(view.snapshot())).toMatchFileSnapshot(metricsPath(name));
     });
   }

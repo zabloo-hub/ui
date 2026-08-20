@@ -1,5 +1,5 @@
 import type { Diagnostic } from "@zabloo/format";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { GlyphAtlas } from "./glyphs.js";
 import { mountCase, readCorpus, readEnvelope } from "./golden.js";
 import { type GoldenView, mountGolden } from "./harness.js";
@@ -23,12 +23,26 @@ import type { FrameStats } from "./view.js";
 
 const CORPUS = readCorpus();
 
-let view: GoldenView | null = null;
+/**
+ * Mounts for ONE test and disposes it when that test ends. A helper rather than
+ * a `let` shared through `afterEach`: the view a test works with is then a
+ * `const` the test owns, and nothing survives into the next one.
+ */
+async function mountForTest(...args: Parameters<typeof mountCase>): Promise<GoldenView> {
+  return disposeAfterTest(await mountCase(...args));
+}
 
-afterEach(() => {
-  view?.dispose();
-  view = null;
-});
+/** Same, for the tests that mount a raw envelope instead of a corpus case. */
+async function mountEnvelope(...args: Parameters<typeof mountGolden>): Promise<GoldenView> {
+  return disposeAfterTest(await mountGolden(...args));
+}
+
+function disposeAfterTest(view: GoldenView): GoldenView {
+  onTestFinished(() => {
+    view.dispose();
+  });
+  return view;
+}
 
 /** Center of a node's rect — where a player would aim at it. */
 function center(snapshot: ViewSnapshot, ref: string): { x: number; y: number } {
@@ -49,7 +63,7 @@ function states(snapshot: ViewSnapshot, ref: string): string[] {
 
 describe("hit-testing and actions", () => {
   it("fires the action of the button under the pointer, and only that one", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const target = center(view.snapshot(), "primary");
 
     view.pointer.click(target.x, target.y);
@@ -58,7 +72,7 @@ describe("hit-testing and actions", () => {
   });
 
   it("fires nothing when the press and the release land on different nodes", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const snapshot = view.snapshot();
 
     view.pointer.down(center(snapshot, "primary").x, center(snapshot, "primary").y);
@@ -68,7 +82,7 @@ describe("hit-testing and actions", () => {
   });
 
   it("carries the press state for exactly as long as the pointer is down", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const target = center(view.snapshot(), "primary");
 
     view.pointer.down(target.x, target.y);
@@ -79,7 +93,7 @@ describe("hit-testing and actions", () => {
   });
 
   it("hovers what the mouse is over and drops it when the pointer leaves", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const target = center(view.snapshot(), "secondary");
 
     view.pointer.move(target.x, target.y);
@@ -91,7 +105,7 @@ describe("hit-testing and actions", () => {
   });
 
   it("does not reach a child that its parent's clip cut away", async () => {
-    view = await mountCase(CORPUS["scroll-clip"]);
+    const view = await mountForTest(CORPUS["scroll-clip"]);
     const snapshot = view.snapshot();
     const box = node(snapshot, "clipping-box").rect;
     const child = node(snapshot, "overflowing-child").rect;
@@ -109,14 +123,14 @@ describe("hit-testing and actions", () => {
 
 describe("keyboard focus", () => {
   it("gives the initial focus to the autofocus node", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
 
     expect(view.snapshot().focus).toBe("primary");
     expect(states(view.snapshot(), "primary")).toContain("focused");
   });
 
   it("moves the focus spatially, from the live rects", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
 
     view.keyDown("ArrowDown");
     expect(view.snapshot().focus).toBe("secondary");
@@ -126,7 +140,7 @@ describe("keyboard focus", () => {
   });
 
   it("activates the focused control with Enter", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
 
     view.keyDown("Enter");
     expect(states(view.snapshot(), "primary")).toContain("pressed");
@@ -138,14 +152,14 @@ describe("keyboard focus", () => {
 
 describe("the overlay layer", () => {
   it("paints in (z, document order), lowest first", async () => {
-    view = await mountCase(CORPUS.overlays);
+    const view = await mountForTest(CORPUS.overlays);
 
     expect(view.snapshot().layer.map((entry) => entry.ref)).toEqual(["modal", "toast"]);
     expect(view.snapshot().layer.map((entry) => entry.z)).toEqual([10, 20]);
   });
 
   it("captures input: nothing under an open modal is reachable", async () => {
-    view = await mountCase(CORPUS.overlays);
+    const view = await mountForTest(CORPUS.overlays);
     const target = center(view.snapshot(), "under-modal");
 
     view.pointer.click(target.x, target.y);
@@ -156,7 +170,7 @@ describe("the overlay layer", () => {
   });
 
   it("takes the focus into the modal and keeps navigation inside it", async () => {
-    view = await mountCase(CORPUS.overlays);
+    const view = await mountForTest(CORPUS.overlays);
 
     expect(view.snapshot().focus).toBe("modal-accept");
 
@@ -168,7 +182,7 @@ describe("the overlay layer", () => {
   });
 
   it("treats Escape as a dismiss request for the modal that owns the input", async () => {
-    view = await mountCase(CORPUS.overlays);
+    const view = await mountForTest(CORPUS.overlays);
 
     view.keyDown("Escape");
 
@@ -176,7 +190,7 @@ describe("the overlay layer", () => {
   });
 
   it("dismisses a toast on its own clock, and not before", async () => {
-    view = await mountCase(CORPUS.overlays);
+    const view = await mountForTest(CORPUS.overlays);
 
     view.advance(2999);
     expect(view.actions).toEqual([]);
@@ -186,7 +200,7 @@ describe("the overlay layer", () => {
   });
 
   it("shows a hover-triggered tooltip only while its anchor is lit, anchored to it", async () => {
-    view = await mountCase(CORPUS.overlays, { data: { "ui.modalOpen": false } });
+    const view = await mountForTest(CORPUS.overlays, { data: { "ui.modalOpen": false } });
     expect(view.snapshot().layer.map((entry) => entry.ref)).not.toContain("tooltip");
 
     const anchor = node(view.snapshot(), "tooltip-anchor").rect;
@@ -209,7 +223,7 @@ describe("the overlay layer", () => {
 
 describe("anchored overlays and scrolling", () => {
   it("keeps an overlay in the layer exactly while its anchor is on screen", async () => {
-    view = await mountCase(CORPUS.anchors);
+    const view = await mountForTest(CORPUS.anchors);
     const refs = () => (view as GoldenView).snapshot().layer.map((entry) => entry.ref);
     expect(refs()).toContain("in-scroller-tip");
     // Its twin's anchor sits below the scroller's fold: nothing to point at.
@@ -238,7 +252,7 @@ describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
   // its options — bound to `settings.quality`, seeded to "Alta", the LAST option.
 
   it("opens on the anchor's press, focused on the selected option and scrolled to it", async () => {
-    view = await mountCase(CORPUS.settings);
+    const view = await mountForTest(CORPUS.settings);
     expect(view.snapshot().layer).toEqual([]); // closed until pressed, whatever `visible` says
 
     const anchor = center(view.snapshot(), "quality");
@@ -256,7 +270,7 @@ describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
   });
 
   it("chooses on tap: writes the value, closes the menu and gives the focus back", async () => {
-    view = await mountCase(CORPUS.settings);
+    const view = await mountForTest(CORPUS.settings);
     const anchor = center(view.snapshot(), "quality");
     view.pointer.click(anchor.x, anchor.y);
 
@@ -278,7 +292,7 @@ describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
   });
 
   it("also closes on the option already selected, without writing anything", async () => {
-    view = await mountCase(CORPUS.settings);
+    const view = await mountForTest(CORPUS.settings);
     const anchor = center(view.snapshot(), "quality");
     view.pointer.click(anchor.x, anchor.y);
 
@@ -292,7 +306,7 @@ describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
   });
 
   it("activates an option with Enter too — the keyboard and the pointer share the flow", async () => {
-    view = await mountCase(CORPUS.settings);
+    const view = await mountForTest(CORPUS.settings);
     const anchor = center(view.snapshot(), "quality");
     view.pointer.click(anchor.x, anchor.y);
     expect(view.snapshot().focus).toBe("quality-alta");
@@ -311,7 +325,7 @@ describe("the select popover (decision 2026-08-12, ZAB-25)", () => {
 
 describe("scrolling", () => {
   it("scrolls with the wheel and clamps at the end of the content", async () => {
-    view = await mountCase(CORPUS["scroll-clip"]);
+    const view = await mountForTest(CORPUS["scroll-clip"]);
     const target = center(view.snapshot(), "vertical");
     const max = node(view.snapshot(), "vertical").scroll?.maxY ?? 0;
     expect(max).toBeGreaterThan(0);
@@ -324,7 +338,7 @@ describe("scrolling", () => {
   });
 
   it("moves the content on a drag, and that drag is not a click", async () => {
-    view = await mountCase(CORPUS["scroll-clip"]);
+    const view = await mountForTest(CORPUS["scroll-clip"]);
     const target = center(view.snapshot(), "vertical");
 
     view.pointer.down(target.x, target.y);
@@ -336,7 +350,7 @@ describe("scrolling", () => {
   });
 
   it("ignores a wheel on an axis the scroller does not scroll", async () => {
-    view = await mountCase(CORPUS["scroll-clip"]);
+    const view = await mountForTest(CORPUS["scroll-clip"]);
     const target = center(view.snapshot(), "vertical");
 
     view.pointer.wheel(target.x, target.y, 25, 0);
@@ -347,7 +361,7 @@ describe("scrolling", () => {
 
 describe("a pointer that is cancelled instead of released (ZAB-70)", () => {
   it("drops a press without activating it — a cancel is not a click", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const target = center(view.snapshot(), "primary");
 
     view.pointer.down(target.x, target.y);
@@ -365,7 +379,7 @@ describe("a pointer that is cancelled instead of released (ZAB-70)", () => {
   });
 
   it("settles a Slider that was mid-drag: the value it left is the value it committed", async () => {
-    view = await mountCase(CORPUS.controls);
+    const view = await mountForTest(CORPUS.controls);
     const track = node(view.snapshot(), "volume").rect;
     if (!track) throw new Error("the slider is not in layout");
     const y = track.y + track.height / 2;
@@ -385,7 +399,7 @@ describe("a pointer that is cancelled instead of released (ZAB-70)", () => {
   });
 
   it("ends a scroll drag, so the pointer stops dragging the list around", async () => {
-    view = await mountCase(CORPUS["scroll-clip"]);
+    const view = await mountForTest(CORPUS["scroll-clip"]);
     const target = center(view.snapshot(), "vertical");
 
     view.pointer.down(target.x, target.y);
@@ -400,7 +414,7 @@ describe("a pointer that is cancelled instead of released (ZAB-70)", () => {
   });
 
   it("does not dismiss the modal whose backdrop it had pressed", async () => {
-    view = await mountCase(CORPUS.overlays);
+    const view = await mountForTest(CORPUS.overlays);
     const target = center(view.snapshot(), "under-modal");
 
     view.pointer.down(target.x, target.y);
@@ -414,7 +428,7 @@ describe("a pointer that is cancelled instead of released (ZAB-70)", () => {
 
 describe("controls", () => {
   it("sets a Slider from the pointer, reporting every change but committing once", async () => {
-    view = await mountCase(CORPUS.controls);
+    const view = await mountForTest(CORPUS.controls);
     const track = node(view.snapshot(), "volume").rect;
     if (!track) throw new Error("the slider is not in layout");
     const y = track.y + track.height / 2;
@@ -433,7 +447,7 @@ describe("controls", () => {
   });
 
   it("quantizes a stepped Slider to its step", async () => {
-    view = await mountCase(CORPUS.controls);
+    const view = await mountForTest(CORPUS.controls);
     const track = node(view.snapshot(), "quality").rect;
     if (!track) throw new Error("the slider is not in layout");
 
@@ -446,7 +460,7 @@ describe("controls", () => {
   });
 
   it("toggles on tap, fires onChange and writes the new value back to the game", async () => {
-    view = await mountCase(CORPUS.bindings);
+    const view = await mountForTest(CORPUS.bindings);
     const target = center(view.snapshot(), "bound-toggle");
 
     view.pointer.click(target.x, target.y);
@@ -457,7 +471,7 @@ describe("controls", () => {
   });
 
   it("picks one option of a radio group by value", async () => {
-    view = await mountCase(CORPUS.controls);
+    const view = await mountForTest(CORPUS.controls);
     const target = center(view.snapshot(), "radio-low");
 
     view.pointer.click(target.x, target.y);
@@ -467,7 +481,7 @@ describe("controls", () => {
   });
 
   it("fires the option's hook and then the group's — two questions, both answered", async () => {
-    view = await mountCase(CORPUS.controls);
+    const view = await mountForTest(CORPUS.controls);
     const target = center(view.snapshot(), "radio-low");
 
     view.pointer.click(target.x, target.y);
@@ -481,7 +495,7 @@ describe("controls", () => {
   });
 
   it("says nothing when the choice is the option already selected", async () => {
-    view = await mountCase(CORPUS.controls);
+    const view = await mountForTest(CORPUS.controls);
     const target = center(view.snapshot(), "radio-medium");
 
     view.pointer.click(target.x, target.y);
@@ -493,7 +507,7 @@ describe("controls", () => {
 
 describe("sections that enter and leave layout", () => {
   it("toggles a Collapse from its header and closes its siblings in the group", async () => {
-    view = await mountCase(CORPUS["collapse-tabs"]);
+    const view = await mountForTest(CORPUS["collapse-tabs"]);
     expect(node(view.snapshot(), "content-a").out).toBeUndefined();
     expect(node(view.snapshot(), "content-b").out).toBe("section");
 
@@ -506,7 +520,7 @@ describe("sections that enter and leave layout", () => {
   });
 
   it("swaps the panel of an exclusive-select group and moves the selected state", async () => {
-    view = await mountCase(CORPUS["collapse-tabs"]);
+    const view = await mountForTest(CORPUS["collapse-tabs"]);
     const target = center(view.snapshot(), "tab-0");
 
     view.pointer.click(target.x, target.y);
@@ -518,7 +532,7 @@ describe("sections that enter and leave layout", () => {
   });
 
   it("prunes a statically invisible node, but keeps a bound one addressable", async () => {
-    view = await mountCase(CORPUS.bindings);
+    const view = await mountForTest(CORPUS.bindings);
 
     // `visible: false` in the document is pruned at build time — it is not a
     // runtime state, so there is no node to come back.
@@ -534,7 +548,7 @@ describe("sections that enter and leave layout", () => {
 
 describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   it("fires nothing when a disabled control is clicked", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     const target = center(view.snapshot(), "off");
 
     view.pointer.click(target.x, target.y);
@@ -544,7 +558,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("leaves the navigation: the arrows walk past it", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     expect(view.snapshot().focus).toBe("live");
 
     // `off` sits directly under `live`, and the disabled section under that: the
@@ -556,7 +570,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("never hovers, so a mouse and a pad see the same dead control", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     const target = center(view.snapshot(), "off");
 
     view.pointer.move(target.x, target.y);
@@ -566,7 +580,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("inherits: a control inside a disabled section does not answer either", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     const toggle = center(view.snapshot(), "section-toggle");
     expect(states(view.snapshot(), "section-toggle")).toContain("disabled");
     expect(states(view.snapshot(), "section-toggle")).toContain("checked");
@@ -580,7 +594,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("does not drag the Slider of a disabled section", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     const track = node(view.snapshot(), "section-slider").rect;
     if (!track) throw new Error("the slider is out of layout");
     const before = node(view.snapshot(), "section-slider").value;
@@ -593,7 +607,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("does not toggle a disabled Collapse from its header", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     const header = center(view.snapshot(), "collapse-header");
     expect(node(view.snapshot(), "collapse-body").out).toBe("section");
 
@@ -603,7 +617,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("keeps a disabled section READABLE: its ScrollView still scrolls", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     const target = center(view.snapshot(), "readable");
     const max = node(view.snapshot(), "readable").scroll?.maxY ?? 0;
     expect(max).toBeGreaterThan(0);
@@ -618,7 +632,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("comes back to life when the data says so, controls included", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     expect(states(view.snapshot(), "section-toggle")).toContain("disabled");
 
     view.handle.setData("settings.custom", false);
@@ -632,7 +646,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("releases the focus of a control the game disables under it", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
     view.handle.setData("settings.custom", false);
     const field = center(view.snapshot(), "section-field");
     view.pointer.click(field.x, field.y);
@@ -646,7 +660,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
   });
 
   it("carries the state on nodes that are not focusable at all", async () => {
-    view = await mountCase(CORPUS.disabled);
+    const view = await mountForTest(CORPUS.disabled);
 
     // What makes "disable the section" a real statement: the labels dim with it.
     expect(states(view.snapshot(), "section-label")).toContain("disabled");
@@ -657,7 +671,7 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
 
 describe("the data channel", () => {
   it("re-measures and re-lays out a bound Text when the data moves", async () => {
-    view = await mountCase(CORPUS.bindings);
+    const view = await mountForTest(CORPUS.bindings);
     const before = node(view.snapshot(), "bound-text");
 
     view.handle.setData("player.gold", 999_999);
@@ -670,7 +684,7 @@ describe("the data channel", () => {
   it("keeps the slot and the gaps when a bound Text empties (ZAB-65)", async () => {
     // A literal "" loads too — the empty string is content, so the reader hands
     // over four children and the row is spaced for four (decision 2026-08-17).
-    view = await mountGolden(
+    const view = await mountEnvelope(
       {
         v: 1,
         tokens: {},
@@ -715,7 +729,7 @@ describe("the data channel", () => {
   });
 
   it("never reports a setData back to the game as a change", async () => {
-    view = await mountCase(CORPUS.bindings);
+    const view = await mountForTest(CORPUS.bindings);
 
     view.handle.setData("settings.sound", false);
 
@@ -727,7 +741,7 @@ describe("the data channel", () => {
 
 describe("repeated items", () => {
   it("realizes only the window the scroller can show, over the full reserved space", async () => {
-    view = await mountCase(CORPUS.repeat);
+    const view = await mountForTest(CORPUS.repeat);
     const list = node(view.snapshot(), "inventory");
 
     expect(list.window?.count).toBeLessThan(12);
@@ -737,7 +751,7 @@ describe("repeated items", () => {
   });
 
   it("moves the window as the list scrolls, asking for the frame that does it", async () => {
-    view = await mountCase(CORPUS.repeat);
+    const view = await mountForTest(CORPUS.repeat);
     const target = center(view.snapshot(), "list-scroller");
 
     view.pointer.wheel(target.x, target.y, 0, 200);
@@ -752,7 +766,7 @@ describe("repeated items", () => {
   });
 
   it("says WHICH item an action fired from", async () => {
-    view = await mountCase(CORPUS.repeat);
+    const view = await mountForTest(CORPUS.repeat);
     // The second row: its instance is addressed by path, since every instance
     // wears the id of the template it came from.
     const target = center(view.snapshot(), "0.0.1");
@@ -765,7 +779,7 @@ describe("repeated items", () => {
   });
 
   it("shows the empty-state slot when the bound array is not there at all", async () => {
-    view = await mountCase(CORPUS.repeat);
+    const view = await mountForTest(CORPUS.repeat);
 
     expect(node(view.snapshot(), "nothing-yet").out).toBeUndefined();
     // The template is not a node: `children[0]` of a Repeat is only ever built as
@@ -776,7 +790,7 @@ describe("repeated items", () => {
 
 describe("text fields", () => {
   it("types into the focused field and reports every edit", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const target = center(view.snapshot(), "search");
 
     view.pointer.click(target.x, target.y);
@@ -789,7 +803,7 @@ describe("text fields", () => {
   });
 
   it("bounds what the player can type with maxLength", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const target = center(view.snapshot(), "name");
 
     view.pointer.click(target.x, target.y);
@@ -801,7 +815,7 @@ describe("text fields", () => {
   });
 
   it("submits on Enter", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const target = center(view.snapshot(), "name");
 
     view.pointer.click(target.x, target.y);
@@ -811,7 +825,7 @@ describe("text fields", () => {
   });
 
   it("places the caret where the pointer landed", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const field = node(view.snapshot(), "name").rect;
     if (!field) throw new Error("the field is not in layout");
 
@@ -822,7 +836,7 @@ describe("text fields", () => {
   });
 
   it("writes a field inside a Repeat into the item's own slot", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     // The second guest: instances wear the template's id, so the ref is its path.
     const target = center(view.snapshot(), "4.1");
 
@@ -839,7 +853,7 @@ describe("text fields", () => {
   });
 
   it("says WHICH item a submit came from", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const target = center(view.snapshot(), "4.0");
 
     view.pointer.click(target.x, target.y);
@@ -851,7 +865,7 @@ describe("text fields", () => {
   });
 
   it("keeps the game out of it until a composition settles", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const target = center(view.snapshot(), "search");
 
     view.pointer.click(target.x, target.y);
@@ -876,7 +890,7 @@ describe("text fields", () => {
  */
 describe("hot reload", () => {
   it("drops an IME composition the reload interrupted", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const target = center(view.snapshot(), "search");
     view.pointer.click(target.x, target.y);
     view.compose.start();
@@ -893,7 +907,7 @@ describe("hot reload", () => {
   });
 
   it("hands the keyboard back, so the field is not still holding it", async () => {
-    view = await mountCase(CORPUS.textinput);
+    const view = await mountForTest(CORPUS.textinput);
     const target = center(view.snapshot(), "search");
     view.pointer.click(target.x, target.y);
 
@@ -907,7 +921,7 @@ describe("hot reload", () => {
 
 describe("transitions", () => {
   it("interpolates between the endpoints instead of snapping", async () => {
-    view = await mountCase(CORPUS.transitions);
+    const view = await mountForTest(CORPUS.transitions);
     const target = center(view.snapshot(), "tweened");
     const idle = node(view.snapshot(), "tweened").style?.background;
 
@@ -925,7 +939,7 @@ describe("transitions", () => {
   });
 
   it("snaps a node that declares no transition", async () => {
-    view = await mountCase(CORPUS.transitions);
+    const view = await mountForTest(CORPUS.transitions);
     const target = center(view.snapshot(), "instant");
 
     view.pointer.move(target.x, target.y);
@@ -934,7 +948,7 @@ describe("transitions", () => {
   });
 
   it("tweens a ProgressBar's fraction, never its rect", async () => {
-    view = await mountCase(CORPUS.transitions);
+    const view = await mountForTest(CORPUS.transitions);
 
     view.handle.setData("job.progress", 1);
     view.advance(200);
@@ -1060,7 +1074,7 @@ function ownLook(name: string): Record<string, unknown> {
 }
 
 async function mountRecycling(count: number): Promise<GoldenView> {
-  const mounted = await mountGolden(RECYCLING, { data: { "shop.items": catalogue(count) } });
+  const mounted = await mountEnvelope(RECYCLING, { data: { "shop.items": catalogue(count) } });
   // The second frame windows the rows the first one measured; the clock then runs
   // past the longest duration, so nothing is left in flight from the mount.
   mounted.settle();
@@ -1071,7 +1085,7 @@ async function mountRecycling(count: number): Promise<GoldenView> {
 describe("repeat recycling × transitions", () => {
   it("settles a reused instance on the element it now shows, subtree included", async () => {
     const mounted = await mountRecycling(4);
-    view = mounted;
+    const view = mounted;
     // Same keys reversed, and every element's own flags flipped: each instance
     // travels with its item to another index — the rescope — and lands on data
     // that really did move. What it must NOT do is slide there from the row it
@@ -1098,7 +1112,7 @@ describe("repeat recycling × transitions", () => {
 
   it("keeps animating when it is the item's OWN data that changed", async () => {
     const mounted = await mountRecycling(4);
-    view = mounted;
+    const view = mounted;
     // No instance moves — the array keeps its order and its keys — so this is a
     // value change on the row that is already showing that element, and the CSS
     // model applies: it tweens (decision 2026-08-11 §4).
@@ -1121,7 +1135,7 @@ describe("repeat recycling × transitions", () => {
 
   it("shows the rows a scroll brought in with their own values, from the first frame", async () => {
     const mounted = await mountRecycling(30);
-    view = mounted;
+    const view = mounted;
     const target = center(mounted.snapshot(), "scroller");
 
     // Several viewports in one gesture: the window is computed from the previous
@@ -1198,7 +1212,7 @@ const VIRTUAL_FOCUS = {
 const ROW_BUTTON = (index: number) => `1.0.${index}.1`;
 
 async function mountVirtualFocus(): Promise<GoldenView> {
-  const mounted = await mountGolden(VIRTUAL_FOCUS, {
+  const mounted = await mountEnvelope(VIRTUAL_FOCUS, {
     data: {
       "shop.items": Array.from({ length: 30 }, (_, i) => ({ id: `id${i}`, name: `item ${i}` })),
     },
@@ -1218,7 +1232,7 @@ function wheelList(mounted: GoldenView, delta: number): void {
 describe("focus on a virtualized row (ZAB-70)", () => {
   it("does not hand the focus to the view's autofocus when the row leaves the window", async () => {
     const mounted = await mountVirtualFocus();
-    view = mounted;
+    const view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(0));
     mounted.pointer.click(target.x, target.y);
     expect(mounted.snapshot().focus).toBe(ROW_BUTTON(0));
@@ -1235,7 +1249,7 @@ describe("focus on a virtualized row (ZAB-70)", () => {
 
   it("gives it back to the same item when the row is realized again", async () => {
     const mounted = await mountVirtualFocus();
-    view = mounted;
+    const view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(1));
     mounted.pointer.click(target.x, target.y);
     const name = node(mounted.snapshot(), "1.0.1.0").text?.lines[0]?.text;
@@ -1252,7 +1266,7 @@ describe("focus on a virtualized row (ZAB-70)", () => {
 
   it("keeps the right stick scrolling the list the focus was in", async () => {
     const mounted = await mountVirtualFocus();
-    view = mounted;
+    const view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(0));
     mounted.pointer.click(target.x, target.y);
     const pad = mounted.connectGamepad();
@@ -1270,7 +1284,7 @@ describe("focus on a virtualized row (ZAB-70)", () => {
 
   it("starts the walk again from `autofocus` when the player presses a direction", async () => {
     const mounted = await mountVirtualFocus();
-    view = mounted;
+    const view = mounted;
     const target = center(mounted.snapshot(), ROW_BUTTON(0));
     mounted.pointer.click(target.x, target.y);
     wheelList(mounted, 600);
@@ -1306,9 +1320,9 @@ const TWO_BUTTONS = {
 
 describe("two views mounted on one page (ZAB-70)", () => {
   it("gives the keyboard to the view the player last touched, and to it alone", async () => {
-    const first = await mountGolden(TWO_BUTTONS);
-    view = first;
-    const second = await mountGolden(TWO_BUTTONS, { share: first });
+    const first = await mountEnvelope(TWO_BUTTONS);
+    const view = first;
+    const second = await mountEnvelope(TWO_BUTTONS, { share: first });
     try {
       expect(first.snapshot().focus).toBe("a");
       expect(second.snapshot().focus).toBe("a");
@@ -1331,9 +1345,9 @@ describe("two views mounted on one page (ZAB-70)", () => {
   });
 
   it("lets exactly one view poll the pad, and hands it over with the keyboard", async () => {
-    const first = await mountGolden(TWO_BUTTONS);
-    view = first;
-    const second = await mountGolden(TWO_BUTTONS, { share: first });
+    const first = await mountEnvelope(TWO_BUTTONS);
+    const view = first;
+    const second = await mountEnvelope(TWO_BUTTONS, { share: first });
     try {
       const pad = first.connectGamepad();
 
@@ -1372,19 +1386,19 @@ describe("text size (ZAB-69)", () => {
     // then throws "out of WASM memory" — from the measure pass, inside render(),
     // called from an event handler with nobody to catch it. The clamp is what
     // stands between an author's animated token and a dead view.
-    const runaway = await mountGolden(label(20_000));
+    const runaway = await mountEnvelope(label(20_000));
     const rect = node(runaway.snapshot(), "big").rect;
     const warnings = [...runaway.warnings];
     runaway.dispose();
 
     // Laid out at the ceiling — the same view as if 512 had been declared.
-    view = await mountGolden(label(512));
+    const view = await mountEnvelope(label(512));
     expect(rect).toEqual(node(view.snapshot(), "big").rect);
     expect(warnings).toEqual([]);
   });
 
   it("wraps a Text once and reuses the lines while nothing about it changes", async () => {
-    view = await mountGolden(label(16, "una etiqueta que no cambia"));
+    const view = await mountEnvelope(label(16, "una etiqueta que no cambia"));
     // The wrap walks the run through the atlas; a frame that reuses the block
     // does not touch it at all.
     const advance = vi.spyOn(GlyphAtlas.prototype, "advance");
@@ -1399,7 +1413,7 @@ describe("text size (ZAB-69)", () => {
 
 describe("author errors", () => {
   it("warns once about an unknown token and paints the missing-color magenta", async () => {
-    view = await mountGolden({
+    const view = await mountEnvelope({
       v: 1,
       tokens: {},
       views: {
@@ -1430,7 +1444,7 @@ describe("author errors", () => {
    */
   it("hands the load's diagnostics to onDiagnostic instead of the console", async () => {
     const seen: Diagnostic[] = [];
-    view = await mountGolden(
+    const view = await mountEnvelope(
       {
         v: 1,
         tokens: {},
@@ -1455,7 +1469,7 @@ describe("author errors", () => {
 
   it("routes a refused hot-update through onDiagnostic, keeping the view on screen", async () => {
     const seen: Diagnostic[] = [];
-    view = await mountGolden(ENVELOPE_ONE_VIEW, {
+    const view = await mountEnvelope(ENVELOPE_ONE_VIEW, {
       onDiagnostic: (diagnostic) => seen.push(diagnostic),
     });
 
@@ -1492,7 +1506,7 @@ describe("the handle's view list", () => {
    * save — the preview's view picker among them (ZAB-72).
    */
   it("follows the envelope across a reload", async () => {
-    view = await mountGolden(ENVELOPE_ONE_VIEW);
+    const view = await mountEnvelope(ENVELOPE_ONE_VIEW);
     const { handle } = view;
     expect(handle.viewIds).toEqual(["hud"]);
 
@@ -1504,7 +1518,7 @@ describe("the handle's view list", () => {
   });
 
   it("keeps the old list when the update was refused", async () => {
-    view = await mountGolden(ENVELOPE_ONE_VIEW);
+    const view = await mountEnvelope(ENVELOPE_ONE_VIEW);
     const { handle } = view;
 
     handle.reload({ ...ENVELOPE_TWO_VIEWS, v: 99 });
@@ -1515,7 +1529,7 @@ describe("the handle's view list", () => {
 
 describe("GPU robustness (ZAB-68)", () => {
   it("submits nothing while the context is lost, and repaints when it comes back", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const before = view.drawCalls();
     expect(before).toBeGreaterThan(0);
 
@@ -1534,7 +1548,7 @@ describe("GPU robustness (ZAB-68)", () => {
   });
 
   it("keeps taking input after a restore — the tree outlived the context", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const target = center(view.snapshot(), "primary");
 
     view.loseContext();
@@ -1546,7 +1560,7 @@ describe("GPU robustness (ZAB-68)", () => {
 
   it("ignores calls on a disposed view instead of driving dead GL objects", async () => {
     const disposed = await mountCase(CORPUS["states-tokens"]);
-    view = disposed;
+    const view = disposed;
     const drawn = disposed.drawCalls();
     disposed.handle.dispose();
 
@@ -1622,7 +1636,7 @@ const GROUPS = [
 
 describe("where the canvas is (ZAB-73)", () => {
   it("re-reads the canvas rect when the page scrolls under it", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     const target = center(view.snapshot(), "primary");
     // The rect is cached — `getBoundingClientRect` flushes layout and a pointer
     // move asked for it twice — so a page that scrolls has to say so.
@@ -1637,7 +1651,7 @@ describe("where the canvas is (ZAB-73)", () => {
   });
 
   it("re-reads it when the canvas itself is resized", async () => {
-    view = await mountCase(CORPUS["states-tokens"]);
+    const view = await mountForTest(CORPUS["states-tokens"]);
     view.moveCanvas(0, -40);
     // The other way a mounted view learns it moved: it was resized. A canvas that
     // changed size has very likely changed place too.
@@ -1652,7 +1666,7 @@ describe("where the canvas is (ZAB-73)", () => {
 
 describe("nested Repeats (ZAB-31, expansion order pinned in ZAB-73)", () => {
   it("expands the inner lists the outer one just created, in the same pass", async () => {
-    view = await mountGolden(NESTED_REPEATS, { data: { "shop.groups": GROUPS } });
+    const view = await mountEnvelope(NESTED_REPEATS, { data: { "shop.groups": GROUPS } });
 
     // One frame: the inner lists must not need a SECOND one to appear, or every
     // nested list in a UI would flash empty on the frame its group arrives.
@@ -1661,7 +1675,7 @@ describe("nested Repeats (ZAB-31, expansion order pinned in ZAB-73)", () => {
   });
 
   it("follows the data when a group's items change under it", async () => {
-    view = await mountGolden(NESTED_REPEATS, { data: { "shop.groups": GROUPS } });
+    const view = await mountEnvelope(NESTED_REPEATS, { data: { "shop.groups": GROUPS } });
 
     view.handle.setData("shop.groups", [
       { id: "g1", name: "Armas", items: [{ id: "i9", name: "Daga" }] },
@@ -1738,7 +1752,7 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
     const focused = first.snapshot().focus;
     first.dispose();
 
-    view = await mountCase(CORPUS.controls);
+    const view = await mountForTest(CORPUS.controls);
 
     expect(view.snapshot().focus).toBe(focused);
     // Not just standing there: the keyboard reaches it and the writes flow.
@@ -1748,9 +1762,9 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
   });
 
   it("hands the input back to the view still standing", async () => {
-    const first = await mountGolden(TWO_BUTTONS);
-    view = first;
-    const second = await mountGolden(TWO_BUTTONS, { share: first });
+    const first = await mountEnvelope(TWO_BUTTONS);
+    const view = first;
+    const second = await mountEnvelope(TWO_BUTTONS, { share: first });
     try {
       // The owner is the first view; disposing it must not leave the page with
       // nobody listening (ZAB-70) — the survivor takes the keyboard.
@@ -1767,7 +1781,7 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
 
   it("does not run a frame the disposed view had already scheduled", async () => {
     const mounted = await mountCase(CORPUS.transitions);
-    view = mounted;
+    const view = mounted;
     // A transition in flight: there IS a frame pending when the view goes down.
     mounted.handle.setData("job.progress", 0.9);
     expect(mounted.held().frames).toBeGreaterThan(0);
@@ -1786,33 +1800,33 @@ describe("mount → dispose → mount, over and over (ZAB-74)", () => {
  */
 describe("device pixel ratio", () => {
   it("renders at the page's ratio when nothing overrides it", async () => {
-    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600 });
+    const view = await mountForTest(CORPUS["states-tokens"], { width: 800, height: 600 });
 
     // The harness's page reports dpr 1, which is what the corpus was recorded at.
     expect(view.canvasSize()).toEqual({ width: 800, height: 600 });
   });
 
   it("sizes the backing store by the forced ratio instead", async () => {
-    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 2 });
+    const view = await mountForTest(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 2 });
 
     expect(view.canvasSize()).toEqual({ width: 1600, height: 1200 });
   });
 
   it("keeps the LOGICAL size, so the same UI is laid out either way", async () => {
     // Sequentially, not side by side: each mount installs its own stand-in page.
-    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 1 });
-    const atOne = node(view.snapshot(), "primary").rect;
-    view.dispose();
+    const atOne = await mountForTest(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 1 });
+    const rectAtOne = node(atOne.snapshot(), "primary").rect;
+    atOne.dispose();
 
-    view = await mountCase(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 2 });
+    const atTwo = await mountForTest(CORPUS["states-tokens"], { width: 800, height: 600, dpr: 2 });
 
     // DPR is how many device pixels a logical one is drawn with — it is not a
     // different viewport. A rect that moved would mean layout had leaked into it.
-    expect(node(view.snapshot(), "primary").rect).toEqual(atOne);
+    expect(node(atTwo.snapshot(), "primary").rect).toEqual(rectAtOne);
   });
 
   it("survives a ratio the page could never report", async () => {
-    view = await mountCase(CORPUS["states-tokens"], { dpr: 0.5 });
+    const view = await mountForTest(CORPUS["states-tokens"], { dpr: 0.5 });
 
     expect(view.snapshot()).toBeTruthy();
   });
@@ -1821,7 +1835,7 @@ describe("device pixel ratio", () => {
 describe("onFrame", () => {
   it("reports every frame the view actually painted, with what it cost", async () => {
     const frames: Array<{ drawCalls: number; ms: number }> = [];
-    view = await mountCase(CORPUS["states-tokens"], {
+    const view = await mountForTest(CORPUS["states-tokens"], {
       onFrame: (stats) => frames.push({ drawCalls: stats.drawCalls, ms: stats.ms }),
     });
 
@@ -1832,7 +1846,7 @@ describe("onFrame", () => {
 
   it("agrees with stats(), which is the same frame read the other way", async () => {
     let last: (FrameStats & { ms: number }) | null = null;
-    view = await mountCase(CORPUS["states-tokens"], {
+    const view = await mountForTest(CORPUS["states-tokens"], {
       onFrame: (stats) => {
         last = stats;
       },
@@ -1850,7 +1864,7 @@ describe("onFrame", () => {
     // The renderer paints on demand: a still scene paints nothing at all, so a
     // caller's own rAF would be measuring the page and not the renderer.
     let painted = 0;
-    view = await mountCase(CORPUS["states-tokens"], {
+    const view = await mountForTest(CORPUS["states-tokens"], {
       onFrame: () => {
         painted++;
       },

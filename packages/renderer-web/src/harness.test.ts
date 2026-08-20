@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import { DEFAULT_FONT_BASE64 } from "./generated/font.js";
 import { type GoldenView, mountGolden } from "./harness.js";
 import { findNode } from "./snapshot.js";
@@ -20,16 +20,22 @@ const ENVELOPE = JSON.parse(
   ),
 );
 
-let view: GoldenView | null = null;
-
-afterEach(() => {
-  view?.dispose();
-  view = null;
-});
+/**
+ * Mounts for ONE test and disposes it when that test ends. A helper rather than
+ * a `let` shared through `afterEach`: the view a test works with is then a
+ * `const` the test owns, and nothing survives into the next one.
+ */
+async function mountForTest(...args: Parameters<typeof mountGolden>): Promise<GoldenView> {
+  const view = await mountGolden(...args);
+  onTestFinished(() => {
+    view.dispose();
+  });
+  return view;
+}
 
 describe("the headless rig", () => {
   it("mounts an envelope and lays it out at the golden viewport", async () => {
-    view = await mountGolden(ENVELOPE);
+    const view = await mountForTest(ENVELOPE);
     const snapshot = view.snapshot();
 
     expect(snapshot.view).toBe("flex-layout");
@@ -38,7 +44,7 @@ describe("the headless rig", () => {
   });
 
   it("measures text with the renderer's OWN rasterizer, never the fallback", async () => {
-    view = await mountGolden({
+    const view = await mountForTest({
       v: 1,
       tokens: {},
       views: { probe: { type: "Text", id: "probe", text: "Hola" } },
