@@ -99,17 +99,34 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
 
   const at = live ?? pos;
 
+  // The latest drawn position, readable from the one stable listener below —
+  // subscribing on `at` would re-attach it on every frame of a drag.
+  const atRef = useRef<PanelPos | null>(null);
+  useEffect(() => {
+    atRef.current = at;
+  });
+
   useEffect(() => {
     const reclamp = (): void => {
       const card = ref.current;
-      if (card === null || at === null) return;
+      const current = atRef.current;
+      if (card === null || current === null) return;
       const bounds = measure(card);
       if (bounds === null) return;
-      setLive(clamp(at, bounds.card, bounds.stage));
+      // A stage with no size is not a layout to clamp against — a hidden stage
+      // (and jsdom before the tests stub the rects) would pin the card to the
+      // origin and persist the accident on the next release.
+      if (bounds.stage.width === 0 || bounds.stage.height === 0) return;
+      const inside = clamp(current, bounds.card, bounds.stage);
+      if (inside.x !== current.x || inside.y !== current.y) setLive(inside);
     };
+    // On mount too, not only on resize: a persisted position was saved against
+    // another window, and restoring it verbatim can draw the card off-stage
+    // with nothing to bring it back until the window happens to resize.
+    reclamp();
     window.addEventListener("resize", reclamp);
     return () => window.removeEventListener("resize", reclamp);
-  }, [at]);
+  }, []);
 
   const release = (event: PointerEvent<HTMLElement>): void => {
     if (!dragging) return;
