@@ -3,7 +3,18 @@
  * one rule that must never break is that the zoom cannot go above 1 (ZAB-78).
  */
 
-import { bindingCount, captionParts, logicalSize, zoom } from "./selectors";
+import type { Problem } from "./problems";
+import {
+  bindingCount,
+  captionParts,
+  fatalCount,
+  hasFatal,
+  logicalSize,
+  orderedProblems,
+  problemSummary,
+  warnCount,
+  zoom,
+} from "./selectors";
 import { memoryStorage } from "./storage";
 import { createPreviewStore } from "./store";
 
@@ -111,5 +122,140 @@ describe("bindingCount", () => {
     store.getState().setFromUI("shop.items.3.fav", true);
 
     expect(bindingCount(store.getState())).toBe(2);
+  });
+});
+
+/**
+ * The one thing worth proving about the problem selectors is not what they count
+ * — it is that they count it ONCE. They are read from four places, each through
+ * a hook whose selector runs on every notification the store makes, and
+ * `recordFrame` notifies at frame rate: three scans per frame was the bug.
+ */
+describe("problemSummary", () => {
+  const fatal = (path: string): Problem => ({
+    severity: "fatal",
+    code: "unknown-type",
+    path,
+    reason: "?",
+  });
+  const warn = (path: string): Problem => ({
+    severity: "warn",
+    code: "invalid-node",
+    path,
+    reason: "repaired",
+  });
+
+  function loaded(problems: Problem[]) {
+    const store = createPreviewStore({ storage: memoryStorage() });
+    store.getState().replaceProblems(problems);
+    return store;
+  }
+
+  it("counts each severity on its own — the two are never summed", () => {
+    const state = loaded([fatal("a"), warn("b"), warn("c")]).getState();
+
+    expect(fatalCount(state)).toBe(1);
+    expect(warnCount(state)).toBe(2);
+    expect(hasFatal(state)).toBe(true);
+  });
+
+  it("scans the list once however many times it is asked", () => {
+    const problems = [fatal("a"), warn("b")];
+    const filter = vi.spyOn(problems, "filter");
+    const state = loaded(problems).getState();
+
+    fatalCount(state);
+    warnCount(state);
+    hasFatal(state);
+    orderedProblems(state);
+    fatalCount(state);
+
+    // Two calls: one per severity, inside the single summary that was kept.
+    expect(filter).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not re-scan when an unrelated field moves", () => {
+    const problems = [fatal("a")];
+    const filter = vi.spyOn(problems, "filter");
+    const store = loaded(problems);
+    hasFatal(store.getState());
+    filter.mockClear();
+
+    for (const _ of Array.from({ length: 20 })) {
+      store.getState().recordFrame({
+        frameMs: 1.9,
+        drawCalls: 4,
+        vertices: 120,
+        atlases: 1,
+        atlasBytes: 2048,
+        resolved: 0,
+        repaintOnly: true,
+        textLayouts: 0,
+        bufferGrowths: 0,
+      });
+      hasFatal(store.getState());
+    }
+
+    expect(filter).not.toHaveBeenCalled();
+  });
+
+  it("counts again once the list is replaced", () => {
+    const store = loaded([fatal("a")]);
+    expect(fatalCount(store.getState())).toBe(1);
+
+    store.getState().replaceProblems([warn("b"), warn("c")]);
+
+    expect(fatalCount(store.getState())).toBe(0);
+    expect(warnCount(store.getState())).toBe(2);
+    expect(hasFatal(store.getState())).toBe(false);
+  });
+});
+
+describe("orderedProblems", () => {
+  it("puts fatals first and keeps arrival order inside a severity", () => {
+    const store = createPreviewStore({ storage: memoryStorage() });
+    store.getState().replaceProblems([
+      { severity: "warn", code: "invalid-node", path: "first", reason: "repaired" },
+      { severity: "fatal", code: "unknown-type", path: "boom", reason: "?" },
+      { severity: "warn", code: "invalid-node", path: "second", reason: "repaired" },
+    ]);
+
+    expect(orderedProblems(store.getState()).map((problem) => problem.path)).toEqual([
+      "boom",
+      "first",
+      "second",
+    ]);
+  });
+
+  it("leaves the store's own order alone — the sort is made on a copy", () => {
+    const store = createPreviewStore({ storage: memoryStorage() });
+    store.getState().replaceProblems([
+      { severity: "warn", code: "invalid-node", path: "first", reason: "repaired" },
+      { severity: "fatal", code: "unknown-type", path: "boom", reason: "?" },
+    ]);
+
+    orderedProblems(store.getState());
+
+    expect(store.getState().problems.map((problem) => problem.path)).toEqual(["first", "boom"]);
+  });
+
+  it("is the same array until the list moves — the tab re-renders for nothing else", () => {
+    const store = createPreviewStore({ storage: memoryStorage() });
+    store.getState().replaceProblems([{ severity: "warn", code: "c", path: "p", reason: "r" }]);
+    const first = orderedProblems(store.getState());
+
+    store.getState().selectView("hud");
+
+    expect(orderedProblems(store.getState())).toBe(first);
+  });
+});
+
+/** The summary the hooks read, exposed so a component can take all three at once. */
+describe("problemSummary as a whole", () => {
+  it("hands back the same object for the same list", () => {
+    const store = createPreviewStore({ storage: memoryStorage() });
+    store.getState().replaceProblems([{ severity: "fatal", code: "c", path: "p", reason: "r" }]);
+
+    expect(problemSummary(store.getState())).toBe(problemSummary(store.getState()));
   });
 });
