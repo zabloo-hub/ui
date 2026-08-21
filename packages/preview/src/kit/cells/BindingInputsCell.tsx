@@ -15,10 +15,13 @@ import { KitCell } from "@/kit/KitCell";
  * artboard also draws a caret next to the word; a real input draws its own when
  * it really has focus, so a painted one is left out.
  *
- * The two-way row is hand-composed rather than borrowed from `BindingField`:
- * that field reads the store and starts a four-second timer to clear the mark,
- * and a kit page that quietly undressed itself four seconds after load would be
- * showing the one state it was asked to show the least.
+ * The two-way row is hand-composed rather than borrowed from `BindingField`, and
+ * that is what this cell is: the CONTROLS a field can hold, drawn as the artboard
+ * draws them, without the field around them. The real one is on the second sheet
+ * (`BindingFieldsCell`), mark and all — it gets the marked state by being handed a
+ * frozen binding, since the field starts a four-second timer to clear it and a kit
+ * page that quietly undressed itself four seconds after load would be showing the
+ * one state it was asked to show the least.
  */
 function BindingInputsCell() {
   const [gold, setGold] = useState(1250);

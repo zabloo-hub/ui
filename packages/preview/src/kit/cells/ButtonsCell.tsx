@@ -5,10 +5,11 @@ import { KitCell, KitLabel } from "@/kit/KitCell";
 /**
  * The four button variants the chrome kept, and the empty state.
  *
- * `EmptyState` is imported rather than rebuilt — it is the one composed
- * component in the chrome that is a pure function of two strings, so the kit can
- * mount the real thing without touching the store. Everything else in the panel
- * reads it, which is why nothing else here is borrowed.
+ * `EmptyState` is imported rather than rebuilt: it is a pure function of two
+ * strings, so it needs nothing around it. It was the only chrome component on
+ * this page for as long as the page could not touch the store — the rest of the
+ * panel reads it — and it stays here rather than moving to the second sheet
+ * because the artboard puts it in this cell, next to the buttons.
  */
 function ButtonsCell() {
   return (

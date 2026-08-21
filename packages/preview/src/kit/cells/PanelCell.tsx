@@ -20,11 +20,11 @@ import { KitCaption, KitCell, KitLabel } from "@/kit/KitCell";
  * indigo-soft border as well. Added here and listed in the PR as a deviation of
  * V3 — the border belongs in the variant, next to the two colours it goes with.
  *
- * The header is composed from the same Card parts `BindingsPanel` uses, not
- * mounted from it: that component reads four slices and refuses to draw at all
- * unless the panel is open and zen is off. Its content is one line of prose here
- * because the artboard's cell is about the header — the fields have their own
- * cell.
+ * The header is composed from the same Card parts `BindingsPanel` uses, which is
+ * what the artboard's cell is: the header, at rest, with one line of prose under
+ * it instead of a list — the fields have their own cell. The panel ITSELF is on
+ * the second sheet (`BindingsPanelCell`), where it can be given the container it
+ * floats in and the store it refuses to draw without.
  */
 function PanelCell() {
   return (
