@@ -27,6 +27,8 @@ const FRAME: FrameSample = {
   atlasBytes: 1024,
   resolved: 6,
   repaintOnly: false,
+  textLayouts: 0,
+  bufferGrowths: 0,
 };
 
 beforeEach(() => {
