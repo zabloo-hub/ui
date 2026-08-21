@@ -30,6 +30,13 @@ import type { PanelPos } from "@/store/layout";
 /** How far the default corner sits from the stage's top-right, in px. */
 const INSET = 14;
 
+/**
+ * Pointer travel below which a press still reads as a click, in px. Without it,
+ * one pixel of trackpad jitter during a click marks the sequence as a drag and
+ * silently swallows the grip's reset.
+ */
+const DRAG_THRESHOLD = 4;
+
 interface Size {
   width: number;
   height: number;
@@ -98,9 +105,10 @@ function measure(card: HTMLElement): Bounds | null {
 
 function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): Drag {
   const ref = useRef<HTMLDivElement | null>(null);
-  // Where inside the card the pointer went down. A field of a ref rather than
-  // state: it changes once per drag and no render depends on it.
-  const grab = useRef<PanelPos | null>(null);
+  // Where inside the card the pointer went down (`offset`) and where on the
+  // screen (`from` — what the threshold measures travel against). A field of a
+  // ref rather than state: it changes once per drag and no render depends on it.
+  const grab = useRef<{ offset: PanelPos; from: PanelPos } | null>(null);
   // Whether this sequence moved. Same reason it is a ref: nothing renders from
   // it, and it is read from a `click` handler that runs after the release.
   const moved = useRef(false);
@@ -156,8 +164,11 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
       const bounds = measure(card);
       if (bounds === null) return;
       grab.current = {
-        x: event.clientX - bounds.card.left,
-        y: event.clientY - bounds.card.top,
+        offset: {
+          x: event.clientX - bounds.card.left,
+          y: event.clientY - bounds.card.top,
+        },
+        from: { x: event.clientX, y: event.clientY },
       };
       // Optional because jsdom implements no capture at all, and the tests fire
       // their moves at the handle anyway.
@@ -168,16 +179,24 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
 
     onPointerMove: (event) => {
       const card = ref.current;
-      const offset = grab.current;
-      if (!dragging || card === null || offset === null) return;
+      const seized = grab.current;
+      if (!dragging || card === null || seized === null) return;
+      // Until the pointer has really travelled, the sequence is still a click.
+      // Once it has, it stays a drag — no flicker back inside the threshold.
+      if (
+        !moved.current &&
+        Math.hypot(event.clientX - seized.from.x, event.clientY - seized.from.y) < DRAG_THRESHOLD
+      ) {
+        return;
+      }
       const bounds = measure(card);
       if (bounds === null) return;
       moved.current = true;
       setLive(
         clamp(
           {
-            x: event.clientX - bounds.stage.left - offset.x,
-            y: event.clientY - bounds.stage.top - offset.y,
+            x: event.clientX - bounds.stage.left - seized.offset.x,
+            y: event.clientY - bounds.stage.top - seized.offset.y,
           },
           bounds.card,
           bounds.stage,
