@@ -15,6 +15,16 @@ import { cn } from "@/lib/utils";
  * a button. Anything built on top of this must treat the off state as unknown
  * rather than absent, or it will refuse to poll a pad that is sitting right there.
  *
+ * The icon is a `<button>` with no `onClick`, which is the one place this file
+ * departs from `ConnectionPill`'s rule that a pill taking a tab stop must be a
+ * control. The rule is about tab stops that reveal NOTHING — a `Live` badge that
+ * only repeats its own text — and this is the other case: the tooltip is the
+ * only place the mapping above is written down, and the trigger is the only way
+ * to reach it. Radix needs a real interactive element to open a tooltip on
+ * focus, so a keyboard user reading the pad's controls costs exactly one tab
+ * stop, which is the trade `ConnectionPill` makes too the moment its `stale`
+ * pill has a message to show.
+ *
  * The `<TooltipProvider>` is local, for the reason it is in `DprControl`: Radix
  * nests them, so this keeps working unchanged the day the shell mounts a global
  * one, and the indicator is whole on its own.

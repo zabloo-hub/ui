@@ -242,6 +242,33 @@ describe("BindingsPanel", () => {
     expect(card.style.right).toBe("14px");
   });
 
+  it("goes back to the default corner on a click of the grip, which is a button", () => {
+    useStore.getState().setPanelPos({ x: 100, y: 100 });
+    const { card, grip } = renderPanel();
+
+    expect(screen.getByRole("button", { name: "Reset panel position" })).toBe(grip);
+    fireEvent.click(grip);
+
+    expect(useStore.getState().layout.panelPos).toBeNull();
+    expect(card.style.right).toBe("14px");
+  });
+
+  /**
+   * A drag that starts on the grip ends in a `click` on it. Resetting there
+   * would throw away the move that was just made — the grip is both the drag
+   * affordance and the reset, and it has to tell the two apart.
+   */
+  it("does not reset on the click that ends a drag started from the grip", () => {
+    const { grip } = renderPanel();
+
+    fireEvent.pointerDown(grip, { pointerId: 1, button: 0, clientX: 800, clientY: 20 });
+    fireEvent.pointerMove(grip, { pointerId: 1, clientX: 400, clientY: 300 });
+    fireEvent.pointerUp(grip, { pointerId: 1, clientX: 400, clientY: 300 });
+    fireEvent.click(grip);
+
+    expect(useStore.getState().layout.panelPos).not.toBeNull();
+  });
+
   it("says so when the view declares no paths", () => {
     renderPanel();
 

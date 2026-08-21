@@ -50,7 +50,14 @@ interface Drag {
   dragging: boolean;
   /** Spread on whatever starts a drag (the header, grip included). */
   handleProps: DragHandleProps;
-  /** Back to the default corner — the grip's double click. */
+  /**
+   * Whether the pointer sequence that just ended actually moved the card. A
+   * press that turned into a drag still ends in a `click` on whatever it started
+   * on, so the grip — which is both the drag affordance and the reset button —
+   * has to be able to tell the two apart or a drag would undo itself.
+   */
+  dragged(): boolean;
+  /** Back to the default corner — the grip's click, and its double click. */
   reset(): void;
 }
 
@@ -94,6 +101,9 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
   // Where inside the card the pointer went down. A field of a ref rather than
   // state: it changes once per drag and no render depends on it.
   const grab = useRef<PanelPos | null>(null);
+  // Whether this sequence moved. Same reason it is a ref: nothing renders from
+  // it, and it is read from a `click` handler that runs after the release.
+  const moved = useRef(false);
   const [live, setLive] = useState<PanelPos | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -152,6 +162,7 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
       // Optional because jsdom implements no capture at all, and the tests fire
       // their moves at the handle anyway.
       event.currentTarget.setPointerCapture?.(event.pointerId);
+      moved.current = false;
       setDragging(true);
     },
 
@@ -161,6 +172,7 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
       if (!dragging || card === null || offset === null) return;
       const bounds = measure(card);
       if (bounds === null) return;
+      moved.current = true;
       setLive(
         clamp(
           {
@@ -182,7 +194,9 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
     style: at === null ? { top: INSET, right: INSET } : { left: at.x, top: at.y },
     dragging,
     handleProps,
+    dragged: () => moved.current,
     reset: () => {
+      moved.current = false;
       setLive(null);
       commit(null);
     },
