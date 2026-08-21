@@ -42,8 +42,9 @@ function Statusbar() {
         {CONNECTION_LABEL[connection]}
       </span>
       <ProblemSummary />
+      {/* Mono, but the same grey as the words beside it — see `Fps`. */}
       {name !== null && (
-        <span data-slot="envelope-name" className="font-mono text-code text-faint">
+        <span data-slot="envelope-name" className="font-mono text-code">
           {name}
         </span>
       )}
@@ -86,6 +87,14 @@ function ProblemSummary() {
  * touching reports no frames and that is the system working. It prints as `idle`
  * and drops the frame time with it, which would otherwise be a stale number from
  * whenever the last frame happened to be.
+ *
+ * It inherits the statusbar's `muted`, like the envelope name (ZAB-101). Both
+ * used to be `faint`, which is the token for the log's timestamps and the panel's
+ * grip — `#d4d4d8` on the `#fafafa` footer, about 1.4:1, a reading you had to
+ * lean in for. The artboard paints these two one step lighter than the words
+ * beside them and not two, but that step (`#a1a1aa`) is a grey the handoff's
+ * token table never names, and everything else the mockup draws in it is already
+ * `muted` here. Landing on `muted` is the reading the rest of the chrome makes.
  */
 function Fps() {
   const fps = useStore((state) => state.stats.fps);
@@ -93,9 +102,7 @@ function Fps() {
   const ms = last === null ? "" : ` · ${last.frameMs.toFixed(1)} ms`;
 
   return (
-    <span className="ml-auto font-mono text-code text-faint">
-      {fps === 0 ? "idle" : `${fps} fps${ms}`}
-    </span>
+    <span className="ml-auto font-mono text-code">{fps === 0 ? "idle" : `${fps} fps${ms}`}</span>
   );
 }
 
