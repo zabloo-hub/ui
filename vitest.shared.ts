@@ -25,4 +25,11 @@ export default defineConfig({
       { find: /^@zabloo\/renderer-web$/, replacement: src("renderer-web") },
     ],
   },
+  // Vitest's 5s default is not a budget for the work a test does — it is that
+  // work plus whatever the other workers are doing on the same machine. The
+  // renderer's suite mounts and disposes real views by the hundred, and under
+  // load a different handful of them goes amber on every run while every one of
+  // them passes alone. Raised rather than worked around per test, because a
+  // timeout is only there to catch a HUNG test and none of these is one (ZAB-105).
+  test: { testTimeout: 20_000 },
 });
