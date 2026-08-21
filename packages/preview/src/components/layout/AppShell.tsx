@@ -28,9 +28,10 @@ import { useStore } from "@/store";
  * down with it and cost a full reload of the scene — so it keeps its slot in a
  * static children list and only its siblings come and go.
  *
- * Two selectors rather than `useLayout()`: the slice also holds the panel's
- * position, and V14 writes that on every frame of a drag — through the slice
- * hook, the whole chrome would re-render along with it.
+ * Two selectors rather than `useLayout()`: this is the chrome's root, and the
+ * slice also carries writes that are none of its business — the panel position a
+ * drag commits on release, the console toggle. Through the slice hook, every one
+ * of them would re-render the whole shell.
  */
 function AppShell() {
   const zen = useStore((state) => state.layout.zen);

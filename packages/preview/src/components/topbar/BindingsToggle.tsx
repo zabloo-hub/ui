@@ -9,9 +9,10 @@ import { useStore } from "@/store";
  * The glyph is text and not lucide's `Braces` for the reason `ui/toggle.tsx`
  * gives — at 11px a stroked icon next to a 12px label goes muddy.
  *
- * Two narrow selectors instead of `useLayout()`: the layout slice also holds the
- * panel's position, and V14 writes that on every frame of a drag — through the
- * slice hook this button would re-render along with it.
+ * Two narrow selectors instead of `useLayout()`: the layout slice also holds
+ * writes that are none of this button's business — the panel position a drag
+ * commits on release, the console toggle — and through the slice hook it would
+ * re-render on every one of them.
  */
 function BindingsToggle() {
   const panelOpen = useStore((state) => state.layout.panelOpen);

@@ -26,10 +26,9 @@ import { Separator } from "@/components/ui";
  *
  * The three controls of V8 and V9 arrive through `display: contents` wrappers.
  * They are the handle this bar's tests address the slots by — neither picker
- * carries a `data-slot` of its own and both belong to other tickets — and
- * `contents` is what keeps the wrapper from being a flex item: `ViewSelector` is
- * still a placeholder that renders nothing, and an empty box between two
- * controls would eat one of the 8px gaps until V8 lands.
+ * carries a `data-slot` of its own — and `contents` is what keeps each wrapper
+ * from being a flex item of its own: the bar's gap applies to the controls
+ * inside, not to the box around them.
  */
 function Topbar() {
   return (
