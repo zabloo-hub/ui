@@ -415,7 +415,9 @@ async function servePreview() {
     const served = await fetch(new URL("/envelope", url)).catch(() => null);
     expect(served?.status === 200, "/envelope serves the golden envelope");
     expect(
-      served?.headers.get("x-zabloo-envelope-name") === envelope,
+      // Encoded on the wire since the handler hardening: a header is Latin-1 and
+      // the name is user data. The chrome decodes it (`decodeEnvelopeName`).
+      decodeURIComponent(served?.headers.get("x-zabloo-envelope-name") ?? "") === envelope,
       "/envelope names the file it was pointed at",
     );
   } finally {
