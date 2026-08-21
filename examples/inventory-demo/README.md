@@ -34,7 +34,7 @@ and data decides how many nodes there are, not just what they say.
 
 ## Driving it
 
-Paste into the preview's console (or the data panel, as JSON):
+Paste into the browser console (or into the bindings panel's JSON editor):
 
 ```js
 zabloo.setData("shop.items", Array.from({ length: 400 }, (_, i) => ({

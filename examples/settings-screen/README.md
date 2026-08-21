@@ -12,9 +12,9 @@ pnpm --filter settings-screen-example build   # dist/zabloo.ir.json — the IR i
 
 ## What it demonstrates
 
-- **Every control is bound**, so the preview's data panel plays the part of the game: type
-  a value there and the screen moves; move the screen and the field updates (which is the
-  game's `onDataChanged`). No control invents its own event.
+- **Every control is bound**, so the preview's bindings panel plays the part of the game:
+  type a value there and the screen moves; move the screen and the field updates with a
+  `← UI` chip on it (which is the game's `onDataChanged`). No control invents its own event.
 - **Tabs relayout.** The unselected panels *leave* the layout — the same flag `Collapse`
   uses — so switching tabs re-runs the Flexbox pass and the screen recenters on the panel
   now showing.
@@ -35,7 +35,7 @@ Enter/Space/A to activate, Escape/B to close the dropdown — and with the mouse
 
 ## Driving it
 
-Paste into the preview's console:
+Paste into the browser console:
 
 ```js
 zabloo.setData("settings.quality", "High")
