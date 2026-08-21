@@ -60,6 +60,12 @@ interface PreviewOptions {
    * SSH tunnel with a name, `ngrok`. `"*"` turns the guard off entirely.
    */
   allowedHosts?: readonly string[];
+  /**
+   * Where the built chrome lives — for the tests, which point it at an empty
+   * directory to exercise the unbuilt-tree answer end to end. Everything else
+   * lets the resolver walk the real candidates.
+   */
+  bundleDir?: string;
 }
 
 /**
@@ -128,7 +134,34 @@ async function startPreviewServer(
     failure: null,
   };
 
-  const handler: RequestListener = async (req, res) => {
+  // Resolved once and kept: the answer cannot change while the process lives,
+  // and the two `access()` calls per page/asset request added up. The PROMISE is
+  // what is cached, not the value — two concurrent first requests (the page and
+  // its bundle) must share one resolution, or the second reads the slot before
+  // the first has filled it.
+  const bundle: { dir: Promise<string | null> | null } = { dir: null };
+  function chromeDir(): Promise<string | null> {
+    bundle.dir ??= previewBundlePath(options.bundleDir);
+    return bundle.dir;
+  }
+
+  const handler: RequestListener = (req, res) => {
+    // `route` is async and Node does not await a request listener: without this
+    // boundary, any throw inside a route is an unhandled rejection that takes
+    // down the whole dev loop — server, watcher, everything. Answer if the
+    // headers are still ours to write; end the stream either way.
+    void route(req, res).catch((error: unknown) => {
+      if (!res.headersSent) {
+        res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      }
+      res.end(`zabloo preview: ${error instanceof Error ? error.message : String(error)}\n`);
+    });
+  };
+
+  const route = async (
+    req: Parameters<RequestListener>[0],
+    res: Parameters<RequestListener>[1],
+  ): Promise<void> => {
     const url = req.url ?? "/";
     if (!hostAllowed(req.headers.host, allowedHosts)) {
       res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
@@ -141,6 +174,12 @@ async function startPreviewServer(
     }
     const path = pathOf(url);
     if (PAGE_PATHS.has(path)) {
+      const dist = await chromeDir();
+      if (dist === null) {
+        res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+        res.end(`${PREVIEW_NOT_BUILT}\n`);
+        return;
+      }
       // `no-cache` and not `no-store`: the file is revalidated on every load — it
       // names the hashed bundle, and a stale copy would point at an asset that a
       // rebuild has already renamed — but a 304 is still allowed to answer.
@@ -148,9 +187,15 @@ async function startPreviewServer(
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-cache",
       });
-      res.end(await readFile(join(await previewBundlePath(), "index.html")));
+      res.end(await readFile(join(dist, "index.html")));
     } else if (path.startsWith("/assets/")) {
-      await serveAsset(res, await previewBundlePath(), path);
+      const dist = await chromeDir();
+      if (dist === null) {
+        res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
+        res.end(`${PREVIEW_NOT_BUILT}\n`);
+        return;
+      }
+      await serveAsset(res, dist, path);
     } else if (path === "/envelope") {
       if (served.thin === null) {
         res.writeHead(503);
@@ -162,7 +207,13 @@ async function startPreviewServer(
           // (ZAB-99). Omitted rather than guessed when nobody said: the page has
           // its own fallback, and inventing a name here would key someone's
           // remembered view to a file that does not exist.
-          ...(served.name === null ? {} : { "x-zabloo-envelope-name": served.name }),
+          // Encoded: a header value is Latin-1 on the wire and the name is user
+          // data — `zabloo preview ゲーム/build.json` would make `writeHead`
+          // throw right here otherwise, and accents would arrive mojibake. The
+          // chrome decodes it back (`decodeEnvelopeName`).
+          ...(served.name === null
+            ? {}
+            : { "x-zabloo-envelope-name": encodeURIComponent(served.name) }),
         });
         res.end(served.thin);
       }
@@ -391,17 +442,27 @@ async function serveAsset(res: ServerResponse, bundle: string, path: string): Pr
  * own build. Bundled it sits beside `cli.js` in `dist/preview`; running from `src`
  * (the tests) it is one directory over, in the `dist/` of the same package.
  */
-async function previewBundlePath(): Promise<string> {
-  const candidates = ["./preview/", "../dist/preview/"];
-  for (const candidate of candidates) {
-    const path = fileURLToPath(new URL(candidate, import.meta.url));
+async function previewBundlePath(override?: string): Promise<string | null> {
+  const candidates =
+    override === undefined
+      ? ["./preview/", "../dist/preview/"].map((candidate) =>
+          fileURLToPath(new URL(candidate, import.meta.url)),
+        )
+      : [override];
+  for (const path of candidates) {
     try {
       await access(join(path, "index.html"));
       return path;
     } catch {}
   }
-  throw new Error("zabloo dev: preview UI not built — run `pnpm build` in @zabloo/cli");
+  // `null`, not a throw: the caller is inside the request handler, and the
+  // message belongs in a 503 the browser can show — not in a stack trace on a
+  // terminal nobody is watching.
+  return null;
 }
+
+/** What every page and asset request answers while the chrome is not built. */
+const PREVIEW_NOT_BUILT = "zabloo dev: preview UI not built — run `pnpm build` in @zabloo/cli";
 
 export type { PreviewEvent, PreviewOptions, PreviewServer };
 export { hostAllowed, hostnameOf, startPreviewServer };

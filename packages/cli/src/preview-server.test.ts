@@ -1,5 +1,7 @@
 import { request } from "node:http";
 import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Envelope } from "@zabloo/format";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -31,8 +33,11 @@ afterEach(async () => {
 });
 
 /** Port 0 by default: the OS picks a free one, so tests never fight over 5078. */
-async function start(port = 0): Promise<PreviewServer> {
-  const server = await startPreviewServer(port);
+async function start(
+  port = 0,
+  options?: Parameters<typeof startPreviewServer>[1],
+): Promise<PreviewServer> {
+  const server = await startPreviewServer(port, options);
   started.push(server);
   return server;
 }
@@ -136,13 +141,30 @@ describe("preview server", () => {
   // Which file is on screen — the statusbar prints it and the page keys its
   // remembered view by it (ZAB-99). The page has a fallback, so the interesting
   // half is that a server nobody named does not invent one.
-  it("names the envelope it is serving", async () => {
+  it("names the envelope it is serving — encoded, because a header is Latin-1", async () => {
     const server = await start();
     server.setEnvelope(ENVELOPE, "dist/zabloo.ir.json");
 
     const res = await fetch(`${server.url}envelope`);
 
-    expect(res.headers.get("x-zabloo-envelope-name")).toBe("dist/zabloo.ir.json");
+    expect(res.headers.get("x-zabloo-envelope-name")).toBe(
+      encodeURIComponent("dist/zabloo.ir.json"),
+    );
+  });
+
+  it("survives a name a header could not carry raw — the path is user data", async () => {
+    // `zabloo preview ゲーム/build.json` used to make `writeHead` throw
+    // ERR_INVALID_CHAR on the first `/envelope` fetch — and the handler being
+    // async and unawaited, that throw killed the whole dev loop.
+    const server = await start();
+    server.setEnvelope(ENVELOPE, "ゲーム/build.json");
+
+    const res = await fetch(`${server.url}envelope`);
+
+    expect(res.status).toBe(200);
+    expect(decodeURIComponent(res.headers.get("x-zabloo-envelope-name") ?? "")).toBe(
+      "ゲーム/build.json",
+    );
   });
 
   it("sends no name when it was not told one", async () => {
@@ -162,6 +184,17 @@ describe("preview server", () => {
  * gets a message that says exactly that.
  */
 describe("the preview UI", () => {
+  it("answers 503 with the build instruction when the chrome is not built", async () => {
+    // The resolver returning null must become a response the browser can show,
+    // not a throw inside the handler — which, unawaited, would kill the server.
+    const server = await start(0, { bundleDir: join(tmpdir(), "zabloo-never-built") });
+
+    const res = await fetch(server.url);
+
+    expect(res.status).toBe(503);
+    expect(await res.text()).toContain("preview UI not built");
+  });
+
   it("serves the chrome at the root, revalidated on every load", async () => {
     const server = await start();
 

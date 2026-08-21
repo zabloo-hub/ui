@@ -16,7 +16,7 @@
 
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import * as React from "react";
+import { useState } from "react";
 import { coerceTyped } from "@/bridge";
 import { NumberEditor } from "./NumberEditor";
 
@@ -36,7 +36,7 @@ const text = () => screen.queryByRole("textbox");
  * into `8` halfway through a word.
  */
 function Held({ initial, seen }: { initial: unknown; seen?: unknown[] }) {
-  const [value, setValue] = React.useState<unknown>(initial);
+  const [value, setValue] = useState<unknown>(initial);
 
   return (
     <NumberEditor

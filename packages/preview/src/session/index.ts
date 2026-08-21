@@ -10,6 +10,7 @@
 export {
   actionLine,
   DEFAULT_ENVELOPE_NAME,
+  decodeEnvelopeName,
   dprOf,
   NAME_HEADER,
   problemOf,

@@ -5,7 +5,15 @@
  */
 
 import type { Diagnostic } from "@zabloo/format";
-import { actionLine, dprOf, problemOf, viewLine, viewOf, writeLine } from "@/session";
+import {
+  actionLine,
+  decodeEnvelopeName,
+  dprOf,
+  problemOf,
+  viewLine,
+  viewOf,
+  writeLine,
+} from "@/session";
 
 function diagnostic(overrides: Partial<Diagnostic> = {}): Diagnostic {
   return {
@@ -74,5 +82,24 @@ describe("the DPR the renderer is handed", () => {
 
   it("is the forced ratio otherwise", () => {
     expect(dprOf(2)).toBe(2);
+  });
+});
+
+describe("the envelope name off the wire", () => {
+  it("decodes what the server encoded — the header is Latin-1, the path is not", () => {
+    expect(decodeEnvelopeName(encodeURIComponent("ゲーム/build.json"))).toBe("ゲーム/build.json");
+    expect(decodeEnvelopeName(encodeURIComponent("dist/zabloo.ir.json"))).toBe(
+      "dist/zabloo.ir.json",
+    );
+  });
+
+  it("reads a value that was never encoded as itself, instead of throwing", () => {
+    // An older or hand-written server. `50%` alone is an invalid escape.
+    expect(decodeEnvelopeName("plain-name.json")).toBe("plain-name.json");
+    expect(decodeEnvelopeName("50% done.json")).toBe("50% done.json");
+  });
+
+  it("passes the absence through", () => {
+    expect(decodeEnvelopeName(null)).toBeNull();
   });
 });

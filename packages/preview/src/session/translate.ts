@@ -22,6 +22,21 @@ const DEFAULT_ENVELOPE_NAME = "zabloo.ir.json";
 /** The header V18 answers `/envelope` with. */
 const NAME_HEADER = "x-zabloo-envelope-name";
 
+/**
+ * The name as the server sent it. Encoded on the wire because a header value is
+ * Latin-1 and the name is user data — a path typed by whoever ran the CLI, in
+ * whatever alphabet. Tolerant on the way back: a value that was never encoded
+ * (an older server, a hand-written one) reads as itself instead of throwing.
+ */
+function decodeEnvelopeName(header: string | null): string | null {
+  if (header === null) return null;
+  try {
+    return decodeURIComponent(header);
+  } catch {
+    return header;
+  }
+}
+
 /** A diagnostic's path when it is about one view: `views["hud"].children[2]`. */
 const VIEW_PATH = /^views\["([^"]+)"\]/;
 
@@ -78,6 +93,7 @@ function dprOf(dpr: Dpr): number | undefined {
 export {
   actionLine,
   DEFAULT_ENVELOPE_NAME,
+  decodeEnvelopeName,
   dprOf,
   NAME_HEADER,
   problemOf,

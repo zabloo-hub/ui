@@ -232,6 +232,18 @@ describe("BindingsPanel", () => {
     expect(useStore.getState().layout.panelPos).toBeNull();
   });
 
+  it("reads a press with a pixel of jitter as a click, not a reposition", () => {
+    // Trackpads move during a click. Below the threshold the sequence is still a
+    // click — so it neither commits a position nor swallows the grip's reset.
+    const { handle } = renderPanel();
+
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 800, clientY: 20 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 802, clientY: 21 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 802, clientY: 21 });
+
+    expect(useStore.getState().layout.panelPos).toBeNull();
+  });
+
   it("goes back to the default corner on a double click of the grip", () => {
     useStore.getState().setPanelPos({ x: 100, y: 100 });
     const { card, grip } = renderPanel();
