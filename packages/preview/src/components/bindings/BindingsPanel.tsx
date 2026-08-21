@@ -85,7 +85,7 @@ function BindingsPanel() {
             // Without this the close button is also the start of a drag.
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => setPanelOpen(false)}
-            className="text-muted-foreground hover:text-foreground focus-visible:outline-none"
+            className="rounded-xs text-muted-foreground hover:text-foreground focus-visible:focus-ring"
           >
             <X className="size-3.5" />
           </button>
@@ -104,7 +104,7 @@ function BindingsPanel() {
         ) : (
           order.map((path) => (
             <div key={path} data-binding-path={path}>
-              {/* V15 fills the field in; the panel owns the list and its order. */}
+              {/* The panel owns the list and its order; the field owns everything inside it. */}
               {/* `disabled` as well as the container's `pointer-events-none`:
                   that one stops the mouse, not a field the Tab key reached. */}
               <BindingField binding={byPath[path]} disabled={held} />

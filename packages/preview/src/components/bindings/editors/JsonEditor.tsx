@@ -72,7 +72,7 @@ function JsonEditor({ id, path, value, disabled, describedBy, onCommit, label }:
               aria-invalid={invalid || undefined}
               className={cn(
                 BODY,
-                "block w-full resize-y border-border border-t outline-none",
+                "block w-full resize-y border-border border-t outline-none focus-visible:focus-ring",
                 invalid && "border border-danger",
               )}
               rows={rowsOf(draft)}

@@ -100,7 +100,7 @@ function ProblemRow({ problem, onSelect }: ProblemRowProps) {
       data-slot="problem"
       data-severity={problem.severity}
       onClick={onSelect}
-      className={cn(className, "hover:text-foreground focus-visible:outline-none")}
+      className={cn(className, "rounded-xs hover:text-foreground focus-visible:focus-ring")}
     >
       {content}
     </button>
