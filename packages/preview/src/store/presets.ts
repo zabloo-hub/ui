@@ -73,10 +73,10 @@ const DEFAULT_CUSTOM: Size = { width: 1280, height: 720 };
  * How far a fixed viewport has to shrink to fit the stage. Never above 1: a 720p
  * view blown up to fill a 4K monitor would be showing you resampling, not your UI.
  *
- * Copied verbatim from `fitScale` in the CLI's `preview-client.ts` (ZAB-78) and
- * deliberately not shared yet — V5 lands the bridge that owns this logic, and
- * this store is not allowed to import from `bridge/` until it exists. When it
- * does, this function goes and the import comes in.
+ * This is the one copy. It arrived from the CLI's `preview-client.ts` (ZAB-78)
+ * ahead of the bridge existing; the bridge's own `viewport.ts` carried a second
+ * copy inside the superseded string-based viewport model and was deleted rather
+ * than adopted — the stage geometry belongs with the presets it scales.
  */
 function fitScale(
   width: number,
