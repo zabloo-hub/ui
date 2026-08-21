@@ -15,6 +15,7 @@
  *   - `workspace:*` was rewritten to a real version by pack.
  *   - a clean consumer can import every entry point, typecheck against the
  *     shipped `.d.ts`, and run the bins.
+ *   - `zabloo preview` really serves the preview chrome out of the tarball.
  *   - the end-to-end loop still works from tarballs alone: scaffold a project
  *     with `create-zabloo-app`, export it, and validate the envelope.
  *
@@ -22,7 +23,7 @@
  * scaffold + export leg, `--keep` to leave the temp directory for inspection.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -192,6 +193,28 @@ for (const entry of workspace) {
     const source = run("tar", ["-xzOf", entry.tarball, `package/${target.replace(/^\.\//, "")}`]);
     expect(source.startsWith("#!"), `bin ${command} keeps its shebang`);
   }
+
+  // The preview chrome is not a dependency — it is `@zabloo/preview`'s build
+  // output, copied into `dist/preview/` by the CLI's build (ZAB-99). Nothing in
+  // `exports` or `bin` points at it, so it is exactly the kind of file a `files`
+  // change could drop without anything failing until someone opens the page.
+  if (pkg.name === "@zabloo/cli") {
+    expect(entries.includes("package/dist/preview/index.html"), "ships the preview chrome");
+    const bundled = entries.filter((file) => file.startsWith("package/dist/preview/assets/"));
+    expect(
+      bundled.some((file) => file.endsWith(".js")) && bundled.some((file) => file.endsWith(".css")),
+      `ships the preview's hashed assets (${bundled.length} file(s))`,
+    );
+    // What index.html asks for has to BE there: the copy is recursive, but a
+    // half-copied bundle would still serve a page — a blank one.
+    const html = run("tar", ["-xzOf", entry.tarball, "package/dist/preview/index.html"]);
+    const referenced = [...html.matchAll(/(?:src|href)="\/(assets\/[^"]+)"/g)].map((m) => m[1]);
+    expect(referenced.length > 0, "the preview's index.html references its bundle");
+    expect(
+      referenced.every((file) => entries.includes(`package/dist/preview/${file}`)),
+      `every file index.html references is packed (${referenced.join(", ")})`,
+    );
+  }
 }
 
 function collectExportTargets(node, into) {
@@ -252,8 +275,9 @@ const envelope = parseEnvelope({
 });
 const node = renderToIR(createElement(Text, null, "hi"));
 
-// The CLI's preview server resolves this SPECIFIER from CJS — keep ./global
-// condition-free so require can see it too.
+// ./global is the IIFE bundle for plain <script> pages (see the renderer's
+// README). It is loaded by path as often as by specifier, so keeping the
+// condition free of import/require is what lets require.resolve see it too.
 const globalBundle = createRequire(import.meta.url).resolve("@zabloo/renderer-web/global");
 
 console.log(JSON.stringify({
@@ -332,6 +356,86 @@ expect(
   tryRun(bin("create-zabloo-app"), ["--help"]).stdout.includes("Usage"),
   "`create-zabloo-app --help` prints usage",
 );
+
+// --- the preview, actually served -----------------------------------------
+
+// Packing the chrome is half the promise; the other half is that the installed
+// bin can find it and serve it (ZAB-99). Nothing here resolves `dist/preview`
+// through node's module graph — it is located relative to `cli.js` — so a
+// tarball that carries the files and a CLI that looks in the wrong place are
+// indistinguishable until this runs.
+current.package = "zabloo preview";
+console.log("\n  the preview UI, served from the tarball");
+
+await servePreview();
+
+async function servePreview() {
+  const envelope = join(repo, "golden", "envelopes", "controls.json");
+  const server = spawn(bin("zabloo"), ["preview", envelope], {
+    cwd: consumer,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const output = [];
+  server.stdout.on("data", (chunk) => output.push(chunk.toString()));
+  server.stderr.on("data", (chunk) => output.push(chunk.toString()));
+
+  try {
+    // The URL is READ from the banner rather than assumed: the server walks
+    // forward when its port is taken, and a CI runner is exactly where something
+    // else may already hold 5078.
+    const url = await waitFor(() => /http:\/\/localhost:\d+\//.exec(output.join(""))?.[0]);
+    if (url === undefined) {
+      expect(
+        false,
+        `\`zabloo preview\` announces a URL — got: ${output.join("").trim() || "nothing"}`,
+      );
+      return;
+    }
+
+    const res = await waitFor(async () => {
+      const answer = await fetch(url).catch(() => null);
+      return answer?.ok === true ? answer : undefined;
+    });
+    if (res === undefined) {
+      expect(false, `\`zabloo preview\` answers 200 on ${url}`);
+      return;
+    }
+    expect(true, `\`zabloo preview\` answers 200 on ${url}`);
+
+    const html = await res.text();
+    expect(html.includes('<div id="root">'), "the page served is the new chrome");
+    const script = /src="(\/assets\/[^"]+\.js)"/.exec(html)?.[1];
+    expect(script !== undefined, "the page references its hashed bundle");
+    if (script !== undefined) {
+      const asset = await fetch(new URL(script, url)).catch(() => null);
+      expect(asset?.status === 200, `${script} is served (${asset?.status ?? "unreachable"})`);
+    }
+    // The envelope is what the page is FOR, and the name is what the statusbar
+    // prints — both from the same tarball, over the same server.
+    const served = await fetch(new URL("/envelope", url)).catch(() => null);
+    expect(served?.status === 200, "/envelope serves the golden envelope");
+    expect(
+      served?.headers.get("x-zabloo-envelope-name") === envelope,
+      "/envelope names the file it was pointed at",
+    );
+  } finally {
+    server.kill();
+  }
+}
+
+/**
+ * Polls `probe` until it returns something, or gives up. A poll and not a single
+ * shot because the thing being waited for is a child process binding a socket,
+ * and there is no event for "it is up" short of the banner it prints.
+ */
+async function waitFor(probe, attempts = 100, everyMs = 100) {
+  for (const _ of Array.from({ length: attempts })) {
+    const value = await probe();
+    if (value !== undefined) return value;
+    await new Promise((done) => setTimeout(done, everyMs));
+  }
+  return undefined;
+}
 
 // --- the whole loop, from tarballs only -----------------------------------
 

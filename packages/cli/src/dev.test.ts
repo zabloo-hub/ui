@@ -1,8 +1,8 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPusher, devLoop } from "./dev.js";
+import { createPusher, devLoop, projectRelative } from "./dev.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -49,5 +49,25 @@ describe("createPusher", () => {
       headers: { "content-type": "application/json" },
       body: '{"v":1}',
     });
+  });
+});
+
+// The name the page shows in its statusbar and keys its remembered view by
+// (ZAB-99) — which is why the separators are normalized: the same file in the
+// same project must not be two envelopes depending on the OS.
+describe("projectRelative", () => {
+  it("names the envelope by where it sits in the project", () => {
+    expect(
+      projectRelative(
+        join(sep, "work", "game"),
+        join(sep, "work", "game", "dist", "zabloo.ir.json"),
+      ),
+    ).toBe("dist/zabloo.ir.json");
+  });
+
+  it("keeps the absolute path for an --out that escaped the project", () => {
+    const outside = join(sep, "tmp", "elsewhere.json");
+
+    expect(projectRelative(join(sep, "work", "game"), outside)).toBe(outside);
   });
 });

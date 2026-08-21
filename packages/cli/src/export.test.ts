@@ -12,7 +12,7 @@
  * `react` and `@zabloo/react` FROM THE PROJECT so the reconciler and the user's
  * components share a single React instance. The example's link farm is exactly
  * that layout, so the export resolves what a user's project would. It does mean
- * these tests read `@zabloo/react`'s build output — like the preview-client test,
+ * these tests read `@zabloo/react`'s build output — like the preview server's,
  * they need `pnpm build` first, which CI runs before `pnpm test`.
  */
 
