@@ -192,6 +192,8 @@ function wireSession(deps: SessionDeps = {}): Wiring {
         atlasBytes: frame.atlasBytes,
         resolved: frame.resolved,
         repaintOnly: frame.repaintOnly,
+        textLayouts: frame.textLayouts,
+        bufferGrowths: frame.bufferGrowths,
       });
     },
 

@@ -15,6 +15,8 @@ const FRAME: FrameSample = {
   atlasBytes: 1048576,
   resolved: 41,
   repaintOnly: false,
+  textLayouts: 0,
+  bufferGrowths: 0,
 };
 
 /** A clock the test moves by hand — `performance.now()` is not faked by default. */
