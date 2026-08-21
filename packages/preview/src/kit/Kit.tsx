@@ -29,12 +29,11 @@ import { useKitTheme } from "@/kit/useKitTheme";
  * **It ships in the production bundle**, statically imported by `main.tsx`
  * alongside `App`, against a rule of 20 KB gzipped. What the page itself costs
  * is **8.0 KB gz** (426.86 against 418.89 with the same primitives already in).
- * Measured today it looks like 23.2, and the 15.2 in between is Radix's Tabs and
- * DropdownMenu — which are in the bundle only because of the kit while V7's view
- * selector and V11's console are still `return null`, and which are two
- * components of the chrome itself, not of its kit. Charging them here would be
- * accounting for the order the batch happens to merge in. The CSS does not move
- * either way: Tailwind scans `src/` whether or not a file is imported.
+ * That figure was measured while the kit was the only importer of Radix's Tabs
+ * and DropdownMenu; with the view selector (#79) and the console (#77) in the
+ * chrome, those are charged where they belong and the kit's marginal cost only
+ * goes down from there. The CSS does not move either way: Tailwind scans `src/`
+ * whether or not a file is imported.
  *
  * The trade a `import.meta.env.DEV` split would have made is the point as much
  * as the number: `/kit` is 8 KB of a 400 KB download, and it is what someone

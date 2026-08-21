@@ -74,7 +74,7 @@ function Console() {
             aria-expanded={consoleOpen}
             aria-label={consoleOpen ? "Collapse console" : "Expand console"}
             onClick={toggleConsole}
-            className="mx-[6px] text-muted-foreground hover:text-foreground focus-visible:outline-none"
+            className="mx-[6px] rounded-xs text-muted-foreground hover:text-foreground focus-visible:focus-ring"
           >
             <Chevron className="size-3" aria-hidden="true" />
           </button>
@@ -86,7 +86,7 @@ function Console() {
           <TabsContent value="actions">
             <ActionsTab />
           </TabsContent>
-          {/* V12 fills these in; the console owns the frame and which one shows. */}
+          {/* The console owns the frame and which one shows; each tab owns its content. */}
           <TabsContent value="problems">
             <ProblemsTab />
           </TabsContent>

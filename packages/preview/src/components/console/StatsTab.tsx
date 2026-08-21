@@ -25,7 +25,7 @@
  */
 
 import { useEffect } from "react";
-import { compact } from "@/bridge/stats";
+import { compact } from "@/bridge";
 import { cn } from "@/lib/utils";
 import { useLayout, useStats } from "@/store/hooks";
 import type { FrameSample } from "@/store/stats";

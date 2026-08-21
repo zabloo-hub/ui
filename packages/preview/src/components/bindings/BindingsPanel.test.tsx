@@ -200,6 +200,29 @@ describe("BindingsPanel", () => {
     expect(useStore.getState().layout.panelPos).toEqual({ x: 600, y: 150 });
   });
 
+  it("pulls a position persisted on another window back on stage at mount, not only on resize", () => {
+    // The rects must exist BEFORE the panel mounts — the mount-time measurement
+    // is the thing under test here, so the stub goes on the prototype instead of
+    // on the instances `renderPanel` hands back after rendering.
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      return this.hasAttribute("data-panel")
+        ? rect(0, 0, CARD.width, CARD.height)
+        : rect(0, 0, STAGE.width, STAGE.height);
+    });
+    useStore.getState().setPanelPos({ x: 1600, y: 50 });
+
+    const { card } = renderPanel();
+
+    expect(card.style.left).toBe(`${STAGE.width - CARD.width}px`);
+    expect(card.style.top).toBe("50px");
+    // Pulled on screen, not rewritten: the persisted position still belongs to
+    // the window it was dragged on — same contract as the resize pull-back.
+    expect(useStore.getState().layout.panelPos).toEqual({ x: 1600, y: 50 });
+    spy.mockRestore();
+  });
+
   it("does not move on a press that never went anywhere", () => {
     const { handle } = renderPanel();
 

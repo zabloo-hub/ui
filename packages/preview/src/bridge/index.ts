@@ -25,14 +25,5 @@ export {
   type SessionCallbacks,
   type SessionOptions,
 } from "./session.js";
-export { formatStats, fpsWindow } from "./stats.js";
+export { compact } from "./stats.js";
 export { coerce, coerceTyped, show } from "./values.js";
-export {
-  fitScale,
-  isViewportPreset,
-  parseDpr,
-  parseViewport,
-  VIEWPORT_PRESETS,
-  type Viewport,
-  type ViewportPreset,
-} from "./viewport.js";
