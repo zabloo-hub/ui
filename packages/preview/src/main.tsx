@@ -15,6 +15,8 @@ import "@/styles/globals.css";
 const root = document.getElementById("root");
 if (!root) throw new Error("preview: #root is missing from index.html");
 
-createRoot(root).render(
-  <StrictMode>{window.location.pathname === "/kit" ? <Kit /> : <App />}</StrictMode>,
-);
+// Trailing slashes stripped: the server answers `/kit/` with the same HTML, and
+// an exact match would boot the app on it instead of the kit.
+const page = window.location.pathname.replace(/\/+$/, "") || "/";
+
+createRoot(root).render(<StrictMode>{page === "/kit" ? <Kit /> : <App />}</StrictMode>);
