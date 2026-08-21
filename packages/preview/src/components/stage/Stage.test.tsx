@@ -8,7 +8,7 @@
  * asserted at all without a browser to lay anything out.
  */
 
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { DEFAULT_LAYOUT, EXPORT_FAILED, useStore } from "@/store";
 import { Stage } from "./Stage";
 
@@ -17,6 +17,7 @@ const canvas = () => document.querySelector("canvas");
 const veil = () => document.querySelector('[data-slot="stage-veil"]');
 const caption = () => document.querySelector('[data-slot="stage-caption"]');
 const box = () => document.querySelector('[data-slot="stage-box"]');
+const pill = () => document.querySelector('[data-slot="stale-pill"]');
 
 beforeEach(() => {
   useStore.setState({
@@ -121,7 +122,7 @@ describe("Stage stale veil", () => {
     render(<Stage />);
 
     expect(veil()).toBeNull();
-    expect(screen.queryByText(/Stale/)).toBeNull();
+    expect(pill()).toBeNull();
   });
 
   it("veils the last good render when the export failed", () => {
@@ -130,7 +131,9 @@ describe("Stage stale veil", () => {
     render(<Stage />);
 
     expect(veil()).toBeInTheDocument();
-    expect(screen.getByText("Stale — export failed, showing last good render")).toBeInTheDocument();
+    // What the pill SAYS is its own (`StalePill.test.tsx`); the stage decides
+    // whether there is one at all.
+    expect(pill()).toBeInTheDocument();
   });
 
   it("veils it for a fatal, whatever the connection says", () => {
@@ -148,8 +151,7 @@ describe("Stage stale veil", () => {
 
     render(<Stage />);
 
-    const pill = document.querySelector('[data-slot="stale-pill"]');
-    expect(pill?.parentElement).toBe(box());
-    expect(frame()).not.toContainElement(pill as HTMLElement);
+    expect(pill()?.parentElement).toBe(box());
+    expect(frame()).not.toContainElement(pill() as HTMLElement);
   });
 });
