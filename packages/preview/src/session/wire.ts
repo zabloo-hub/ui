@@ -28,6 +28,7 @@ import { type Dpr, EXPORT_FAILED, type PreviewState, type Problem, useStore } fr
 import {
   actionLine,
   DEFAULT_ENVELOPE_NAME,
+  decodeEnvelopeName,
   dprOf,
   NAME_HEADER,
   problemOf,
@@ -121,7 +122,7 @@ function wireSession(deps: SessionDeps = {}): Wiring {
   async function fetchEnvelope(): Promise<Envelope | null> {
     const res = await http(ENVELOPE_URL);
     if (!res.ok) return null;
-    state().setIdentity(res.headers.get(NAME_HEADER) ?? DEFAULT_ENVELOPE_NAME);
+    state().setIdentity(decodeEnvelopeName(res.headers.get(NAME_HEADER)) ?? DEFAULT_ENVELOPE_NAME);
     return (await res.json()) as Envelope;
   }
 
