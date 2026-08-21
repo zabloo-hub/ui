@@ -1,6 +1,4 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src"],
-  "//": "The preview page's code is browser code — it is typechecked by tsconfig.browser.json, with the DOM lib.",
-  "exclude": ["src/preview-client.ts", "src/preview-client.test.ts"]
+  "include": ["src"]
 }

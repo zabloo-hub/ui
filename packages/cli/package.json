@@ -40,8 +40,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/cli.ts --format esm --clean --sourcemap && tsup src/preview-client.ts --format esm --platform browser --sourcemap",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.browser.json",
+    "build": "tsup src/cli.ts --format esm --clean --sourcemap && node scripts/copy-preview.mjs",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
@@ -51,6 +51,6 @@
     "jiti": "^2.7.0"
   },
   "devDependencies": {
-    "jsdom": "^28.1.0"
+    "@zabloo/preview": "workspace:*"
   }
 }

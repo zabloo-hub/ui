@@ -1,8 +1,0 @@
-{
-  "//": "The preview page's code runs in a browser, not in Node: it needs the DOM lib, and the CLI's own sources must NOT have it. Hence a second project instead of widening tsconfig.json.",
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
-  },
-  "include": ["src/preview-client.ts", "src/preview-client.test.ts"]
-}
