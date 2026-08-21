@@ -49,10 +49,33 @@ function viewOf(path: string): string | undefined {
   return VIEW_PATH.exec(path)?.[1];
 }
 
+/** How `@zabloo/format` frames a detail into a message: `IR envelope: <path> — <detail>`. */
+const MESSAGE_PREFIX = "IR envelope: ";
+
+/**
+ * The reason alone, with the frame the validator wraps around it taken back off.
+ *
+ * A `Diagnostic.message` is built to stand on its own on a terminal line, so it
+ * repeats the path the diagnostic already carries in a field of its own. The
+ * Problems row prints `[code] path — reason` in three parts (the artboard's
+ * format), so handing it the whole message printed the path TWICE on every row,
+ * plus a prefix addressed to a console (ZAB-101). Only the real frame is
+ * stripped: a message shaped any other way is passed through untouched, so the
+ * day `format` rewords it the tab degrades to verbose rather than to wrong.
+ */
+function detailOf(diagnostic: Diagnostic): string {
+  const { message, path } = diagnostic;
+  if (!message.startsWith(MESSAGE_PREFIX)) return message;
+  const unframed = message.slice(MESSAGE_PREFIX.length);
+  const here = `${path} — `;
+  return path !== "" && unframed.startsWith(here) ? unframed.slice(here.length) : unframed;
+}
+
 /**
  * A diagnostic as the Problems tab holds it. The two vocabularies line up field
  * for field — `level` and `severity` even have the same two values — except for
- * the view, which the validator states as a path and the picker needs as an id.
+ * the view, which the validator states as a path and the picker needs as an id,
+ * and the reason, which arrives framed (see {@link detailOf}).
  */
 function problemOf(diagnostic: Diagnostic): Problem {
   const view = viewOf(diagnostic.path);
@@ -60,7 +83,7 @@ function problemOf(diagnostic: Diagnostic): Problem {
     severity: diagnostic.level,
     code: diagnostic.code,
     path: diagnostic.path,
-    reason: diagnostic.message,
+    reason: detailOf(diagnostic),
     ...(view === undefined ? {} : { view }),
   };
 }

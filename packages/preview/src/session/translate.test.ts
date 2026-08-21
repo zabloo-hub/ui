@@ -20,7 +20,10 @@ function diagnostic(overrides: Partial<Diagnostic> = {}): Diagnostic {
     level: "fatal",
     code: "invalid-node",
     path: 'views["hud"].children[2]',
-    message: 'views["hud"].children[2]: node has no type — dropped',
+    // Framed the way `@zabloo/format` really frames it (`validate.ts`, `push`):
+    // a message that has to be legible alone on a terminal line, so it repeats
+    // the path the diagnostic already carries in a field of its own.
+    message: 'IR envelope: views["hud"].children[2] — node has no type, dropped',
     ...overrides,
   };
 }
@@ -46,13 +49,34 @@ describe("a diagnostic as the Problems tab holds it", () => {
       severity: "warn",
       code: "invalid-node",
       path: 'views["hud"].children[2]',
-      reason: 'views["hud"].children[2]: node has no type — dropped',
+      reason: "node has no type, dropped",
       view: "hud",
     });
   });
 
   it("names no view when the path names none", () => {
     expect(problemOf(diagnostic({ path: "" }))).not.toHaveProperty("view");
+  });
+
+  // ZAB-101: the row is `[code] path — reason`, so a reason that still carried
+  // the message's own copy of the path printed it twice on every line.
+  it("takes the path back out of the reason — the row prints it itself", () => {
+    const problem = problemOf(diagnostic());
+
+    expect(problem.reason).toBe("node has no type, dropped");
+    expect(problem.reason).not.toContain(problem.path);
+  });
+
+  it("drops the prefix alone when the diagnostic is about the envelope", () => {
+    const envelope = diagnostic({ path: "", message: "IR envelope: missing `views` map" });
+
+    expect(problemOf(envelope).reason).toBe("missing `views` map");
+  });
+
+  it("passes a message it does not recognise through whole", () => {
+    const foreign = diagnostic({ message: "something a later format wrote" });
+
+    expect(problemOf(foreign).reason).toBe("something a later format wrote");
   });
 });
 
