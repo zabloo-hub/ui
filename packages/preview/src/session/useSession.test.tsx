@@ -377,6 +377,43 @@ describe("the stream", () => {
     expect(it.mounts).toHaveLength(1);
   });
 
+  /**
+   * Restarting `zabloo dev` is the case this pays for. The server sends nothing
+   * on connect, so a reconnected stream used to paint `Live` over whatever the
+   * canvas was holding, and every save made while it was down was a save this
+   * page never heard about.
+   */
+  it("re-fetches when the stream comes back, without remounting", async () => {
+    const it = world();
+    stage();
+    run(it);
+    await waitFor(() => expect(it.mounts).toHaveLength(1));
+    it.stream().onopen?.(new Event("open"));
+    await waitFor(() => expect(useStore.getState().connection).toBe("live"));
+
+    it.stream().onerror?.(new Event("error"));
+    await waitFor(() => expect(useStore.getState().connection).toBe("disconnected"));
+    it.serve(TWO_VIEWS);
+    it.stream().onopen?.(new Event("open"));
+
+    await waitFor(() => expect(useStore.getState().views).toEqual(["main", "settings"]));
+    expect(it.mounts[0].handle.reloads).toHaveLength(1);
+    expect(it.mounts).toHaveLength(1);
+  });
+
+  it("does not re-fetch on the connection it opened with", async () => {
+    const it = world();
+    stage();
+    run(it);
+    await waitFor(() => expect(it.mounts).toHaveLength(1));
+
+    it.stream().onopen?.(new Event("open"));
+
+    await waitFor(() => expect(useStore.getState().connection).toBe("live"));
+    expect(it.mounts[0].handle.reloads).toHaveLength(0);
+    expect(it.mounts).toHaveLength(1);
+  });
+
   it("goes stale on a failed export and leaves the last good render up (ZAB-67)", async () => {
     const it = world();
     stage();
