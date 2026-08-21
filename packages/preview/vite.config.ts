@@ -61,5 +61,14 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Vitest's default is 5s, which is not a budget for the work a test does
+    // here — it is that work plus whatever the other workers are doing on the
+    // same machine. A `userEvent` click waits on real timers, and in a jsdom
+    // suite this size the slowest of them lands in a second or two on an idle
+    // box and past five on a busy one: ZAB-105 added eleven files and turned
+    // two green tests amber without touching either. Raised rather than worked
+    // around per test, because a timeout is only there to catch a HUNG test and
+    // none of these is one.
+    testTimeout: 20_000,
   },
 });

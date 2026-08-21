@@ -20,7 +20,7 @@
  * same reason `TokensCell` reads its palette in one.
  */
 
-import * as React from "react";
+import { useLayoutEffect, useState } from "react";
 import { type Scenario, sealStore, seedFixture } from "@/kit/fixture";
 
 interface KitFixture {
@@ -29,12 +29,12 @@ interface KitFixture {
 }
 
 function useKitFixture(): KitFixture {
-  const [scenario, select] = React.useState<Scenario>(() => {
+  const [scenario, select] = useState<Scenario>(() => {
     sealStore();
     return "stale";
   });
 
-  React.useLayoutEffect(() => {
+  useLayoutEffect(() => {
     seedFixture(scenario);
   }, [scenario]);
 

@@ -44,6 +44,9 @@ export {
   fatalCount,
   hasFatal,
   logicalSize,
+  orderedProblems,
+  type ProblemSummary,
+  problemSummary,
   warnCount,
   zoom,
 } from "./selectors";

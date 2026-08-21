@@ -7,7 +7,7 @@
  */
 
 import { act, render, screen } from "@testing-library/react";
-import { Statusbar, TICK_MS } from "@/components/statusbar/Statusbar";
+import { FPS_TICK_MS, Statusbar } from "@/components/statusbar/Statusbar";
 import { DEFAULT_LAYOUT, type FrameSample, type Problem, useStore } from "@/store";
 
 const bar = () => document.querySelector('[data-slot="statusbar"]');
@@ -144,7 +144,7 @@ describe("Statusbar", () => {
       useStore.setState({ tickStats: tick, layout: { ...DEFAULT_LAYOUT, consoleTab: "actions" } });
 
       render(<Statusbar />);
-      act(() => vi.advanceTimersByTime(TICK_MS * 2));
+      act(() => vi.advanceTimersByTime(FPS_TICK_MS * 2));
 
       expect(tick).toHaveBeenCalledTimes(2);
     });
@@ -158,7 +158,7 @@ describe("Statusbar", () => {
       });
 
       render(<Statusbar />);
-      act(() => vi.advanceTimersByTime(TICK_MS * 2));
+      act(() => vi.advanceTimersByTime(FPS_TICK_MS * 2));
 
       expect(tick).not.toHaveBeenCalled();
     });
@@ -171,7 +171,7 @@ describe("Statusbar", () => {
       });
 
       render(<Statusbar />);
-      act(() => vi.advanceTimersByTime(TICK_MS));
+      act(() => vi.advanceTimersByTime(FPS_TICK_MS));
 
       expect(tick).toHaveBeenCalledTimes(1);
     });

@@ -76,7 +76,7 @@ against, and only a CSS transform shrinks it to what fits on screen; so a UI aut
 re-renders at a forced device pixel ratio (it remounts, because the glyph atlases are
 rasterized at that scale). Both are remembered across reloads.
 
-**Stats badge.** The `stats` button shows what the last painted frame cost — frames per
+**Stats.** The console's `stats` tab shows what the last painted frame cost — frames per
 second, milliseconds, draw calls, vertices, glyph atlases and their bytes, nodes resolved,
 and whether the frame was a repaint only. It reads frames as the renderer reports them,
 not on a timer of its own: the renderer paints on demand, so a still scene painting

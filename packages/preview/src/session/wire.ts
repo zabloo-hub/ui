@@ -92,6 +92,13 @@ function wireSession(deps: SessionDeps = {}): Wiring {
     applied: Applied | null;
     /** A save arrived and has not been picked up yet. */
     reload: boolean;
+    /**
+     * Whether the reload stream has ever been open. The FIRST open is the page
+     * connecting and needs nothing — the initial load is already on its way. Any
+     * open after that is a RECONNECT, and what happened in between is exactly
+     * what the canvas missed. See `onOpen`.
+     */
+    streamOpened: boolean;
     /** The problems of the export being loaded — replaced per load, never appended. */
     problems: Problem[];
     /** The first fatal of this load, which is what makes a refused reload stale. */
@@ -101,6 +108,7 @@ function wireSession(deps: SessionDeps = {}): Wiring {
     loading: false,
     applied: null,
     reload: false,
+    streamOpened: false,
     problems: [],
     fatal: null,
   };
@@ -299,7 +307,28 @@ function wireSession(deps: SessionDeps = {}): Wiring {
   const events = connectEvents(
     EVENTS_URL,
     {
-      onOpen: () => state().streamOpened(),
+      /**
+       * A RECONNECT re-fetches; the first connection does not.
+       *
+       * The server sends nothing on connect (`preview-server.ts`), so restarting
+       * `zabloo dev` used to leave the chrome painting `Live` over whatever the
+       * canvas happened to be holding — every save made while the stream was
+       * down was a save this page never heard about. Inherited from the old
+       * client (`preview-client.ts`), not something Batch-11 introduced.
+       *
+       * Asking for a plain reload rather than a remount is the right amount of
+       * work: the view and the DPR have not moved, so the envelope is hot-swapped
+       * into the live view and the held values are replayed into it.
+       */
+      onOpen: () => {
+        state().streamOpened();
+        if (!live.streamOpened) {
+          live.streamOpened = true;
+          return;
+        }
+        live.reload = true;
+        void pump();
+      },
       onLost: () => state().streamLost(),
       onReload: () => {
         live.reload = true;

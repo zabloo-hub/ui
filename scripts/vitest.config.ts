@@ -7,4 +7,11 @@
 
 import { defineConfig } from "vitest/config";
 
-export default defineConfig({});
+export default defineConfig({
+  // Every case here builds a throwaway git repository and spawns the gate as a
+  // process, which is seconds of real work before an assertion is even reached —
+  // comfortably past Vitest's 5s default on a loaded machine, and the reason
+  // these four went amber during ZAB-105 without anything under `scripts/`
+  // changing. The budget is sized for what they actually do.
+  test: { testTimeout: 60_000 },
+});

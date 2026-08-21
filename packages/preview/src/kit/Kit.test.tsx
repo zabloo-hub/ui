@@ -3,9 +3,10 @@
  * point of the page, and no assertion in jsdom can stand in for it.
  *
  * So this is a smoke test with one job: catch a cell that stopped rendering. Each
- * case renders the whole page — both sheets, the mounted chrome included — so
- * assertions that answer the same question share one, rather than paying for a
- * second mount of everything to look at one more attribute.
+ * case renders the whole page — both sheets, the mounted chrome included, which
+ * costs seconds in jsdom — so assertions that answer the same question share one
+ * render rather than paying for a second mount of everything to look at one more
+ * attribute. The suite's own timeout is the package's (`vite.config.ts`).
  * Every cell is a specimen of something the chrome ships, and the way a kit page
  * rots is that one of them throws or quietly disappears and nobody notices,
  * because nobody re-opens the page until the next design review.
@@ -79,14 +80,7 @@ afterEach(() => {
   document.documentElement.classList.remove("dark");
 });
 
-/**
- * Twenty seconds, against a default of five. Mounting this page in jsdom means
- * mounting BOTH sheets — the whole chrome included, Radix tooltips, tabs and
- * menus with it — and that costs seconds per case on a loaded machine. The number
- * is not a hint that something is slow to settle: nothing here waits on a timer,
- * and every case does its work the moment `render` returns.
- */
-describe("Kit", { timeout: 20_000 }, () => {
+describe("Kit", () => {
   it("renders the ten cells of artboard 1e, and a swatch per token pair", () => {
     const { container } = render(<Kit />);
 

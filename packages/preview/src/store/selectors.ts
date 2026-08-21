@@ -7,6 +7,7 @@
  */
 
 import { fitScale, preset, type Size } from "./presets";
+import type { Problem, Severity } from "./problems";
 import type { PreviewState } from "./state";
 
 /**
@@ -15,7 +16,7 @@ import type { PreviewState } from "./state";
  * it, so the renderer goes on measuring the full 1920 while the screen shows it
  * smaller (ZAB-78). Under `fit` the two are the same thing: the stage itself.
  */
-export function logicalSize(state: PreviewState): Size {
+function logicalSize(state: PreviewState): Size {
   const id = state.viewport.preset;
   if (id === "fit") return state.stageSize;
   if (id === "custom") return state.custom;
@@ -23,7 +24,7 @@ export function logicalSize(state: PreviewState): Size {
 }
 
 /** How much of the logical size fits on the stage. Never above 1 — see `fitScale`. */
-export function zoom(state: PreviewState): number {
+function zoom(state: PreviewState): number {
   if (state.viewport.preset === "fit") return 1;
   const { width, height } = logicalSize(state);
   return fitScale(width, height, state.stageSize.width, state.stageSize.height);
@@ -34,14 +35,14 @@ export function zoom(state: PreviewState): number {
  * joins them, and `zoom` is null under `fit` — there is nothing being scaled to
  * report, and printing "100%" there would suggest otherwise.
  */
-export interface CaptionParts {
+interface CaptionParts {
   preset: string;
   size: string;
   dpr: string;
   zoom: string | null;
 }
 
-export function captionParts(state: PreviewState): CaptionParts {
+function captionParts(state: PreviewState): CaptionParts {
   const { width, height } = logicalSize(state);
   const fit = state.viewport.preset === "fit";
   return {
@@ -53,19 +54,79 @@ export function captionParts(state: PreviewState): CaptionParts {
 }
 
 /** How many paths the panel is showing — the "6 paths" of its header. */
-export function bindingCount(state: PreviewState): number {
+function bindingCount(state: PreviewState): number {
   return state.bindings.order.length;
 }
 
-export function fatalCount(state: PreviewState): number {
-  return state.problems.filter((problem) => problem.severity === "fatal").length;
+/**
+ * The three questions asked about `problems`, answered in one pass and kept.
+ *
+ * They are read from the statusbar, the console's badge, the panel and the
+ * stage's veil, and — because a hook's selector runs on EVERY notification, not
+ * only the ones it re-renders for — that used to be three full scans of the
+ * array per `recordFrame`, which arrives at frame rate. The list itself moves
+ * once per load: it is REPLACED, never mutated (see `problems.ts`), so its
+ * identity is a perfect cache key and a `WeakMap` lets the entry die with the
+ * array it describes.
+ */
+interface ProblemSummary {
+  fatal: number;
+  warn: number;
+  /** The sort the Problems tab shows: fatals first, arrival order within a level. */
+  ordered: readonly Problem[];
 }
 
-export function warnCount(state: PreviewState): number {
-  return state.problems.filter((problem) => problem.severity === "warn").length;
+const summaries = new WeakMap<readonly Problem[], ProblemSummary>();
+
+/** Fatals first. Two problems of the same severity keep the order they arrived in. */
+const RANK: Record<Severity, number> = { fatal: 0, warn: 1 };
+
+function problemSummary(state: PreviewState): ProblemSummary {
+  const problems = state.problems;
+  const cached = summaries.get(problems);
+  if (cached !== undefined) return cached;
+  const summary: ProblemSummary = {
+    fatal: problems.filter((problem) => problem.severity === "fatal").length,
+    warn: problems.filter((problem) => problem.severity === "warn").length,
+    // A copy: the store's order is the validator's, which is the order inside
+    // the file, and losing it would make two warns on one node impossible to place.
+    ordered: [...problems].sort((a, b) => RANK[a.severity] - RANK[b.severity]),
+  };
+  summaries.set(problems, summary);
+  return summary;
+}
+
+function fatalCount(state: PreviewState): number {
+  return problemSummary(state).fatal;
+}
+
+function warnCount(state: PreviewState): number {
+  return problemSummary(state).warn;
 }
 
 /** Any fatal at all ⇒ what is on the canvas is stale (the veil, the red badge). */
-export function hasFatal(state: PreviewState): boolean {
-  return state.problems.some((problem) => problem.severity === "fatal");
+function hasFatal(state: PreviewState): boolean {
+  return problemSummary(state).fatal > 0;
 }
+
+/**
+ * The list the Problems tab renders, sorted once per load rather than once per
+ * render. Stable across renders, which is what lets the tab read it through
+ * `useStore` without handing itself a fresh array every notification.
+ */
+function orderedProblems(state: PreviewState): readonly Problem[] {
+  return problemSummary(state).ordered;
+}
+
+export type { CaptionParts, ProblemSummary };
+export {
+  bindingCount,
+  captionParts,
+  fatalCount,
+  hasFatal,
+  logicalSize,
+  orderedProblems,
+  problemSummary,
+  warnCount,
+  zoom,
+};

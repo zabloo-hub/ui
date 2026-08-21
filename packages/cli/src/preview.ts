@@ -38,7 +38,9 @@ export async function previewFile(file: string, options: PreviewCommandOptions):
   if (first.error !== null) throw new Error(first.error);
 
   const preview = await startPreviewServer(options.port, { allowedHosts: options.allowedHosts });
-  preview.setEnvelope(first.json);
+  // Named by what was typed, not by `path`: the argument is what the person has
+  // in their head, and it is what the statusbar echoing it back is confirming.
+  preview.setEnvelope(first.json, file);
 
   console.log(`zabloo preview: ${path}`);
   console.log(`           web preview → ${preview.url}`);
@@ -51,7 +53,7 @@ export async function previewFile(file: string, options: PreviewCommandOptions):
       console.error(`zabloo preview: ${next.error}`);
       return;
     }
-    preview.setEnvelope(next.json);
+    preview.setEnvelope(next.json, file);
     preview.notify();
     console.log(`zabloo preview: reloaded ${new Date().toLocaleTimeString()} \u2714`);
   };

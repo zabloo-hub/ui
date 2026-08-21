@@ -106,9 +106,9 @@ importers:
         specifier: ^2.7.0
         version: 2.7.0
     devDependencies:
-      jsdom:
-        specifier: ^28.1.0
-        version: 28.1.0
+      '@zabloo/preview':
+        specifier: workspace:*
+        version: link:../preview
 
   packages/create-zabloo-app:
     devDependencies:

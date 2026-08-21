@@ -17,7 +17,10 @@
  *
  * The sort is stable and made on a COPY: the store's order is the order the
  * validator reported in, which is the order inside the file, and losing it would
- * make two warns on the same node impossible to place.
+ * make two warns on the same node impossible to place. It lives in `selectors.ts`
+ * rather than here so it runs once per LOAD instead of once per render — this tab
+ * re-renders for every view change and every jump, and re-sorting a list that has
+ * not moved is work for nobody.
  *
  * `export-failed` is the one row that does not fit `[code] path — reason`: it is
  * not a diagnostic but the export's stderr (see `store/problems.ts`), so it gets
@@ -26,16 +29,12 @@
 
 import { Badge } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { useProblems, useViews } from "@/store/hooks";
-import { EXPORT_FAILED, type Problem, type Severity } from "@/store/problems";
-
-/** Fatals first. Two problems of the same severity keep the order they arrived in. */
-const RANK: Record<Severity, number> = { fatal: 0, warn: 1 };
+import { useOrderedProblems, useViews } from "@/store/hooks";
+import { EXPORT_FAILED, type Problem } from "@/store/problems";
 
 function ProblemsTab() {
-  const { entries } = useProblems();
+  const ordered = useOrderedProblems();
   const { activeView, selectView } = useViews();
-  const ordered = [...entries].sort((a, b) => RANK[a.severity] - RANK[b.severity]);
 
   return (
     <div

@@ -1,4 +1,4 @@
-import * as React from "react";
+import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { coerceTyped } from "@/bridge";
 import { Badge } from "@/components/ui";
 import { cn } from "@/lib/utils";
@@ -33,15 +33,15 @@ interface BindingFieldProps {
  * about the store, the mark and the clock.
  */
 function BindingField({ binding, disabled }: BindingFieldProps) {
-  const id = React.useId();
+  const id = useId();
   const tagId = `${id}-type`;
-  const field = React.useRef<HTMLDivElement>(null);
+  const field = useRef<HTMLDivElement>(null);
   const setFromEditor = useStore((state) => state.setFromEditor);
   const clearUIMark = useStore((state) => state.clearUIMark);
   const value = useHeldValue(binding, field);
   const marked = binding.lastWriteFrom === "ui";
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (binding.lastWriteFrom !== "ui" || binding.writtenAt === null) return;
     // Four seconds from the WRITE, not from this effect: a panel that is closed
     // and reopened three seconds later has one second of mark left, not four.
@@ -162,11 +162,11 @@ function typeTag(type: Binding["type"], value: unknown): string {
  * their own keystroke coming back through the store and is never held: parking
  * that one is how a stepper snaps back to a stale number.
  */
-function useHeldValue(binding: Binding, field: React.RefObject<HTMLDivElement | null>): unknown {
-  const [held, setHeld] = React.useState(binding.value);
-  const parked = React.useRef<{ value: unknown } | null>(null);
+function useHeldValue(binding: Binding, field: RefObject<HTMLDivElement | null>): unknown {
+  const [held, setHeld] = useState(binding.value);
+  const parked = useRef<{ value: unknown } | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const focused = field.current?.contains(document.activeElement) ?? false;
     if (focused && binding.lastWriteFrom === "ui") {
       parked.current = { value: binding.value };
@@ -179,7 +179,7 @@ function useHeldValue(binding: Binding, field: React.RefObject<HTMLDivElement | 
   // `focusout` on the node rather than React's `onBlur` on the div: it is the
   // same event, but a div that listens for one is a div that owes the reader a
   // role, and this one is a wrapper and not a widget.
-  React.useEffect(() => {
+  useEffect(() => {
     const node = field.current;
     if (node === null) return;
     const left = (event: FocusEvent): void => {

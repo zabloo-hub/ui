@@ -125,25 +125,103 @@ describe("preview server", () => {
     expect(res.status).toBe(404);
   });
 
-  // The page loads its own code from here (ZAB-57). Like `/renderer.js`, it
-  // serves a build artifact, so it needs `pnpm build` first — CI runs it before
-  // the tests, and an unbuilt tree gets a message that says exactly that.
-  it("serves the preview client the page imports", async () => {
-    const server = await start();
-
-    const res = await fetch(`${server.url}preview.js`);
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("text/javascript");
-    expect(await res.text()).toContain("collectBindPaths");
-  });
-
   it("answers 503 until the first export lands", async () => {
     const server = await start();
 
     const res = await fetch(`${server.url}envelope`);
 
     expect(res.status).toBe(503);
+  });
+
+  // Which file is on screen — the statusbar prints it and the page keys its
+  // remembered view by it (ZAB-99). The page has a fallback, so the interesting
+  // half is that a server nobody named does not invent one.
+  it("names the envelope it is serving", async () => {
+    const server = await start();
+    server.setEnvelope(ENVELOPE, "dist/zabloo.ir.json");
+
+    const res = await fetch(`${server.url}envelope`);
+
+    expect(res.headers.get("x-zabloo-envelope-name")).toBe("dist/zabloo.ir.json");
+  });
+
+  it("sends no name when it was not told one", async () => {
+    const server = await start();
+    server.setEnvelope(ENVELOPE);
+
+    const res = await fetch(`${server.url}envelope`);
+
+    expect(res.headers.get("x-zabloo-envelope-name")).toBeNull();
+  });
+});
+
+/**
+ * The chrome itself: `@zabloo/preview`, built by Vite and copied into
+ * `dist/preview/` by the CLI's build (ZAB-99). These serve build artifacts, so
+ * they need `pnpm build` first — CI runs it before the tests, and an unbuilt tree
+ * gets a message that says exactly that.
+ */
+describe("the preview UI", () => {
+  it("serves the chrome at the root, revalidated on every load", async () => {
+    const server = await start();
+
+    const res = await fetch(server.url);
+    const html = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(res.headers.get("cache-control")).toBe("no-cache");
+    expect(html).toContain('<div id="root">');
+  });
+
+  // Same bundle, second page: it picks between the app and the UI kit from
+  // `location.pathname`, so the server hands it the same file.
+  it("serves the same document at /kit", async () => {
+    const server = await start();
+
+    const [root, kit] = await Promise.all([
+      fetch(server.url).then((res) => res.text()),
+      fetch(`${server.url}kit`).then((res) => res.text()),
+    ]);
+
+    expect(kit).toBe(root);
+  });
+
+  it("serves the hashed bundle, cacheable forever", async () => {
+    const server = await start();
+
+    const html = await (await fetch(server.url)).text();
+    const script = /src="(\/assets\/[^"]+\.js)"/.exec(html)?.[1];
+    expect(script, "index.html references a hashed script").toBeDefined();
+
+    const res = await fetch(new URL(script as string, server.url));
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("404s a file the bundle does not have", async () => {
+    const server = await start();
+
+    expect((await fetch(`${server.url}assets/nope.js`)).status).toBe(404);
+    expect((await fetch(`${server.url}anything`)).status).toBe(404);
+  });
+
+  // The server holding the static files is the same one holding the envelope of
+  // whatever project is running, so a URL that walks out of `assets/` must find
+  // nothing.
+  //
+  // The traversals are PERCENT-ENCODED because a plain `assets/../..` never
+  // reaches the server: the URL parser collapses it here, exactly as a browser's
+  // would. What does arrive is the encoded form — which `pathOf` has to decode to
+  // route at all, and which `resolve` then collapses just as happily.
+  it("refuses to walk out of the bundle", async () => {
+    const server = await start();
+
+    for (const path of ["assets/%2e%2e/%2e%2e/package.json", "assets/..%2f..%2fpackage.json"]) {
+      expect((await fetch(`${server.url}${path}`)).status, path).toBe(404);
+    }
   });
 });
 

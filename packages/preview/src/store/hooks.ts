@@ -13,19 +13,19 @@
  */
 
 import { useShallow } from "zustand/react/shallow";
+import type { Problem } from "./problems";
 import {
   bindingCount,
   type CaptionParts,
   captionParts,
-  fatalCount,
-  hasFatal,
   logicalSize,
-  warnCount,
+  orderedProblems,
+  problemSummary,
   zoom,
 } from "./selectors";
 import { useStore } from "./store";
 
-export const useTheme = () =>
+const useTheme = () =>
   useStore(
     useShallow((state) => ({
       theme: state.theme,
@@ -34,7 +34,7 @@ export const useTheme = () =>
     })),
   );
 
-export const useViews = () =>
+const useViews = () =>
   useStore(
     useShallow((state) => ({
       views: state.views,
@@ -47,21 +47,26 @@ export const useViews = () =>
     })),
   );
 
-export const useViewport = () =>
+/**
+ * Deliberately WITHOUT `stageSize`. Nothing that reads this hook wants it — the
+ * Stage writes it through its own narrow selector and `logicalSize`/`zoom` take
+ * it from the state directly — and it is the one field here that is an object
+ * rebuilt on every measurement, so carrying it would re-render both topbar
+ * controls through every frame of a window drag-resize.
+ */
+const useViewport = () =>
   useStore(
     useShallow((state) => ({
       preset: state.viewport.preset,
       custom: state.custom,
       dpr: state.dpr,
-      stageSize: state.stageSize,
       setPreset: state.setPreset,
       setCustom: state.setCustom,
       setDpr: state.setDpr,
-      setStageSize: state.setStageSize,
     })),
   );
 
-export const useConnection = () =>
+const useConnection = () =>
   useStore(
     useShallow((state) => ({
       connection: state.connection,
@@ -73,7 +78,7 @@ export const useConnection = () =>
     })),
   );
 
-export const useBindings = () =>
+const useBindings = () =>
   useStore(
     useShallow((state) => ({
       byPath: state.bindings.byPath,
@@ -86,7 +91,7 @@ export const useBindings = () =>
     })),
   );
 
-export const useActions = () =>
+const useActions = () =>
   useStore(
     useShallow((state) => ({
       entries: state.actions,
@@ -95,19 +100,29 @@ export const useActions = () =>
     })),
   );
 
-export const useProblems = () =>
+/**
+ * The three counts come from `problemSummary`, which is memoized on the identity
+ * of the array (see `selectors.ts`). That matters here and not elsewhere: this
+ * selector runs on every notification the store makes — `recordFrame` included,
+ * which arrives at frame rate — and scanning the list three times for each one
+ * was work done for a render that `useShallow` then correctly refused.
+ */
+const useProblems = () =>
   useStore(
-    useShallow((state) => ({
-      entries: state.problems,
-      fatalCount: fatalCount(state),
-      warnCount: warnCount(state),
-      hasFatal: hasFatal(state),
-      replace: state.replaceProblems,
-      addExportFailure: state.addExportFailure,
-    })),
+    useShallow((state) => {
+      const summary = problemSummary(state);
+      return {
+        entries: state.problems,
+        fatalCount: summary.fatal,
+        warnCount: summary.warn,
+        hasFatal: summary.fatal > 0,
+        replace: state.replaceProblems,
+        addExportFailure: state.addExportFailure,
+      };
+    }),
   );
 
-export const useStats = () =>
+const useStats = () =>
   useStore(
     useShallow((state) => ({
       last: state.stats.last,
@@ -117,7 +132,7 @@ export const useStats = () =>
     })),
   );
 
-export const useLayout = () =>
+const useLayout = () =>
   useStore(
     useShallow((state) => ({
       ...state.layout,
@@ -132,14 +147,36 @@ export const useLayout = () =>
     })),
   );
 
-export const useEnvelope = () =>
+const useEnvelope = () =>
   useStore(useShallow((state) => ({ name: state.envelope.name, setIdentity: state.setIdentity })));
 
-export const useRuntime = () =>
+const useRuntime = () =>
   useStore(useShallow((state) => ({ canvas: state.runtime.canvas, setCanvas: state.setCanvas })));
 
 /** The derived handful the Stage asks for by name. */
-export const useZoom = (): number => useStore(zoom);
-export const useLogicalSize = () => useStore(useShallow(logicalSize));
-export const useCaptionParts = (): CaptionParts => useStore(useShallow(captionParts));
-export const useBindingCount = (): number => useStore(bindingCount);
+const useZoom = (): number => useStore(zoom);
+const useLogicalSize = () => useStore(useShallow(logicalSize));
+const useCaptionParts = (): CaptionParts => useStore(useShallow(captionParts));
+const useBindingCount = (): number => useStore(bindingCount);
+
+/** The Problems tab's list, sorted once per load rather than once per render. */
+const useOrderedProblems = (): readonly Problem[] => useStore(orderedProblems);
+
+export {
+  useActions,
+  useBindingCount,
+  useBindings,
+  useCaptionParts,
+  useConnection,
+  useEnvelope,
+  useLayout,
+  useLogicalSize,
+  useOrderedProblems,
+  useProblems,
+  useRuntime,
+  useStats,
+  useTheme,
+  useViewport,
+  useViews,
+  useZoom,
+};

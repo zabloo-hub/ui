@@ -13,14 +13,17 @@
 
 import type { Setter } from "./state";
 
-export interface RuntimeSlice {
+interface RuntimeSlice {
   runtime: { canvas: HTMLCanvasElement | null };
   setCanvas(canvas: HTMLCanvasElement | null): void;
 }
 
-export function createRuntimeSlice(set: Setter): RuntimeSlice {
+function createRuntimeSlice(set: Setter): RuntimeSlice {
   return {
     runtime: { canvas: null },
     setCanvas: (canvas) => set({ runtime: { canvas } }),
   };
 }
+
+export type { RuntimeSlice };
+export { createRuntimeSlice };

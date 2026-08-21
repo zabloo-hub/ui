@@ -17,7 +17,7 @@
 import { spawn } from "node:child_process";
 import { watch } from "node:fs";
 import { access, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { openBrowser } from "./open.js";
 import { startPreviewServer } from "./preview-server.js";
 
@@ -75,7 +75,11 @@ async function devLoop(
       const { outFile, error } = await exportInChild(root);
       if (outFile) {
         const envelope = await readFile(outFile, "utf8");
-        preview.setEnvelope(envelope); // tree and asset bytes served apart
+        // Named by where it sits in the project, not by its absolute path: the
+        // page prints this in the statusbar (ZAB-99), and `dist/zabloo.ir.json`
+        // is the answer to "which file am I looking at" — `/Users/…/dist/…` is
+        // the same answer with the part you already knew in front of it.
+        preview.setEnvelope(envelope, projectRelative(root, outFile)); // tree and bytes apart
         preview.notify(); // browser preview reloads via SSE
         await pushToEngine(envelope); // engine dev mode (no-op without --unity)
       } else {
@@ -106,6 +110,28 @@ async function devLoop(
 
   await run(); // initial export + push
   await new Promise<never>(() => {}); // keep watching until Ctrl+C
+}
+
+/**
+ * Where the exported envelope sits inside the project, in POSIX separators.
+ *
+ * The separators are normalized because this is a LABEL, shown in a browser and
+ * used as a storage key: `dist\\zabloo.ir.json` on Windows and `dist/zabloo.ir.json`
+ * everywhere else would be two different envelopes to the page's memory, for the
+ * same file in the same project.
+ *
+ * A path that does not live under the root (`--out ../elsewhere.json`) keeps its
+ * absolute form: a relative path climbing out with `..` says less than the path
+ * itself.
+ */
+function projectRelative(root: string, outFile: string): string {
+  const inside = relative(root, outFile);
+  // Also covers the Windows case of two different drives, where `relative` gives
+  // up and hands back the absolute path it was asked about.
+  if (inside === "" || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
+    return outFile;
+  }
+  return inside.split(sep).join("/");
 }
 
 /** Push an envelope to the engine editor's dev mode; no-op when there is no target. */
@@ -184,4 +210,4 @@ function exportInChild(root: string): Promise<ChildExport> {
 }
 
 export type { DevOptions };
-export { createPusher, devLoop };
+export { createPusher, devLoop, projectRelative };

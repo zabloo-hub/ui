@@ -17,7 +17,10 @@
  * Collapsed UNMOUNTS the body rather than hiding it, for the reason the shell
  * unmounts the bars in zen: every tab reads the store, so there is nothing in
  * their markup worth preserving, and leaving V12's stats recomputing behind a
- * closed drawer is work done for nobody.
+ * closed drawer is work done for nobody. What survives the collapse is the
+ * WRAPPER: the chevron says `aria-expanded` about something, and an
+ * `aria-controls` pointing at an id that only exists half the time is a promise
+ * broken in exactly the state the attribute is there to describe.
  *
  * Picking a tab also OPENS the console. Radix will happily switch tabs on a
  * collapsed console, and a click that visibly does nothing is a click the user
@@ -31,6 +34,9 @@ import { isConsoleTab } from "@/store/layout";
 import { ActionsTab } from "./ActionsTab";
 import { ProblemsTab } from "./ProblemsTab";
 import { StatsTab } from "./StatsTab";
+
+/** What the chevron's `aria-expanded` is about — see the docstring. */
+const BODY_ID = "console-body";
 
 function Console() {
   const { consoleOpen, consoleTab, setConsoleTab, setConsoleOpen, toggleConsole } = useLayout();
@@ -72,6 +78,7 @@ function Console() {
           <button
             type="button"
             aria-expanded={consoleOpen}
+            aria-controls={BODY_ID}
             aria-label={consoleOpen ? "Collapse console" : "Expand console"}
             onClick={toggleConsole}
             className="mx-[6px] rounded-xs text-muted-foreground hover:text-foreground focus-visible:focus-ring"
@@ -81,20 +88,22 @@ function Console() {
         </div>
       </div>
 
-      {consoleOpen && (
-        <>
-          <TabsContent value="actions">
-            <ActionsTab />
-          </TabsContent>
-          {/* The console owns the frame and which one shows; each tab owns its content. */}
-          <TabsContent value="problems">
-            <ProblemsTab />
-          </TabsContent>
-          <TabsContent value="stats">
-            <StatsTab />
-          </TabsContent>
-        </>
-      )}
+      <div id={BODY_ID} className="contents">
+        {consoleOpen && (
+          <>
+            <TabsContent value="actions">
+              <ActionsTab />
+            </TabsContent>
+            {/* The console owns the frame and which one shows; each tab owns its content. */}
+            <TabsContent value="problems">
+              <ProblemsTab />
+            </TabsContent>
+            <TabsContent value="stats">
+              <StatsTab />
+            </TabsContent>
+          </>
+        )}
+      </div>
     </Tabs>
   );
 }

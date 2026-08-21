@@ -13,10 +13,10 @@
  * enough: it is display text, and display text is allowed to be reworded.
  */
 
-import type * as React from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-interface KitCellProps extends React.ComponentProps<"section"> {
+interface KitCellProps extends ComponentProps<"section"> {
   /** Kebab-case, stable: `view-selector`, `binding-inputs`. */
   id: string;
   label: string;
@@ -43,7 +43,7 @@ function KitCell({ id, label, className, children, ...props }: KitCellProps) {
  * them. The level is not what makes it look like this — the small caps are — so
  * the outline is free to be the true one.
  */
-function KitLabel({ className, ...props }: React.ComponentProps<"h3">) {
+function KitLabel({ className, ...props }: ComponentProps<"h3">) {
   return (
     <h3
       className={cn(
@@ -56,11 +56,11 @@ function KitLabel({ className, ...props }: React.ComponentProps<"h3">) {
 }
 
 /** The 11px muted line under a group, naming the states it is showing. */
-function KitCaption({ className, ...props }: React.ComponentProps<"p">) {
+function KitCaption({ className, ...props }: ComponentProps<"p">) {
   return <p className={cn("text-caption text-muted-foreground", className)} {...props} />;
 }
 
-interface KitSpecimenProps extends React.ComponentProps<"div"> {
+interface KitSpecimenProps extends ComponentProps<"div"> {
   /**
    * The component inside writes to the store when it is poked. See the note
    * below for what that costs and why the answer is `inert`.

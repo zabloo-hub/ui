@@ -120,7 +120,10 @@ failures:
 
 - **Exports go at the end of the file.** Declare above, export below, in one
   `export { … }` / `export type { … }` block — no inline `export` on a declaration.
-  Enforced by Biome's `useExportsLast`.
+  Biome's `useExportsLast` only sees a file that MIXES the two styles, so
+  `scripts/lint/exports-last.mjs` (part of `pnpm lint`) covers the one where every
+  declaration is an inline export. Its header says why it is a script and not a
+  Biome plugin, and carries the list of files still waiting to be swept.
 - **`const`, never `let` — no exceptions**, not even `for (let i = 0; …)`. The
   reassignment is the smell, not the keyword: an accumulator is a `reduce`, a
   transformed sequence is a `map`, a counter loop is `entries()` or `keys()`, a

@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { ToggleGroup as ToggleGroupPrimitive } from "radix-ui";
-import * as React from "react";
+import { type ComponentProps, createContext, useContext } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -66,7 +66,7 @@ const toggleGroupItemVariants = cva(
   },
 );
 
-const ToggleGroupContext = React.createContext<VariantProps<typeof toggleGroupVariants>>({
+const ToggleGroupContext = createContext<VariantProps<typeof toggleGroupVariants>>({
   variant: "segmented",
 });
 
@@ -76,8 +76,7 @@ function ToggleGroup({
   orientation = "horizontal",
   children,
   ...props
-}: React.ComponentProps<typeof ToggleGroupPrimitive.Root> &
-  VariantProps<typeof toggleGroupVariants>) {
+}: ComponentProps<typeof ToggleGroupPrimitive.Root> & VariantProps<typeof toggleGroupVariants>) {
   return (
     <ToggleGroupPrimitive.Root
       data-slot="toggle-group"
@@ -96,9 +95,9 @@ function ToggleGroupItem({
   className,
   variant,
   ...props
-}: React.ComponentProps<typeof ToggleGroupPrimitive.Item> &
+}: ComponentProps<typeof ToggleGroupPrimitive.Item> &
   VariantProps<typeof toggleGroupItemVariants>) {
-  const context = React.useContext(ToggleGroupContext);
+  const context = useContext(ToggleGroupContext);
   const resolved = variant ?? context.variant ?? "segmented";
 
   return (

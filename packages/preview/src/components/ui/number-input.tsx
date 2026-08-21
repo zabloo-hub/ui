@@ -1,4 +1,4 @@
-import * as React from "react";
+import { type ComponentProps, useState } from "react";
 import { InputFrame } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
  * keys are handled here instead of natively so that Shift can mean
  * {@link NumberInputProps.shiftStep} — a gold value moves in 10s, not in 1s.
  */
-interface NumberInputProps extends Omit<React.ComponentProps<"input">, "value" | "onChange"> {
+interface NumberInputProps extends Omit<ComponentProps<"input">, "value" | "onChange"> {
   value?: number;
   onValueChange?: (value: number) => void;
   /** Arrow keys and the stepper buttons move by this. */
@@ -48,7 +48,7 @@ function NumberInput({
   // Null while the field is showing exactly what the user typed — "" and "-" are
   // states a number cannot represent, and echoing `value` back over them mid-word
   // is how a field starts eating keystrokes.
-  const [draft, setDraft] = React.useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
   const text = draft ?? (value === undefined ? "" : String(value));
 
   const clamp = (next: number): number => {
@@ -134,7 +134,7 @@ function NumberInputStep({
   glyph,
   className,
   ...props
-}: React.ComponentProps<"button"> & { label: string; glyph: string }) {
+}: ComponentProps<"button"> & { label: string; glyph: string }) {
   return (
     <button
       type="button"

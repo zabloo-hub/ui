@@ -1,21 +1,24 @@
 /**
- * The `zabloo dev` web preview: serves a page that renders the current envelope
- * with @zabloo/renderer-web (the self-renderer — the browser is just another
- * engine target) and live-reloads over SSE on every export. No Unity required.
+ * The `zabloo dev` web preview: serves the chrome that renders the current
+ * envelope with @zabloo/renderer-web (the self-renderer — the browser is just
+ * another engine target) and live-reloads over SSE on every export. No Unity
+ * required.
  *
  * Assets travel apart from the tree (ZAB-14): `/envelope` serves the envelope
  * without the inlined bytes and `/asset/<hash>` serves each blob once, so a save
  * only re-transfers what actually changed. The page re-inserts the bytes before
  * mounting — the renderer always receives a complete envelope.
  *
- * This is the server half only: what the page DOES lives in `preview-client.ts`,
- * served here as `/preview.js` (ZAB-57). Everything left below is HTML, CSS and
- * routes.
+ * This is the server half only. The page itself is `@zabloo/preview`, a private
+ * React app built by Vite and copied into `dist/preview/` at build time (ZAB-99);
+ * everything below is routes. The renderer no longer has a route of its own — the
+ * bundle imports it as ESM — and neither does the page's script, which is one of
+ * the hashed files under `/assets/`.
  */
 
 import { access, readFile } from "node:fs/promises";
 import { createServer, type RequestListener, type Server, type ServerResponse } from "node:http";
-import { createRequire } from "node:module";
+import { extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type AssetBlob, splitEnvelope } from "./preview-assets.js";
 
@@ -28,8 +31,16 @@ type PreviewEvent = { kind: "reload" } | { kind: "error"; message: string };
 
 interface PreviewServer {
   url: string;
-  /** Publishes the envelope exported last; splits its assets out for `/asset/<hash>`. */
-  setEnvelope(json: string): void;
+  /**
+   * Publishes the envelope exported last; splits its assets out for `/asset/<hash>`.
+   *
+   * `name` is WHICH file this is — `dist/zabloo.ir.json` under `dev`, the path as
+   * typed under `preview <file>`. The page prints it in the statusbar and keys its
+   * per-envelope memory (the remembered view) by it, so it travels with the
+   * envelope rather than being fixed when the server starts: `dev` learns it from
+   * the export that just finished.
+   */
+  setEnvelope(json: string, name?: string): void;
   /** Notifies connected browsers that a new envelope is available. */
   notify(): void;
   /**
@@ -100,15 +111,20 @@ async function startPreviewServer(
 ): Promise<PreviewServer> {
   const clients = new Set<ServerResponse>();
   const allowedHosts = [...(options.allowedHosts ?? [])];
-  const require = createRequire(import.meta.url);
   /**
    * What the server is currently serving: the envelope without its asset bytes,
-   * those bytes by hash, and the failure the last export reported (until one
-   * succeeds).
+   * those bytes by hash, which file it came from, and the failure the last export
+   * reported (until one succeeds).
    */
-  const served: { thin: string | null; blobs: Map<string, AssetBlob>; failure: string | null } = {
+  const served: {
+    thin: string | null;
+    blobs: Map<string, AssetBlob>;
+    name: string | null;
+    failure: string | null;
+  } = {
     thin: null,
     blobs: new Map(),
+    name: null,
     failure: null,
   };
 
@@ -123,29 +139,38 @@ async function startPreviewServer(
       );
       return;
     }
-    if (url === "/" || url.startsWith("/?")) {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      res.end(PAGE);
-    } else if (url === "/renderer.js") {
-      const path = require.resolve("@zabloo/renderer-web/global");
-      res.writeHead(200, { "content-type": "text/javascript" });
-      res.end(await readFile(path));
-    } else if (url === "/preview.js") {
-      res.writeHead(200, { "content-type": "text/javascript" });
-      res.end(await readFile(await previewClientPath()));
-    } else if (url === "/envelope") {
+    const path = pathOf(url);
+    if (PAGE_PATHS.has(path)) {
+      // `no-cache` and not `no-store`: the file is revalidated on every load — it
+      // names the hashed bundle, and a stale copy would point at an asset that a
+      // rebuild has already renamed — but a 304 is still allowed to answer.
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-cache",
+      });
+      res.end(await readFile(join(await previewBundlePath(), "index.html")));
+    } else if (path.startsWith("/assets/")) {
+      await serveAsset(res, await previewBundlePath(), path);
+    } else if (path === "/envelope") {
       if (served.thin === null) {
         res.writeHead(503);
         res.end("no envelope exported yet");
       } else {
-        res.writeHead(200, { "content-type": "application/json" });
+        res.writeHead(200, {
+          "content-type": "application/json",
+          // Which file this is, for the statusbar and the per-envelope memory
+          // (ZAB-99). Omitted rather than guessed when nobody said: the page has
+          // its own fallback, and inventing a name here would key someone's
+          // remembered view to a file that does not exist.
+          ...(served.name === null ? {} : { "x-zabloo-envelope-name": served.name }),
+        });
         res.end(served.thin);
       }
-    } else if (url.startsWith("/asset/")) {
+    } else if (path.startsWith("/asset/")) {
       // Content-addressed: the bytes behind a hash never change, so the browser
       // may keep them forever. The payload is the entry's `data` field verbatim
       // (base64) — the page pastes it back in without re-encoding.
-      const blob = served.blobs.get(url.slice("/asset/".length));
+      const blob = served.blobs.get(path.slice("/asset/".length));
       if (blob === undefined) {
         res.writeHead(404);
         res.end("unknown asset hash");
@@ -157,7 +182,7 @@ async function startPreviewServer(
         });
         res.end(blob.base64);
       }
-    } else if (url === "/events") {
+    } else if (path === "/events") {
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -195,10 +220,11 @@ async function startPreviewServer(
 
   return {
     url: `http://localhost:${boundPort}/`,
-    setEnvelope(json) {
+    setEnvelope(json, name) {
       const split = splitEnvelope(json);
       served.thin = split.thin;
       served.blobs = split.blobs;
+      served.name = name ?? null;
       served.failure = null;
     },
     notify() {
@@ -291,135 +317,91 @@ function bind(server: Server, port: number): Promise<void> {
 }
 
 /**
- * The page's own script (`preview-client.ts`), built by tsup next to this file.
- * Bundled it sits beside `cli.js` in `dist/`; running from `src` (the tests) it
- * is one directory over, in the `dist/` of the same package.
+ * The pathname of a request, without the query string and percent-decoded.
+ *
+ * Decoding matters before anything is compared or joined: `/assets/%2e%2e/` is
+ * the same traversal as `/assets/../`, and a route table that only ever saw the
+ * raw form would hand it straight to `join`. A URL that will not decode is
+ * answered as itself, which matches nothing and 404s.
  */
-async function previewClientPath(): Promise<string> {
-  const candidates = ["./preview-client.js", "../dist/preview-client.js"];
-  for (const candidate of candidates) {
-    const path = fileURLToPath(new URL(candidate, import.meta.url));
-    try {
-      await access(path);
-      return path;
-    } catch {}
+function pathOf(url: string): string {
+  const raw = url.split("?")[0] ?? "/";
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
   }
-  throw new Error("zabloo dev: preview client not built — run `pnpm build` in @zabloo/cli");
 }
 
 /**
- * The page's markup. Exported so the client's tests wire themselves to the SAME
- * ids the page serves: `start()` looks these up by name, and a rename that only
- * happened on one side has to fail somewhere.
+ * The paths the chrome's `index.html` answers. `/kit` is the UI kit (ZAB-98):
+ * the same bundle, which picks its page from `location.pathname`, so there is no
+ * router here — there are exactly two pages and this is the whole route table.
  */
-const PREVIEW_BODY = /* html */ `<header>
-  <b>zabloo</b> preview
-  <select id="views" title="view"></select>
-  <select id="viewport" title="the size the UI is laid out at, independent of the window">
-    <option value="fit">fit window</option>
-    <option value="1920x1080">1920×1080</option>
-    <option value="1280x720">1280×720</option>
-    <option value="custom">custom…</option>
-  </select>
-  <input id="custom" class="off" size="9" placeholder="1600x900" title="width x height, in logical pixels">
-  <select id="dpr" title="device pixel ratio the view rasterizes at (remounts)">
-    <option value="auto">dpr auto</option>
-    <option value="1">dpr 1</option>
-    <option value="2">dpr 2</option>
-    <option value="3">dpr 3</option>
-  </select>
-  <span id="status" title="live connection"></span>
-  <span id="pad" class="off" title="d-pad/stick: focus · A: press · B: back · right stick: scroll">🎮 gamepad</span>
-  <button id="stats-toggle" type="button" title="what the last painted frame cost">stats</button>
-  <span id="hint" title="zabloo.setData(path, value) · setChecked(id, on) · setValue(id, n) · setText(id, s) · setOpen(id, open) · setSelectedTab(id, i) · setScroll(id, x, y) · snapshot() · stats() · reload(json)">console: <code>zabloo.setData(…)</code>, <code>setValue</code>, <code>setText</code>, <code>snapshot()</code>…</span>
-</header>
-<div id="stage"><canvas id="canvas"></canvas></div>
-<div id="stats" class="empty"></div>
-<pre id="error" class="empty"></pre>
-<div id="log"></div>
-<div id="data" class="empty"><h3>data bindings</h3><div id="fields"></div></div>`;
+const PAGE_PATHS = new Set(["/", "/index.html", "/kit", "/kit/"]);
 
-const PAGE = /* html */ `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>zabloo preview</title>
-<style>
-  * { margin: 0; box-sizing: border-box; }
-  html, body { height: 100%; }
-  body { display: flex; flex-direction: column; background: #0b0d12; color: #e5e7eb;
-         font: 13px/1.4 system-ui, sans-serif; }
-  header { display: flex; align-items: center; gap: 12px; padding: 8px 14px;
-           background: #14161f; border-bottom: 1px solid #232633; }
-  header b { color: #818cf8; }
-  select { background: #1f2430; color: inherit; border: 1px solid #2f3446;
-           border-radius: 6px; padding: 3px 8px; }
-  #status { width: 8px; height: 8px; border-radius: 50%; background: #6b7280; }
-  #status.ok { background: #4ade80; }
-  /* A broken export beats a live connection: the dot is the page's one-glance
-     answer to "is what I am looking at current?" (ZAB-67). */
-  #status.err { background: #f87171; }
-  #pad { color: #818cf8; letter-spacing: .04em; }
-  #pad.off { display: none; }
-  button { background: #1f2430; color: inherit; border: 1px solid #2f3446;
-           border-radius: 6px; padding: 3px 8px; font: inherit; cursor: pointer; }
-  button.on { background: #312e81; border-color: #4f46e5; color: #c7d2fe; }
-  input { background: #1f2430; color: inherit; border: 1px solid #2f3446;
-          border-radius: 6px; padding: 3px 8px; font: inherit; }
-  input.off { display: none; }
-  #hint { margin-left: auto; color: #6b7280; overflow: hidden; text-overflow: ellipsis;
-          white-space: nowrap; }
-  #hint code { color: #9aa4b2; }
-  /* The stage owns the free space; the canvas owns the VIEWPORT. In "fit" they
-     are the same thing. Under a preset the canvas keeps its declared pixel size —
-     which is what the renderer lays out against, since clientWidth is layout and
-     not paint — and only a CSS transform shrinks it to what fits on screen. */
-  #stage { flex: 1; min-height: 0; display: flex; align-items: center;
-           justify-content: center; overflow: hidden; }
-  canvas { display: block; width: 100%; height: 100%; }
-  #stage.framed canvas { flex: none; width: auto; height: auto;
-                         outline: 1px solid #2f3446; transform-origin: center center; }
-  /* Bottom LEFT, under the action log: the right column belongs to the data
-     panel, which is as tall as the view has bindings. */
-  #stats { position: fixed; left: 12px; bottom: 12px; background: #14161fd9;
-           border: 1px solid #232633; border-radius: 8px; padding: 6px 10px; color: #9aa4b2;
-           font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre;
-           pointer-events: none; }
-  #stats.empty { display: none; }
-  #log { position: fixed; left: 12px; bottom: 46px; max-height: 30%; overflow: auto;
-         display: flex; flex-direction: column-reverse; gap: 2px; pointer-events: none; }
-  #log div { background: #14161fd9; border: 1px solid #232633; border-radius: 6px;
-             padding: 3px 10px; color: #4ade80; }
-  /* The failed export, on top of the stale view it explains. */
-  #error { position: fixed; left: 12px; right: 12px; top: 56px; max-height: 60%; overflow: auto;
-           background: #1b1216f2; border: 1px solid #f87171; border-left-width: 4px;
-           border-radius: 8px; padding: 12px 14px; color: #fecaca;
-           font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; }
-  #error.empty { display: none; }
-  /* Bounded to the viewport and scrolled inside it: a view with a dozen bindings
-     used to run its last fields off the bottom of the page, where nothing could
-     reach them. */
-  #data { position: fixed; right: 12px; top: 48px; bottom: 12px; width: 230px;
-          overflow: auto; background: #14161fd9; border: 1px solid #232633;
-          border-radius: 8px; padding: 10px; }
-  #data h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
-             color: #6b7280; margin-bottom: 8px; }
-  #data label { display: block; color: #9aa4b2; margin: 6px 0 2px; font-size: 12px; }
-  #data input { width: 100%; background: #1f2430; color: #e5e7eb; border: 1px solid #2f3446;
-                border-radius: 6px; padding: 4px 8px; font: inherit; }
-  #data.empty { display: none; }
-</style>
-</head>
-<body>
-${PREVIEW_BODY}
-<script src="/renderer.js"></script>
-<script type="module">
-  import { start } from "/preview.js";
-  start();
-</script>
-</body>
-</html>
-`;
+/** What Vite emits under `assets/`, by extension. */
+const CONTENT_TYPES: Record<string, string> = {
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".woff2": "font/woff2",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".webp": "image/webp",
+  ".json": "application/json",
+  ".map": "application/json",
+};
+
+/**
+ * One of the bundle's static files.
+ *
+ * Everything under `assets/` is content-hashed by Vite, so it may be cached
+ * forever — the same bargain `/asset/<hash>` makes, for the same reason: a
+ * rebuild renames the file rather than changing it.
+ *
+ * The resolved path is checked to be INSIDE the bundle before it is opened.
+ * `join` collapses `..` happily, and the one thing a static route must never do
+ * is read a file the URL walked out to — this server also holds the envelope of
+ * whatever project is running.
+ */
+async function serveAsset(res: ServerResponse, bundle: string, path: string): Promise<void> {
+  const assets = join(bundle, "assets");
+  const file = resolve(bundle, `.${path}`);
+  if (file !== assets && !file.startsWith(assets + sep)) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  const body = await readFile(file).catch(() => null);
+  if (body === null) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
+    "cache-control": "public, max-age=31536000, immutable",
+  });
+  res.end(body);
+}
+
+/**
+ * The preview chrome's build output (`@zabloo/preview`), copied here by the CLI's
+ * own build. Bundled it sits beside `cli.js` in `dist/preview`; running from `src`
+ * (the tests) it is one directory over, in the `dist/` of the same package.
+ */
+async function previewBundlePath(): Promise<string> {
+  const candidates = ["./preview/", "../dist/preview/"];
+  for (const candidate of candidates) {
+    const path = fileURLToPath(new URL(candidate, import.meta.url));
+    try {
+      await access(join(path, "index.html"));
+      return path;
+    } catch {}
+  }
+  throw new Error("zabloo dev: preview UI not built — run `pnpm build` in @zabloo/cli");
+}
 
 export type { PreviewEvent, PreviewOptions, PreviewServer };
-export { hostAllowed, hostnameOf, PREVIEW_BODY, startPreviewServer };
+export { hostAllowed, hostnameOf, startPreviewServer };
