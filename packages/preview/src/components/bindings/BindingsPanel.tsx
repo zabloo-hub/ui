@@ -23,6 +23,11 @@
  * The panel does not mount itself. V10's stage is its `position: relative`
  * container and V16 is what knows about zen's chrome; this file only knows it
  * must not draw in either of the two cases below.
+ *
+ * The header carries two controls that are not the drag: the grip, which resets
+ * the position, and the close button. Both are real `<button>`s — an action you
+ * can only reach by double-clicking a decorative svg is an action half the
+ * people using this panel do not have.
  */
 
 import { GripVertical, X } from "lucide-react";
@@ -72,13 +77,27 @@ function BindingsPanel() {
           {order.length} {order.length === 1 ? "path" : "paths"}
         </CardDescription>
         <CardAction>
-          {/* The grip is the affordance; the whole header is the target. */}
-          <GripVertical
+          {/* The grip is the affordance; the whole header is the target. It is a
+              real button because the reset it carries had no keyboard path at
+              all while it hung off a double click on an `aria-hidden` svg — the
+              one action in this panel you could not reach without a mouse. */}
+          <button
             data-grip
-            aria-hidden="true"
-            className="size-3 text-faint"
+            type="button"
+            aria-label="Reset panel position"
+            // A press that turned into a drag ends in a `click` on the element it
+            // started on, and resetting there would undo the move just made.
+            onClick={() => {
+              if (!drag.dragged()) drag.reset();
+            }}
             onDoubleClick={drag.reset}
-          />
+            className={cn(
+              "text-faint hover:text-muted-foreground focus-visible:focus-ring",
+              drag.dragging ? "cursor-grabbing" : "cursor-grab",
+            )}
+          >
+            <GripVertical aria-hidden="true" className="size-3" />
+          </button>
           <button
             type="button"
             aria-label="Close bindings panel"

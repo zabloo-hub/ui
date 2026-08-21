@@ -13,10 +13,10 @@
  * enough: it is display text, and display text is allowed to be reworded.
  */
 
-import type * as React from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
-interface KitCellProps extends React.ComponentProps<"section"> {
+interface KitCellProps extends ComponentProps<"section"> {
   /** Kebab-case, stable: `view-selector`, `binding-inputs`. */
   id: string;
   label: string;
@@ -39,7 +39,7 @@ function KitCell({ id, label, className, children, ...props }: KitCellProps) {
  * `first:mt-0` is what lets a second group inside a cell wear the artboard's 8px
  * of air above it without the cell's own label inheriting it.
  */
-function KitLabel({ className, ...props }: React.ComponentProps<"h2">) {
+function KitLabel({ className, ...props }: ComponentProps<"h2">) {
   return (
     <h2
       className={cn(
@@ -52,7 +52,7 @@ function KitLabel({ className, ...props }: React.ComponentProps<"h2">) {
 }
 
 /** The 11px muted line under a group, naming the states it is showing. */
-function KitCaption({ className, ...props }: React.ComponentProps<"p">) {
+function KitCaption({ className, ...props }: ComponentProps<"p">) {
   return <p className={cn("text-caption text-muted-foreground", className)} {...props} />;
 }
 

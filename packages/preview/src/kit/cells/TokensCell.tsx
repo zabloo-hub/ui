@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useLayoutEffect, useState } from "react";
 import { KitCell } from "@/kit/KitCell";
 import { caption, readTokenPairs, type TokenPair, type TokenPalette } from "@/kit/tokens";
 
@@ -28,9 +28,9 @@ const EMPTY: TokenPalette = { pairs: [], surface: { light: "", dark: "" } };
  * every time.
  */
 function TokensCell() {
-  const [palette, setPalette] = React.useState<TokenPalette>(EMPTY);
+  const [palette, setPalette] = useState<TokenPalette>(EMPTY);
 
-  React.useLayoutEffect(() => {
+  useLayoutEffect(() => {
     setPalette(readTokenPairs());
   }, []);
 

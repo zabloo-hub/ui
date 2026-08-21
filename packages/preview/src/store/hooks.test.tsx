@@ -26,7 +26,7 @@ import {
 import { useStore } from "./store";
 
 beforeEach(() => {
-  useStore.setState({ theme: "light", problems: [], actions: [] });
+  useStore.setState({ theme: "light", problems: [], actions: [], stats: { last: null, fps: 0 } });
 });
 
 describe("selector hooks", () => {
@@ -47,6 +47,65 @@ describe("selector hooks", () => {
     const before = renders.length;
 
     act(() => useStore.getState().appendAction("action", "buy"));
+
+    expect(renders).toHaveLength(before);
+  });
+
+  /**
+   * The two hooks a frame used to reach. `recordFrame` notifies the store several
+   * times a second, and a selector that scanned an array or carried an object
+   * rebuilt on every measurement turned that into work — or into a render — for
+   * components that print neither.
+   */
+  it("does not re-render the viewport controls while the stage is being measured", () => {
+    const renders: string[] = [];
+    renderHook(() => {
+      renders.push("render");
+      return useViewport();
+    });
+    const before = renders.length;
+
+    act(() => {
+      useStore.getState().setStageSize({ width: 900, height: 600 });
+      useStore.getState().setStageSize({ width: 901, height: 600 });
+      useStore.getState().setStageSize({ width: 902, height: 600 });
+    });
+
+    expect(renders).toHaveLength(before);
+  });
+
+  it("does not re-render the problem readers while frames are arriving", () => {
+    const renders: string[] = [];
+    renderHook(() => {
+      renders.push("render");
+      return useProblems();
+    });
+    const before = renders.length;
+
+    // Written straight into the slice rather than through `recordFrame`: the
+    // notification is what this is about, and the singleton's fps window is
+    // shared with every other case in this file. That `recordFrame` itself does
+    // not re-scan is `selectors.test.ts`, on a store of its own.
+    act(() => {
+      for (const frame of Array.from({ length: 30 }, (_, index) => index)) {
+        useStore.setState({
+          stats: {
+            last: {
+              frameMs: 1.9,
+              drawCalls: frame,
+              vertices: 120,
+              atlases: 1,
+              atlasBytes: 2048,
+              resolved: 0,
+              repaintOnly: true,
+              textLayouts: 0,
+              bufferGrowths: 0,
+            },
+            fps: 0,
+          },
+        });
+      }
+    });
 
     expect(renders).toHaveLength(before);
   });
@@ -95,7 +154,7 @@ describe("selector hooks", () => {
       result.current.connection.streamOpened();
       result.current.actions.append("view", "loaded → layout");
       result.current.stats.tick();
-      result.current.viewport.setStageSize({ width: 900, height: 600 });
+      useStore.getState().setStageSize({ width: 900, height: 600 });
     });
 
     expect(result.current).toMatchObject({

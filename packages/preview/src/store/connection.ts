@@ -16,9 +16,9 @@
 
 import type { Getter, Setter } from "./state";
 
-export type ConnectionState = "live" | "stale" | "disconnected";
+type ConnectionState = "live" | "stale" | "disconnected";
 
-export interface ConnectionSlice {
+interface ConnectionSlice {
   connection: ConnectionState;
   /** The message of the failure that made it `stale`, for the statusbar and the log. */
   lastError: string | null;
@@ -28,7 +28,7 @@ export interface ConnectionSlice {
   exportLoaded(): void;
 }
 
-export function createConnectionSlice(set: Setter, get: Getter): ConnectionSlice {
+function createConnectionSlice(set: Setter, get: Getter): ConnectionSlice {
   return {
     connection: "disconnected",
     lastError: null,
@@ -38,3 +38,6 @@ export function createConnectionSlice(set: Setter, get: Getter): ConnectionSlice
     exportLoaded: () => set({ connection: "live", lastError: null }),
   };
 }
+
+export type { ConnectionSlice, ConnectionState };
+export { createConnectionSlice };

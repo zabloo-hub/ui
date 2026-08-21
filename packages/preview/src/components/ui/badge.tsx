@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
-import type * as React from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -69,7 +69,7 @@ function Badge({
   variant = "live",
   asChild = false,
   ...props
-}: React.ComponentProps<"span"> & VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+}: ComponentProps<"span"> & VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
   const Comp = asChild ? Slot.Root : "span";
 
   return (
@@ -86,7 +86,7 @@ function Badge({
  * The 7px dot of a connection pill. It reads its colour off the pill, so it is
  * only ever correct — see the note on {@link badgeVariants}.
  */
-function BadgeDot({ className, ...props }: React.ComponentProps<"span">) {
+function BadgeDot({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
       data-slot="badge-dot"

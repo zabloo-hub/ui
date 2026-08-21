@@ -31,7 +31,7 @@ import { useLayout, useStats } from "@/store/hooks";
 import type { FrameSample } from "@/store/stats";
 
 /** Four times a second: fast enough that `fps` falls to `idle` while you watch. */
-const TICK_MS = 250;
+const STATS_TICK_MS = 250;
 
 function StatsTab() {
   const { last, fps, tick } = useStats();
@@ -40,7 +40,7 @@ function StatsTab() {
 
   useEffect(() => {
     if (!visible) return;
-    const timer = setInterval(tick, TICK_MS);
+    const timer = setInterval(tick, STATS_TICK_MS);
     return () => clearInterval(timer);
   }, [visible, tick]);
 
@@ -99,4 +99,4 @@ function Stat({ label, value, muted = false }: StatProps) {
   );
 }
 
-export { StatsTab, TICK_MS };
+export { STATS_TICK_MS, StatsTab };

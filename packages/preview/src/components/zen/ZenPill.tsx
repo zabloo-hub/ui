@@ -1,14 +1,8 @@
 import { Minimize } from "lucide-react";
+import { CONNECTION_DOT } from "@/components/connection-ui";
 import { BadgeDot, Button, Separator } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { type ConnectionState, useCaptionParts, useStore } from "@/store";
-
-/** The three states, on the tokens the connection pills already use. */
-const DOT: Record<ConnectionState, string> = {
-  live: "[--badge-dot:var(--ok)]",
-  stale: "[--badge-dot:var(--warn)]",
-  disconnected: "[--badge-dot:var(--danger)]",
-};
+import { useCaptionParts, useStore } from "@/store";
 
 /**
  * The only chrome left on screen in zen mode: a glass pill floating over the top
@@ -18,7 +12,7 @@ const DOT: Record<ConnectionState, string> = {
  *
  * The dot's colour is set on the pill rather than passed to {@link BadgeDot},
  * which reads `--badge-dot`: the same pairing the connection badges use, so a
- * "live" pill cannot end up wearing an amber dot (see `ui/badge.tsx`).
+ * "live" pill cannot end up wearing an amber dot (see `components/connection-ui.ts`).
  */
 function ZenPill() {
   const connection = useStore((state) => state.connection);
@@ -33,7 +27,7 @@ function ZenPill() {
         "absolute top-[14px] right-[14px] flex items-center gap-[10px]",
         "rounded-full border bg-glass py-[6px] pr-[8px] pl-[14px]",
         "shadow-pill backdrop-blur-[8px]",
-        DOT[connection],
+        CONNECTION_DOT[connection],
       )}
     >
       <BadgeDot />

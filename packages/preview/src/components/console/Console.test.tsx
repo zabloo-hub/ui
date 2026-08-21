@@ -98,6 +98,22 @@ describe("Console", () => {
     expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
   });
 
+  /**
+   * `aria-expanded` is a claim about something, and the wrapper it names outlives
+   * the collapse for that reason: an `aria-controls` that dangles in exactly the
+   * state the attribute describes tells a screen reader nothing.
+   */
+  it("points the chevron at the body it expands, open or shut", async () => {
+    const { container } = render(<Console />);
+    const body = chevron().getAttribute("aria-controls");
+    expect(body).not.toBeNull();
+    expect(container.querySelector(`#${body}`)).toBeInTheDocument();
+
+    await userEvent.click(chevron());
+
+    expect(container.querySelector(`#${body}`)).toBeInTheDocument();
+  });
+
   it("mounts the tab you are on, and nothing else", () => {
     act(() => {
       useStore.getState().appendAction("view", "loaded → controls");

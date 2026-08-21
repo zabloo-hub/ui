@@ -1,4 +1,4 @@
-import type * as React from "react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui";
 import { KitCell, KitLabel } from "@/kit/KitCell";
 
@@ -11,7 +11,7 @@ import { KitCell, KitLabel } from "@/kit/KitCell";
  * so it holds up at 11.5px — and `view` is muted, because a view loading is the
  * one of the three that is not something the developer's UI did.
  */
-const LINES: readonly { time: string; kind: string; tone: string; rest: React.ReactNode }[] = [
+const LINES: readonly { time: string; kind: string; tone: string; rest: ReactNode }[] = [
   {
     time: "12:04:31",
     kind: "action",

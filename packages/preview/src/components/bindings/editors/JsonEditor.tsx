@@ -1,11 +1,11 @@
-import * as React from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Card, Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import type { EditorProps } from "./editor";
 
 interface JsonEditorProps extends EditorProps {
   /** The field's own label row, dropped into the card header. */
-  label: React.ReactNode;
+  label: ReactNode;
 }
 
 /**
@@ -22,14 +22,14 @@ interface JsonEditorProps extends EditorProps {
  * Open by default, as artboard 1a draws it.
  */
 function JsonEditor({ id, path, value, disabled, describedBy, onCommit, label }: JsonEditorProps) {
-  const [open, setOpen] = React.useState(true);
+  const [open, setOpen] = useState(true);
   // Null while the value is being SHOWN; a string while it is being edited.
-  const [draft, setDraft] = React.useState<string | null>(null);
-  const area = React.useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const area = useRef<HTMLTextAreaElement>(null);
   const editing = draft !== null;
   const invalid = draft !== null && !parses(draft);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (editing) area.current?.focus();
   }, [editing]);
 

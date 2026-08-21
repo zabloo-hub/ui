@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type * as React from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -37,7 +37,7 @@ function Input({
   type,
   size = "default",
   ...props
-}: Omit<React.ComponentProps<"input">, "size"> & VariantProps<typeof inputVariants>) {
+}: Omit<ComponentProps<"input">, "size"> & VariantProps<typeof inputVariants>) {
   return (
     <input
       type={type}
@@ -59,7 +59,7 @@ function InputFrame({
   className,
   size = "default",
   ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof inputVariants>) {
+}: ComponentProps<"div"> & VariantProps<typeof inputVariants>) {
   return (
     <div
       data-slot="input-frame"

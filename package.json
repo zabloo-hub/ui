@@ -10,7 +10,7 @@
     "build": "pnpm --filter \"./packages/**\" --fail-if-no-match build && pnpm install --frozen-lockfile && pnpm --filter \"./examples/**\" --fail-if-no-match build",
     "test": "pnpm -r test && vitest run --root scripts",
     "typecheck": "pnpm -r typecheck",
-    "lint": "biome check .",
+    "lint": "biome check . && node scripts/lint/exports-last.mjs",
     "docs:links": "node scripts/check-links.mjs",
     "smoke:external": "node scripts/smoke-external.mjs",
     "format": "biome format --write .",

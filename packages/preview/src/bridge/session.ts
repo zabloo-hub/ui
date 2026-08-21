@@ -22,13 +22,9 @@ declare global {
 }
 
 /** The renderer's `mount`, as the session is handed it (the IIFE build, or a fake). */
-export type MountFn = (
-  canvas: HTMLCanvasElement,
-  envelope: string,
-  options: MountOptions,
-) => ZablooHandle;
+type MountFn = (canvas: HTMLCanvasElement, envelope: string, options: MountOptions) => ZablooHandle;
 
-export interface SessionCallbacks {
+interface SessionCallbacks {
   /**
    * A new envelope arrived, with the paths it binds — before it goes on screen,
    * and whether or not the mount that follows succeeds: a view the renderer
@@ -49,7 +45,7 @@ export interface SessionCallbacks {
   onLoadError(message: string): void;
 }
 
-export interface SessionOptions {
+interface SessionOptions {
   canvas: HTMLCanvasElement;
   /** The envelope the server published, or null while it has none to give. */
   fetchEnvelope: () => Promise<Envelope | null>;
@@ -64,7 +60,7 @@ export interface SessionOptions {
   callbacks: SessionCallbacks;
 }
 
-export interface Session {
+interface Session {
   /**
    * Fetches the envelope and puts it on screen: a reload when one is mounted, no
    * view was asked for and the DPR has not moved; a fresh mount otherwise. It
@@ -78,7 +74,7 @@ export interface Session {
   dispose(): void;
 }
 
-export function createSession(options: SessionOptions): Session {
+function createSession(options: SessionOptions): Session {
   const { canvas, fetchEnvelope, fetchAsset, mount, dpr, callbacks } = options;
 
   // The session's mutable state, in one slot object: a session outlives every
@@ -197,3 +193,6 @@ export function createSession(options: SessionOptions): Session {
     },
   };
 }
+
+export type { MountFn, Session, SessionCallbacks, SessionOptions };
+export { createSession };

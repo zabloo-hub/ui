@@ -15,10 +15,10 @@
 import type { StateStorage } from "zustand/middleware";
 
 /** The prefix every key of ours carries, shared with the page this replaces. */
-export const NAMESPACE = "zabloo.preview";
+const NAMESPACE = "zabloo.preview";
 
 /** The key `persist` keeps the whole ★ blob under. */
-export const STORE_KEY = NAMESPACE;
+const STORE_KEY = NAMESPACE;
 
 /**
  * The view you were last looking at, per envelope: a selection is a property of
@@ -26,19 +26,19 @@ export const STORE_KEY = NAMESPACE;
  * next project's envelope would just be wrong. `envelopeId` is the filename (or
  * hash) that `setIdentity` fixes.
  */
-export function viewKey(envelopeId: string): string {
+function viewKey(envelopeId: string): string {
   return `${NAMESPACE}.activeView:${envelopeId}`;
 }
 
 /** Key-value storage that reports its failures as absence instead of raising. */
-export interface PreviewStorage {
+interface PreviewStorage {
   read(key: string): string | null;
   write(key: string, value: string): void;
   remove(key: string): void;
 }
 
 /** `localStorage`, with the vow above wrapped around it. */
-export function browserStorage(): PreviewStorage {
+function browserStorage(): PreviewStorage {
   return {
     read(key) {
       // Inside the `try` on purpose: `localStorage` is a getter that throws in a
@@ -63,7 +63,7 @@ export function browserStorage(): PreviewStorage {
 }
 
 /** A storage that forgets on reload — what the tests run against by default. */
-export function memoryStorage(entries: Record<string, string> = {}): PreviewStorage {
+function memoryStorage(entries: Record<string, string> = {}): PreviewStorage {
   const map = new Map(Object.entries(entries));
   return {
     read: (key) => map.get(key) ?? null,
@@ -81,10 +81,13 @@ export function memoryStorage(entries: Record<string, string> = {}): PreviewStor
  * calls `setItem` inside its own `set`, un-guarded, so a storage that threw on a
  * full quota would make every single action throw. Ours cannot.
  */
-export function stateStorage(storage: PreviewStorage): StateStorage {
+function stateStorage(storage: PreviewStorage): StateStorage {
   return {
     getItem: (name) => storage.read(name),
     setItem: (name, value) => storage.write(name, value),
     removeItem: (name) => storage.remove(name),
   };
 }
+
+export type { PreviewStorage };
+export { browserStorage, memoryStorage, NAMESPACE, STORE_KEY, stateStorage, viewKey };

@@ -15,16 +15,12 @@ import type { Getter, Setter } from "./state";
 import type { PreviewStorage } from "./storage";
 import { resolveActiveView } from "./views";
 
-export interface EnvelopeSlice {
+interface EnvelopeSlice {
   envelope: { name: string | null };
   setIdentity(name: string | null): void;
 }
 
-export function createEnvelopeSlice(
-  set: Setter,
-  get: Getter,
-  storage: PreviewStorage,
-): EnvelopeSlice {
+function createEnvelopeSlice(set: Setter, get: Getter, storage: PreviewStorage): EnvelopeSlice {
   return {
     envelope: { name: null },
     setIdentity: (name) => {
@@ -38,3 +34,6 @@ export function createEnvelopeSlice(
     },
   };
 }
+
+export type { EnvelopeSlice };
+export { createEnvelopeSlice };

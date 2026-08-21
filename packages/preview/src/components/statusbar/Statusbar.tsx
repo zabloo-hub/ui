@@ -1,24 +1,12 @@
 import { useEffect } from "react";
+import { CONNECTION_DOT, CONNECTION_LABEL } from "@/components/connection-ui";
 import { GamepadIndicator } from "@/components/statusbar/GamepadIndicator";
 import { BadgeDot } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import { type ConnectionState, fatalCount, useStore, warnCount } from "@/store";
-
-/** The three states, on the tokens the connection pills already use. */
-const DOT: Record<ConnectionState, string> = {
-  live: "[--badge-dot:var(--ok)]",
-  stale: "[--badge-dot:var(--warn)]",
-  disconnected: "[--badge-dot:var(--danger)]",
-};
-
-const LABEL: Record<ConnectionState, string> = {
-  live: "Live",
-  stale: "Stale",
-  disconnected: "Disconnected",
-};
+import { fatalCount, useStore, warnCount } from "@/store";
 
 /** How often the statusbar re-counts the fps window when nobody else is. */
-const TICK_MS = 1000;
+const FPS_TICK_MS = 1000;
 
 /**
  * The 26px footer: whether what you see is still the truth, what the validator
@@ -45,13 +33,13 @@ function Statusbar() {
       className={cn(
         "flex h-full items-center gap-[14px] bg-background px-3",
         "text-caption text-muted-foreground",
-        DOT[connection],
+        CONNECTION_DOT[connection],
       )}
     >
       <span className="flex items-center gap-[5px]">
         {/* A shade smaller than the pills': 6px against 26px of footer. */}
         <BadgeDot className="size-[6px]" />
-        {LABEL[connection]}
+        {CONNECTION_LABEL[connection]}
       </span>
       <ProblemSummary />
       {name !== null && (
@@ -129,9 +117,9 @@ function useFpsTick() {
 
   useEffect(() => {
     if (statsVisible) return;
-    const id = setInterval(tick, TICK_MS);
+    const id = setInterval(tick, FPS_TICK_MS);
     return () => clearInterval(id);
   }, [statsVisible, tick]);
 }
 
-export { Statusbar, TICK_MS };
+export { FPS_TICK_MS, Statusbar };
