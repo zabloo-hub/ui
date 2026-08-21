@@ -38,10 +38,14 @@ function KitCell({ id, label, className, children, ...props }: KitCellProps) {
  *
  * `first:mt-0` is what lets a second group inside a cell wear the artboard's 8px
  * of air above it without the cell's own label inheriting it.
+ *
+ * An `h3`: the page is an `h1`, each sheet an `h2`, and a cell sits inside one of
+ * them. The level is not what makes it look like this — the small caps are — so
+ * the outline is free to be the true one.
  */
-function KitLabel({ className, ...props }: React.ComponentProps<"h2">) {
+function KitLabel({ className, ...props }: React.ComponentProps<"h3">) {
   return (
-    <h2
+    <h3
       className={cn(
         "mt-2 text-label font-semibold tracking-[.09em] text-muted-foreground uppercase first:mt-0",
         className,
@@ -56,5 +60,42 @@ function KitCaption({ className, ...props }: React.ComponentProps<"p">) {
   return <p className={cn("text-caption text-muted-foreground", className)} {...props} />;
 }
 
-export type { KitCellProps };
-export { KitCaption, KitCell, KitLabel };
+interface KitSpecimenProps extends React.ComponentProps<"div"> {
+  /**
+   * The component inside writes to the store when it is poked. See the note
+   * below for what that costs and why the answer is `inert`.
+   */
+  frozen?: boolean;
+}
+
+/**
+ * The frame a REAL chrome component is mounted in — the other half of the kit,
+ * next to the cells that compose a specimen out of primitives.
+ *
+ * The hairline is not decoration: a topbar or a statusbar is a full-width band
+ * with its own surface, and without a box around it the specimen would read as
+ * part of the page rather than as a thing being shown.
+ *
+ * `frozen` renders the subtree `inert`, which is how a live component becomes a
+ * specimen: identical markup, identical styles, but no pointer, no focus and no
+ * tab stop. It is on the ones that WRITE — the topbar's pickers move the preset,
+ * the dpr, the theme and the panel flag; the zen pill leaves zen — and `/kit`
+ * shares one browser with the real preview. The store's persistence is sealed
+ * (`fixture.ts`), so a click could not reach the disk anyway; `inert` is what
+ * keeps the page honest about what it is, which is a mirror. Everything that only
+ * READS stays live and is meant to be poked: the connection pill's tooltip, the
+ * console's tabs, the typed editors.
+ */
+function KitSpecimen({ frozen, className, ...props }: KitSpecimenProps) {
+  return (
+    <div
+      data-kit-specimen=""
+      inert={frozen}
+      className={cn("overflow-hidden rounded-md border border-border", className)}
+      {...props}
+    />
+  );
+}
+
+export type { KitCellProps, KitSpecimenProps };
+export { KitCaption, KitCell, KitLabel, KitSpecimen };
