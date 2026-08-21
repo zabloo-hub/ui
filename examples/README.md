@@ -12,8 +12,9 @@ pnpm --filter showcase-example build    # dist/zabloo.ir.json — the IR itself
 ```
 
 `dev` serves the web preview and re-exports on every save. The preview plays the part of
-the **game**: it fills a data panel from the envelope's bindings, logs the named actions
-your UI fires, and exposes the live handle as `window.zabloo`, so the console can push data
+the **game**: it fills its bindings panel from the envelope's bindings, logs the named
+actions your UI fires in the console's **Actions** tab, and exposes the live handle as
+`window.zabloo`, so the browser console can push data
 (`zabloo.setData("player.gold", 900)`) exactly the way a game's C# would. Add `--unity` to
 push each save to the Unity editor as well.
 
@@ -33,7 +34,7 @@ shop out?" is an `inventory-demo` question.
 
 ## The showcase's nine views
 
-Pick them from the selector at the top of the preview.
+Pick them from the view selector in the preview's topbar.
 
 | View | What it covers |
 |---|---|
@@ -49,7 +50,7 @@ Pick them from the selector at the top of the preview.
 
 Several views need data before they show anything — the document carries structure, the game
 carries content. Each file's header comment has the `zabloo.setData(...)` lines to paste into
-the preview's console.
+the browser console.
 
 ## Related
 

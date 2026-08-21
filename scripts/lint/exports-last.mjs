@@ -33,7 +33,7 @@ const INLINE =
   /^export\s+(?:declare\s+)?(?:abstract\s+|async\s+)?(?:const|let|var|function|class|interface|enum|type)\s+[A-Za-z_$]/gm;
 
 const SOURCES = "**/*.{ts,tsx,mts,cts}";
-const SKIP = ["**/node_modules/**", "**/dist/**", "sdk/**", "wip/**", "**/generated/**"];
+const SKIP = ["**/node_modules/**", "**/dist/**", "sdk/**", "**/generated/**"];
 
 /**
  * Files that carried the old style before the check existed. Each one is a file

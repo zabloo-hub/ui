@@ -61,8 +61,9 @@ pnpm verify:pack                          # the publish dry run (pack → instal
 ```
 
 `pnpm dev` re-exports on every save into the live preview, which plays the part of the
-game: a data panel for the envelope's bindings, a log of the named actions the UI fires,
-and the live handle on `window.zabloo`. It is the fastest way to see a change.
+game: a typed field per bound path in the bindings panel, the named actions the UI fires in
+the console's **Actions** tab, the validator's diagnostics in **Problems**, and the live
+handle on `window.zabloo`. It is the fastest way to see a change.
 
 ## The golden corpus
 
@@ -156,6 +157,7 @@ checks. There is no style debate to have in review.
 packages/format/        the IR types and the envelope reader/validator
 packages/react/         the authoring bindings (React reconciler → IR)
 packages/renderer-web/  the WebGL2 self-renderer used by the preview
+packages/preview/       the chrome around that canvas — private, but its build ships in the CLI
 packages/cli/           `zabloo` / `zb` — export, dev
 packages/create-zabloo-app/  the project scaffolder
 sdk/unity/              the UPM package (UI Toolkit custom geometry)

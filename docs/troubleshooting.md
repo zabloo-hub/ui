@@ -88,7 +88,8 @@ Mounting and reloading snap too. See [Motion](format/motion.md#endpoints).
 ## Authoring errors
 
 Every message `@zabloo/react` throws, and what it wants. The export prints them as
-`zabloo export: <message>` and exits `1`; `zabloo dev` shows them over the last good render.
+`zabloo export: <message>` and exits `1`; under `zabloo dev` the last good render stays on
+screen and the message goes to the [**Problems** tab](#the-dev-preview).
 
 ### The view
 
@@ -197,6 +198,77 @@ Each one carries a stable `code` and a `path` into the envelope
 | An action does not fire | The node (or an ancestor) is `disabled`, or a modal `Overlay` above it is capturing input. |
 | A hot-update did nothing | `reload` never throws: a refused payload is reported through `onDiagnostic` and discarded. Check the diagnostics. |
 | The view picker lists old views | `viewIds` is read from the envelope loaded **now** — re-read it after every `reload`. |
+
+## The dev preview
+
+The chrome `zabloo dev` serves — topbar, stage, console, statusbar and the floating bindings
+panel — is described in
+[Project structure & CLI](project-structure.md#the-preview). These are the four things about
+it that send people looking.
+
+### "Stale" and "Disconnected" are not the same thing
+
+They are the two ways the pill in the topbar stops being green, and they want opposite
+reactions:
+
+| Pill | What it means | Where to look |
+|---|---|---|
+| **Live** (green) | The event stream is up and the last export loaded. What is on the canvas is the file on disk. | — |
+| **Stale** (amber) | The server is fine; the **export** failed. The canvas is showing the last good render, which is now older than your source. | The **Problems** tab, and the pill's own tooltip — it carries the export's message. |
+| **Disconnected** (red) | The event stream is gone: `zabloo dev` was stopped, the machine slept, a proxy dropped an idle connection. Nothing is watching your saves. | The terminal `dev` is running in. Reload the page once it is back. |
+
+A red pill is never about your UI, and an amber one is never about the connection. If the
+statusbar says `Disconnected` while the terminal is plainly still running, the stream died
+in between — behind a proxy, a Codespace or a tunnel, that is usually an idle timeout, and
+the preview's own keep-alive covers the common ones.
+
+### The canvas is greyed out
+
+That veil is the [stale treatment](project-structure.md#when-an-export-fails), and there is
+always a pill on top of it saying so. It means one of two things, both of which the
+**Problems** tab spells out:
+
+- **The export failed** — a `zabloo export: <message>` from the authoring errors above.
+  Fix it and save; the veil lifts on the next good export.
+- **The envelope loaded with a `fatal`** — the view on screen never loaded. Fatals sort to
+  the top of the tab and each names its code and its path into the envelope; a row about
+  another view is a link to it.
+
+The canvas is **deliberately not** blanked or covered by an error box: the last good render
+is the thing you were looking at, and hiding it would cost you the comparison you need to
+fix the problem. The bindings panel goes inert for the same reason — pushing a value into a
+view that is not the one you are editing would be a lie — and its footer says the values are
+held. They are: they go back in when the export loads.
+
+### The bindings panel disappeared
+
+`×` closed it. The topbar's `{ } Bindings` toggle brings it back, and it reflects the
+panel's state, so a lit button and no panel means the panel is off-screen rather than
+closed — which the grip fixes: **click** the grip to reset the position, **drag** it to move
+it. The open state and the position are both remembered across reloads.
+
+Two states that look like a bug and are not: a view that declares no bound paths shows a
+`No bindings` card (a view with no data is a normal view), and every field going grey is the
+stale treatment above, not a broken panel.
+
+### The preview looks wrong at 4K (or on a laptop)
+
+The canvas is laid out at the **viewport preset**, not at the window. Under a fixed preset —
+1080p, 4K TV, Ultrawide, Steam Deck, Switch, a phone, or a custom `W×H` — the canvas keeps
+that declared pixel size and a CSS transform shrinks it to fit; the caption above it reads
+`preset · resolution · @DPR · zoom` so the scale is never a guess. Two consequences worth
+knowing:
+
+- **The zoom never goes above 1.** A 720p view on a 4K monitor is drawn at 720p and centred,
+  not blown up: scaling it would show you resampling instead of your UI. If a preset looks
+  small, that is the preset being smaller than your window.
+- **`Fit window` is the only preset with no scaling in it.** The canvas takes the area and
+  the frame drops its border — so a layout that only breaks under `Fit window` is a layout
+  that depends on a size you have not pinned.
+
+If the text looks soft or the atlases look wrong, that is the **DPR** control next to the
+picker: `auto` follows the browser, and `1×`/`2×`/`3×` force it. Changing it remounts the
+view, because the glyph atlases are rasterized at that scale.
 
 ## Related
 

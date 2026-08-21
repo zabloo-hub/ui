@@ -177,6 +177,35 @@ from the new frame; the same is true of mounting.
 After `dispose()`, the id operations return `false` and the view warns once rather than once
 per call.
 
+## In the browser console
+
+`zabloo dev`'s preview puts the handle of the view it has mounted on `window.zabloo`, so the
+browser's own console is a REPL against the running UI — the third way to push a value,
+beside the [bindings panel](../project-structure.md#the-preview) and the game itself:
+
+```js
+zabloo.setData("player.gold", 1250);
+zabloo.setData("shop.items", [{ id: "sword-01", name: "Iron sword", price: 120 }]);
+zabloo.setChecked("sfx", true);
+zabloo.snapshot();                    // where every rect landed
+zabloo.stats();                       // what the last painted frame cost
+```
+
+Everything on the handle is there:
+
+| | |
+|---|---|
+| Data | `setData(path, value)` |
+| Controls | `setChecked(id, on)` · `setValue(id, n)` · `setText(id, s)` · `setOpen(id, open)` · `setSelectedTab(id, i)` · `setScroll(id, x, y)` |
+| Introspection | `snapshot()` · `stats()` · `viewIds` |
+| Content | `reload(json)` |
+
+The reference is **replaced on every mount**. An ordinary save is a `reload` and keeps the
+same handle, but changing the view or the DPR mounts a new one — so a `const ui = zabloo`
+held across either is a disposed view whose id operations answer `false`. Read `zabloo`
+fresh each time. While no view is mounted the property is `undefined` rather than a stale
+handle.
+
 ## Introspection
 
 ### `snapshot()` — the frame's measurements

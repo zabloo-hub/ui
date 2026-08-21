@@ -48,8 +48,10 @@ config file per row.
 Re-exports on every save and serves a live web preview that renders the envelope with
 [`@zabloo/renderer-web`](https://github.com/zabloo-hub/ui/tree/main/packages/renderer-web)
 — the same self-render pipeline the engine SDKs run, so the preview needs no engine
-installed. It has a view picker, a data panel for bound paths, an action log and
-arrow-key/Enter navigation.
+installed. Around that canvas is a tool: a topbar (view selector, viewport presets, DPR,
+connection pill, theme, zen mode), an IDE-style console (**Actions**, **Problems**,
+**Stats**), a statusbar, and a floating panel with one typed field per bound path — which
+is you playing the part of the game.
 
 ```bash
 zabloo dev                     # → http://localhost:5078
@@ -63,20 +65,32 @@ zabloo dev --allow-host <host> # answer to another Host too (repeatable)
 With `--unity`, every save hot-swaps the running view in the editor (Play mode included)
 through the same loading path production hot-updates use.
 
-A save whose export fails is reported **on the page**: the error appears over the view
-that is still on screen and the status dot turns red, so a stale render never passes for
-a fresh one. If the preview port is taken, `dev` moves to the next free one and says so —
-the URL it prints is always the server it actually bound.
+**A save whose export fails is reported on the page, and never as a red overlay.** The
+**last good render stays on screen** — that is the thing you were looking at, and hiding it
+behind an error box would take away the comparison you need. Instead the canvas goes under a
+veil with a `Stale — export failed, showing last good render` pill on it, the connection
+pill turns amber **Stale** and carries the export's message in its tooltip, the statusbar
+counts the fatals and warnings, and the reason itself is one click away in the **Problems**
+tab. The bindings panel's fields go inert while the render is stale — pushing a value into a
+view that is not the one you are editing would be a lie — and the values are held, not lost.
 
-**Viewport presets.** The header picks the size the UI is laid out at — fit the window,
-1920×1080, 1280×720, or a custom `W×H` — independently of how big the browser is. Under a
-preset the canvas keeps its declared pixel size, which is what the renderer measures
-against, and only a CSS transform shrinks it to what fits on screen; so a UI authored for
-1080p can be checked at 720p without touching the window. The DPR selector next to it
-re-renders at a forced device pixel ratio (it remounts, because the glyph atlases are
-rasterized at that scale). Both are remembered across reloads.
+Red is reserved for **Disconnected**: the event stream is gone and nothing is watching your
+saves. Amber means your export broke; red means the server did.
 
-**Stats.** The console's `stats` tab shows what the last painted frame cost — frames per
+If the preview port is taken, `dev` moves to the next free one and says so — the URL it
+prints is always the server it actually bound.
+
+**Viewport presets.** The topbar picks the size the UI is laid out at — Fit window, 1080p,
+4K TV, Ultrawide, Steam Deck, Switch, phone portrait/landscape, or a custom `W×H` —
+independently of how big the browser is. Under a fixed preset the canvas keeps its declared
+pixel size, which is what the renderer measures against, and only a CSS transform shrinks it
+to what fits on screen; so a UI authored for 1080p can be checked at 720p without touching
+the window. The scale never goes above 1, and the caption over the canvas says what you are
+looking at: `Steam Deck · 1280×800 · @1× · 60%`. The DPR selector next to it re-renders at a
+forced device pixel ratio (it remounts, because the glyph atlases are rasterized at that
+scale). Both are remembered across reloads.
+
+**Stats.** The console's **Stats** tab shows what the last painted frame cost — frames per
 second, milliseconds, draw calls, vertices, glyph atlases and their bytes, nodes resolved,
 and whether the frame was a repaint only. It reads frames as the renderer reports them,
 not on a timer of its own: the renderer paints on demand, so a still scene painting
@@ -88,6 +102,13 @@ attacker's domain whose DNS answers `127.0.0.1` reaches a loopback-bound server 
 your own browser and can read the envelope you are working on. Behind a proxy, a Codespace
 or a named tunnel, allow the hostname explicitly with `--allow-host <host>` (repeatable,
 and `--allow-host "*"` turns the check off).
+
+**Where the page comes from.** The chrome is
+[`@zabloo/preview`](https://github.com/zabloo-hub/ui/tree/main/packages/preview), a private
+package that is never published; what ships is its build output, copied into this package's
+`dist/preview/` and served as static files. So there is no new npm package and no React in
+this CLI's dependency tree — but the tarball does carry the built chrome, which is most of
+its weight.
 
 ### `zabloo preview <envelope.json>`
 

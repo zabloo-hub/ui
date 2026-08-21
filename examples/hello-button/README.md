@@ -28,9 +28,9 @@ pnpm --filter hello-button-example build   # dist/zabloo.ir.json — the IR itse
 
 ## Driving it
 
-The preview plays the part of the game: the data panel fills from the envelope's
-bindings, actions are logged as they fire, and the live handle is `window.zabloo`. Paste
-into the console:
+The preview plays the part of the game: the bindings panel fills from the envelope's
+bindings, actions land in the console's **Actions** tab as they fire, and the live handle is
+`window.zabloo`. Paste into the browser console:
 
 ```js
 zabloo.setData("player.gold", 900)

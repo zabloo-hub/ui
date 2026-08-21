@@ -43,10 +43,13 @@ Four things in the preview earn their keep:
 
 | | What it does |
 |---|---|
-| **View picker** | Every `.tsx` in `src/views/` is a view. Switch between `main-menu` and `settings`. |
-| **Data panel** | Auto-discovers every bound path in the envelope and gives you a field per path. This is you playing the role of the game. |
-| **Action log** | Every named action the UI fires, as the game would receive it. |
-| **Keyboard** | Arrows move focus spatially, Enter/Space presses. A gamepad badge lights up if you plug one in. |
+| **View selector** | Every `.tsx` in `src/views/` is a view. Switch between `main-menu` and `settings` from the topbar. |
+| **Bindings panel** | The card floating over the canvas. It auto-discovers every bound path in the envelope and gives you a typed field per path. This is you playing the role of the game. |
+| **Actions tab** | The console's first tab: every named action the UI fires, as the game would receive it. |
+| **Keyboard** | Inside the canvas, arrows move focus spatially and Enter/Space press. The statusbar's gamepad indicator lights up if you plug one in. |
+
+The rest of the chrome — viewport presets, the DPR control, the Problems and Stats tabs,
+zen mode — is in [Project structure & CLI](project-structure.md#the-preview).
 
 The project itself:
 
@@ -127,8 +130,9 @@ export default function MainMenu() {
 }
 ```
 
-Save, and look at the preview's **data panel**: `player.gold` appeared on its own. Type
-`1250` into it. The text fills in and the row re-lays out around its new width.
+Save, and look at the preview's **bindings panel**: `player.gold` appeared on its own, with
+a number field beside it. Type `1250` into it. The text fills in and the row re-lays out
+around its new width.
 
 `bind` on `<Text>` is shorthand. Every other bindable prop takes the object form — a literal
 `T` or `{ bind: "path" }`:
@@ -140,7 +144,9 @@ Save, and look at the preview's **data panel**: `player.gold` appeared on its ow
 ```
 
 Add that as the last child of the `<Column>`. It is invisible until something sets
-`shop.thanked` — the panel now has a field for it too (type `true`).
+`shop.thanked` — the panel now has a field for it too, a switch this time. The editor comes
+from **where** the path is bound, not from what the value happens to be: `visible` is a
+boolean everywhere, so it gets a switch before the game has pushed anything at all.
 
 A path is a dot-separated address into the game's data, where a numeric segment indexes an
 array: `player.gold`, `shop.items.3.name`. Reading never throws — a missing path renders
@@ -149,10 +155,13 @@ nothing rather than breaking the frame.
 Three ways to push a value, all the same channel:
 
 ```js
-// 1. The data panel — a field per bound path.
-// 2. The preview's console: the live view handle is on `window`.
+// 1. The bindings panel — a field per bound path.
+// 2. The browser console: the live view handle is on `window`.
 zabloo.setData("player.gold", 1250);
 ```
+
+That handle is the whole [host channel](format/host-channel.md#in-the-browser-console),
+not just `setData`.
 
 ```csharp
 // 3. The game, once you get to step 6.
@@ -216,7 +225,7 @@ import { Button, Column, List, Row, Text } from "@zabloo/react";
 
 Drop it between the header row and the thank-you text. The preview shows the `empty` slot —
 the IR has no expressions, so "nothing here yet" is a **slot**, not a condition. Feed the
-list from the console:
+list from the browser console:
 
 ```js
 zabloo.setData("shop.items", [
@@ -239,7 +248,7 @@ Four things to notice in that snippet:
 - **The template is a single node.** `<List>` throws if you hand it two, because the
   primitive's `children[0]` *is* the template and `children[1..]` are the empty state.
 
-Now press **Buy** on a row and watch the action log:
+Now press **Buy** on a row and watch the console's **Actions** tab:
 
 ```
 buy → shop.items.0 (#0)
