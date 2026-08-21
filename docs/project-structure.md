@@ -137,11 +137,13 @@ A failed export prints one line — `zabloo export: <message>` — and exits `1`
 
 Re-exports on every save and serves a live web preview rendered by
 [`@zabloo/renderer-web`](format/host-channel.md), the same self-render pipeline the engine
-SDKs run — so the preview needs no engine installed. It has a view picker, a data panel for
-bound paths, an action log and arrow-key/Enter navigation.
+SDKs run — so the preview needs no engine installed. Around that canvas is a tool with
+parts that have names, and the rest of these docs use them: see
+[the preview](#the-preview) below.
 
 ```bash
 zabloo dev                     # → http://localhost:5078
+zabloo dev --open              # …and open it in the browser
 zabloo dev --unity             # …and push each save to the Unity editor's dev mode
 zabloo dev --preview-port 8080 # port of the web preview
 zabloo dev --port 5077         # dev-mode port of the Unity editor (with --unity)
@@ -153,12 +155,11 @@ zabloo dev --port 5077         # dev-mode port of the Unity editor (with --unity
 | `--unity` | off | Also POSTs each export to the Unity editor's dev mode. |
 | `--port <port>` | `5077` | The Unity editor's dev-mode port (only with `--unity`). |
 | `--preview-port <port>` | `5078` | The web preview's port. |
+| `--open` | off | Opens the preview in the browser once it is up. |
+| `--allow-host <host>` | — | An extra `Host` the preview answers to, beyond the loopback names. Repeatable; `"*"` turns the check off. |
 
 It watches `src/` recursively plus `zabloo.config.ts`, debounces 150 ms, and never runs two
 exports at once (a save during an export queues exactly one more).
-
-**A failed export is reported on the page.** The error appears over the view that is still
-on screen and the status dot turns red, so a stale render never passes for a fresh one.
 
 **If the preview port is taken it walks forward** up to 10 ports and says which one it got;
 the URL it prints is always the server it actually bound. If all 10 are taken it refuses to
@@ -167,6 +168,69 @@ start rather than print a URL serving another project's preview.
 With `--unity`, every save hot-swaps the running view in the editor (Play mode included)
 through the same loading path production hot-updates use. If the editor is not listening,
 the export still succeeds and the CLI says the dev mode is unreachable.
+
+### The preview
+
+Four regions and one floating panel. The canvas is the only part of the page the renderer
+draws; everything else is chrome, and the chrome's own light/dark theme never reaches
+inside the canvas.
+
+| Region | What is in it |
+|---|---|
+| **Topbar** | The **view selector** (one entry per view in the envelope; a view whose load produced a fatal wears a red dot), the **viewport picker**, the **DPR** control, the `{ } Bindings` toggle, and — pushed to the right — the **connection pill**, the theme toggle and zen mode. |
+| **Stage** | The canvas, under a caption that reads `preset · resolution · @DPR · zoom`: `Steam Deck · 1280×800 · @1× · 60%`. |
+| **Console** | Three tabs — **Actions**, **Problems**, **Stats** — plus `Clear` and a collapse chevron. |
+| **Statusbar** | The connection state, the problem counts, the envelope's filename, `60 fps · 1.9 ms` (or `idle`), and a gamepad indicator. |
+| **Bindings panel** | A card floating over the stage with one typed field per bound path. Drag it by its grip to move it out of the way of what it is inspecting; `×` closes it and the topbar's `{ } Bindings` brings it back. |
+
+**The viewport is a statement about layout, not about the window.** A fixed preset — Fit
+window, 1080p, 4K TV, Ultrawide, Steam Deck, Switch, phone portrait/landscape, or a custom
+`W×H` — keeps the canvas at its declared pixel size, which is what the renderer measures
+against, and only a CSS transform shrinks it to what fits on screen. So a UI authored for
+1080p can be read at 720p without touching the browser. The scale never goes **above 1**:
+blowing a 720p view up to fill a 4K monitor would be showing you resampling instead of your
+UI. Next to it, the DPR control renders at a forced device pixel ratio — it remounts,
+because the glyph atlases are rasterized at that scale.
+
+**The bindings panel is you playing the game.** It auto-discovers every path the envelope
+binds and gives each one an editor picked by **where the path is bound**, not by what the
+value happens to be: `checked`/`visible`/`disabled`/`open` are a switch, `items` is a JSON
+editor, a `Slider`'s `value` is a number stepper and a `TextInput`'s is a text field. A prop
+the panel does not know falls to a string field, which is the editor that can express
+anything. When the UI writes back through a read/write binding, that field highlights and
+shows a `← UI` chip — the round trip in [Bindings & actions](format/bindings.md), visible.
+
+**The console is where the preview answers questions.** *Actions* is the running log —
+`view` lines when a view loads, `write` lines when the UI writes a bound path, and `action`
+lines carrying the [action context](format/bindings.md#action-context) of the item a press
+came from. *Problems* is the [loading contract](format/loading.md)'s diagnostics, fatals
+first, each as `[code] path — reason`, with a jump to the view it sits on. *Stats* is what
+the last painted frame cost.
+
+**Zen mode** (the corners icon, or `Esc` to leave) collapses the topbar, the console, the
+statusbar and the panel, leaving the canvas full-bleed under one floating pill. The panel's
+open state and position, the console's open state and tab, the theme, the viewport and the
+view you were last on are all remembered in `localStorage`; **zen is not** — coming back to
+a window with no controls in it is worse than re-entering zen.
+
+Inside the canvas, the keyboard is the renderer's: arrows move focus spatially, Enter and
+Space press, and a gamepad lights the statusbar's indicator when you plug one in.
+
+### When an export fails
+
+**Never a red overlay.** A save whose export is refused leaves the **last good render** on
+screen and says so around it: a veil over the canvas with a `Stale — export failed, showing
+last good render` pill on top, the connection pill switching to amber **Stale** (hover it
+for the export's message), the statusbar counting `1 fatal`, and the bindings panel's fields
+going inert under a note that the values are held. The reason itself is one click away in
+the **Problems** tab. Hiding a working render behind an error box would take away the very
+thing you were looking at; a stale render never passes for a fresh one, but it also never
+disappears.
+
+The connection pill's three states are worth telling apart: **Live** is the stream up and
+the last export loaded, **Stale** is the server reachable but the view on screen older than
+the file on disk, and **Disconnected** is the stream gone — the server stopped, or the
+network went away.
 
 ## Related
 
