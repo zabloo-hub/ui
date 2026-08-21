@@ -12,7 +12,7 @@ import { act, render, screen } from "@testing-library/react";
 import { DEFAULT_LAYOUT } from "@/store/layout";
 import type { FrameSample } from "@/store/stats";
 import { useStore } from "@/store/store";
-import { StatsTab, TICK_MS } from "./StatsTab";
+import { STATS_TICK_MS, StatsTab } from "./StatsTab";
 
 const FRAME: FrameSample = {
   frameMs: 1.94,
@@ -109,7 +109,7 @@ describe("the fps window", () => {
 
     const { unmount } = render(<StatsTab />);
     act(() => {
-      vi.advanceTimersByTime(TICK_MS * 4);
+      vi.advanceTimersByTime(STATS_TICK_MS * 4);
     });
 
     expect(tick).toHaveBeenCalledTimes(4);
@@ -119,7 +119,7 @@ describe("the fps window", () => {
       useStore.getState().setConsoleTab("actions");
     });
     act(() => {
-      vi.advanceTimersByTime(TICK_MS * 4);
+      vi.advanceTimersByTime(STATS_TICK_MS * 4);
     });
 
     expect(tick).toHaveBeenCalledTimes(4);
@@ -129,14 +129,14 @@ describe("the fps window", () => {
       useStore.getState().setConsoleTab("stats");
     });
     act(() => {
-      vi.advanceTimersByTime(TICK_MS * 2);
+      vi.advanceTimersByTime(STATS_TICK_MS * 2);
     });
 
     expect(tick).toHaveBeenCalledTimes(6);
 
     unmount();
     act(() => {
-      vi.advanceTimersByTime(TICK_MS * 4);
+      vi.advanceTimersByTime(STATS_TICK_MS * 4);
     });
 
     expect(tick).toHaveBeenCalledTimes(6);
@@ -151,7 +151,7 @@ describe("the fps window", () => {
       useStore.getState().setConsoleOpen(false);
     });
     act(() => {
-      vi.advanceTimersByTime(TICK_MS * 4);
+      vi.advanceTimersByTime(STATS_TICK_MS * 4);
     });
 
     expect(tick).not.toHaveBeenCalled();

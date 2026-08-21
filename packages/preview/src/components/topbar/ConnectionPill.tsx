@@ -1,3 +1,4 @@
+import { CONNECTION_LABEL } from "@/components/connection-ui";
 import {
   Badge,
   BadgeDot,
@@ -6,14 +7,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui";
-import { type ConnectionState, useConnection } from "@/store";
-
-/** The word for each state. `stale` is the one that has to be read to be useful. */
-const LABEL: Record<ConnectionState, string> = {
-  live: "Live",
-  stale: "Stale",
-  disconnected: "Disconnected",
-};
+import { useConnection } from "@/store";
 
 /**
  * Whether what is on the canvas is still the truth — the most important thing
@@ -40,7 +34,7 @@ function ConnectionPill() {
   const label = (
     <>
       <BadgeDot />
-      {LABEL[connection]}
+      {CONNECTION_LABEL[connection]}
     </>
   );
 
