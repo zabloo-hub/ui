@@ -79,6 +79,8 @@ interface World {
   serve(envelope: Envelope | null): void;
   /** Makes the fetch itself fail — what never becomes a diagnostic. */
   breakServer(error: Error): void;
+  /** Parks the next fetch until the returned release is called — for racing a dispose against a load in flight. */
+  holdServer(): () => void;
   /** Thrown by the next mount — the "envelope the renderer refuses" case. */
   refuse(error: Error | null): void;
   /** What a refusing mount reports through the sink before it throws. */
@@ -100,6 +102,7 @@ function world(initial: Envelope | null = GOLD): World {
     mountDiagnostic: Parameters<SessionCallbacks["onDiagnostic"]>[0] | null;
     dpr: number | undefined;
     fetches: number;
+    gate: Promise<void> | null;
   } = {
     served: initial,
     serverError: null,
@@ -107,12 +110,14 @@ function world(initial: Envelope | null = GOLD): World {
     mountDiagnostic: null,
     dpr: undefined,
     fetches: 0,
+    gate: null,
   };
 
   const session = createSession({
     canvas: document.createElement("canvas"),
     fetchEnvelope: async () => {
       slot.fetches += 1;
+      if (slot.gate) await slot.gate;
       if (slot.serverError) throw slot.serverError;
       return slot.served === null ? null : (JSON.parse(JSON.stringify(slot.served)) as Envelope);
     },
@@ -149,6 +154,18 @@ function world(initial: Envelope | null = GOLD): World {
     },
     breakServer: (error) => {
       slot.serverError = error;
+    },
+    holdServer: () => {
+      // The resolver is a slot the Promise constructor insists on owning — a
+      // field of a `const` holder, per the house table.
+      const gate: { release: () => void } = { release: () => {} };
+      slot.gate = new Promise<void>((resolve) => {
+        gate.release = resolve;
+      });
+      return () => {
+        slot.gate = null;
+        gate.release();
+      };
     },
     refuse: (error) => {
       slot.mountError = error;
@@ -434,14 +451,36 @@ describe("dispose", () => {
     expect(window.zabloo).toBeUndefined();
   });
 
-  it("mounts again on the next load, rather than reloading what it threw away", async () => {
+  it("is terminal: a load after dispose mounts nothing — the wiring opens a fresh session instead", async () => {
+    // `close()` in wire.ts nulls the session and `open()` always builds a new
+    // one, so a disposed session that could still mount would only ever produce
+    // an orphan. Verified against wire.ts:284-293.
     const it = world();
     await it.session.load();
     it.session.dispose();
 
     await it.session.load();
 
-    expect(it.mounts).toHaveLength(2);
+    expect(it.mounts).toHaveLength(1);
     expect(it.mounts[0].handle.reloads).toEqual([]);
+    expect(window.zabloo).toBeUndefined();
+  });
+
+  it("kills a load in flight: dispose between the fetch and the mount leaves no orphan (StrictMode boot)", async () => {
+    // The StrictMode dev boot in one test: the first effect's load is parked on
+    // the fetch when the cleanup disposes its session. Without the guard, the
+    // continuation resumed and mounted a WebGL context nobody would ever
+    // dispose — on the canvas the second effect now owns.
+    const it = world();
+    const release = it.holdServer();
+    const inFlight = it.session.load();
+
+    it.session.dispose();
+    release();
+    await inFlight;
+
+    expect(it.mounts).toHaveLength(0);
+    expect(window.zabloo).toBeUndefined();
+    expect(it.reported.filter((line) => line.startsWith("mounted"))).toEqual([]);
   });
 });

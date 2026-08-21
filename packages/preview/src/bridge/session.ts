@@ -89,7 +89,16 @@ export function createSession(options: SessionOptions): Session {
     mountedDpr: number | undefined;
     /** Whether this load already reported a fatal — see the catch in `load`. */
     sawFatal: boolean;
-  } = { handle: null, mountedDpr: undefined, sawFatal: false };
+    /**
+     * Set by `dispose()` so a load that is parked on an `await` cannot resume and
+     * mount a renderer nobody will ever dispose. Without it, every StrictMode dev
+     * boot does exactly that: the first effect's load is in flight when the
+     * cleanup disposes the session, and the orphaned continuation mounts a second
+     * WebGL context on the canvas the second effect now owns. Same ZAB-67 shape
+     * as the mount-throws case below, at the other end of the lifecycle.
+     */
+    disposed: boolean;
+  } = { handle: null, mountedDpr: undefined, sawFatal: false, disposed: false };
 
   // The preview plays the role of "the game": it pushes values into bound paths,
   // and the traffic runs both ways — controls write their value back, which is
@@ -138,8 +147,9 @@ export function createSession(options: SessionOptions): Session {
 
   async function loadOrFail(viewId?: string): Promise<void> {
     const fetched = await fetchEnvelope();
-    if (fetched === null) return;
+    if (live.disposed || fetched === null) return;
     const envelope = await hydrateAssets(fetched, assetData, callbacks.onLoadError, fetchAsset);
+    if (live.disposed) return;
     const json = JSON.stringify(envelope);
     callbacks.onEnvelope(envelope, collectBindings(envelope));
     const ratio = dpr();
@@ -180,6 +190,7 @@ export function createSession(options: SessionOptions): Session {
     setData,
     values: () => dataValues,
     dispose() {
+      live.disposed = true;
       live.handle?.dispose();
       live.handle = null;
       window.zabloo = undefined;
