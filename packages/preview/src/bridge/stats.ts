@@ -29,6 +29,10 @@ function formatStats(frame: (FrameStats & { ms: number }) | null, fps: number): 
   ].join(" · ");
 }
 
+/**
+ * Vertex counts, short. Shared with the Stats tab (V12) rather than written twice:
+ * a badge and a tab that round the same number differently read as two numbers.
+ */
 function compact(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : String(value);
 }
@@ -43,4 +47,4 @@ function fpsWindow(timestamps: readonly number[], now: number): number[] {
   return timestamps.filter((at) => at >= cutoff);
 }
 
-export { formatStats, fpsWindow };
+export { compact, formatStats, fpsWindow };

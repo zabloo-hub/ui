@@ -26,6 +26,10 @@ export interface FrameSample {
   atlasBytes: number;
   resolved: number;
   repaintOnly: boolean;
+  /** Texts re-wrapped this frame (ZAB-73). A steady frame over a still scene sits at zero. */
+  textLayouts: number;
+  /** Geometry buffers that had to grow this frame (ZAB-73). Zero once the scene has been painted. */
+  bufferGrowths: number;
 }
 
 /** The window `fps` is counted over. */
