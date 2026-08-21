@@ -12,9 +12,9 @@
 import type { Getter, Setter } from "./state";
 
 /** `view` — a view loaded · `action` — the UI fired one · `write` — a value came back. */
-export type ActionKind = "view" | "action" | "write";
+type ActionKind = "view" | "action" | "write";
 
-export interface ActionEntry {
+interface ActionEntry {
   /** Wall clock, so the tab can print a time of day. */
   ts: number;
   kind: ActionKind;
@@ -22,15 +22,15 @@ export interface ActionEntry {
 }
 
 /** How many lines the tab keeps. */
-export const ACTION_LOG_CAP = 500;
+const ACTION_LOG_CAP = 500;
 
-export interface ActionsSlice {
+interface ActionsSlice {
   actions: ActionEntry[];
   appendAction(kind: ActionKind, text: string): void;
   clearActions(): void;
 }
 
-export function createActionsSlice(set: Setter, get: Getter): ActionsSlice {
+function createActionsSlice(set: Setter, get: Getter): ActionsSlice {
   return {
     actions: [],
     appendAction: (kind, text) => {
@@ -40,3 +40,6 @@ export function createActionsSlice(set: Setter, get: Getter): ActionsSlice {
     clearActions: () => set({ actions: [] }),
   };
 }
+
+export type { ActionEntry, ActionKind, ActionsSlice };
+export { ACTION_LOG_CAP, createActionsSlice };

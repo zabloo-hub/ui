@@ -1,5 +1,5 @@
 import { Switch as SwitchPrimitive } from "radix-ui";
-import type * as React from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
  * `translate-x-[calc(100%-2px)]`: with a 36px track and a 16px thumb the
  * percentage maths is off by the border, and 2/18 is what the mockup measures.
  */
-function Switch({ className, ...props }: React.ComponentProps<typeof SwitchPrimitive.Root>) {
+function Switch({ className, ...props }: ComponentProps<typeof SwitchPrimitive.Root>) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"

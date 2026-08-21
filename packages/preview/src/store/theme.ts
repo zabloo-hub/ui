@@ -10,22 +10,25 @@
 
 import type { Getter, Setter } from "./state";
 
-export type Theme = "light" | "dark";
+type Theme = "light" | "dark";
 
-export function isTheme(value: unknown): value is Theme {
+function isTheme(value: unknown): value is Theme {
   return value === "light" || value === "dark";
 }
 
-export interface ThemeSlice {
+interface ThemeSlice {
   theme: Theme;
   setTheme(theme: Theme): void;
   toggleTheme(): void;
 }
 
-export function createThemeSlice(set: Setter, get: Getter): ThemeSlice {
+function createThemeSlice(set: Setter, get: Getter): ThemeSlice {
   return {
     theme: "light",
     setTheme: (theme) => set({ theme }),
     toggleTheme: () => set({ theme: get().theme === "light" ? "dark" : "light" }),
   };
 }
+
+export type { Theme, ThemeSlice };
+export { createThemeSlice, isTheme };

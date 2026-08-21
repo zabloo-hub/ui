@@ -1,5 +1,5 @@
 import { Popover as PopoverPrimitive } from "radix-ui";
-import type * as React from "react";
+import type { ComponentProps } from "react";
 import { menuSurface } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
@@ -13,15 +13,15 @@ import { cn } from "@/lib/utils";
  * The generated `w-72` and its Header/Title/Description trio are dropped: this
  * popover is a menu surface, sized by whoever opens it.
  */
-function Popover(props: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+function Popover(props: ComponentProps<typeof PopoverPrimitive.Root>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;
 }
 
-function PopoverTrigger(props: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
+function PopoverTrigger(props: ComponentProps<typeof PopoverPrimitive.Trigger>) {
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
 }
 
-function PopoverAnchor(props: React.ComponentProps<typeof PopoverPrimitive.Anchor>) {
+function PopoverAnchor(props: ComponentProps<typeof PopoverPrimitive.Anchor>) {
   return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
@@ -30,7 +30,7 @@ function PopoverContent({
   align = "start",
   sideOffset = 6,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: ComponentProps<typeof PopoverPrimitive.Content>) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content

@@ -1,5 +1,5 @@
 import { ChevronDown, Monitor } from "lucide-react";
-import * as React from "react";
+import { type KeyboardEvent, useRef, useState } from "react";
 import {
   Button,
   DropdownMenuValue,
@@ -31,8 +31,8 @@ import { PRESETS, type PresetId, parseSize, preset, type Size } from "@/store/pr
  */
 function ViewportPicker() {
   const { preset: current, custom, setPreset, setCustom } = useViewport();
-  const [open, setOpen] = React.useState(false);
-  const content = React.useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const content = useRef<HTMLDivElement>(null);
 
   // Focus the surface, not the first row. Radix's focus scope goes to the first
   // focusable descendant, and a row wearing `focus:bg-accent` reads as hovered —
@@ -129,8 +129,8 @@ function TriggerSize({ id, custom }: { id: PresetId; custom: Size }) {
  * `normalize` shows in the slice today.
  */
 function CustomRow({ seed, onApply }: { seed: Size; onApply: (size: Size) => void }) {
-  const [width, setWidth] = React.useState(String(seed.width));
-  const [height, setHeight] = React.useState(String(seed.height));
+  const [width, setWidth] = useState(String(seed.width));
+  const [height, setHeight] = useState(String(seed.height));
 
   const size = parseDraft(width, height);
 
@@ -139,7 +139,7 @@ function CustomRow({ seed, onApply }: { seed: Size; onApply: (size: Size) => voi
     onApply(size);
   };
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
     if (event.key !== "Enter") return;
     event.preventDefault();
     submit();

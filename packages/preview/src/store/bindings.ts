@@ -25,12 +25,12 @@
 
 import type { Getter, Setter } from "./state";
 
-export type BindingType = "boolean" | "number" | "string" | "array" | "object";
+type BindingType = "boolean" | "number" | "string" | "array" | "object";
 
 /** Who wrote last — `'ui'` is what raises the `← UI` chip in the panel (V15). */
-export type WriteSource = "editor" | "ui";
+type WriteSource = "editor" | "ui";
 
-export interface Binding {
+interface Binding {
   path: string;
   type: BindingType;
   value: unknown;
@@ -40,12 +40,12 @@ export interface Binding {
 }
 
 /** What the envelope declares: a path and the type its binding site implies. */
-export interface Declaration {
+interface Declaration {
   path: string;
   type: BindingType;
 }
 
-export interface BindingsSlice {
+interface BindingsSlice {
   bindings: {
     byPath: Record<string, Binding>;
     order: string[];
@@ -56,7 +56,7 @@ export interface BindingsSlice {
   clearUIMark(path: string): void;
 }
 
-export function createBindingsSlice(set: Setter, get: Getter): BindingsSlice {
+function createBindingsSlice(set: Setter, get: Getter): BindingsSlice {
   function write(path: string, value: unknown, from: WriteSource): void {
     const { byPath, order } = get().bindings;
     const held = byPath[path];
@@ -116,10 +116,13 @@ export function createBindingsSlice(set: Setter, get: Getter): BindingsSlice {
  * (`checked` is a boolean even when the game has not pushed one yet), which the
  * bridge decides and this slice is told.
  */
-export function inferType(value: unknown): BindingType {
+function inferType(value: unknown): BindingType {
   if (typeof value === "boolean") return "boolean";
   if (typeof value === "number") return "number";
   if (Array.isArray(value)) return "array";
   if (value !== null && typeof value === "object") return "object";
   return "string";
 }
+
+export type { Binding, BindingsSlice, BindingType, Declaration, WriteSource };
+export { createBindingsSlice, inferType };

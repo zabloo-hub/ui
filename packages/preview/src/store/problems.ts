@@ -17,9 +17,9 @@
 
 import type { Getter, Setter } from "./state";
 
-export type Severity = "fatal" | "warn";
+type Severity = "fatal" | "warn";
 
-export interface Problem {
+interface Problem {
   severity: Severity;
   /** The validator's stable code — the identity you can search for. */
   code: string;
@@ -30,15 +30,15 @@ export interface Problem {
 }
 
 /** The code of the synthetic fatal below — not a validator code. */
-export const EXPORT_FAILED = "export-failed";
+const EXPORT_FAILED = "export-failed";
 
-export interface ProblemsSlice {
+interface ProblemsSlice {
   problems: Problem[];
   replaceProblems(entries: Problem[]): void;
   addExportFailure(message: string): void;
 }
 
-export function createProblemsSlice(set: Setter, get: Getter): ProblemsSlice {
+function createProblemsSlice(set: Setter, get: Getter): ProblemsSlice {
   return {
     problems: [],
     replaceProblems: (entries) => set({ problems: entries }),
@@ -57,3 +57,6 @@ export function createProblemsSlice(set: Setter, get: Getter): ProblemsSlice {
       }),
   };
 }
+
+export type { Problem, ProblemsSlice, Severity };
+export { createProblemsSlice, EXPORT_FAILED };

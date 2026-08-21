@@ -18,7 +18,7 @@
 import type { Getter, Setter } from "./state";
 
 /** One frame, as the renderer reports it (`FrameStats & { ms }`), renamed to fit. */
-export interface FrameSample {
+interface FrameSample {
   frameMs: number;
   drawCalls: number;
   vertices: number;
@@ -33,9 +33,9 @@ export interface FrameSample {
 }
 
 /** The window `fps` is counted over. */
-export const FPS_WINDOW_MS = 1000;
+const FPS_WINDOW_MS = 1000;
 
-export interface StatsSlice {
+interface StatsSlice {
   stats: {
     last: FrameSample | null;
     fps: number;
@@ -45,7 +45,7 @@ export interface StatsSlice {
   tickStats(): void;
 }
 
-export function createStatsSlice(set: Setter, get: Getter, now: () => number): StatsSlice {
+function createStatsSlice(set: Setter, get: Getter, now: () => number): StatsSlice {
   // A slot, because `tickStats` REPLACES the array (filtered) rather than
   // mutating it: the window is a value recomputed each tick.
   const window = { painted: [] as number[] };
@@ -66,3 +66,6 @@ export function createStatsSlice(set: Setter, get: Getter, now: () => number): S
     },
   };
 }
+
+export type { FrameSample, StatsSlice };
+export { createStatsSlice, FPS_WINDOW_MS };

@@ -14,7 +14,7 @@ import type { BindingType } from "./bindings.js";
  * array — so JSON is parsed; anything that does not parse stays the text the
  * person typed, because a half-written array is not an error worth shouting about.
  */
-export function coerce(text: string): unknown {
+function coerce(text: string): unknown {
   const trimmed = text.trim();
   if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
     try {
@@ -35,7 +35,7 @@ export function coerce(text: string): unknown {
  * over its boolean untouched. A field mid-edit still keeps the treatment it gets
  * in `coerce` — text, rather than `NaN` or an exception.
  */
-export function coerceTyped(type: BindingType, raw: unknown): unknown {
+function coerceTyped(type: BindingType, raw: unknown): unknown {
   switch (type) {
     case "boolean":
       if (typeof raw === "boolean") return raw;
@@ -62,6 +62,8 @@ export function coerceTyped(type: BindingType, raw: unknown): unknown {
 }
 
 /** How a value written back by a control is shown in its field and in the log. */
-export function show(value: unknown): string {
+function show(value: unknown): string {
   return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
 }
+
+export { coerce, coerceTyped, show };

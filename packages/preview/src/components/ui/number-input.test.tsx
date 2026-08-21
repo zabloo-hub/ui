@@ -1,11 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import * as React from "react";
+import { type ComponentProps, useState } from "react";
 import { NumberInput } from "@/components/ui/number-input";
 
 /** Controlled the way the bindings panel will drive it. */
-function Field({ step, shiftStep, min, max }: React.ComponentProps<typeof NumberInput>) {
-  const [value, setValue] = React.useState(1250);
+function Field({ step, shiftStep, min, max }: ComponentProps<typeof NumberInput>) {
+  const [value, setValue] = useState(1250);
   return (
     <NumberInput
       aria-label="player.gold"

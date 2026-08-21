@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input, NumberInput } from "@/components/ui";
 import { displayText, type EditorProps } from "./editor";
 
@@ -17,10 +17,10 @@ import { displayText, type EditorProps } from "./editor";
  * the rest of the word.
  */
 function NumberEditor({ id, value, disabled, describedBy, onCommit }: EditorProps) {
-  const [numeric, setNumeric] = React.useState(() => isNumeric(value));
-  const typing = React.useRef(false);
+  const [numeric, setNumeric] = useState(() => isNumeric(value));
+  const typing = useRef(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (typing.current) return;
     setNumeric(isNumeric(value));
   }, [value]);

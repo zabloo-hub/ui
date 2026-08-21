@@ -7,14 +7,14 @@
  */
 
 /** What the dev loop pushes down the stream on every export. */
-export type PreviewEvent = { kind: "reload" } | { kind: "error"; message: string };
+type PreviewEvent = { kind: "reload" } | { kind: "error"; message: string };
 
 /**
  * Reads one SSE frame. Anything unrecognizable is treated as "something changed,
  * go look": a reload is the harmless answer, and a page that ignored a frame it
  * could not parse would silently stop updating.
  */
-export function parseEvent(data: string): PreviewEvent {
+function parseEvent(data: string): PreviewEvent {
   try {
     const parsed = JSON.parse(data) as PreviewEvent;
     if (parsed.kind === "error" && typeof parsed.message === "string") return parsed;
@@ -22,7 +22,7 @@ export function parseEvent(data: string): PreviewEvent {
   return { kind: "reload" };
 }
 
-export interface EventHandlers {
+interface EventHandlers {
   onOpen(): void;
   onLost(): void;
   onReload(): void;
@@ -30,22 +30,22 @@ export interface EventHandlers {
   onError(message: string): void;
 }
 
-export interface EventConnection {
+interface EventConnection {
   close(): void;
 }
 
 /** The minimum of `EventSource` this needs, so a test can pass a fake one in. */
-export interface EventSourceLike {
+interface EventSourceLike {
   onopen: ((event: Event) => unknown) | null;
   onerror: ((event: Event) => unknown) | null;
   onmessage: ((event: MessageEvent<string>) => unknown) | null;
   close(): void;
 }
 
-export type EventSourceFactory = (url: string) => EventSourceLike;
+type EventSourceFactory = (url: string) => EventSourceLike;
 
 /** Opens the stream and reads it into the handlers. */
-export function connectEvents(
+function connectEvents(
   url: string,
   handlers: EventHandlers,
   open: EventSourceFactory = (target) => new EventSource(target),
@@ -65,3 +65,6 @@ export function connectEvents(
     close: () => source.close(),
   };
 }
+
+export type { EventConnection, EventHandlers, EventSourceFactory, EventSourceLike, PreviewEvent };
+export { connectEvents, parseEvent };

@@ -1,4 +1,4 @@
-import * as React from "react";
+import { useState } from "react";
 import { Badge, Input, NumberInput, Switch } from "@/components/ui";
 import { KitCell } from "@/kit/KitCell";
 
@@ -21,7 +21,7 @@ import { KitCell } from "@/kit/KitCell";
  * showing the one state it was asked to show the least.
  */
 function BindingInputsCell() {
-  const [gold, setGold] = React.useState(1250);
+  const [gold, setGold] = useState(1250);
 
   return (
     <KitCell id="binding-inputs" label="Binding inputs">

@@ -27,7 +27,7 @@ import type { ThemeSlice } from "./theme";
 import type { ViewportSlice } from "./viewport";
 import type { ViewsSlice } from "./views";
 
-export type PreviewState = ThemeSlice &
+type PreviewState = ThemeSlice &
   ViewsSlice &
   ViewportSlice &
   ConnectionSlice &
@@ -40,6 +40,8 @@ export type PreviewState = ThemeSlice &
   RuntimeSlice;
 
 /** zustand's `set`, narrowed to the shallow-merge form every slice here uses. */
-export type Setter = (partial: Partial<PreviewState>) => void;
+type Setter = (partial: Partial<PreviewState>) => void;
 
-export type Getter = () => PreviewState;
+type Getter = () => PreviewState;
+
+export type { Getter, PreviewState, Setter };

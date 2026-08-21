@@ -1,6 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
-import type * as React from "react";
+import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,19 +17,19 @@ import { cn } from "@/lib/utils";
  * Selection is `data-active` on the item, not a check mark: the design says
  * indigo-soft with indigo 500 text.
  */
-function DropdownMenu(props: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
+function DropdownMenu(props: ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
 }
 
-function DropdownMenuPortal(props: React.ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
+function DropdownMenuPortal(props: ComponentProps<typeof DropdownMenuPrimitive.Portal>) {
   return <DropdownMenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />;
 }
 
-function DropdownMenuTrigger(props: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
+function DropdownMenuTrigger(props: ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
   return <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />;
 }
 
-function DropdownMenuGroup(props: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) {
+function DropdownMenuGroup(props: ComponentProps<typeof DropdownMenuPrimitive.Group>) {
   return <DropdownMenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />;
 }
 
@@ -51,7 +51,7 @@ function DropdownMenuContent({
   align = "start",
   sideOffset = 6,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
@@ -102,7 +102,7 @@ function DropdownMenuItem({
   className,
   size = "default",
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Item> &
+}: ComponentProps<typeof DropdownMenuPrimitive.Item> &
   VariantProps<typeof dropdownMenuItemVariants>) {
   return (
     <DropdownMenuPrimitive.Item
@@ -118,7 +118,7 @@ function DropdownMenuItem({
  * The right-hand slot of an item: a resolution, in mono. It goes indigo inside
  * the selected row, where the design lifts it a shade off the muted grey.
  */
-function DropdownMenuValue({ className, ...props }: React.ComponentProps<"span">) {
+function DropdownMenuValue({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
       data-slot="dropdown-menu-value"
@@ -133,7 +133,7 @@ function DropdownMenuValue({ className, ...props }: React.ComponentProps<"span">
 }
 
 /** The other right-hand slot: a 6px red dot marking a view that has a fatal. */
-function DropdownMenuDot({ className, ...props }: React.ComponentProps<"span">) {
+function DropdownMenuDot({ className, ...props }: ComponentProps<"span">) {
   return (
     <span
       data-slot="dropdown-menu-dot"
@@ -146,7 +146,7 @@ function DropdownMenuDot({ className, ...props }: React.ComponentProps<"span">) 
 function DropdownMenuLabel({
   className,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Label>) {
+}: ComponentProps<typeof DropdownMenuPrimitive.Label>) {
   return (
     <DropdownMenuPrimitive.Label
       data-slot="dropdown-menu-label"
@@ -162,7 +162,7 @@ function DropdownMenuLabel({
 function DropdownMenuSeparator({
   className,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
+}: ComponentProps<typeof DropdownMenuPrimitive.Separator>) {
   return (
     <DropdownMenuPrimitive.Separator
       data-slot="dropdown-menu-separator"

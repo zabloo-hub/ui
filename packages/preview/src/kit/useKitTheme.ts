@@ -14,7 +14,7 @@
  * the theme the tool reopens in.
  */
 
-import * as React from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Theme } from "@/store";
 
 interface KitTheme {
@@ -23,17 +23,17 @@ interface KitTheme {
 }
 
 function useKitTheme(): KitTheme {
-  const [theme, setTheme] = React.useState<Theme>(() =>
+  const [theme, setTheme] = useState<Theme>(() =>
     document.documentElement.classList.contains("dark") ? "dark" : "light",
   );
 
-  React.useEffect(() => {
+  useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle("dark", theme === "dark");
     root.style.colorScheme = theme;
   }, [theme]);
 
-  const toggle = React.useCallback(() => {
+  const toggle = useCallback(() => {
     setTheme((current) => (current === "light" ? "dark" : "light"));
   }, []);
 

@@ -1,5 +1,5 @@
 import { Maximize, Moon, Sun } from "lucide-react";
-import * as React from "react";
+import { useState } from "react";
 import { Button, ToggleGroup, ToggleGroupItem } from "@/components/ui";
 import { KitCaption, KitCell, KitLabel } from "@/kit/KitCell";
 
@@ -18,7 +18,7 @@ import { KitCaption, KitCell, KitLabel } from "@/kit/KitCell";
  * button, `data-active` for the indigo of zen.
  */
 function DprCell() {
-  const [dpr, setDpr] = React.useState("auto");
+  const [dpr, setDpr] = useState("auto");
 
   return (
     <KitCell id="segmented-dpr" label="Segmented · DPR">
