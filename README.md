@@ -37,8 +37,9 @@ authoring (React/JSX + tokens) → IR (tree + styles + events) → per-engine SD
 
 ## Status
 
-🚧 **Working end-to-end, pre-release.** The IR v1 is validated in code across **two
-render targets** — the Unity SDK (UI Toolkit custom geometry:
+**On npm since 0.2.0, pre-1.0.** `@zabloo/format`, `@zabloo/react`, `@zabloo/renderer-web`,
+`@zabloo/cli` and `create-zabloo-app` are published; the Unity SDK is not released yet.
+The IR v1 is validated in code across **two render targets** — the Unity SDK (UI Toolkit custom geometry:
 `generateVisualContent` / Mesh API) and a WebGL2 renderer — both running the same
 self-render pipeline: own Flexbox layout pass, own tessellator, own glyph atlases.
 

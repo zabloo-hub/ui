@@ -3,9 +3,10 @@
 How a version of the `@zabloo/*` packages gets from a merged PR to npm. This page is
 for maintainers; nothing here is needed to *use* zabloo/ui.
 
-> **Nothing is published yet.** The pipeline exists and has been rehearsed dry, but the
-> roadmap decision stands: the SDK is feature-complete *before* anything is published.
-> Publishing is deliberately behind three locks (see [The publish gate](#the-publish-gate)).
+> **First release shipped 2026-08-22** — `@zabloo/*@0.2.0` and `create-zabloo-app@0.1.1`,
+> published manually (the [bootstrap](#the-first-publish)). Every release from here goes
+> through CI, behind three locks (see [The publish gate](#the-publish-gate)), once the
+> Trusted Publishers are configured.
 
 ## The packages
 
@@ -162,15 +163,13 @@ first release is manual — next section.
 
 ## The first publish
 
-Nothing under `@zabloo` has been published yet, and an unpublished scope is indistinguishable
-from the outside from one that was never registered: every package name returns a 404 either
-way. The org `zabloo` exists on npm and we own it (checked 2026-08-18, logged in with
-`npm login`).
+**Done on 2026-08-22**: the five packages were published from a maintainer's laptop exactly as
+the bootstrap below describes, tagged, and given their GitHub Releases with
+`node scripts/github-releases.mjs`. It stays here as the record of how the first release was
+made, and because the second phase — the Trusted Publishers — is what makes every later
+release CI's job instead of a laptop's.
 
-Publishing for the first time is the decision to start F9 — **not something to do while working
-on the pipeline**. When that day comes, it is two phases:
-
-### Bootstrap (manual, once)
+### Bootstrap (manual, once — done)
 
 The first version of the five packages goes out from a maintainer's laptop, with the maintainer's
 own 2FA. `changeset publish` is the same command CI uses, so nothing about the release differs

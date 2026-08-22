@@ -10,9 +10,9 @@ out whenever a concept has a page of its own.
 **You need** Node 22+ and pnpm. Unity (2022.3 LTS or newer) only for step 6 — the first five
 steps run entirely in the browser preview.
 
-> **Pre-release.** The packages are not on npm yet, so `npx create-zabloo-app` will not
-> resolve until they are published. From a clone of this repository, scaffold into the
-> workspace instead — `--workspace` wires the project to the local packages:
+> **Working on zabloo/ui itself?** From a clone of this repository you can scaffold into
+> the workspace instead of installing from npm — `--workspace` wires the project to the
+> local packages, so a change to the renderer shows up in your project on the next build:
 >
 > ```bash
 > pnpm install && pnpm build
@@ -21,7 +21,7 @@ steps run entirely in the browser preview.
 > cd examples/my-game-ui && pnpm dev
 > ```
 >
-> Every other command on this page is what you will actually run.
+> Everyone else: the commands on this page are exactly what you run.
 
 ---
 

@@ -3,9 +3,9 @@
 Thanks for looking. This page is everything you need to get the repo running, make a
 change and open a pull request that CI will like.
 
-> **Status: pre-release.** The packages are not on npm yet and the IR is still moving in
-> places. Small fixes and documentation are always welcome; before starting anything
-> large, open an issue so we can check it against where the format is heading.
+> **Status: pre-1.0.** The packages are on npm (`@zabloo/*` 0.2.0 and up), and the IR is
+> still moving in places. Small fixes and documentation are always welcome; before starting
+> anything large, open an issue so we can check it against where the format is heading.
 
 ## Getting set up
 
