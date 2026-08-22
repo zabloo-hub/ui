@@ -2,11 +2,10 @@
 
 ## Supported versions
 
-zabloo/ui is **pre-release**: nothing is published to npm yet and there is no released
-version to patch. Until the first release, the supported version is whatever is on `main`.
-
-Once packages are published, this page will list the supported range. In the meantime,
-fixes land on `main` and ship with the first release.
+zabloo/ui is **pre-1.0**. The `@zabloo/*` packages and `create-zabloo-app` are published on
+npm, and the supported version is **the latest release** of each: security fixes ship as a
+new patch or minor from `main`, not as backports to older 0.x versions. The Unity SDK is not
+released yet; until it is, its supported version is whatever is on `main`.
 
 ## Reporting a vulnerability
 
