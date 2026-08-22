@@ -130,6 +130,7 @@ function rig(root: LayoutNode, layer: readonly LayoutNode[] = []): Rig {
   const host = {
     canvas: canvas as unknown as HTMLCanvasElement,
     claimInput: vi.fn(),
+    takeDomFocus: vi.fn(),
     root: () => root,
     layer: () => layer,
     radiusOf: () => 0,

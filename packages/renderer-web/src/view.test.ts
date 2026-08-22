@@ -1372,6 +1372,108 @@ describe("two views mounted on one page (ZAB-70)", () => {
   });
 });
 
+/**
+ * The page around the canvas (ZAB-109). The renderer listens on the window, so
+ * it hears every key the page gets — including the Enter meant for the button of
+ * the host's chrome that has the focus. Hearing it is harmless; preventing it is
+ * not, and that is what left the whole preview toolbar unusable without a mouse:
+ * `defaultPrevented` and the browser never generates the click.
+ */
+describe("the page's own focus decides whose keys these are (ZAB-109)", () => {
+  it("gives a focused control of the page its keys back, untouched", async () => {
+    const view = await mountForTest(CORPUS["states-tokens"]);
+    view.focusChrome();
+
+    // Nothing prevented: the browser is free to turn each of these into the
+    // click, the scroll or the tab stop the focused control expects.
+    expect(view.keyDown("Enter")).toBe(false);
+    expect(view.keyUp("Enter")).toBe(false);
+    expect(view.keyDown(" ")).toBe(false);
+    expect(view.keyDown("ArrowDown")).toBe(false);
+
+    // And the view did not act on them either — no press, no move.
+    expect(view.snapshot().focus).toBe("primary");
+    expect(states(view.snapshot(), "primary")).not.toContain("pressed");
+    expect(view.actions).toEqual([]);
+  });
+
+  it("leaves Escape to the page too, open modal or not", async () => {
+    const view = await mountForTest(CORPUS.overlays);
+    view.focusChrome();
+
+    // A popover of the chrome closes on Escape; the modal inside the canvas is
+    // not what that Escape was aimed at.
+    expect(view.keyDown("Escape")).toBe(false);
+    expect(view.actions).toEqual([]);
+  });
+
+  it("takes them the moment the canvas is tabbed into", async () => {
+    const view = await mountForTest(CORPUS["states-tokens"]);
+    view.focusChrome();
+    view.keyDown("ArrowDown");
+    expect(view.snapshot().focus).toBe("primary");
+
+    view.focusCanvas();
+
+    expect(view.keyDown("ArrowDown")).toBe(true);
+    expect(view.snapshot().focus).toBe("secondary");
+  });
+
+  it("keeps them while the page's focus is on nothing at all", async () => {
+    const view = await mountForTest(CORPUS["states-tokens"]);
+    view.blurPage();
+
+    // Where a page starts: a view nobody has clicked yet still reads the
+    // keyboard, which is the rule ZAB-70 settled and this must not undo.
+    expect(view.keyDown("ArrowDown")).toBe(true);
+    expect(view.snapshot().focus).toBe("secondary");
+  });
+
+  it("takes the page's focus back on a press, wherever it lands", async () => {
+    const view = await mountForTest(CORPUS["states-tokens"]);
+    view.focusChrome();
+
+    view.pointer.click(1, 1); // the padding: a press on nothing in particular
+
+    expect(view.focusedCanvas()).toBe(true);
+    expect(view.keyDown("ArrowDown")).toBe(true);
+    expect(view.snapshot().focus).toBe("secondary");
+  });
+
+  it("keeps the keys while a text field has them, though the focus is outside the canvas", async () => {
+    const view = await mountForTest(CORPUS.textinput);
+    const target = center(view.snapshot(), "name");
+
+    view.pointer.click(target.x, target.y);
+
+    // The hidden `<textarea>` holds the page's focus — a canvas cannot compose
+    // IME — which is the one case where the keys are the view's with something
+    // else focused (ZAB-26).
+    expect(view.focusedEditor()).toBe(true);
+    expect(view.keyDown("End")).toBe(true);
+    view.type("!");
+    expect(node(view.snapshot(), "name").field?.text).toBe("Sergi!");
+  });
+
+  it("hands input to the view whose canvas the page tabbed into", async () => {
+    const first = await mountEnvelope(TWO_BUTTONS);
+    const _view = first;
+    const second = await mountEnvelope(TWO_BUTTONS, { share: first });
+    try {
+      // Tabbing is not touching, so ZAB-70's owner would still be the first
+      // view: the page's focus and the input owner must not point at two
+      // different canvases.
+      second.focusCanvas();
+      first.keyDown("ArrowDown");
+
+      expect(first.snapshot().focus).toBe("a");
+      expect(second.snapshot().focus).toBe("b");
+    } finally {
+      second.dispose();
+    }
+  });
+});
+
 describe("text size (ZAB-69)", () => {
   function label(fontSize: number, text = "A"): object {
     return {

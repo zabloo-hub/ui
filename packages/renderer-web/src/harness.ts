@@ -96,11 +96,27 @@ interface GoldenView {
   /** Anything the renderer warned about — a corpus envelope must produce none. */
   warnings: string[];
   pointer: Pointer;
-  /** A `keydown` on the window, as the view listens for it. */
-  keyDown(key: string, init?: KeyInit): void;
-  keyUp(key: string, init?: KeyInit): void;
+  /**
+   * A `keydown` on the window, as the view listens for it. Answers whether the
+   * renderer TOOK the key — `event.defaultPrevented`, which is the observable
+   * that matters to the page around the canvas: a key it prevents is a key the
+   * browser will not turn into a click on whatever has the focus (ZAB-109).
+   */
+  keyDown(key: string, init?: KeyInit): boolean;
+  keyUp(key: string, init?: KeyInit): boolean;
   /** Press and release — what a player does to activate the focused control. */
   press(key?: string): void;
+  /**
+   * The page's focus, which decides whether the keys are the renderer's at all
+   * (ZAB-109). `focusChrome` puts it on a control of the host's own — a button
+   * in the toolbar around the canvas; `focusCanvas` tabs into the view;
+   * `blurPage` leaves it on nothing, which is where a fresh page starts.
+   */
+  focusChrome(): void;
+  focusCanvas(): void;
+  blurPage(): void;
+  /** Whether the canvas is the element holding the page's focus. */
+  focusedCanvas(): boolean;
   /** Types into the focused TextInput through the hidden field, as a browser does. */
   type(text: string): void;
   /**
@@ -239,6 +255,9 @@ async function mountGolden(
   const shared = options.share ? domOf(options.share) : null;
   const dom = shared ?? installDom();
   const canvas = new FakeCanvas(width, height, options.dpr ?? GOLDEN_DPR);
+  // On the page, so focusing it moves the page's focus — the question the view
+  // asks before it takes a key (ZAB-109).
+  canvas.attach(dom);
 
   const actions: FiredAction[] = [];
   const writes: DataWrite[] = [];
@@ -295,12 +314,26 @@ async function mountGolden(
       },
       leave: () => canvas.dispatch("pointerleave", {}),
     },
-    keyDown: (key, init) => dom.dispatch("keydown", keyEvent(key, init)),
-    keyUp: (key, init) => dom.dispatch("keyup", keyEvent(key, init)),
+    keyDown: (key, init) => {
+      const event = keyEvent(key, init);
+      dom.dispatch("keydown", event);
+      return event.defaultPrevented;
+    },
+    keyUp: (key, init) => {
+      const event = keyEvent(key, init);
+      dom.dispatch("keyup", event);
+      return event.defaultPrevented;
+    },
     press: (key = "Enter") => {
       dom.dispatch("keydown", keyEvent(key));
       dom.dispatch("keyup", keyEvent(key));
     },
+    focusChrome: () => dom.focusChrome(),
+    focusCanvas: () => canvas.focus(),
+    blurPage: () => {
+      dom.activeElement = null;
+    },
+    focusedCanvas: () => dom.activeElement === canvas,
     type: (text) => dom.typeIntoEditor(text),
     compose: {
       start: () => dom.dispatchOnEditor("compositionstart"),
@@ -364,15 +397,31 @@ function pointerEvent(canvas: FakeCanvas, x: number, y: number): Record<string, 
   };
 }
 
-function keyEvent(key: string, init: KeyInit = {}): Record<string, unknown> {
+function keyEvent(key: string, init: KeyInit = {}): FakeKeyEvent {
   return {
     key,
     shiftKey: init.shiftKey ?? false,
     ctrlKey: init.ctrlKey ?? false,
     metaKey: init.metaKey ?? false,
     repeat: init.repeat ?? false,
-    preventDefault: () => {},
+    // Recorded, not swallowed: whether the renderer prevented the key is the
+    // whole of "can the page still act on it?" (ZAB-109).
+    defaultPrevented: false,
+    preventDefault(this: FakeKeyEvent) {
+      this.defaultPrevented = true;
+    },
   };
+}
+
+/** A `KeyboardEvent` as the renderer reads it, with the flag the page reads back. */
+interface FakeKeyEvent {
+  key: string;
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  repeat: boolean;
+  defaultPrevented: boolean;
+  preventDefault(): void;
 }
 
 // --- the stand-in browser ---
@@ -421,6 +470,10 @@ class FakeCanvas extends FakeTarget {
   clientWidth: number;
   clientHeight: number;
   readonly parentElement = null;
+  /** `-1` until the view makes the canvas focusable, as a real one is (ZAB-109). */
+  tabIndex = -1;
+  /** The page this canvas is on, once mounted — where the focus is recorded. */
+  private dom: FakeDom | null = null;
   /** Where the canvas sits on the page — moved by `moveTo` (ZAB-73). */
   private left = 0;
   private top = 0;
@@ -443,6 +496,30 @@ class FakeCanvas extends FakeTarget {
 
   getContext(kind: string): unknown {
     return kind === "2d" ? this.ctx2d : this.gl.context;
+  }
+
+  attach(dom: FakeDom): void {
+    this.dom = dom;
+  }
+
+  /**
+   * The focus half of a real canvas (ZAB-109). `hasAttribute` answers `false`
+   * for `tabindex` — this canvas is the plain one a host hands the renderer, so
+   * the view is the one that makes it focusable — and `focus` fires the event
+   * the view listens for, exactly as tabbing into it does.
+   */
+  hasAttribute(): boolean {
+    return false;
+  }
+
+  focus(): void {
+    if (!this.dom || this.dom.activeElement === this) return;
+    this.dom.activeElement = this;
+    this.dispatch("focus", {});
+  }
+
+  blur(): void {
+    if (this.dom?.activeElement === this) this.dom.activeElement = null;
   }
 
   /** Draw calls the view has submitted since it mounted. */
@@ -632,6 +709,12 @@ class FakeTextArea extends FakeTarget {
 class FakeDom {
   editor: FakeTextArea | null = null;
   activeElement: unknown = null;
+  /**
+   * A control of the host's own chrome — the toolbar button, the panel's close.
+   * It is nothing but an identity: what a test needs is a focus holder that is
+   * neither the canvas nor the hidden field (ZAB-109).
+   */
+  private readonly chrome = { chrome: "button" };
   readonly warnings: string[] = [];
   private readonly pads: FakePad[] = [];
 
@@ -719,6 +802,11 @@ class FakeDom {
       frames: this.frames.length,
       timers: this.timers.length,
     };
+  }
+
+  /** The page's focus onto a control of the host's chrome, outside every view. */
+  focusChrome(): void {
+    this.activeElement = this.chrome;
   }
 
   private define(name: string, value: unknown): void {

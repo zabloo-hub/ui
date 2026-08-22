@@ -53,6 +53,36 @@ describe("DprControl", () => {
     expect(useStore.getState().dpr).toBe(2);
   });
 
+  /**
+   * The radio-group promise Radix leaves half-kept: it moves the focus with the
+   * arrows and waits for Enter to select (ZAB-109).
+   */
+  it("changes the ratio with the arrows, as a radio group does", async () => {
+    useStore.setState({ dpr: 1 });
+    const user = userEvent.setup();
+    render(<DprControl />);
+
+    await user.tab();
+    expect(screen.getByRole("radio", { name: "1×" })).toHaveFocus();
+
+    await user.keyboard("{ArrowRight}");
+
+    expect(useStore.getState().dpr).toBe(2);
+    expect(screen.getByRole("radio", { name: "2×" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "1×" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("walks back to `auto` the same way", async () => {
+    useStore.setState({ dpr: 1 });
+    const user = userEvent.setup();
+    render(<DprControl />);
+
+    await user.tab();
+    await user.keyboard("{ArrowLeft}");
+
+    expect(useStore.getState().dpr).toBe("auto");
+  });
+
   it("explains itself on hover", async () => {
     const user = userEvent.setup();
     render(<DprControl />);

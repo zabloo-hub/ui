@@ -61,6 +61,8 @@ export interface PointerHost {
   readonly canvas: HTMLCanvasElement;
   /** The player touched this view: it takes the keyboard and the pad (ZAB-70). */
   claimInput(): void;
+  /** …and the page's focus with them, so the chrome around it lets go (ZAB-109). */
+  takeDomFocus(): void;
   root(): LayoutNode;
   layer(): readonly LayoutNode[];
   radiusOf(node: LayoutNode): number;
@@ -170,8 +172,11 @@ export class PointerHandler {
   listen(): void {
     const down = (event: PointerEvent) => {
       // Touching a view is what hands it the keyboard and the pad, whatever the
-      // press lands on — pressing nothing is still using this view (ZAB-70).
+      // press lands on — pressing nothing is still using this view (ZAB-70) —
+      // and the page's focus comes along, or the button of the host's chrome
+      // that had it would go on eating the keys (ZAB-109).
       this.host.claimInput();
+      this.host.takeDomFocus();
       const point = this.eventPoint(event);
       const resolved = this.hitTest(point);
       if (resolved.kind === "backdrop") {
