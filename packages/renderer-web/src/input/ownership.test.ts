@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   claimInput,
+  focusYieldsKeys,
   type InputView,
   ownsInput,
   registerView,
@@ -116,5 +117,53 @@ describe("input ownership", () => {
     mounted.splice(mounted.indexOf(first), 1);
 
     expect(ownsInput(second)).toBe(true);
+  });
+});
+
+/**
+ * The other half of the question (ZAB-109): a view is not alone on the page, and
+ * the keys of a focused control around it are not the renderer's to prevent.
+ */
+describe("what the page's focus leaves to the renderer", () => {
+  const canvas = { element: "canvas" };
+  const editor = { element: "textarea" };
+  const body = { element: "body" };
+  const focus = (active: unknown) => focusYieldsKeys({ active, canvas, editor, body });
+
+  it("leaves the keys to the view when the focus is on nothing", () => {
+    // Where a page starts, and where it goes back to after a blur. A view that
+    // had to be clicked before the arrows did anything would be the regression.
+    expect(focus(null)).toBe(true);
+    expect(focus(undefined)).toBe(true);
+    expect(focus(body)).toBe(true);
+  });
+
+  it("leaves them to the view when the focus is on its canvas", () => {
+    expect(focus(canvas)).toBe(true);
+  });
+
+  it("leaves them to the view when the focus is on its hidden field", () => {
+    // The `<textarea>` a focused TextInput types through lives OUTSIDE the
+    // canvas — a canvas cannot compose IME — so this is the case that keeps the
+    // rule from cutting the keys off exactly where they are needed most.
+    expect(focus(editor)).toBe(true);
+  });
+
+  it("takes them away when a control of the page has the focus", () => {
+    // The theme toggle, the panel's close, the console's tabs: Enter there is
+    // the browser's to turn into a click, and preventing it is what left the
+    // whole chrome unusable without a mouse.
+    expect(focus({ element: "button" })).toBe(false);
+  });
+
+  it("takes them away when the focus is on ANOTHER view's canvas", () => {
+    expect(focus({ element: "canvas" })).toBe(false);
+  });
+
+  it("does not mistake a view with no hidden field yet for a focus on nothing", () => {
+    // `editor` is null until the first TextInput is focused, and a null active
+    // element must not match it into "the keys are mine".
+    expect(focusYieldsKeys({ active: null, canvas, editor: null, body })).toBe(true);
+    expect(focusYieldsKeys({ active: undefined, canvas, editor: null, body })).toBe(true);
   });
 });

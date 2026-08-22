@@ -51,6 +51,20 @@ describe("ViewportPicker", () => {
     expect(screen.getByRole("button", { name: /1080p/ })).not.toHaveAttribute("data-active");
   });
 
+  /** Indigo is not a thing a screen reader can read out (ZAB-109). */
+  it("says which preset is current, and not only in colour", async () => {
+    const user = userEvent.setup();
+    render(<ViewportPicker />);
+
+    await open(user);
+
+    expect(screen.getByRole("button", { name: /Steam Deck/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /1080p/ })).not.toHaveAttribute("aria-current");
+  });
+
   /** A row wearing `focus:bg-accent` reads as hovered, and the top one is not. */
   it("opens without parking focus on the first row", async () => {
     const user = userEvent.setup();

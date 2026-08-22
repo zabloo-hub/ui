@@ -52,6 +52,7 @@ import { FontLibrary, type GlyphAtlas } from "./glyphs.js";
 import { childClip } from "./hit.js";
 import {
   claimInput,
+  focusYieldsKeys,
   type InputView,
   ownsInput,
   registerView,
@@ -2094,6 +2095,7 @@ class WebView implements InputView {
         return view.canvas;
       },
       claimInput: () => claimInput(this),
+      takeDomFocus: () => this.takeDomFocus(),
       root: () => this.root,
       layer: () => this.layer,
       radiusOf: (node) => this.radiusOf(node),
@@ -2113,13 +2115,58 @@ class WebView implements InputView {
     };
   }
 
+  /**
+   * The keys the page just received: are they this view's to read (ZAB-109)?
+   *
+   * Two questions, both in `input/ownership.ts`: whether the page's own focus
+   * leaves them to the renderer at all — a chrome button with the focus keeps
+   * its Enter — and, when the focus points at nothing in particular, which of
+   * the mounted views is the one the player is using (ZAB-70).
+   */
+  private hasKeys(): boolean {
+    if (!ownsInput(this)) return false;
+    return focusYieldsKeys({
+      active: document.activeElement,
+      canvas: this.canvas,
+      editor: this.field.element,
+      body: document.body,
+    });
+  }
+
+  /**
+   * Puts the page's focus on the canvas, unless this view already holds it —
+   * either on the canvas or on the hidden field a `TextInput` types through.
+   *
+   * A press is the browser's own moment to move the focus onto a focusable
+   * element, and the canvas is one from `listen()` onwards; doing it explicitly
+   * is what makes "the player is in the game now" true for the headless rig too,
+   * and it is the answer to "who has the keyboard?" that the chrome around the
+   * canvas needs (ZAB-109). The press that lands ON a field takes the focus back
+   * into the hidden one right after — see `input/pointer.ts`.
+   */
+  private takeDomFocus(): void {
+    const active = document.activeElement;
+    if (active === this.canvas || (this.field.element && active === this.field.element)) return;
+    this.canvas.focus?.({ preventScroll: true });
+  }
+
   private listen(): void {
     this.pointer.listen();
+    // Focusable from here on, so the page can be TABBED into the game and out of
+    // it again, and so the focus has somewhere to be that means "the canvas"
+    // (ZAB-109). A host that set its own `tabindex` — including `-1`, which says
+    // "programmatically only" — has already answered the question.
+    if (!this.canvas.hasAttribute?.("tabindex")) this.canvas.tabIndex = 0;
+    // Tabbing INTO a canvas is using that view, exactly as pressing it is: the
+    // page's focus and the input owner must never point at two different views.
+    const focus = () => claimInput(this);
     const keydown = (event: KeyboardEvent) => {
-      // The keys are a PAGE event, not a canvas one, so a second mounted view
-      // would move its own focus with the same arrow (ZAB-70). Only the view the
-      // player is using reads them.
-      if (!ownsInput(this)) return;
+      // The keys are a PAGE event, not a canvas one: a second mounted view would
+      // move its own focus with the same arrow (ZAB-70), and a focused button of
+      // the host's chrome would never see the Enter the browser owes it
+      // (ZAB-109). This is asked BEFORE any `preventDefault()` — the damage is
+      // not the renderer acting, it is the browser being stopped.
+      if (!this.hasKeys()) return;
       // A focused text field owns the keys that edit it; everything it does not
       // claim (the cross-axis arrows, Escape) falls through to the usual handling.
       if (this.editKey(event)) return;
@@ -2148,7 +2195,7 @@ class WebView implements InputView {
       }
     };
     const keyup = (event: KeyboardEvent) => {
-      if (!ownsInput(this)) return;
+      if (!this.hasKeys()) return;
       if (event.key === "Enter" || event.key === " ") this.pressFocused(false);
       // Releasing an arrow ends the keyboard gesture — the same commit a
       // pointer release fires, so both ways of moving a slider settle alike.
@@ -2168,18 +2215,24 @@ class WebView implements InputView {
     registerView(this);
     this.disposers.push(() => unregisterView(this));
 
+    this.canvas.addEventListener("focus", focus);
     globalThis.addEventListener("keydown", keydown);
     globalThis.addEventListener("keyup", keyup);
     globalThis.addEventListener("resize", resize);
     globalThis.addEventListener("gamepadconnected", padChanged);
     globalThis.addEventListener("gamepaddisconnected", padChanged);
     this.disposers.push(() => {
+      this.canvas.removeEventListener("focus", focus);
       globalThis.removeEventListener("keydown", keydown);
       globalThis.removeEventListener("keyup", keyup);
       globalThis.removeEventListener("resize", resize);
       globalThis.removeEventListener("gamepadconnected", padChanged);
       globalThis.removeEventListener("gamepaddisconnected", padChanged);
       this.pad.stop();
+      // A view that is gone holds nothing, the page's focus included: left on a
+      // canvas nobody is rendering to, it would keep the keys away from the view
+      // still standing and from the chrome alike (ZAB-109).
+      if (document.activeElement === this.canvas) this.canvas.blur?.();
     });
   }
 

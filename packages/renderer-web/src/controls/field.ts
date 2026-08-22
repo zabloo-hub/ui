@@ -90,6 +90,16 @@ class FieldEditor {
   constructor(private readonly host: FieldHost) {}
 
   /**
+   * The hidden field itself, or `null` while no `TextInput` has ever been
+   * focused. The view asks so it can recognize its own element in the page's
+   * focus: the keys arriving from HERE are the view's, even though the element
+   * is not the canvas (ZAB-109).
+   */
+  get element(): HTMLTextAreaElement | null {
+    return this.editor;
+  }
+
+  /**
    * A rebuild: the tree is new, so the node this was editing is gone (ZAB-57).
    *
    * The hidden field OUTLIVES the tree — it belongs to the canvas, not to the

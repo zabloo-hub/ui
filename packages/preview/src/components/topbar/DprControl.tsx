@@ -34,6 +34,14 @@ const SEGMENTS: readonly { value: Dpr; label: string }[] = [
  * unchanged the day V7's topbar or V16's shell mounts a global one, and it means
  * the control is whole on its own instead of depending on an ancestor that does
  * not exist yet.
+ *
+ * **Focusing a segment selects it** (ZAB-109). Radix renders this as a
+ * `radiogroup` of `radio`s and moves the focus between them with the arrows, but
+ * leaves the selection to Enter — so the arrows walked from `1×` to `2×` with
+ * `aria-checked` standing still, which is the one thing a radio group promises
+ * not to do. Selecting on focus is that promise kept, and it costs the pointer
+ * nothing: a click already selected, and the deselect Radix sends back when you
+ * press the segment that is on is ignored either way.
  */
 function DprControl() {
   const { dpr, setDpr } = useViewport();
@@ -56,7 +64,11 @@ function DprControl() {
             onValueChange={change}
           >
             {SEGMENTS.map((segment) => (
-              <ToggleGroupItem key={segment.label} value={String(segment.value)}>
+              <ToggleGroupItem
+                key={segment.label}
+                value={String(segment.value)}
+                onFocus={() => change(String(segment.value))}
+              >
                 {segment.label}
               </ToggleGroupItem>
             ))}

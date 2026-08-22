@@ -90,7 +90,12 @@ function ViewportPicker() {
                   ? candidate.label
                   : `${candidate.label} ${formatSize(candidate.size)}`
               }
+              // `data-active` styles it and `aria-current` says it: without the
+              // second one the indigo row is the only thing telling you which
+              // viewport is on, and a screen reader does not read indigo
+              // (ZAB-109).
               data-active={candidate.id === current || undefined}
+              aria-current={candidate.id === current || undefined}
               onClick={() => choose(candidate.id)}
               className={cn(dropdownMenuItemVariants(), "w-full justify-between text-left")}
             >

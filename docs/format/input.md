@@ -250,26 +250,51 @@ step every `90 ms`, and a scroll speed of `1100 px/s` at full deflection.
 The pointer's cancel gesture applies to the pad as well: a press that ends outside the
 control — including a disconnected pad — cancels instead of activating.
 
-## Several views on one page (normative)
+## Who the keys belong to (normative)
 
 The pointer is scoped to its own surface by construction. The keyboard and the gamepad are
-not — keys are a page event and the pad is a page-wide device — so when more than one view
-is mounted, **exactly one of them owns input**:
+not — keys are a page event and the pad is a page-wide device — so who reads them is two
+questions, asked in this order.
+
+### The host's own focus comes first
+
+A view is rarely alone: around it there are the host's own controls — a toolbar, a panel, a
+text field — and each of them is entitled to the keys while it holds the focus. **The
+renderer reads a key only when the host's focus is on the view itself, or on nothing.** On
+anything else it not only refuses to act: it must **not** consume the key either, because
+suppressing it is what stops the host from turning that Enter into a press of the button
+that has the focus.
+
+"On the view itself" covers two things: the **surface** the view draws on, and the
+**editable element the platform types through** on the targets that need one — the web
+renderer's hidden field, which has to live outside the canvas because a canvas cannot
+compose IME, so a focused `TextInput` is exactly the case where keys legitimately arrive
+with something else focused.
+
+The surface is **focusable** (`tabindex` on the web), so the focus can enter and leave the
+view the way it enters and leaves any other control, and pressing it takes the focus as
+well as the input.
+
+### And then, which view
+
+When the focus points at no view in particular, more than one may be mounted, and
+**exactly one of them owns input**:
 
 - The **first view mounted** owns it, so a page with a single view behaves as if the rule
   did not exist.
 - **Touching a view hands it over**: a press anywhere on its surface, whatever it lands on.
   Pressing nothing in particular is still using that view.
-- **Disposing the owner** hands it to the oldest view left.
+- **Focusing a view's surface hands it over too**, so the two questions can never point at
+  different views.
+- **Disposing the owner** hands it to the oldest view left, and releases the host's focus if
+  it was holding it.
+
+Ownership is not derived from the host's focus, which is why it is a separate question: a
+view nobody has clicked yet, on a page whose focus is on nothing, still reads the keyboard.
 
 Everything else stays per view. Each one keeps its own focus, its own hover and its own
-scroll offsets — ownership decides who *hears* the keys and polls the pad, not where the
-focus lives.
-
-Ownership deliberately does not follow the host platform's own focus: a focused text field
-may hand the keyboard to something outside the surface (the web renderer types through a
-hidden field, because a canvas cannot compose IME), so keys legitimately arrive with
-something else focused.
+scroll offsets — these two questions decide who *hears* the keys and polls the pad, not
+where the focus lives.
 
 ## What the game drives
 
