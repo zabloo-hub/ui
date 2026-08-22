@@ -118,7 +118,9 @@ sink, the console output is unchanged.
 
 - **One to three sentences, present tense, starting with the thing that changed** — the
   prop, the command, the behavior. Bullets when one changeset genuinely carries several
-  independent changes to the same package.
+  independent changes to the same package — but **after an opening sentence, never as the
+  first line**: the generator prefixes that line with the PR link, and a leading `-` renders
+  as a stray dash.
 - **One changeset per change a user can notice**, not per ticket or pull request. A PR that
   fixes a bug and adds an option is two changesets.
 - **When packages are affected differently, one changeset per package**, each saying only
@@ -130,7 +132,9 @@ sink, the console output is unchanged.
 - **No commit hashes, no ticket ids, no "why".** The PR link and the author are added
   automatically; the reasoning belongs in the pull request, and a decision belongs in the
   decision log. Commit messages and PR descriptions are where the house voice explains
-  itself — the changelog is where it does not.
+  itself — the changelog is where it does not. One exception: a changeset written *after*
+  its change merged (a backfill) opens with a `pr: <number>` line, or the entry links to
+  the pull request that added the file instead of the one that made the change.
 
 Versions move together: `@zabloo/format`, `@zabloo/react`, `@zabloo/renderer-web` and
 `@zabloo/cli` share one version number (a `fixed` group in `.changeset/config.json`), so
