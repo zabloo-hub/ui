@@ -111,6 +111,18 @@ describe("Statusbar", () => {
     expect(document.querySelector('[data-slot="envelope-name"]')).not.toBeInTheDocument();
   });
 
+  // ZAB-101: both mono readouts used to be `faint` — the token for the log's
+  // timestamps and the panel's grip — which on the `#fafafa` footer is about
+  // 1.4:1. They are mono, not quieter than the words beside them.
+  it("keeps the mono readouts at the bar's own grey, not the faint one", () => {
+    useStore.setState({ stats: { last: FRAME, fps: 60 } });
+
+    render(<Statusbar />);
+
+    expect(document.querySelector('[data-slot="envelope-name"]')).not.toHaveClass("text-faint");
+    expect(screen.getByText("60 fps · 1.9 ms")).not.toHaveClass("text-faint");
+  });
+
   describe("the fps readout", () => {
     it("reads a still scene as idle, with no frame time behind it", () => {
       useStore.setState({ stats: { last: FRAME, fps: 0 } });

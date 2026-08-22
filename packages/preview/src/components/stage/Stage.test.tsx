@@ -17,6 +17,7 @@ const canvas = () => document.querySelector("canvas");
 const veil = () => document.querySelector('[data-slot="stage-veil"]');
 const caption = () => document.querySelector('[data-slot="stage-caption"]');
 const box = () => document.querySelector('[data-slot="stage-box"]');
+const area = () => document.querySelector('[data-slot="stage-area"]');
 const pill = () => document.querySelector('[data-slot="stale-pill"]');
 
 beforeEach(() => {
@@ -102,6 +103,23 @@ describe("Stage scaling", () => {
     expect(frame()).not.toHaveClass("border");
     expect(frame()).not.toHaveClass("rounded-md");
     expect(frame()).not.toHaveClass("shadow-frame");
+  });
+
+  // ZAB-101: `fitScale` fills whatever box it is handed, so with no inset the
+  // frame's bottom edge landed on the console's border and its radius and shadow
+  // were clipped against the chrome.
+  it("insets the area under a preset, so the frame is not flush with the chrome", () => {
+    render(<Stage />);
+
+    expect(area()).toHaveClass("p-[14px]");
+  });
+
+  it("drops the inset under fit, where a light border is the opposite of the point", () => {
+    useStore.setState({ viewport: { preset: "fit" } });
+
+    render(<Stage />);
+
+    expect(area()).not.toHaveClass("p-[14px]");
   });
 });
 

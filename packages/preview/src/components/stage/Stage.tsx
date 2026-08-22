@@ -29,6 +29,16 @@ import { useLogicalResize, useStageSize } from "./useStageSize";
  * the area, and the frame drops its border, radius and shadow. Full bleed, and
  * honest with it: a border would eat two pixels the caption has already claimed
  * the canvas is laid out at.
+ *
+ * The area is inset by 14px under a preset, and by nothing under `fit` (ZAB-101).
+ * `fitScale` fills whatever box it is given, so without the inset the frame's
+ * bottom edge landed exactly on the console's border: its radius and its shadow
+ * were clipped against the chrome, which is not how the artboard draws a canvas
+ * sitting on the stage. 14px is the inset the floating panel already keeps from
+ * the stage's corners, so the stage has one spacing and not two. Under `fit` the
+ * same inset would be a light frame around a full-bleed canvas, which is the
+ * opposite of what `fit` means — and the measurement follows for free, because
+ * a `ResizeObserver` reports the CONTENT box and the zoom is derived from it.
  */
 function Stage() {
   const zen = useStore((state) => state.layout.zen);
@@ -81,7 +91,7 @@ function Stage() {
       <div
         ref={area}
         data-slot="stage-area"
-        className="flex min-h-0 w-full flex-1 items-center justify-center"
+        className={cn("flex min-h-0 w-full flex-1 items-center justify-center", !fit && "p-[14px]")}
       >
         <div
           data-slot="stage-box"
