@@ -1650,6 +1650,33 @@ describe("where the canvas is (ZAB-73)", () => {
     expect(view.actions).toEqual([{ action: "buy" }]);
   });
 
+  it("clicks land where the canvas is DRAWN, not where it is laid out (ZAB-108)", async () => {
+    const view = await mountForTest(CORPUS["states-tokens"]);
+    // A fixed viewport on a smaller stage: the view is still laid out at its
+    // full size — that is the whole point of the preset — and a `transform`
+    // draws it at 76% of it.
+    view.zoomCanvas(0.76);
+    const target = center(view.snapshot(), "primary");
+
+    view.pointer.click(target.x, target.y);
+
+    expect(view.actions).toEqual([{ action: "buy" }]);
+  });
+
+  it("re-reads the scale when the canvas is rescaled under it", async () => {
+    const view = await mountForTest(CORPUS["states-tokens"]);
+    const target = center(view.snapshot(), "primary");
+    // Unscaled first, so the rect is cached at 1:1 before anything moves — a
+    // stage that then loses room (the console unfolding, a preset change) has to
+    // reach the same control.
+    view.pointer.click(target.x, target.y);
+    view.zoomCanvas(0.28);
+
+    view.pointer.click(target.x, target.y);
+
+    expect(view.actions).toEqual([{ action: "buy" }, { action: "buy" }]);
+  });
+
   it("re-reads it when the canvas itself is resized", async () => {
     const view = await mountForTest(CORPUS["states-tokens"]);
     view.moveCanvas(0, -40);

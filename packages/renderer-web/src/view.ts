@@ -2632,9 +2632,18 @@ class WebView implements InputView {
     const dpr = this.dpr;
     const width = this.canvas.clientWidth || this.canvas.width;
     const height = this.canvas.clientHeight || this.canvas.height;
-    this.canvas.width = Math.round(width * dpr);
-    this.canvas.height = Math.round(height * dpr);
-    // A canvas that changed size has very likely moved on the page too (ZAB-73).
+    const backingWidth = Math.round(width * dpr);
+    const backingHeight = Math.round(height * dpr);
+    // Assigning `width`/`height` throws the drawing buffer away even when the
+    // number is the same, so a resize that did not change the backing store must
+    // not touch it: the preview announces a RESCALE as a resize (ZAB-108), and
+    // that one changes where the canvas is drawn, not what it is drawn into.
+    if (this.canvas.width !== backingWidth || this.canvas.height !== backingHeight) {
+      this.canvas.width = backingWidth;
+      this.canvas.height = backingHeight;
+    }
+    // A canvas that was resized — or rescaled — has very likely moved on the page
+    // too (ZAB-73), and its rect is the pointer's map of it either way.
     this.pointer.invalidateBounds();
     this.render();
   }

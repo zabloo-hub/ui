@@ -9,7 +9,7 @@
 
 import { render } from "@testing-library/react";
 import { useStore } from "@/store";
-import { useLogicalResize, useStageSize } from "./useStageSize";
+import { useGeometryResize, useStageSize } from "./useStageSize";
 
 class FakeResizeObserver {
   static instances: FakeResizeObserver[] = [];
@@ -48,8 +48,8 @@ function Area() {
   return <div ref={ref} data-testid="area" />;
 }
 
-function Logical({ width, height }: { width: number; height: number }) {
-  useLogicalResize({ width, height });
+function Geometry({ width, height, zoom = 1 }: { width: number; height: number; zoom?: number }) {
+  useGeometryResize({ width, height }, zoom);
   return null;
 }
 
@@ -93,7 +93,7 @@ describe("useStageSize", () => {
   });
 });
 
-describe("useLogicalResize", () => {
+describe("useGeometryResize", () => {
   const listener = vi.fn();
 
   beforeEach(() => {
@@ -106,24 +106,43 @@ describe("useLogicalResize", () => {
   });
 
   it("says nothing on mount", () => {
-    render(<Logical width={1280} height={800} />);
+    render(<Geometry width={1280} height={800} />);
 
     expect(listener).not.toHaveBeenCalled();
   });
 
   it("fires once when the logical size changes", () => {
-    const { rerender } = render(<Logical width={1280} height={800} />);
+    const { rerender } = render(<Geometry width={1280} height={800} />);
 
-    rerender(<Logical width={1920} height={1080} />);
+    rerender(<Geometry width={1920} height={1080} />);
 
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("stays quiet for a render that changed nothing", () => {
-    const { rerender } = render(<Logical width={1280} height={800} />);
+    const { rerender } = render(<Geometry width={1280} height={800} />);
 
-    rerender(<Logical width={1280} height={800} />);
+    rerender(<Geometry width={1280} height={800} />);
 
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  // The case the window never reports: collapsing the console under a fixed
+  // preset leaves the view laid out at 1280×800 and draws it smaller, and a
+  // renderer that was not told maps every click through the old scale (ZAB-108).
+  it("fires when the zoom changes with the logical size still", () => {
+    const { rerender } = render(<Geometry width={1280} height={800} zoom={0.76} />);
+
+    rerender(<Geometry width={1280} height={800} zoom={0.58} />);
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires once when the size and the zoom move together", () => {
+    const { rerender } = render(<Geometry width={1280} height={800} zoom={0.76} />);
+
+    rerender(<Geometry width={1920} height={1080} zoom={0.5} />);
+
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

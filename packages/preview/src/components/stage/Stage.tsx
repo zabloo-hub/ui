@@ -2,7 +2,7 @@ import { type CSSProperties, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { hasFatal, useCaptionParts, useLogicalSize, useStore, useZoom } from "@/store";
 import { StalePill } from "./StalePill";
-import { useLogicalResize, useStageSize } from "./useStageSize";
+import { useGeometryResize, useStageSize } from "./useStageSize";
 
 /**
  * The stage: a flat surround, a caption, and the one canvas the whole tool
@@ -50,7 +50,7 @@ function Stage() {
   const zoom = useZoom();
 
   const area = useStageSize();
-  useLogicalResize(size);
+  useGeometryResize(size, zoom);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // A mount effect and a stable ref rather than a callback ref: an inline
