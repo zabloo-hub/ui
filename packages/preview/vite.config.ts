@@ -1,7 +1,7 @@
 /**
  * The preview chrome's build, dev server and test runner, in one config.
  *
- * Two things here are not boilerplate:
+ * Three things here are not boilerplate:
  *
  * 1. Workspace deps resolve to their SOURCES, exactly like `tsconfig.base.json`
  *    and `vitest.shared.ts` do (ZAB-62). Without it `pnpm --filter @zabloo/preview
@@ -14,6 +14,9 @@
  *    That is what lets the chrome be developed against live envelopes and live
  *    reloads without rebuilding the CLI — until V18 teaches the CLI to serve this
  *    app's `dist/` itself.
+ *
+ * 3. `build.chunkSizeWarningLimit` is raised, with the measurement that justifies
+ *    it written next to it (ZAB-107).
  */
 
 import { fileURLToPath } from "node:url";
@@ -36,6 +39,32 @@ export default defineConfig({
       { find: /^@zabloo\/react$/, replacement: src("react") },
       { find: /^@zabloo\/renderer-web$/, replacement: src("renderer-web") },
     ],
+  },
+  build: {
+    // Vite warns above 500 kB, and this bundle is 1.084,5 kB. The warning was
+    // firing on every single build, which is the state in which a warning stops
+    // being read — so it is raised HERE, with the measurement that says what is
+    // in there, rather than left to be ignored (ZAB-107).
+    //
+    // Measured by source map over the production bundle, 2026-08-22:
+    //
+    //   534,9 kB  49,8%  renderer-web/src/generated/font.ts
+    //   174,1 kB  16,2%  react-dom
+    //   115,3 kB  10,7%  the rest of @zabloo/renderer-web (stbtt wasm: 23,7 kB)
+    //    41,9 kB   3,9%  components/ + components/ui/
+    //    27,4 kB   2,6%  tailwind-merge
+    //
+    // Half the bundle is one file: Liberation Sans, 410 kB of TTF embedded as
+    // base64 so that `@zabloo/renderer-web` can ship a self-contained IIFE that
+    // rasterizes text with no network. That is a deliberate decision over there
+    // and it is the ONLY thing that would meaningfully move this number — not
+    // the chrome, and not `/kit`, which is 19,6 kB (1,8%) and now loads from its
+    // own chunk anyway. Until the font stops travelling as a string, a smaller
+    // limit here would be an alarm with nothing behind it.
+    //
+    // 1200 rather than something comfortable: it clears what is measured and
+    // little else, so real growth still rings.
+    chunkSizeWarningLimit: 1200,
   },
   server: {
     proxy: {
