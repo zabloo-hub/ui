@@ -205,6 +205,13 @@ for (const entry of workspace) {
       bundled.some((file) => file.endsWith(".js")) && bundled.some((file) => file.endsWith(".css")),
       `ships the preview's hashed assets (${bundled.length} file(s))`,
     );
+    // Since ZAB-107 `/kit` arrives through `import()`, so it rides a chunk of its
+    // own: a design-review page nobody who installs this will ever open has no
+    // business in the bundle every preview parses. Nothing about the RUNNING page
+    // would change if that regressed — `/kit` would keep working, back inside the
+    // main chunk — which is why the shape of `dist/` is what gets asserted.
+    const chunks = bundled.filter((file) => file.endsWith(".js"));
+    expect(chunks.length > 1, `the kit rides a chunk of its own (${chunks.length} js file(s))`);
     // What index.html asks for has to BE there: the copy is recursive, but a
     // half-copied bundle would still serve a page — a blank one.
     const html = run("tar", ["-xzOf", entry.tarball, "package/dist/preview/index.html"]);
@@ -410,6 +417,13 @@ async function servePreview() {
       const asset = await fetch(new URL(script, url)).catch(() => null);
       expect(asset?.status === 200, `${script} is served (${asset?.status ?? "unreachable"})`);
     }
+    // The kit is the second page of the same document (ZAB-98). It is checked
+    // over the served tarball and not only in `preview-server.test.ts` for the
+    // same reason `/` is: the route can be right and the files still be
+    // somewhere the installed bin cannot reach.
+    const kit = await fetch(new URL("/kit", url)).catch(() => null);
+    expect(kit?.status === 200, "`zabloo preview` answers 200 on /kit");
+    expect((await kit?.text()) === html, "/kit serves the same document as /");
     // The envelope is what the page is FOR, and the name is what the statusbar
     // prints — both from the same tarball, over the same server.
     const served = await fetch(new URL("/envelope", url)).catch(() => null);
