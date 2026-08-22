@@ -8,9 +8,12 @@
  * `live` position here is what the card is drawn at right now. The store is
  * written once, on release, rather than on every move — a persisted field taking
  * sixty writes a second would put `localStorage` in the middle of a drag. The
- * two also diverge on purpose when the window is resized: the card is pulled
- * back inside the stage without persisting, because a resize is a statement
- * about the window and not about where you put the panel.
+ * two also diverge on purpose whenever the card has to be pulled back inside the
+ * stage — the window shrank, or the card itself grew — and that pull-back never
+ * persists: it is a correction to what is drawn, not a statement about where you
+ * put the panel. Which is also why it only ever pulls IN. A card that grew and
+ * was clamped stays where the clamp left it when it shrinks again; springing
+ * back would move the panel under a user who did not ask for it.
  *
  * `null` is the default corner (14px in from the top-right) rather than a
  * computed `{x, y}`: expressed as `right`, it stays in its corner across every
@@ -167,7 +170,19 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
     // with nothing to bring it back until the window happens to resize.
     reclamp();
     window.addEventListener("resize", reclamp);
-    return () => window.removeEventListener("resize", reclamp);
+    // And on the CARD's own size, because the window is not the only thing that
+    // moves the bottom edge. `max-h` caps the HEIGHT, not the edge: a card
+    // positioned low is inside its height limit and still off the stage the
+    // moment it grows — the stale footer appearing, or an envelope arriving with
+    // more paths. Clamping against the height the card had when it was dropped
+    // stops being true the instant that height changes, and only the card can
+    // say when it did.
+    const observer = new ResizeObserver(reclamp);
+    if (ref.current !== null) observer.observe(ref.current);
+    return () => {
+      window.removeEventListener("resize", reclamp);
+      observer.disconnect();
+    };
   }, []);
 
   const reset = (): void => {

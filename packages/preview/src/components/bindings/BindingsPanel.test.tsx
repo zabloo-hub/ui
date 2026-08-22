@@ -9,7 +9,7 @@
  * component's and not jsdom's.
  */
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { Binding, BindingType } from "@/store/bindings";
 import { DEFAULT_LAYOUT } from "@/store/layout";
 import { useStore } from "@/store/store";
@@ -18,7 +18,48 @@ import { BindingsPanel } from "./BindingsPanel";
 const STAGE = { width: 1000, height: 600 };
 const CARD = { width: 296, height: 400 };
 
+/**
+ * The `ResizeObserver` in `test/setup.ts` never fires — honest for jsdom, where
+ * nothing has a layout to change, and useless for the one case about the card
+ * measuring ITSELF. This one can be fired by hand.
+ */
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+  readonly targets: Element[] = [];
+
+  constructor(private readonly callback: ResizeObserverCallback) {
+    FakeResizeObserver.instances.push(this);
+  }
+
+  observe(target: Element): void {
+    this.targets.push(target);
+  }
+
+  unobserve(): void {}
+
+  disconnect(): void {}
+
+  /**
+   * What the browser reports after a layout pass. No entry worth filling in: the
+   * clamp re-measures both boxes itself, because the card's size is only half of
+   * what it needs and the entry carries the other half of nothing.
+   */
+  emit(): void {
+    this.callback([], this as unknown as ResizeObserver);
+  }
+}
+
+const observer = (): FakeResizeObserver => {
+  const last = FakeResizeObserver.instances.at(-1);
+  if (last === undefined) throw new Error("nothing observed the card");
+  return last;
+};
+
+const realResizeObserver = globalThis.ResizeObserver;
+
 beforeEach(() => {
+  FakeResizeObserver.instances = [];
+  globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver;
   useStore.setState({
     layout: DEFAULT_LAYOUT,
     bindings: { byPath: {}, order: [] },
@@ -26,6 +67,10 @@ beforeEach(() => {
     lastError: null,
     problems: [],
   });
+});
+
+afterEach(() => {
+  globalThis.ResizeObserver = realResizeObserver;
 });
 
 function binding(path: string, type: BindingType = "string"): Binding {
@@ -230,6 +275,34 @@ describe("BindingsPanel", () => {
     expect(card.style.left).toBe("404px");
     // A resize says something about the window, not about where you put the panel.
     expect(useStore.getState().layout.panelPos).toEqual({ x: 600, y: 150 });
+  });
+
+  it("pulls the card back inside when the card itself grows, without persisting it", () => {
+    // Dropped flush against the bottom edge: 200 + the card's 400 is the stage
+    // exactly, so there is no slack left for it to grow into.
+    useStore.getState().setPanelPos({ x: 100, y: 200 });
+    const { card } = renderPanel();
+
+    expect(observer().targets).toEqual([card]);
+
+    // What the stale footer does: 40px more card, in place, with nothing about
+    // the window changed to announce it. `max-h` is no help — the card is still
+    // inside its height cap and 40px past the bottom edge all the same.
+    const grown = CARD.height + 40;
+    card.getBoundingClientRect = () =>
+      rect(100, Number.parseFloat(card.style.top || "0"), CARD.width, grown);
+    // Under `act` because nothing here is a DOM event: `fireEvent` wraps the
+    // resize case for free, and an observer fired by hand has to say so itself
+    // or the re-render lands after the assertions.
+    act(() => {
+      observer().emit();
+    });
+
+    expect(card.style.top).toBe(`${STAGE.height - grown}px`);
+    expect(card.style.left).toBe("100px");
+    // Same contract as the window pull-back: the card growing is not the user
+    // saying where the panel goes, so the persisted position is left alone.
+    expect(useStore.getState().layout.panelPos).toEqual({ x: 100, y: 200 });
   });
 
   it("pulls a position persisted on another window back on stage at mount, not only on resize", () => {
