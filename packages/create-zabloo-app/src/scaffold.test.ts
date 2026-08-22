@@ -5,6 +5,7 @@
  * came out — no mocked filesystem, which would only assert that `cp` was called.
  */
 
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +28,14 @@ async function tempRoot(): Promise<string> {
 /** Reads the generated `package.json` — the file every assertion about versions goes through. */
 async function readPkg(dir: string): Promise<Record<string, unknown>> {
   return JSON.parse(await readFile(join(dir, "package.json"), "utf8"));
+}
+
+/** `^<version>` of a sibling package in this monorepo — what the scaffolder writes when it runs from here. */
+function siblingRange(pkg: "react" | "cli"): string {
+  const manifest = JSON.parse(
+    readFileSync(new URL(`../../${pkg}/package.json`, import.meta.url), "utf8"),
+  ) as { version: string };
+  return `^${manifest.version}`;
 }
 
 describe("project names", () => {
@@ -86,8 +95,11 @@ describe("scaffold", () => {
     const pkg = await readPkg(dir);
     expect(pkg.name).toBe("my-ui");
     expect(pkg.private).toBe(true);
-    expect(pkg.dependencies).toMatchObject({ "@zabloo/react": "^0.1.0" });
-    expect(pkg.devDependencies).toMatchObject({ "@zabloo/cli": "^0.1.0" });
+    // Derived, not hardcoded: the scaffolder reads the sibling package's version
+    // in the monorepo, so the expectation has to read the same thing — a literal
+    // `^0.1.0` here broke the first time the versions moved to 0.2.0.
+    expect(pkg.dependencies).toMatchObject({ "@zabloo/react": siblingRange("react") });
+    expect(pkg.devDependencies).toMatchObject({ "@zabloo/cli": siblingRange("cli") });
   });
 
   it("uses workspace:* under --workspace, so the monorepo can scaffold itself", async () => {

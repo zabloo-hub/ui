@@ -4,57 +4,28 @@
 
 ### Minor Changes
 
-- 85a1a3a: Implement `disabled`, the last of the seven `StateName`s with no implementation behind it.
-  It is a bindable prop on `NodeBase` rather than a derived state, because it **inherits**: a
-  node's effective value is its own OR any ancestor's, so disabling half a form is one prop on
-  the section. An `Overlay` restarts the chain — a modal declared inside a dimmed panel stays
-  operable.
+- [#43](https://github.com/zabloo-hub/ui/pull/43) [`f9d0145`](https://github.com/zabloo-hub/ui/commit/f9d01458de0335f4ce89a273ec881e130a8bd266) Thanks [@zamoks95](https://github.com/zamoks95)! - New `disabled` prop on every node, bindable like `visible`. It inherits: disabling a container
+  disables everything inside it (an `Overlay` starts a fresh chain, so a modal declared inside a
+  disabled panel stays operable). A disabled node is not focusable, takes no pointer or
+  navigation input and releases anything it was holding; it still renders, styled through
+  `states.disabled`, and a disabled `ScrollView` still scrolls. Host calls such as `setValue` and
+  `setScroll` are not blocked.
 
-  A disabled node leaves the interaction model entirely: not focusable, no pointer, no
-  directional navigation. A press falls **through** it, anything it was holding is released, and
-  an in-flight Slider gesture is cancelled without committing. A disabled section stays readable
-  and its ScrollView still scrolls, and the host data channel is never blocked.
-
-- 85a1a3a: `onChange` on `ContainerNode`, meaningful under `group: "exclusive-check"`: the group owns the
-  value, so the group is what answers "the selection moved". `<Select onChange>` was typed and
-  documented but never reached the IR, and the renderer only ever fired from the option node —
-  there was no typed way to get a named action out of a `<Select>`.
-
-  It carries no payload beyond the name and ZAB-29's `ActionContext` (the chosen option's); the
-  value already comes back through the data channel. It fires on the write edge, right after the
-  new value lands in the bound path, and never when re-picking the option already selected.
+- [#45](https://github.com/zabloo-hub/ui/pull/45) [`3b446b8`](https://github.com/zabloo-hub/ui/commit/3b446b8664850a5b8c598782b74b15e7817ee331) Thanks [@zamoks95](https://github.com/zamoks95)! - `onChange` on a `Container` with `group: "exclusive-check"` fires a named action when the
+  group's selection moves — `<Select onChange>` and `<RadioGroup onChange>` now reach the IR and
+  fire, where before the prop was accepted and silently dropped. The action carries the chosen
+  option's `ActionContext`; the value itself still arrives through `onDataChanged`. Re-picking
+  the option already selected does not fire.
 
 ### Patch Changes
 
-- 85a1a3a: Give every package a README and complete npm metadata (`repository` with its monorepo
-  `directory`, `homepage`, `bugs`, `keywords`, `engines.node`, explicit
-  `publishConfig.access`), and ship `LICENSE` inside each tarball instead of only at the
-  repo root. `@zabloo/cli` and `create-zabloo-app` close their `exports` to
-  `./package.json`: they are executables, not libraries.
+- [#38](https://github.com/zabloo-hub/ui/pull/38) [`9039edf`](https://github.com/zabloo-hub/ui/commit/9039edfc2c7eca66a19cc4b62fd689d96418f336) Thanks [@zamoks95](https://github.com/zamoks95)! - Every package ships its README, `LICENSE` and complete npm metadata (`repository`,
+  `homepage`, `bugs`, `keywords`, `engines`). `@zabloo/cli` and `create-zabloo-app` expose only
+  `./package.json` — they are executables, not libraries.
 
-  Fix the import that made `@zabloo/react` unimportable from Node — `react-reconciler/constants`
-  has no extension and that package declares no `exports`, so the ESM resolver refused it
-  (`ERR_MODULE_NOT_FOUND`) for every real consumer.
+- [#44](https://github.com/zabloo-hub/ui/pull/44) [`0c9862d`](https://github.com/zabloo-hub/ui/commit/0c9862d44fcff350ee28fbf1251c74f7e5bf5e77) Thanks [@zamoks95](https://github.com/zamoks95)! - `readEnvelope` accepts `text: ""` on a `Text` node instead of dropping the node as
+  `invalid-node` — an empty label keeps its one-line height and its slot in the layout. A `Text`
+  with no `text` field at all is still rejected.
 
-- 85a1a3a: Accept the empty string as `Text` content. `@zabloo/react` emits `text: ""` routinely — a
-  `<Select>` label whose value is not a binding, a `<Badge>` with no count, `<Text></Text>` — and
-  `readEnvelope` was dropping those nodes with `invalid-node`. What sinks a node is the field
-  being **absent**, not empty; they are different things and now they say so.
-
-  An empty `Text` measures one line (0 × lineHeight), which becomes normative: a `<Row gap={8}>`
-  keeps its slot and both gaps when a binding empties, instead of collapsing and shifting its
-  siblings. Purely additive — the set of envelopes that load only grows.
-
-- 85a1a3a: Six surgical correctness fixes; none of them moves a rect in the golden corpus.
-
-  - `arrange` returned before the `isScrollView` block when nothing was left in flow, so a
-    ScrollView whose children all turned `visible: false` kept the last populated frame's
-    `scrollMax` and went on scrolling into nothing.
-  - `crossOf` read the raw `layout.height` instead of the resolved one — the single place in the
-    pass that did — so an unresolvable token took the "declared" branch and gave the slot its
-    content's height instead of the whole rail.
-  - `arrangeOverlay` handed the same `viewRect` object to every anchored overlay and the root.
-  - `checkRange` returned unless _both_ bounds were numbers, letting `{type: "Slider", min: 5}`
-    through with an inverted range against the default `max` of 1.
-  - The Slider branch of `measure` measured children outside layout, whose `resolved` is whatever
-    the last frame that painted them left behind.
+- [#49](https://github.com/zabloo-hub/ui/pull/49) [`cd2a3d9`](https://github.com/zabloo-hub/ui/commit/cd2a3d924db9090ceb668124c0238fc6153c0c93) Thanks [@zamoks95](https://github.com/zamoks95)! - `readEnvelope` rejects an inverted `Slider` range when only one bound is declared
+  (`{ min: 5 }` against the default `max` of 1), not only when both are.

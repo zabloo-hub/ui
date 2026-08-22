@@ -100,6 +100,64 @@ from someone else's pull request will not cover you even when it names your pack
 That is the case it exists for: a real change once shipped with no changelog entry
 because an earlier, unreleased changeset happened to name the same package.
 
+### Writing a changeset
+
+The text of a changeset becomes a line of `CHANGELOG.md`, and the person reading it is
+running `npm update` — not reviewing your code, not maintaining this repo. Write **what
+changed, what it means for their code, and how to migrate**, and stop there:
+
+```md
+---
+"@zabloo/renderer-web": minor
+---
+
+New `onDiagnostic` in `MountOptions`: receive the structured diagnostics `readEnvelope`
+produces on `mount` and `reload`, instead of reading them off `console.warn`. Without a
+sink, the console output is unchanged.
+```
+
+- **One to three sentences, present tense, starting with the thing that changed** — the
+  prop, the command, the behavior. Bullets when one changeset genuinely carries several
+  independent changes to the same package — but **after an opening sentence, never as the
+  first line**: the generator prefixes that line with the PR link, and a leading `-` renders
+  as a stray dash.
+- **One changeset per change a user can notice**, not per ticket or pull request. A PR that
+  fixes a bug and adds an option is two changesets.
+- **When packages are affected differently, one changeset per package**, each saying only
+  what that package's users will see. A single text listed under three packages lands in
+  all three changelogs verbatim, including the parts that are not about them.
+- **A breaking change opens with `**Breaking:**` and says what to do.** While the packages
+  are 0.x, a breaking change is a `minor`; `patch` is for fixes and anything a user does
+  not have to react to.
+- **No commit hashes, no ticket ids, no "why".** The PR link and the author are added
+  automatically; the reasoning belongs in the pull request, and a decision belongs in the
+  decision log. Commit messages and PR descriptions are where the house voice explains
+  itself — the changelog is where it does not. One exception: a changeset written *after*
+  its change merged (a backfill) opens with a `pr: <number>` line, or the entry links to
+  the pull request that added the file instead of the one that made the change.
+
+Versions move together: `@zabloo/format`, `@zabloo/react`, `@zabloo/renderer-web` and
+`@zabloo/cli` share one version number (a `fixed` group in `.changeset/config.json`), so
+there is never a question of which `react` goes with which `renderer-web`. A bump to one is
+a bump to all four; the changelog of each still lists only its own changes.
+`create-zabloo-app` is versioned on its own.
+
+### Docs are part of done
+
+A change is not finished when the code is. What else it has to carry, by kind:
+
+| The change | Carries |
+|---|---|
+| A new prop, value or state on a component | its `docs/components/` page, the format page if the IR gained a field, a changeset |
+| A new CLI command or flag | `packages/cli/README.md`, `docs/project-structure.md`, a changeset |
+| A behavior change a user can observe | the normative page that describes it, a changeset — and a decision-log entry when it was a decision, not a fix |
+| A bug fix with no contract change | a changeset (and a test) |
+| An internal refactor, a test, a CI change | nothing — no changeset, no docs |
+
+The root `README.md` describes the product and changes only when the product does; a
+package `README.md` is install + the minimal usage + a link to `docs/`, and never
+duplicates a docs page.
+
 ## Branches and commits
 
 Branches are named after the task they close: `zab-<number>-<kebab-case-title>` (for
