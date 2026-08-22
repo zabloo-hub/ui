@@ -4,13 +4,9 @@
 "@zabloo/react": minor
 ---
 
-Implement `disabled`, the last of the seven `StateName`s with no implementation behind it.
-It is a bindable prop on `NodeBase` rather than a derived state, because it **inherits**: a
-node's effective value is its own OR any ancestor's, so disabling half a form is one prop on
-the section. An `Overlay` restarts the chain — a modal declared inside a dimmed panel stays
-operable.
-
-A disabled node leaves the interaction model entirely: not focusable, no pointer, no
-directional navigation. A press falls **through** it, anything it was holding is released, and
-an in-flight Slider gesture is cancelled without committing. A disabled section stays readable
-and its ScrollView still scrolls, and the host data channel is never blocked.
+New `disabled` prop on every node, bindable like `visible`. It inherits: disabling a container
+disables everything inside it (an `Overlay` starts a fresh chain, so a modal declared inside a
+disabled panel stays operable). A disabled node is not focusable, takes no pointer or
+navigation input and releases anything it was holding; it still renders, styled through
+`states.disabled`, and a disabled `ScrollView` still scrolls. Host calls such as `setValue` and
+`setScroll` are not blocked.
