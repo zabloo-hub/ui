@@ -23,7 +23,8 @@
 ## Checklist
 
 - [ ] **Changeset added** (`pnpm changeset`) — required for any change under `packages/`.
-      Not needed for docs, examples or CI.
+      Not needed for docs, examples or CI. Written for the person running `npm update`:
+      what changed and how to migrate, no "why" — see CONTRIBUTING › Writing a changeset.
 - [ ] **Docs updated** if this changes the format or a component's behavior — the pages
       in `docs/` are normative, not a description of the code.
 - [ ] **Golden corpus**: unchanged, or the diff is explained below.

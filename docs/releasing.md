@@ -37,10 +37,57 @@ of the four examples and read as if it were what kept them all out; it never was
    `changeset status --verbose` (what would be released) and simulates the publish.
 5. **Publish**: Actions → Release → *Run workflow* → `mode: publish`. Waits for the environment
    approval, then runs `changeset publish` — which uploads only the packages whose version is not
-   on the registry yet, tags the release commit — and pushes the tags. CI authenticates with npm
+   on the registry yet, tags the release commit — pushes the tags, and creates **one GitHub
+   Release per tag** carrying that package's changelog section. CI authenticates with npm
    through [trusted publishing](#npm-trusted-publishing): there is no npm secret in the repo.
 
 The very first release does not follow step 5 — see [The first publish](#the-first-publish).
+
+Never run `pnpm changeset version` locally: the changelog generator asks GitHub for the PR
+and author of each change and needs a token. The `version` job is the only place it runs.
+
+## When to release
+
+**Merging to `main` never publishes.** Every merge only updates the Version Packages PR, and
+that PR can sit open for weeks accumulating entries — it is the staging area between "done"
+and "released", and it shows the changelog as users will read it before anything ships.
+
+A release is a decision, taken at a **milestone boundary** — the end of a batch, the end of a
+phase — not a consequence of merging. Between releases, let the PR accumulate. There is no
+development branch to integrate: `main` is always releasable (every PR passes `verify:pack`
+and the external smoke test), and the Version Packages PR is the only thing standing between
+`main` and the registry.
+
+## Before you merge Version Packages
+
+The Version Packages PR is the one editorial moment: its changelogs are generated from the
+changesets as written, and a merged changelog is history. Before merging it:
+
+- [ ] **Read every `CHANGELOG.md` section as a user would.** Anything that explains *why*
+      instead of *what* gets rewritten — edit the changeset in `.changeset/`, push to `main`,
+      and the PR regenerates. Do not edit the PR's generated files by hand.
+- [ ] **Check the bump levels.** A `**Breaking:**` entry under a `patch` is a changeset that
+      picked the wrong bump. In 0.x, breaking is `minor`.
+- [ ] **Check the boundary.** Is everything that should be in this release merged? Is there a
+      half-landed feature that should wait for the next one?
+- [ ] `pnpm verify:pack` and `pnpm smoke:external` green on `main`.
+- [ ] Merge. Then **dry-run**, then **publish** — steps 4 and 5 of [The flow](#the-flow).
+
+## A hotfix to a published version
+
+`main` may already carry unreleased changes a user of the published version must not get.
+Then the fix ships from a branch cut at the tag, not from `main`:
+
+```bash
+git checkout -b release/0.2 @zabloo/cli@0.2.0   # any of the fixed group's tags works
+git cherry-pick <fix>                             # the fix, with its changeset
+```
+
+Open the PR against `release/0.2`, and run the Release workflow from that branch: the
+`version` job opens a Version Packages PR against it, and `publish` publishes `0.2.1` with no
+trace of what `main` holds. Merge the fix forward into `main` afterwards. The branch lives as
+long as that line is supported — which, while the packages are 0.x, is usually not at all:
+the next release from `main` supersedes it.
 
 ## The changeset gate
 
