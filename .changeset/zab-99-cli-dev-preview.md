@@ -2,6 +2,8 @@
 "@zabloo/cli": minor
 ---
 
+pr: 82
+
 New dev preview UI for `zabloo dev` and `zabloo preview`: a topbar with view, viewport and DPR
 controls; an IDE-style console (Actions, Problems, Stats); a typed data-bindings panel; zen
 mode; light and dark theme. The built UI ships inside this package (about 1.2 MB unpacked).

@@ -2,6 +2,8 @@
 "@zabloo/cli": patch
 ---
 
+pr: 47
+
 `zabloo export` and `zabloo dev` fail honestly on a first run:
 
 - `export` works without `zabloo.config.ts` or `src/theme.ts` (both are optional) instead of

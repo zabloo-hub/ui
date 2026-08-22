@@ -2,6 +2,10 @@
 "@zabloo/cli": minor
 ---
 
+pr: 58
+
+The CLI gains the commands a studio's own CI needs, and the preview the controls it was missing:
+
 - `zabloo validate [file]` checks an envelope on disk with the same loading contract every
   SDK applies: exit `0` when it loads, `1` on a fatal, `--strict` to fail on repaired warnings
   too, `--json` for machine-readable diagnostics.

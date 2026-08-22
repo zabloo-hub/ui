@@ -2,6 +2,8 @@
 "@zabloo/renderer-web": patch
 ---
 
+pr: 94
+
 The renderer reads keyboard input only while the page's focus is on its canvas (or on the
 hidden field a focused `TextInput` types through), and no longer calls `preventDefault()` on
 keys it does not own — buttons and inputs in the UI around the canvas work from the keyboard

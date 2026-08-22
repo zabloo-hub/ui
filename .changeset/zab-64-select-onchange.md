@@ -4,6 +4,8 @@
 "@zabloo/react": minor
 ---
 
+pr: 45
+
 `onChange` on a `Container` with `group: "exclusive-check"` fires a named action when the
 group's selection moves — `<Select onChange>` and `<RadioGroup onChange>` now reach the IR and
 fire, where before the prop was accepted and silently dropped. The action carries the chosen

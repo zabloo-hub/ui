@@ -2,6 +2,10 @@
 "@zabloo/renderer-web": patch
 ---
 
+pr: 52
+
+Input and focus hold up under cancelled gestures, virtualized scrolling and several mounted views:
+
 - `pointercancel` ends a gesture: a cancelled touch no longer leaves a button pressed or a
   slider following the pointer. A cancelled `Slider` drag commits, since its value is already
   on screen and in its binding.

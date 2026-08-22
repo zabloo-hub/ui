@@ -4,6 +4,8 @@
 "@zabloo/react": minor
 ---
 
+pr: 43
+
 New `disabled` prop on every node, bindable like `visible`. It inherits: disabling a container
 disables everything inside it (an `Overlay` starts a fresh chain, so a modal declared inside a
 disabled panel stays operable). A disabled node is not focusable, takes no pointer or
