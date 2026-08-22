@@ -157,3 +157,11 @@ jobs:
       # pushed. This is what `contents: write` above is for.
       - name: Push release tags
         run: git push --tags
+
+      # One GitHub Release per tag just pushed, carrying that package's changelog
+      # section: the repo's Releases page and its watchers see what shipped
+      # without opening npm. Idempotent — a tag that already has a Release is left alone.
+      - name: GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/github-releases.mjs
