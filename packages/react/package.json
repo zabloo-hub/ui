@@ -1,6 +1,6 @@
 {
   "name": "@zabloo/react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React bindings for zabloo/ui: JSX that emits the zabloo IR via a custom reconciler",
   "license": "MIT",
   "keywords": [

@@ -1,6 +1,6 @@
 {
   "name": "@zabloo/renderer-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "zabloo web renderer: consumes IR envelopes and self-renders them to WebGL2 (own layout, own tessellation, own glyph atlas). Seed of the visual editor canvas.",
   "license": "MIT",
   "keywords": [
