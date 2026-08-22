@@ -4,75 +4,36 @@
 
 ### Minor Changes
 
-- 85a1a3a: Implement `disabled`, the last of the seven `StateName`s with no implementation behind it.
-  It is a bindable prop on `NodeBase` rather than a derived state, because it **inherits**: a
-  node's effective value is its own OR any ancestor's, so disabling half a form is one prop on
-  the section. An `Overlay` restarts the chain — a modal declared inside a dimmed panel stays
-  operable.
+- [#43](https://github.com/zabloo-hub/ui/pull/43) [`f9d0145`](https://github.com/zabloo-hub/ui/commit/f9d01458de0335f4ce89a273ec881e130a8bd266) Thanks [@zamoks95](https://github.com/zamoks95)! - New `disabled` prop on every node, bindable like `visible`. It inherits: disabling a container
+  disables everything inside it (an `Overlay` starts a fresh chain, so a modal declared inside a
+  disabled panel stays operable). A disabled node is not focusable, takes no pointer or
+  navigation input and releases anything it was holding; it still renders, styled through
+  `states.disabled`, and a disabled `ScrollView` still scrolls. Host calls such as `setValue` and
+  `setScroll` are not blocked.
 
-  A disabled node leaves the interaction model entirely: not focusable, no pointer, no
-  directional navigation. A press falls **through** it, anything it was holding is released, and
-  an in-flight Slider gesture is cancelled without committing. A disabled section stays readable
-  and its ScrollView still scrolls, and the host data channel is never blocked.
+- [#45](https://github.com/zabloo-hub/ui/pull/45) [`3b446b8`](https://github.com/zabloo-hub/ui/commit/3b446b8664850a5b8c598782b74b15e7817ee331) Thanks [@zamoks95](https://github.com/zamoks95)! - `onChange` on a `Container` with `group: "exclusive-check"` fires a named action when the
+  group's selection moves — `<Select onChange>` and `<RadioGroup onChange>` now reach the IR and
+  fire, where before the prop was accepted and silently dropped. The action carries the chosen
+  option's `ActionContext`; the value itself still arrives through `onDataChanged`. Re-picking
+  the option already selected does not fire.
 
-- 85a1a3a: `onChange` on `ContainerNode`, meaningful under `group: "exclusive-check"`: the group owns the
-  value, so the group is what answers "the selection moved". `<Select onChange>` was typed and
-  documented but never reached the IR, and the renderer only ever fired from the option node —
-  there was no typed way to get a named action out of a `<Select>`.
-
-  It carries no payload beyond the name and ZAB-29's `ActionContext` (the chosen option's); the
-  value already comes back through the data channel. It fires on the write edge, right after the
-  new value lands in the bound path, and never when re-picking the option already selected.
-
-- 85a1a3a: Close seven gaps and asymmetries in the renderer's public surface before the freeze — things
-  the renderer knows and would not let you read, or exposed two different ways.
-
-  - **`onDiagnostic` in `MountOptions`.** `@zabloo/format` produces _structured_ diagnostics —
-    stable code, path into the envelope — and `loadEnvelope` dumped them to `console.warn`, where
-    that structure died: a dev server overlay, the preview and the future editor cannot scrape a
-    console. The sink receives warns and fatals, on both `mount` and `reload`, and the fatals
-    arrive before the throw. Without a sink the console lines are exactly what they always were.
-  - The preview stops depending on the console: a repaired `warn` takes the fading log line, a
-    `fatal` takes the overlay and the red dot.
-  - **`handle.viewIds` is a getter.** It was `Object.keys()` evaluated once when the handle was
-    built, so after a `reload` the caller still listed the views from before the save — a save
-    that added a view left it invisible until a manual page reload.
-  - **`findNode` is exported**: `serializeSnapshot` was there, but reading a `ViewSnapshot` needs
-    the single node.
+- [#50](https://github.com/zabloo-hub/ui/pull/50) [`cc65805`](https://github.com/zabloo-hub/ui/commit/cc65805c3547f1edac3532356eac102e18545f44) Thanks [@zamoks95](https://github.com/zamoks95)! - `OverlayPosition` is an alias of `@zabloo/format`'s `AnchorAt` — one vocabulary for the nine
+  positions. Every component now has a `displayName`.
 
 ### Patch Changes
 
-- 85a1a3a: Give every package a README and complete npm metadata (`repository` with its monorepo
-  `directory`, `homepage`, `bugs`, `keywords`, `engines.node`, explicit
-  `publishConfig.access`), and ship `LICENSE` inside each tarball instead of only at the
-  repo root. `@zabloo/cli` and `create-zabloo-app` close their `exports` to
-  `./package.json`: they are executables, not libraries.
+- [#38](https://github.com/zabloo-hub/ui/pull/38) [`9039edf`](https://github.com/zabloo-hub/ui/commit/9039edfc2c7eca66a19cc4b62fd689d96418f336) Thanks [@zamoks95](https://github.com/zamoks95)! - Every package ships its README, `LICENSE` and complete npm metadata (`repository`,
+  `homepage`, `bugs`, `keywords`, `engines`). `@zabloo/cli` and `create-zabloo-app` expose only
+  `./package.json` — they are executables, not libraries.
 
-  Fix the import that made `@zabloo/react` unimportable from Node — `react-reconciler/constants`
-  has no extension and that package declares no `exports`, so the ESM resolver refused it
-  (`ERR_MODULE_NOT_FOUND`) for every real consumer.
+- [#38](https://github.com/zabloo-hub/ui/pull/38) [`9039edf`](https://github.com/zabloo-hub/ui/commit/9039edfc2c7eca66a19cc4b62fd689d96418f336) Thanks [@zamoks95](https://github.com/zamoks95)! - Fix `@zabloo/react` failing to import from Node with `ERR_MODULE_NOT_FOUND` on
+  `react-reconciler/constants`.
 
-- 85a1a3a: Six surgical correctness fixes; none of them moves a rect in the golden corpus.
+- [#49](https://github.com/zabloo-hub/ui/pull/49) [`cd2a3d9`](https://github.com/zabloo-hub/ui/commit/cd2a3d924db9090ceb668124c0238fc6153c0c93) Thanks [@zamoks95](https://github.com/zamoks95)! - A variant or prop that declares a state with no style no longer emits an empty `states`
+  override into the envelope.
 
-  - `arrange` returned before the `isScrollView` block when nothing was left in flow, so a
-    ScrollView whose children all turned `visible: false` kept the last populated frame's
-    `scrollMax` and went on scrolling into nothing.
-  - `crossOf` read the raw `layout.height` instead of the resolved one — the single place in the
-    pass that did — so an unresolvable token took the "declared" branch and gave the slot its
-    content's height instead of the whole rail.
-  - `arrangeOverlay` handed the same `viewRect` object to every anchored overlay and the root.
-  - `checkRange` returned unless _both_ bounds were numbers, letting `{type: "Slider", min: 5}`
-    through with an inverted range against the default `max` of 1.
-  - The Slider branch of `measure` measured children outside layout, whose `resolved` is whatever
-    the last frame that painted them left behind.
-
-- a54c35d: JSDoc corrections on the public surface. `ToggleControlProps.onChange` said it fired
-  "after every change" without the grouped case: inside a `<RadioGroup>` or `<Select>` it
-  fires only for the option that TAKES the selection, never for the one that loses it. The
-  remaining Spanish comments in `export.ts` and the perf scenes are now English.
-- Updated dependencies [85a1a3a]
-- Updated dependencies [85a1a3a]
-- Updated dependencies [85a1a3a]
-- Updated dependencies [85a1a3a]
-- Updated dependencies [85a1a3a]
+- [#59](https://github.com/zabloo-hub/ui/pull/59) [`0f42310`](https://github.com/zabloo-hub/ui/commit/0f42310da847fd61219a4c9f4a4f8d67dec2e6f8) Thanks [@zamoks95](https://github.com/zamoks95)! - JSDoc corrections on the public surface: `ToggleControlProps.onChange` now documents that,
+  inside a `<RadioGroup>` or `<Select>`, it fires only for the option that takes the selection.
+  Remaining non-English comments translated.
+- Updated dependencies [[`85a1a3a`](https://github.com/zabloo-hub/ui/commit/85a1a3a5de61cb053d291753e491877c26e3f38b), [`85a1a3a`](https://github.com/zabloo-hub/ui/commit/85a1a3a5de61cb053d291753e491877c26e3f38b), [`85a1a3a`](https://github.com/zabloo-hub/ui/commit/85a1a3a5de61cb053d291753e491877c26e3f38b), [`85a1a3a`](https://github.com/zabloo-hub/ui/commit/85a1a3a5de61cb053d291753e491877c26e3f38b), [`7487ef1`](https://github.com/zabloo-hub/ui/commit/7487ef12fc352fa9e35b40a15857e40f5da7da05)]:
   - @zabloo/format@0.2.0
