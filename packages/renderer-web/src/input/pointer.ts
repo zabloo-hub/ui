@@ -27,6 +27,22 @@ interface ScrollDrag {
 const DRAG_THRESHOLD = 4;
 
 /**
+ * The canvas's place on the page and the factor from what is DRAWN to what is
+ * LAID OUT — 1 unless a transform is shrinking the canvas (ZAB-108).
+ */
+interface ViewBounds {
+  left: number;
+  top: number;
+  scaleX: number;
+  scaleY: number;
+}
+
+/** `laid out / drawn`, and 1 when there is nothing drawn to compare against. */
+function ratio(layout: number, visual: number): number {
+  return visual > 0 && layout > 0 ? layout / visual : 1;
+}
+
+/**
  * A Slider gesture in flight (pointer or held arrow key). `from` is the value it
  * started at: `onCommit` is "the value the player settled on", so a gesture that
  * ends where it began fires nothing.
@@ -77,15 +93,17 @@ export class PointerHandler {
   /** Overlay whose backdrop took the pointer down, pending a release on it. */
   private backdropPress: LayoutNode | null = null;
   /**
-   * Where the canvas sits on the page, cached (ZAB-73). `getBoundingClientRect`
-   * flushes pending layout, and `eventPoint` was calling it up to twice per
-   * `pointermove` — a hover and a drag both resolve a point — so dragging a
-   * Slider forced the browser's layout a hundred times a second.
+   * Where the canvas sits on the page AND at what scale it is drawn there,
+   * cached (ZAB-73). `getBoundingClientRect` flushes pending layout, and
+   * `eventPoint` was calling it up to twice per `pointermove` — a hover and a
+   * drag both resolve a point — so dragging a Slider forced the browser's layout
+   * a hundred times a second.
    *
    * What can move it under us is a scroll or a resize, and both are listened for
-   * below; the view invalidates it too when its own canvas is resized.
+   * below; the view invalidates it too when its own canvas is resized, and the
+   * page announces a resize when it rescales the canvas without resizing it.
    */
-  private bounds: { left: number; top: number } | null = null;
+  private bounds: ViewBounds | null = null;
 
   constructor(
     private readonly host: PointerHost,
@@ -311,10 +329,15 @@ export class PointerHandler {
       const scrollable = hit && this.findUp(hit, (n) => n.ir.type === "ScrollView");
       if (!scrollable) return;
       event.preventDefault();
+      // The deltas are DRAWN pixels, like the pointer's own coordinates, and the
+      // offset they move is a laid-out one — so they take the same factor
+      // (ZAB-108). Otherwise a notch of wheel would crawl through a view at 28%
+      // zoom while a drag of the same distance kept up with the cursor.
+      const bounds = this.viewBounds();
       this.host.setScrollOffset(
         scrollable,
-        scrollable.scrollOffset.x + event.deltaX,
-        scrollable.scrollOffset.y + event.deltaY,
+        scrollable.scrollOffset.x + event.deltaX * bounds.scaleX,
+        scrollable.scrollOffset.y + event.deltaY * bounds.scaleY,
       );
     };
     const leave = () => {
@@ -379,21 +402,51 @@ export class PointerHandler {
     if (slider) this.host.commitSlider(slider);
   };
 
-  /** The cached canvas rect is stale: a scroll, a resize, a new canvas size. */
+  /**
+   * The cached canvas rect is stale: a scroll, a resize, a new canvas size — and
+   * a rescale, which moves the factor without moving the canvas (ZAB-108).
+   */
   invalidateBounds = (): void => {
     this.bounds = null;
   };
 
   private eventPoint(event: PointerEvent | WheelEvent): { x: number; y: number } {
-    const cached = this.bounds;
-    if (cached !== null) {
-      return { x: event.clientX - cached.left, y: event.clientY - cached.top };
-    }
+    const bounds = this.viewBounds();
+    return {
+      x: (event.clientX - bounds.left) * bounds.scaleX,
+      y: (event.clientY - bounds.top) * bounds.scaleY,
+    };
+  }
 
-    const rect = this.host.canvas.getBoundingClientRect();
-    const bounds = { left: rect.left, top: rect.top };
+  /**
+   * Where the canvas is and how much bigger it is laid out than it is drawn.
+   *
+   * The two boxes come apart under a `transform` (ZAB-108): the preview keeps
+   * the canvas at its LOGICAL size — the renderer lays out against
+   * `clientWidth`, so a 1280×800 view stays a 1280×800 view — and shrinks what
+   * you see with a `scale()`. `getBoundingClientRect` then reports the visual
+   * box, and a point measured against it would reach a tree laid out in the
+   * other unit: every control answering some 20% away from where it is drawn.
+   * The factor between them is exactly `clientWidth / rect.width`.
+   *
+   * A canvas with no visual box at all (`display: none`, a detached tree) has no
+   * factor to speak of; it takes 1 rather than an `Infinity` that would send the
+   * hit-test off the tree.
+   */
+  private viewBounds(): ViewBounds {
+    const cached = this.bounds;
+    if (cached !== null) return cached;
+
+    const canvas = this.host.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const bounds = {
+      left: rect.left,
+      top: rect.top,
+      scaleX: ratio(canvas.clientWidth, rect.width),
+      scaleY: ratio(canvas.clientHeight, rect.height),
+    };
     this.bounds = bounds;
-    return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    return bounds;
   }
 
   /** The overlay layer first (top-down, a modal captures), then the tree — clipped subtrees excluded. */

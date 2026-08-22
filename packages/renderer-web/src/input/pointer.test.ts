@@ -55,6 +55,11 @@ const scroller = (id: string, children: LayoutNode[] = [], rect = VIEW): LayoutN
 /** The canvas the handler listens on: only what `pointer.ts` reaches for. */
 class FakeCanvas {
   readonly captured: number[] = [];
+  /** The LAYOUT box — the units the tree above is laid out in. */
+  readonly clientWidth = VIEW.width;
+  readonly clientHeight = VIEW.height;
+  /** What a `transform` draws it at; 1 until a test scales it (ZAB-108). */
+  zoom = 1;
   private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
 
   addEventListener(type: string, listener: (event: unknown) => void): void {
@@ -65,8 +70,18 @@ class FakeCanvas {
   removeEventListener(type: string, listener: (event: unknown) => void): void {
     this.listeners.get(type)?.delete(listener);
   }
-  getBoundingClientRect(): { left: number; top: number } {
-    return { left: 0, top: 0 };
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
+    return {
+      left: 0,
+      top: 0,
+      width: this.clientWidth * this.zoom,
+      height: this.clientHeight * this.zoom,
+    };
+  }
+
+  /** Where a point of the view lands on the page once the canvas is scaled. */
+  toClient(x: number, y: number): { x: number; y: number } {
+    return { x: x * this.zoom, y: y * this.zoom };
   }
   setPointerCapture(id: number): void {
     this.captured.push(id);
@@ -86,14 +101,21 @@ interface Rig {
   overlays: OverlayLayer;
   field: FieldEditor;
   disposers: Array<() => void>;
-  /** Pointer gestures in view coordinates — the canvas sits at the origin. */
+  /**
+   * Pointer gestures in view coordinates — the canvas sits at the origin. Under
+   * `zoomCanvas` they are still view coordinates: the rig scales them on the way
+   * out, so a test names where a control IS and the handler has to find it there.
+   */
   down(x: number, y: number): void;
   move(x: number, y: number): void;
   up(x: number, y: number): void;
   cancel(): void;
   click(x: number, y: number): void;
+  /** Deltas here are the browser's own — screen pixels, unscaled. */
   wheel(x: number, y: number, deltaX: number, deltaY: number): number;
   leave(): void;
+  /** Draws the canvas smaller without laying it out smaller, and says so. */
+  zoomCanvas(zoom: number): void;
 }
 
 /**
@@ -172,14 +194,17 @@ function rig(root: LayoutNode, layer: readonly LayoutNode[] = []): Rig {
   const pointer = new PointerHandler(host as unknown as PointerHost, field, overlays);
   pointer.listen();
 
-  const event = (x: number, y: number, extra: Record<string, unknown> = {}) => ({
-    clientX: x,
-    clientY: y,
-    pointerId: 1,
-    pointerType: "mouse",
-    preventDefault: () => {},
-    ...extra,
-  });
+  const event = (x: number, y: number, extra: Record<string, unknown> = {}) => {
+    const client = canvas.toClient(x, y);
+    return {
+      clientX: client.x,
+      clientY: client.y,
+      pointerId: 1,
+      pointerType: "mouse",
+      preventDefault: () => {},
+      ...extra,
+    };
+  };
 
   return {
     pointer,
@@ -205,6 +230,12 @@ function rig(root: LayoutNode, layer: readonly LayoutNode[] = []): Rig {
       return prevented.length;
     },
     leave: () => canvas.dispatch("pointerleave", {}),
+    zoomCanvas: (zoom) => {
+      canvas.zoom = zoom;
+      // What the view does when the page announces the rescale: the cached rect
+      // and the factor that came with it are both gone.
+      pointer.invalidateBounds();
+    },
   };
 }
 
@@ -503,6 +534,91 @@ describe("the wheel", () => {
 
     expect(state.host.setScrollOffset).not.toHaveBeenCalled();
     expect(prevented).toBe(0);
+  });
+});
+
+/**
+ * The canvas drawn smaller than it is laid out — the preview's fixed viewports,
+ * where a `transform: scale()` shrinks a 1280×800 view into whatever room the
+ * stage has (ZAB-108). The tree is still laid out in the big unit and the
+ * browser reports the small one, so every point that arrives has to be converted
+ * back before it means anything.
+ */
+describe("a canvas drawn smaller than it is laid out", () => {
+  /** A control the visual point would MISS: at half scale it lands short of it. */
+  const FAR: Rect = { x: 120, y: 120, width: 60, height: 60 };
+
+  it("activates the control the pointer is over, not the one under the raw point", () => {
+    const buy = button("buy", FAR);
+    const state = rig(box([buy]));
+    state.zoomCanvas(0.5);
+
+    state.click(150, 150);
+
+    expect(state.host.activate).toHaveBeenCalledWith(buy);
+  });
+
+  it("hovers it too — the hit-test is the same one", () => {
+    const buy = button("buy", FAR);
+    const state = rig(box([buy]));
+    state.zoomCanvas(0.5);
+
+    state.move(150, 150);
+
+    expect(state.pointer.hovered()).toBe(buy);
+  });
+
+  it("hands a Slider the value the thumb is at, not the one the raw point is at", () => {
+    const value = slider("volume");
+    const state = rig(box([value]));
+    state.zoomCanvas(0.5);
+
+    state.down(40, 10);
+    state.move(80, 10);
+
+    // `valueAtPoint` here is `point.x / 100`, and the control is 100 wide: the
+    // press is at 0.4 of it and the drag at 0.8, whatever it is drawn at.
+    expect(state.host.setSliderValue).toHaveBeenNthCalledWith(1, value, 0.4);
+    expect(state.host.setSliderValue).toHaveBeenNthCalledWith(2, value, 0.8);
+  });
+
+  it("moves a scroll drag by the distance the finger covered on the view", () => {
+    const list = scroller("list");
+    const state = rig(list);
+    state.zoomCanvas(0.5);
+
+    state.down(100, 100);
+    state.move(100, 60);
+
+    // 40 view px of travel — 20 on screen, which is still past the threshold.
+    expect(state.host.setScrollOffset).toHaveBeenCalledWith(list, 0, 40);
+  });
+
+  it("scrolls the wheel by what it would have scrolled unscaled", () => {
+    const list = scroller("list");
+    const state = rig(list);
+    state.zoomCanvas(0.5);
+
+    // The browser's deltas are screen pixels, like the point they arrive at: a
+    // notch that moves 40px of screen moves 80px of a view drawn at half size,
+    // which is what the same gesture as a drag covers.
+    state.wheel(50, 50, 5, 40);
+
+    expect(state.host.setScrollOffset).toHaveBeenCalledWith(list, 10, 80);
+  });
+
+  it("re-reads the scale when the canvas is rescaled under it", () => {
+    const buy = button("buy", FAR);
+    const state = rig(box([buy]));
+
+    // The first gesture caches the rect at 1:1 (ZAB-73) — and the second one
+    // must not be answered with it.
+    state.click(150, 150);
+    state.zoomCanvas(0.5);
+    state.click(150, 150);
+
+    expect(state.host.activate).toHaveBeenCalledTimes(2);
+    expect(state.host.activate).toHaveBeenNthCalledWith(2, buy);
   });
 });
 

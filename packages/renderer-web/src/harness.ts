@@ -151,6 +151,16 @@ interface GoldenView {
   moveCanvas(left: number, top: number): void;
   scrollPage(): void;
   /**
+   * Scales the canvas the way the preview does under a fixed viewport (ZAB-108):
+   * the CSS box is untouched — the view is still laid out at its logical size —
+   * and what `getBoundingClientRect` reports shrinks. The page announces it, as
+   * the preview does, so the renderer re-reads where and how big the canvas is.
+   *
+   * `pointer` stays in the view's own coordinates: a control at (498, 417) is
+   * clicked at (498, 417) at any zoom, which is the whole point of the fix.
+   */
+  zoomCanvas(zoom: number): void;
+  /**
    * Steps the clock `ms` forward and runs the frames the view scheduled for that
    * span — the only way time passes here, so a transition is measured at the
    * instant the test names instead of whenever the machine got around to it.
@@ -195,7 +205,10 @@ interface GoldenPad {
   disconnect(): void;
 }
 
-/** Pointer gestures against the canvas, in logical view coordinates. */
+/**
+ * Pointer gestures against the canvas, in logical view coordinates — the ones
+ * the snapshot reports, whatever `zoomCanvas` is drawing them at.
+ */
 interface Pointer {
   down(x: number, y: number): void;
   move(x: number, y: number): void;
@@ -262,16 +275,24 @@ async function mountGolden(
     writes,
     warnings: dom.warnings,
     pointer: {
-      down: (x, y) => canvas.dispatch("pointerdown", pointerEvent(x, y)),
-      move: (x, y) => canvas.dispatch("pointermove", pointerEvent(x, y)),
-      up: (x, y) => canvas.dispatch("pointerup", pointerEvent(x, y)),
-      cancel: () => canvas.dispatch("pointercancel", pointerEvent(0, 0)),
+      down: (x, y) => canvas.dispatch("pointerdown", pointerEvent(canvas, x, y)),
+      move: (x, y) => canvas.dispatch("pointermove", pointerEvent(canvas, x, y)),
+      up: (x, y) => canvas.dispatch("pointerup", pointerEvent(canvas, x, y)),
+      cancel: () => canvas.dispatch("pointercancel", pointerEvent(canvas, 0, 0)),
       click: (x, y) => {
-        canvas.dispatch("pointerdown", pointerEvent(x, y));
-        canvas.dispatch("pointerup", pointerEvent(x, y));
+        canvas.dispatch("pointerdown", pointerEvent(canvas, x, y));
+        canvas.dispatch("pointerup", pointerEvent(canvas, x, y));
       },
-      wheel: (x, y, deltaX, deltaY) =>
-        canvas.dispatch("wheel", { ...pointerEvent(x, y), deltaX, deltaY }),
+      wheel: (x, y, deltaX, deltaY) => {
+        // The deltas are screen pixels too, so a wheel written in view units
+        // scales with the point it happens at (ZAB-108).
+        const delta = canvas.toClient(deltaX, deltaY);
+        canvas.dispatch("wheel", {
+          ...pointerEvent(canvas, x, y),
+          deltaX: delta.x,
+          deltaY: delta.y,
+        });
+      },
       leave: () => canvas.dispatch("pointerleave", {}),
     },
     keyDown: (key, init) => dom.dispatch("keydown", keyEvent(key, init)),
@@ -296,6 +317,10 @@ async function mountGolden(
     },
     moveCanvas: (left, top) => canvas.moveTo(left, top),
     scrollPage: () => dom.dispatch("scroll", {}),
+    zoomCanvas: (zoom) => {
+      canvas.zoomTo(zoom);
+      dom.dispatch("resize", {});
+    },
     advance: (ms) => dom.advance(ms),
     // A resize to the same size: the view re-renders, which is all this asks for.
     settle: () => dom.dispatch("resize", {}),
@@ -323,8 +348,20 @@ function domOf(view: GoldenView): FakeDom {
   return dom;
 }
 
-function pointerEvent(x: number, y: number): Record<string, unknown> {
-  return { clientX: x, clientY: y, pointerId: 1, pointerType: "mouse", preventDefault: () => {} };
+/**
+ * A pointer event at a point in the view's own coordinates. Under a zoom those
+ * are not the page's: the canvas converts, so a test names where a control IS
+ * and the renderer is the one that has to find it there (ZAB-108).
+ */
+function pointerEvent(canvas: FakeCanvas, x: number, y: number): Record<string, unknown> {
+  const client = canvas.toClient(x, y);
+  return {
+    clientX: client.x,
+    clientY: client.y,
+    pointerId: 1,
+    pointerType: "mouse",
+    preventDefault: () => {},
+  };
 }
 
 function keyEvent(key: string, init: KeyInit = {}): Record<string, unknown> {
@@ -372,6 +409,11 @@ class FakeTarget {
  * The canvas the view mounts on. `width`/`height` are the backing store in device
  * px and `clientWidth`/`clientHeight` the CSS box — the renderer derives the
  * logical size from both, exactly as it does in a browser.
+ *
+ * The CSS box and the box `getBoundingClientRect` reports are the same thing
+ * until something scales the canvas, and then they are not: the preview shrinks
+ * a fixed viewport with a `transform`, which leaves the layout box alone and the
+ * visual one smaller (ZAB-108). `zoomTo` is that gap, and only the rect sees it.
  */
 class FakeCanvas extends FakeTarget {
   width: number;
@@ -382,6 +424,8 @@ class FakeCanvas extends FakeTarget {
   /** Where the canvas sits on the page — moved by `moveTo` (ZAB-73). */
   private left = 0;
   private top = 0;
+  /** What a `transform` shrinks the canvas to on screen — 1 is unscaled. */
+  private zoom = 1;
   private readonly gl = new FakeGl();
   private readonly ctx2d = new FakeContext2D();
 
@@ -421,14 +465,30 @@ class FakeCanvas extends FakeTarget {
     this.dispatch("webglcontextrestored", {});
   }
 
+  /** The VISUAL box: the CSS one, scaled by whatever transform is on the canvas. */
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
-    return { left: this.left, top: this.top, width: this.clientWidth, height: this.clientHeight };
+    return {
+      left: this.left,
+      top: this.top,
+      width: this.clientWidth * this.zoom,
+      height: this.clientHeight * this.zoom,
+    };
   }
 
   /** Puts the canvas somewhere else on the page — a scroll, or a layout change. */
   moveTo(left: number, top: number): void {
     this.left = left;
     this.top = top;
+  }
+
+  /** Draws the canvas smaller without laying it out smaller — the preview's `scale()`. */
+  zoomTo(zoom: number): void {
+    this.zoom = zoom;
+  }
+
+  /** Client coordinates for a point in the view's own (laid-out) units. */
+  toClient(x: number, y: number): { x: number; y: number } {
+    return { x: x * this.zoom, y: y * this.zoom };
   }
 
   setPointerCapture(): void {}
