@@ -93,6 +93,38 @@ function renderPanel(): Panel {
   return { card, handle, grip };
 }
 
+/**
+ * A press on the grip, delivered the way a browser delivers it. The header takes
+ * a pointer capture on the way down, so every event after the `pointerdown` —
+ * the release AND the `click` derived from it — is retargeted to the header: the
+ * grip sees the press and nothing else. Driving it any other way tests a path
+ * Chrome does not take, which is exactly how this bug shipped.
+ */
+function pressGrip(handle: HTMLElement, grip: Element): void {
+  fireEvent.pointerDown(grip, { pointerId: 1, button: 0, clientX: 970, clientY: 20 });
+  fireEvent.pointerUp(handle, { pointerId: 1, clientX: 970, clientY: 20 });
+  fireEvent.click(handle, { detail: 1 });
+}
+
+/**
+ * jsdom implements no pointer capture at all, so the header's calls are no-ops
+ * there. Standing them up is what lets a test say the capture is taken and given
+ * back — the retargeting itself stays `pressGrip`'s job.
+ */
+function stubCapture(handle: HTMLElement): { captured: number[]; released: number[] } {
+  const captured: number[] = [];
+  const released: number[] = [];
+  handle.setPointerCapture = (pointerId: number) => {
+    captured.push(pointerId);
+  };
+  handle.hasPointerCapture = (pointerId: number) =>
+    captured.includes(pointerId) && !released.includes(pointerId);
+  handle.releasePointerCapture = (pointerId: number) => {
+    released.push(pointerId);
+  };
+  return { captured, released };
+}
+
 /** One pointer, pressed at `from`, moved to `to` and released. */
 function dragBy(handle: HTMLElement, from: [number, number], to: [number, number]): void {
   const [downX, downY] = from;
@@ -244,39 +276,151 @@ describe("BindingsPanel", () => {
     expect(useStore.getState().layout.panelPos).toBeNull();
   });
 
-  it("goes back to the default corner on a double click of the grip", () => {
+  /**
+   * The regression itself: with the header capturing, no `click` ever reaches
+   * the grip, so a reset that hangs off the grip's `onClick` never runs and the
+   * panel has no way home but clearing `localStorage`.
+   */
+  it("goes back to the default corner on a press of the grip, though the click lands on the header", () => {
     useStore.getState().setPanelPos({ x: 100, y: 100 });
-    const { card, grip } = renderPanel();
+    const { card, handle, grip } = renderPanel();
 
-    fireEvent.doubleClick(grip);
+    pressGrip(handle, grip);
 
     expect(useStore.getState().layout.panelPos).toBeNull();
     expect(card.style.right).toBe("14px");
+    expect(card.style.left).toBe("");
   });
 
-  it("goes back to the default corner on a click of the grip, which is a button", () => {
-    useStore.getState().setPanelPos({ x: 100, y: 100 });
-    const { card, grip } = renderPanel();
+  it("takes the pointer capture on the header and gives it back on the release", () => {
+    const { handle } = renderPanel();
+    const capture = stubCapture(handle);
 
-    expect(screen.getByRole("button", { name: "Reset panel position" })).toBe(grip);
-    fireEvent.click(grip);
+    dragBy(handle, [150, 120], [400, 200]);
+
+    expect(capture.captured).toEqual([1]);
+    expect(capture.released).toEqual([1]);
+  });
+
+  it("resets from a captured press on the grip too", () => {
+    useStore.getState().setPanelPos({ x: 100, y: 100 });
+    const { card, handle, grip } = renderPanel();
+    stubCapture(handle);
+
+    pressGrip(handle, grip);
 
     expect(useStore.getState().layout.panelPos).toBeNull();
     expect(card.style.right).toBe("14px");
   });
 
   /**
-   * A drag that starts on the grip ends in a `click` on it. Resetting there
-   * would throw away the move that was just made — the grip is both the drag
-   * affordance and the reset, and it has to tell the two apart.
+   * The grip arms the reset, not the whole header — the header is the drag
+   * target, and a press on it that changes its mind must leave the position
+   * where it was.
+   */
+  it("does not reset on a press that started on the header rather than the grip", () => {
+    useStore.getState().setPanelPos({ x: 100, y: 100 });
+    const { handle } = renderPanel();
+
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 150, clientY: 120 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 150, clientY: 120 });
+    fireEvent.click(handle, { detail: 1 });
+
+    expect(useStore.getState().layout.panelPos).toEqual({ x: 100, y: 100 });
+  });
+
+  /**
+   * A press on the grip that aborts before it is a drag — a secondary button —
+   * must not leave the reset armed for whatever press comes next.
+   */
+  it("does not carry an aborted press on the grip into the next one", () => {
+    useStore.getState().setPanelPos({ x: 100, y: 100 });
+    const { handle, grip } = renderPanel();
+
+    fireEvent.pointerDown(grip, { pointerId: 1, button: 2, clientX: 970, clientY: 20 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 970, clientY: 20 });
+
+    fireEvent.pointerDown(handle, { pointerId: 2, button: 0, clientX: 150, clientY: 120 });
+    fireEvent.pointerUp(handle, { pointerId: 2, clientX: 150, clientY: 120 });
+
+    expect(useStore.getState().layout.panelPos).toEqual({ x: 100, y: 100 });
+  });
+
+  it("goes back to the default corner on a double click of the grip", () => {
+    useStore.getState().setPanelPos({ x: 100, y: 100 });
+    const { card, handle, grip } = renderPanel();
+
+    // Two presses, not a `dblclick` handler: each release is a reset on its own,
+    // so the second one lands on a panel already home.
+    pressGrip(handle, grip);
+    pressGrip(handle, grip);
+
+    expect(useStore.getState().layout.panelPos).toBeNull();
+    expect(card.style.right).toBe("14px");
+  });
+
+  /**
+   * The keyboard's own path, which is why the grip is a real button. A `click`
+   * a key produced carries no count in `detail` — that is what tells it apart
+   * from the one a press leaves behind.
+   */
+  it("goes back to the default corner when the grip is activated from the keyboard", () => {
+    useStore.getState().setPanelPos({ x: 100, y: 100 });
+    const { card, grip } = renderPanel();
+
+    expect(screen.getByRole("button", { name: "Reset panel position" })).toBe(grip);
+    fireEvent.click(grip, { detail: 0 });
+
+    expect(useStore.getState().layout.panelPos).toBeNull();
+    expect(card.style.right).toBe("14px");
+  });
+
+  /**
+   * And it still works once the panel has been dragged. It did not while the
+   * guard was a flag set by the drag and cleared only by the next press: a
+   * keyboard reset after any drag read a gesture that had long since ended.
+   */
+  it("still resets from the keyboard after a drag", () => {
+    const { card, handle, grip } = renderPanel();
+
+    dragBy(handle, [150, 120], [400, 200]);
+    fireEvent.click(grip, { detail: 0 });
+
+    expect(useStore.getState().layout.panelPos).toBeNull();
+    expect(card.style.right).toBe("14px");
+  });
+
+  /**
+   * The grip is both the drag affordance and the reset, so a drag that starts on
+   * it must survive its own ending: the release commits the move rather than
+   * undoing it, and the `click` that follows is nobody's reset.
    */
   it("does not reset on the click that ends a drag started from the grip", () => {
+    const { handle, grip } = renderPanel();
+    stubCapture(handle);
+
+    // Pressed on the grip; everything after it retargeted to the header by the
+    // capture, and the click delivered there as well.
+    fireEvent.pointerDown(grip, { pointerId: 1, button: 0, clientX: 800, clientY: 20 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 400, clientY: 300 });
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 400, clientY: 300 });
+    fireEvent.click(handle, { detail: 1 });
+
+    expect(useStore.getState().layout.panelPos).not.toBeNull();
+  });
+
+  /**
+   * And the same drag in a browser that did not capture, where the `click` does
+   * land on the grip. It carries `detail: 1` because a pointer made it, and that
+   * is what keeps it from throwing away the move just made.
+   */
+  it("does not reset on a click that reaches the grip after a drag", () => {
     const { grip } = renderPanel();
 
     fireEvent.pointerDown(grip, { pointerId: 1, button: 0, clientX: 800, clientY: 20 });
     fireEvent.pointerMove(grip, { pointerId: 1, clientX: 400, clientY: 300 });
     fireEvent.pointerUp(grip, { pointerId: 1, clientX: 400, clientY: 300 });
-    fireEvent.click(grip);
+    fireEvent.click(grip, { detail: 1 });
 
     expect(useStore.getState().layout.panelPos).not.toBeNull();
   });
