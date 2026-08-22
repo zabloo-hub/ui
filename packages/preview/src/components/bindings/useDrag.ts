@@ -14,7 +14,19 @@
  *
  * `null` is the default corner (14px in from the top-right) rather than a
  * computed `{x, y}`: expressed as `right`, it stays in its corner across every
- * resize for free, and it is the value a double click on the grip goes back to.
+ * resize for free, and it is the value a press on the grip goes back to.
+ *
+ * That reset fires from the `pointerup`, not from the grip's `click`, and that is
+ * not a preference. The header captures the pointer at the press so a fast drag
+ * cannot outrun the handle, and with a capture active the browser retargets the
+ * derived `click` to the element that captured — the header — so the grip's own
+ * handler never runs. The press that started on the grip and never travelled is
+ * the reset, and the release is the last moment that still knows both things.
+ *
+ * Which leaves the grip's `click` to the keyboard alone, and that is the whole
+ * of its job: no pointer sequence needs it, so it does not have to tell a drag's
+ * trailing click apart from a real one and no state has to survive the gesture
+ * to help it.
  */
 
 import {
@@ -42,6 +54,16 @@ interface Size {
   height: number;
 }
 
+/** The press in flight: where it started, and whether it can still be a reset. */
+interface Grab {
+  /** Where inside the card the pointer went down. */
+  offset: PanelPos;
+  /** Where on the screen — what the threshold measures travel against. */
+  from: PanelPos;
+  /** Started on the grip, so a release that never moved goes back to the corner. */
+  fromGrip: boolean;
+}
+
 interface DragHandleProps {
   onPointerDown(event: PointerEvent<HTMLElement>): void;
   onPointerMove(event: PointerEvent<HTMLElement>): void;
@@ -58,13 +80,12 @@ interface Drag {
   /** Spread on whatever starts a drag (the header, grip included). */
   handleProps: DragHandleProps;
   /**
-   * Whether the pointer sequence that just ended actually moved the card. A
-   * press that turned into a drag still ends in a `click` on whatever it started
-   * on, so the grip — which is both the drag affordance and the reset button —
-   * has to be able to tell the two apart or a drag would undo itself.
+   * Spread on the grip's own `onPointerDown`. It arms the reset for this one
+   * sequence and then lets the press bubble on to the header, which starts the
+   * drag from the grip exactly as it would from anywhere else in the header.
    */
-  dragged(): boolean;
-  /** Back to the default corner — the grip's click, and its double click. */
+  pressReset(event: PointerEvent<HTMLElement>): void;
+  /** Back to the default corner — where the grip's press ends up. */
   reset(): void;
 }
 
@@ -105,12 +126,15 @@ function measure(card: HTMLElement): Bounds | null {
 
 function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): Drag {
   const ref = useRef<HTMLDivElement | null>(null);
-  // Where inside the card the pointer went down (`offset`) and where on the
-  // screen (`from` — what the threshold measures travel against). A field of a
-  // ref rather than state: it changes once per drag and no render depends on it.
-  const grab = useRef<{ offset: PanelPos; from: PanelPos } | null>(null);
-  // Whether this sequence moved. Same reason it is a ref: nothing renders from
-  // it, and it is read from a `click` handler that runs after the release.
+  // The press in flight. A ref rather than state: it changes once per drag and
+  // no render depends on it.
+  const grab = useRef<Grab | null>(null);
+  // Set by the grip's own handler and read by the header's an instant later,
+  // when the same press bubbles up. Cleared there so a sequence that aborts
+  // before it becomes a drag cannot leave the next one armed.
+  const armed = useRef(false);
+  // Whether this sequence moved — the difference between a drag to commit and a
+  // press to answer. Same reason it is a ref: nothing renders from it.
   const moved = useRef(false);
   const [live, setLive] = useState<PanelPos | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -146,12 +170,26 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
     return () => window.removeEventListener("resize", reclamp);
   }, []);
 
+  const reset = (): void => {
+    moved.current = false;
+    setLive(null);
+    commit(null);
+  };
+
   const release = (event: PointerEvent<HTMLElement>): void => {
     if (!dragging) return;
+    const seized = grab.current;
     const handle = event.currentTarget;
     if (handle.hasPointerCapture?.(event.pointerId)) handle.releasePointerCapture(event.pointerId);
     grab.current = null;
     setDragging(false);
+    // The release is where the reset has to happen: the capture taken at the
+    // press means the `click` this sequence ends in is delivered to the header,
+    // never to the grip.
+    if (!moved.current && seized?.fromGrip === true) {
+      reset();
+      return;
+    }
     // A press that never moved is not a reposition, and must not overwrite the
     // default corner with a computed one.
     if (live !== null) commit(live);
@@ -159,6 +197,8 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
 
   const handleProps: DragHandleProps = {
     onPointerDown: (event) => {
+      const fromGrip = armed.current;
+      armed.current = false;
       const card = ref.current;
       if (event.button !== 0 || card === null) return;
       const bounds = measure(card);
@@ -169,9 +209,12 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
           y: event.clientY - bounds.card.top,
         },
         from: { x: event.clientX, y: event.clientY },
+        fromGrip,
       };
-      // Optional because jsdom implements no capture at all, and the tests fire
-      // their moves at the handle anyway.
+      // So a drag cannot outrun the handle: without it, a pointer that leaves
+      // the header — which it does the moment the clamp stops the card against
+      // an edge — stops delivering moves and the drag stalls mid-gesture.
+      // Optional because jsdom implements no capture at all.
       event.currentTarget.setPointerCapture?.(event.pointerId);
       moved.current = false;
       setDragging(true);
@@ -213,12 +256,10 @@ function useDrag(pos: PanelPos | null, commit: (pos: PanelPos | null) => void): 
     style: at === null ? { top: INSET, right: INSET } : { left: at.x, top: at.y },
     dragging,
     handleProps,
-    dragged: () => moved.current,
-    reset: () => {
-      moved.current = false;
-      setLive(null);
-      commit(null);
+    pressReset: (event) => {
+      armed.current = event.button === 0;
     },
+    reset,
   };
 }
 

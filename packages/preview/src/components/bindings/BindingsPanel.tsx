@@ -85,12 +85,19 @@ function BindingsPanel() {
             data-grip
             type="button"
             aria-label="Reset panel position"
-            // A press that turned into a drag ends in a `click` on the element it
-            // started on, and resetting there would undo the move just made.
-            onClick={() => {
-              if (!drag.dragged()) drag.reset();
+            // Arms the reset and lets the press through: the header still gets it
+            // and the panel is still draggable by its grip. The reset itself
+            // fires on the release, because the header captures the pointer and
+            // the browser hands the resulting `click` to the header, not here.
+            onPointerDown={drag.pressReset}
+            // The keyboard's path to the same action, and only that: a `click`
+            // the mouse produced always carries its count in `detail`, and a
+            // press already reset on its release. Ignoring those is what stops
+            // the click that ends a drag from undoing the move just made —
+            // without a flag that has to outlive the gesture to say so.
+            onClick={(event) => {
+              if (event.detail === 0) drag.reset();
             }}
-            onDoubleClick={drag.reset}
             className={cn(
               "text-faint hover:text-muted-foreground focus-visible:focus-ring",
               drag.dragging ? "cursor-grabbing" : "cursor-grab",
