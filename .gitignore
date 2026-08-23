@@ -43,5 +43,7 @@ tmp/
 # --- WASM intermedio (el base64 committeado en src/generated es la fuente) ---
 packages/renderer-web/native/*.wasm
 
-# --- Contexto de Claude (generado por ai-docs/setup.sh; fuente en ai-docs) ---
-/CLAUDE.md
+# --- Contexto de Claude ---
+# CLAUDE.md y docs/internal/ SÍ se versionan: el repo se explica solo (2026-08-23).
+# Solo lo local del entorno queda fuera:
+.claude/settings.local.json

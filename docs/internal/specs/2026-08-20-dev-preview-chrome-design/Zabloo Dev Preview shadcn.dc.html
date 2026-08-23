@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body { margin:0; background:#e8e8ec; font-family:'Geist',sans-serif; color:#09090b; }
+a { color:#4f46e5; text-decoration:none; } a:hover { color:#4338ca; text-decoration:underline; }
+</style>
+</helmet>
+<section style="padding:56px; display:flex; flex-direction:column; gap:56px;">
+
+<!-- ══════════ 1a · MAIN STATE (LIGHT) ══════════ -->
+<div id="1a" style="display:flex; flex-direction:column; gap:12px;">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="background:#09090b; color:#fff; font:600 11px 'Geist Mono',monospace; padding:3px 8px; border-radius:5px;">1a</span>
+    <span style="font-size:13px; font-weight:600;">Main state · light</span>
+    <span style="font-size:12px; color:#71717a;">view loaded, bindings populated, actions streaming</span>
+  </div>
+  <div style="width:1440px; height:900px; background:#fafafa; border:1px solid #e4e4e7; border-radius:10px; overflow:hidden; display:flex; position:relative; box-shadow:0 1px 3px rgba(0,0,0,.06);">
+    <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+      <!-- toolbar -->
+      <div style="height:44px; flex:none; background:#ffffff; border-bottom:1px solid #e4e4e7; display:flex; align-items:center; gap:8px; padding:0 12px;">
+        <div style="display:flex; align-items:center; gap:7px; padding:0 4px 0 2px;"><div style="width:16px; height:16px; border-radius:5px; background:linear-gradient(135deg,#818cf8,#4f46e5);"></div><span style="font-size:13px; font-weight:600;">zabloo</span><span style="font:400 10px 'Geist Mono',monospace; color:#a1a1aa;">dev</span></div>
+        <div style="width:1px; height:18px; background:#e4e4e7;"></div>
+        <div style="display:flex; align-items:center; gap:7px; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); padding:5px 10px; font-size:12px; background:#fff;"><span style="color:#a1a1aa; font-size:11px;">View</span><span style="font-weight:500;">controls</span><svg width="10" height="10" viewBox="0 0 10 10" style="color:#a1a1aa;"><path d="M2 3.5 5 7l3-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg></div>
+        <div style="display:flex; align-items:center; gap:7px; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); padding:5px 10px; font-size:12px; background:#fff;">
+          <svg width="13" height="13" viewBox="0 0 14 14" style="color:#71717a;"><rect x="1.5" y="2.5" width="11" height="7.5" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"></rect><path d="M5 12h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>
+          <span style="font-weight:500;">Steam Deck</span>
+          <span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">1280×800</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" style="color:#a1a1aa;"><path d="M2 3.5 5 7l3-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="display:flex; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); overflow:hidden; font-size:11.5px;">
+          <span style="padding:5px 9px; background:#f4f4f5; font-weight:500;">DPR auto</span>
+          <span style="padding:5px 8px; color:#71717a; border-left:1px solid #e4e4e7;">1×</span>
+          <span style="padding:5px 8px; color:#71717a; border-left:1px solid #e4e4e7;">2×</span>
+          <span style="padding:5px 8px; color:#71717a; border-left:1px solid #e4e4e7;">3×</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; border:1px solid #c7d2fe; background:#eef2ff; color:#4f46e5; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500;"><span style="font:500 11px 'Geist Mono',monospace;">{ }</span>Bindings</div>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:6px; font-size:12px; color:#3f9152; background:#eaf6ee; border:1px solid #cde8d6; border-radius:99px; padding:3px 10px 3px 8px;">
+          <span style="width:7px; height:7px; border-radius:99px; background:#22a04d;"></span><span style="font-weight:500;">Live</span>
+        </div>
+        <div style="width:1px; height:18px; background:#e4e4e7;"></div>
+        <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#71717a;" style-hover="background:#f4f4f5;">
+          <svg width="15" height="15" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.3" fill="none"></circle><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#71717a;" style-hover="background:#f4f4f5;">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 1.5H2.5A1 1 0 0 0 1.5 2.5V5M9 1.5h2.5a1 1 0 0 1 1 1V5M5 12.5H2.5a1 1 0 0 1-1-1V9M9 12.5h2.5a1 1 0 0 0 1-1V9" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+      </div>
+      <!-- stage -->
+      <div style="flex:1; background:#f4f4f5; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:0;">
+        <div style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">Steam Deck · 1280×800 · @1× · 60%</div>
+        <div style="width:768px; height:480px; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 2px 10px rgba(20,20,30,.08); overflow:hidden; background:linear-gradient(160deg,#191c28,#111320); padding:36px 44px; box-sizing:border-box; color:#e8e9f2;">
+          <div style="font:600 19px 'Geist',sans-serif; letter-spacing:.22em;">SETTINGS</div>
+          <div style="display:flex; gap:22px; margin-top:18px; font-size:11px; letter-spacing:.12em; color:#7b7f96;">
+            <span style="color:#aab2ff; border-bottom:2px solid #818cf8; padding-bottom:5px;">AUDIO</span><span>VIDEO</span><span>CONTROLS</span><span>ACCESSIBILITY</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:22px; font-size:13.5px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px;"><span>Master volume</span><span style="display:flex; align-items:center; gap:10px;"><span style="width:130px; height:4px; background:#2c3046; border-radius:2px; position:relative;"><span style="position:absolute; left:0; top:0; height:4px; width:80%; background:#818cf8; border-radius:2px;"></span></span><span style="font:400 12px 'Geist Mono',monospace; color:#9aa0bd;">80</span></span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px;"><span>Music</span><span style="font:500 12px 'Geist Mono',monospace; color:#7b7f96;">‹ OFF ›</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px; background:rgba(129,140,248,.13); box-shadow:inset 2px 0 0 #818cf8;"><span style="color:#fff;">Sound effects</span><span style="font:500 12px 'Geist Mono',monospace; color:#aab2ff;">‹ ON ›</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px;"><span>Subtitles</span><span style="font:500 12px 'Geist Mono',monospace; color:#7b7f96;">‹ ON ›</span></div>
+          </div>
+          <div style="display:flex; gap:18px; margin-top:30px; font-size:11px; color:#7b7f96; align-items:center;">
+            <span style="display:flex; align-items:center; gap:6px;"><span style="width:16px; height:16px; border:1px solid #454a63; border-radius:99px; display:inline-flex; align-items:center; justify-content:center; font-size:9px;">A</span>Select</span>
+            <span style="display:flex; align-items:center; gap:6px;"><span style="width:16px; height:16px; border:1px solid #454a63; border-radius:99px; display:inline-flex; align-items:center; justify-content:center; font-size:9px;">B</span>Back</span>
+          </div>
+        </div>
+      </div>
+      <!-- bottom panel -->
+      <div style="height:198px; flex:none; background:#ffffff; border-top:1px solid #e4e4e7; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; gap:2px; padding:0 8px; border-bottom:1px solid #e4e4e7; height:34px; flex:none;">
+          <div style="display:flex; background:#f4f4f5; border-radius:8px; padding:3px; gap:2px;"><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; background:#ffffff; color:#09090b; box-shadow:0 1px 2px rgba(0,0,0,.08); display:flex; align-items:center; gap:6px;">Actions</span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#71717a; display:flex; align-items:center; gap:6px;">Problems</span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#71717a; display:flex; align-items:center; gap:6px;">Stats</span></div>
+          <span style="margin-left:auto; font-size:11px; color:#a1a1aa; padding:4px 8px; border-radius:5px;" style-hover="background:#f4f4f5;">Clear</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" style="color:#a1a1aa; margin:0 6px;"><path d="M2 4.5 6 8l4-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="flex:1; overflow:hidden; padding:8px 14px; font:400 11.5px/1.9 'Geist Mono',monospace; color:#3f3f46;">
+          <div><span style="color:#d4d4d8;">12:04:27</span>  <span style="color:#a1a1aa;">view</span>  loaded → controls</div>
+          <div><span style="color:#d4d4d8;">12:04:29</span>  <span style="color:#0e8a5f;">write</span>  settings.music = false</div>
+          <div><span style="color:#d4d4d8;">12:04:31</span>  <span style="color:#4f46e5;">action</span> buy → shop.items.3 <span style="color:#a1a1aa;">(#3)</span></div>
+          <div><span style="color:#d4d4d8;">12:04:31</span>  <span style="color:#0e8a5f;">write</span>  settings.sfx = true</div>
+          <div><span style="color:#d4d4d8;">12:04:33</span>  <span style="color:#4f46e5;">action</span> back</div>
+          <div><span style="color:#d4d4d8;">12:04:36</span>  <span style="color:#4f46e5;">action</span> focus → settings.volume</div>
+        </div>
+      </div>
+      <!-- statusbar -->
+      <div style="height:26px; flex:none; background:#fafafa; border-top:1px solid #e4e4e7; display:flex; align-items:center; gap:14px; padding:0 12px; font-size:11px; color:#71717a;">
+        <span style="display:flex; align-items:center; gap:5px;"><span style="width:6px; height:6px; border-radius:99px; background:#22a04d;"></span>Live</span>
+        <span>0 problems</span><span style="font:400 10.5px 'Geist Mono',monospace; color:#a1a1aa;">demo.envelope.json</span>
+        <span style="margin-left:auto; font:400 10.5px 'Geist Mono',monospace; color:#a1a1aa;">60 fps · 1.9 ms</span>
+        <svg width="15" height="11" viewBox="0 0 16 11" style="color:#4f46e5;"><path d="M4.5 1h7A3.5 3.5 0 0 1 15 4.5v2A3.5 3.5 0 0 1 11.5 10h-7A3.5 3.5 0 0 1 1 6.5v-2A3.5 3.5 0 0 1 4.5 1Z" stroke="currentColor" stroke-width="1.2" fill="none"></path><circle cx="5" cy="5.5" r="1" fill="currentColor"></circle><circle cx="11" cy="5.5" r="1" fill="currentColor"></circle></svg>
+      </div>
+    </div>
+    <!-- right panel -->
+    <div style="position:absolute; top:58px; right:14px; width:296px; background:#ffffff; border:1px solid #e4e4e7; border-radius:10px; box-shadow:0 10px 32px rgba(20,20,30,.16); display:flex; flex-direction:column; overflow:hidden; z-index:5;">
+      <div style="display:flex; align-items:center; padding:12px 14px 10px; border-bottom:1px solid #e4e4e7;">
+        <span style="font-size:12px; font-weight:600;">Data bindings</span>
+        <span style="font-size:10.5px; color:#a1a1aa; margin-left:8px;">6 paths</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" style="margin-left:auto; color:#d4d4d8; cursor:grab;"><circle cx="4.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="4.5" cy="6" r="1" fill="currentColor"></circle><circle cx="8.5" cy="6" r="1" fill="currentColor"></circle><circle cx="4.5" cy="9.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="9.5" r="1" fill="currentColor"></circle></svg><span style="margin-left:10px; color:#a1a1aa; font-size:14px; line-height:1; cursor:pointer;">×</span>
+      </div>
+      <div style="padding:12px 14px; display:flex; flex-direction:column; gap:14px; overflow:hidden;">
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">player.gold</span><span style="font-size:9.5px; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:4px; padding:1px 5px;">number</span></div>
+          <div style="display:flex; align-items:center; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); overflow:hidden; height:28px;">
+            <input value="1250" style="flex:1; border:none; outline:none; padding:0 10px; font:400 12px 'Geist Mono',monospace; color:#09090b; min-width:0;">
+            <span style="display:flex; flex-direction:column; border-left:1px solid #e4e4e7;"><span style="font-size:8px; color:#71717a; padding:1px 7px; line-height:1.2;" style-hover="background:#f4f4f5;">▲</span><span style="font-size:8px; color:#71717a; padding:1px 7px; line-height:1.2; border-top:1px solid #e4e4e7;" style-hover="background:#f4f4f5;">▼</span></span>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">player.name</span><span style="font-size:9.5px; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:4px; padding:1px 5px;">string</span></div>
+          <input value="Aria" style="border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); outline:none; padding:0 10px; height:28px; font:400 12px 'Geist Mono',monospace; color:#09090b;">
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; padding:8px 10px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">settings.sfx</span><span style="font:500 9.5px 'Geist Mono',monospace; color:#4f46e5; background:#e0e7ff; border-radius:4px; padding:1px 5px;">← UI</span></div>
+          <div style="width:36px; height:20px; border-radius:99px; background:#4f46e5; position:relative;"><span style="position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff;"></span></div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:0 10px 0 0;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">settings.music</span><span style="font-size:9.5px; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:4px; padding:1px 5px;">boolean</span></div>
+          <div style="width:36px; height:20px; border-radius:99px; background:#e4e4e7; position:relative;"><span style="position:absolute; left:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.15);"></span></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">settings.volume</span><span style="font-size:9.5px; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:4px; padding:1px 5px;">number</span></div>
+          <div style="display:flex; align-items:center; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); overflow:hidden; height:28px;">
+            <input value="80" style="flex:1; border:none; outline:none; padding:0 10px; font:400 12px 'Geist Mono',monospace; color:#09090b; min-width:0;">
+            <span style="display:flex; flex-direction:column; border-left:1px solid #e4e4e7;"><span style="font-size:8px; color:#71717a; padding:1px 7px; line-height:1.2;">▲</span><span style="font-size:8px; color:#71717a; padding:1px 7px; line-height:1.2; border-top:1px solid #e4e4e7;">▼</span></span>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; border:1px solid #e4e4e7; border-radius:8px; overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:6px; padding:7px 10px; background:#fafafa;">
+            <svg width="9" height="9" viewBox="0 0 10 10" style="color:#71717a;"><path d="M3 1.5 7.5 5 3 8.5Z" fill="currentColor"></path></svg>
+            <span style="font:500 11.5px 'Geist Mono',monospace;">shop.items</span>
+            <span style="font-size:9.5px; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:4px; padding:1px 5px;">array(4)</span>
+            <span style="font-size:10px; color:#4f46e5; margin-left:auto;">Edit JSON</span>
+          </div>
+          <pre style="margin:0; padding:8px 12px; border-top:1px solid #e4e4e7; font:400 10.5px/1.6 'Geist Mono',monospace; color:#3f3f46; background:#fff;">[
+  { "id": "sword",  "price": 320 },
+  { "id": "shield", "price": 180 },
+  { "id": "tonic",  "price": 40 },
+  { "id": "map",    "price": 95 }
+]</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 1b · ERROR STATE ══════════ -->
+<div id="1b" style="display:flex; flex-direction:column; gap:12px;">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="background:#09090b; color:#fff; font:600 11px 'Geist Mono',monospace; padding:3px 8px; border-radius:5px;">1b</span>
+    <span style="font-size:13px; font-weight:600;">Error state</span>
+    <span style="font-size:12px; color:#71717a;">fatal diagnostic, stale canvas, stale connection</span>
+  </div>
+  <div style="width:1440px; height:900px; background:#fafafa; border:1px solid #e4e4e7; border-radius:10px; overflow:hidden; display:flex; position:relative; box-shadow:0 1px 3px rgba(0,0,0,.06);">
+    <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+      <div style="height:44px; flex:none; background:#ffffff; border-bottom:1px solid #e4e4e7; display:flex; align-items:center; gap:8px; padding:0 12px;">
+        <div style="display:flex; align-items:center; gap:7px; padding:0 4px 0 2px;"><div style="width:16px; height:16px; border-radius:5px; background:linear-gradient(135deg,#818cf8,#4f46e5);"></div><span style="font-size:13px; font-weight:600;">zabloo</span><span style="font:400 10px 'Geist Mono',monospace; color:#a1a1aa;">dev</span></div>
+        <div style="width:1px; height:18px; background:#e4e4e7;"></div>
+        <div style="display:flex; align-items:center; gap:7px; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); padding:5px 10px; font-size:12px; background:#fff;"><span style="color:#a1a1aa; font-size:11px;">View</span><span style="font-weight:500;">controls</span><span style="width:6px; height:6px; border-radius:99px; background:#dc2626;"></span><svg width="10" height="10" viewBox="0 0 10 10" style="color:#a1a1aa;"><path d="M2 3.5 5 7l3-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg></div>
+        <div style="display:flex; align-items:center; gap:7px; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); padding:5px 10px; font-size:12px;">
+          <svg width="13" height="13" viewBox="0 0 14 14" style="color:#71717a;"><rect x="1.5" y="2.5" width="11" height="7.5" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"></rect><path d="M5 12h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>
+          <span style="font-weight:500;">Steam Deck</span><span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">1280×800</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" style="color:#a1a1aa;"><path d="M2 3.5 5 7l3-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="display:flex; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); overflow:hidden; font-size:11.5px;">
+          <span style="padding:5px 9px; background:#f4f4f5; font-weight:500;">DPR auto</span>
+          <span style="padding:5px 8px; color:#71717a; border-left:1px solid #e4e4e7;">1×</span>
+          <span style="padding:5px 8px; color:#71717a; border-left:1px solid #e4e4e7;">2×</span>
+          <span style="padding:5px 8px; color:#71717a; border-left:1px solid #e4e4e7;">3×</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; border:1px solid #c7d2fe; background:#eef2ff; color:#4f46e5; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500;"><span style="font:500 11px 'Geist Mono',monospace;">{ }</span>Bindings</div>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:6px; font-size:12px; color:#96690f; background:#fdf5e3; border:1px solid #f0dfb2; border-radius:99px; padding:3px 10px 3px 8px;">
+          <span style="width:7px; height:7px; border-radius:99px; background:#d99711;"></span><span style="font-weight:500;">Stale</span>
+        </div>
+        <div style="width:1px; height:18px; background:#e4e4e7;"></div>
+        <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#71717a;">
+          <svg width="15" height="15" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.3" fill="none"></circle><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#71717a;">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 1.5H2.5A1 1 0 0 0 1.5 2.5V5M9 1.5h2.5a1 1 0 0 1 1 1V5M5 12.5H2.5a1 1 0 0 1-1-1V9M9 12.5h2.5a1 1 0 0 0 1-1V9" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+      </div>
+      <div style="flex:1; background:#f4f4f5; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:0; position:relative;">
+        <div style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">Steam Deck · 1280×800 · @1× · 60%</div>
+        <div style="width:768px; height:480px; border:1px solid #e4e4e7; border-radius:6px; overflow:hidden; background:linear-gradient(160deg,#191c28,#111320); padding:36px 44px; box-sizing:border-box; color:#e8e9f2; position:relative;">
+          <div style="position:absolute; inset:0; background:rgba(246,246,248,.55); backdrop-filter:saturate(.2); z-index:2;"></div>
+          <div style="position:absolute; top:14px; left:50%; transform:translateX(-50%); z-index:3; display:flex; align-items:center; gap:7px; background:#09090b; color:#f4f4f5; font-size:11.5px; border-radius:99px; padding:5px 12px; box-shadow:0 2px 8px rgba(0,0,0,.25);">
+            <span style="width:6px; height:6px; border-radius:99px; background:#fbbf24;"></span>Stale — export failed, showing last good render
+          </div>
+          <div style="font:600 19px 'Geist',sans-serif; letter-spacing:.22em;">SETTINGS</div>
+          <div style="display:flex; gap:22px; margin-top:18px; font-size:11px; letter-spacing:.12em; color:#7b7f96;">
+            <span style="color:#aab2ff; border-bottom:2px solid #818cf8; padding-bottom:5px;">AUDIO</span><span>VIDEO</span><span>CONTROLS</span><span>ACCESSIBILITY</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:22px; font-size:13.5px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px;"><span>Master volume</span><span style="font:400 12px 'Geist Mono',monospace; color:#9aa0bd;">80</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px;"><span>Music</span><span style="font:500 12px 'Geist Mono',monospace; color:#7b7f96;">‹ OFF ›</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:rgba(129,140,248,.13);"><span style="color:#fff;">Sound effects</span><span style="font:500 12px 'Geist Mono',monospace; color:#aab2ff;">‹ ON ›</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="height:198px; flex:none; background:#ffffff; border-top:1px solid #e4e4e7; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; gap:2px; padding:0 8px; border-bottom:1px solid #e4e4e7; height:34px; flex:none;">
+          <div style="display:flex; background:#f4f4f5; border-radius:8px; padding:3px; gap:2px;"><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#71717a; display:flex; align-items:center; gap:6px;">Actions</span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; background:#ffffff; color:#09090b; box-shadow:0 1px 2px rgba(0,0,0,.08); display:flex; align-items:center; gap:6px;">Problems<span style="background:#dc2626; color:#fff; font-size:9.5px; font-weight:600; border-radius:99px; padding:1px 6px;">1</span></span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#71717a; display:flex; align-items:center; gap:6px;">Stats</span></div>
+          <svg width="12" height="12" viewBox="0 0 12 12" style="color:#a1a1aa; margin:0 6px 0 auto;"><path d="M2 4.5 6 8l4-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="flex:1; overflow:hidden; padding:10px 14px; font:400 11.5px/1.7 'Geist Mono',monospace; color:#3f3f46; display:flex; flex-direction:column; gap:8px;">
+          <div style="display:flex; gap:10px; align-items:baseline;">
+            <span style="background:#fdecec; color:#b91c1c; font-size:9.5px; font-weight:500; border-radius:4px; padding:1px 6px; flex:none;">FATAL</span>
+            <span><span style="color:#b91c1c;">[invalid-node]</span> views["hud"].children[2].text <span style="color:#a1a1aa;">— missing</span></span>
+          </div>
+          <div style="display:flex; gap:10px; align-items:baseline;">
+            <span style="background:#fdf5e3; color:#96690f; font-size:9.5px; font-weight:500; border-radius:4px; padding:1px 6px; flex:none;">WARN</span>
+            <span><span style="color:#96690f;">[unknown-prop]</span> views["controls"].children[0].glow <span style="color:#a1a1aa;">— removed (repaired)</span></span>
+          </div>
+          <div style="display:flex; gap:10px; align-items:baseline;">
+            <span style="background:#fdf5e3; color:#96690f; font-size:9.5px; font-weight:500; border-radius:4px; padding:1px 6px; flex:none;">WARN</span>
+            <span><span style="color:#96690f;">[missing-binding]</span> views["controls"].bindings.settings.haptics <span style="color:#a1a1aa;">— defaulted to false (repaired)</span></span>
+          </div>
+        </div>
+      </div>
+      <div style="height:26px; flex:none; background:#fafafa; border-top:1px solid #e4e4e7; display:flex; align-items:center; gap:14px; padding:0 12px; font-size:11px; color:#71717a;">
+        <span style="display:flex; align-items:center; gap:5px;"><span style="width:6px; height:6px; border-radius:99px; background:#d99711;"></span>Stale</span>
+        <span style="color:#b91c1c; font-weight:500;">1 fatal</span><span>2 warnings</span><span style="font:400 10.5px 'Geist Mono',monospace; color:#a1a1aa;">demo.envelope.json</span>
+        <span style="margin-left:auto; font:400 10.5px 'Geist Mono',monospace; color:#a1a1aa;">idle</span>
+        <svg width="15" height="11" viewBox="0 0 16 11" style="color:#d4d4d8;"><path d="M4.5 1h7A3.5 3.5 0 0 1 15 4.5v2A3.5 3.5 0 0 1 11.5 10h-7A3.5 3.5 0 0 1 1 6.5v-2A3.5 3.5 0 0 1 4.5 1Z" stroke="currentColor" stroke-width="1.2" fill="none"></path><circle cx="5" cy="5.5" r="1" fill="currentColor"></circle><circle cx="11" cy="5.5" r="1" fill="currentColor"></circle></svg>
+      </div>
+    </div>
+    <div style="position:absolute; top:58px; right:14px; width:296px; background:#ffffff; border:1px solid #e4e4e7; border-radius:10px; box-shadow:0 10px 32px rgba(20,20,30,.16); display:flex; flex-direction:column; overflow:hidden; z-index:5;">
+      <div style="display:flex; align-items:center; padding:12px 14px 10px; border-bottom:1px solid #e4e4e7;">
+        <span style="font-size:12px; font-weight:600;">Data bindings</span>
+        <span style="font-size:10.5px; color:#a1a1aa; margin-left:8px;">6 paths</span><svg width="12" height="12" viewBox="0 0 12 12" style="margin-left:auto; color:#d4d4d8; cursor:grab;"><circle cx="4.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="4.5" cy="6" r="1" fill="currentColor"></circle><circle cx="8.5" cy="6" r="1" fill="currentColor"></circle><circle cx="4.5" cy="9.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="9.5" r="1" fill="currentColor"></circle></svg><span style="margin-left:10px; color:#a1a1aa; font-size:14px; line-height:1; cursor:pointer;">×</span>
+      </div>
+      <div style="padding:12px 14px; display:flex; flex-direction:column; gap:14px; opacity:.55;">
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">player.gold</span><span style="font-size:9.5px; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:4px; padding:1px 5px;">number</span></div>
+          <div style="border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); height:28px; display:flex; align-items:center; padding:0 10px; font:400 12px 'Geist Mono',monospace;">1250</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">player.name</span><span style="font-size:9.5px; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:4px; padding:1px 5px;">string</span></div>
+          <div style="border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); height:28px; display:flex; align-items:center; padding:0 10px; font:400 12px 'Geist Mono',monospace;">Aria</div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <span style="font:500 11.5px 'Geist Mono',monospace;">settings.sfx</span>
+          <div style="width:36px; height:20px; border-radius:99px; background:#4f46e5; position:relative;"><span style="position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff;"></span></div>
+        </div>
+      </div>
+      <div style="margin-top:auto; padding:12px 14px; border-top:1px solid #e4e4e7; font-size:11px; color:#96690f; background:#fdf9ef;">Values held — editor re-enables when the export loads.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 1c · ZEN MODE ══════════ -->
+<div id="1c" style="display:flex; flex-direction:column; gap:12px;">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="background:#09090b; color:#fff; font:600 11px 'Geist Mono',monospace; padding:3px 8px; border-radius:5px;">1c</span>
+    <span style="font-size:13px; font-weight:600;">Zen mode</span>
+    <span style="font-size:12px; color:#71717a;">panels collapsed, full-bleed canvas, floating controls</span>
+  </div>
+  <div style="width:1440px; height:900px; background:#f4f4f5; border:1px solid #e4e4e7; border-radius:10px; overflow:hidden; position:relative; box-shadow:0 1px 3px rgba(0,0,0,.06);">
+    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">
+      <div style="width:1248px; height:780px; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 3px 16px rgba(20,20,30,.1); overflow:hidden; background:linear-gradient(160deg,#191c28,#111320); padding:58px 72px; box-sizing:border-box; color:#e8e9f2;">
+        <div style="font:600 30px 'Geist',sans-serif; letter-spacing:.22em;">SETTINGS</div>
+        <div style="display:flex; gap:34px; margin-top:28px; font-size:16px; letter-spacing:.12em; color:#7b7f96;">
+          <span style="color:#aab2ff; border-bottom:3px solid #818cf8; padding-bottom:8px;">AUDIO</span><span>VIDEO</span><span>CONTROLS</span><span>ACCESSIBILITY</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:16px; margin-top:36px; font-size:21px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; border-radius:6px;"><span>Master volume</span><span style="display:flex; align-items:center; gap:16px;"><span style="width:210px; height:6px; background:#2c3046; border-radius:3px; position:relative;"><span style="position:absolute; left:0; top:0; height:6px; width:80%; background:#818cf8; border-radius:3px;"></span></span><span style="font:400 18px 'Geist Mono',monospace; color:#9aa0bd;">80</span></span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; border-radius:6px;"><span>Music</span><span style="font:500 18px 'Geist Mono',monospace; color:#7b7f96;">‹ OFF ›</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; border-radius:6px; background:rgba(129,140,248,.13); box-shadow:inset 3px 0 0 #818cf8;"><span style="color:#fff;">Sound effects</span><span style="font:500 18px 'Geist Mono',monospace; color:#aab2ff;">‹ ON ›</span></div>
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 22px; border-radius:6px;"><span>Subtitles</span><span style="font:500 18px 'Geist Mono',monospace; color:#7b7f96;">‹ ON ›</span></div>
+        </div>
+        <div style="display:flex; gap:28px; margin-top:46px; font-size:16px; color:#7b7f96; align-items:center;">
+          <span style="display:flex; align-items:center; gap:9px;"><span style="width:24px; height:24px; border:1.5px solid #454a63; border-radius:99px; display:inline-flex; align-items:center; justify-content:center; font-size:13px;">A</span>Select</span>
+          <span style="display:flex; align-items:center; gap:9px;"><span style="width:24px; height:24px; border:1.5px solid #454a63; border-radius:99px; display:inline-flex; align-items:center; justify-content:center; font-size:13px;">B</span>Back</span>
+        </div>
+      </div>
+    </div>
+    <div style="position:absolute; top:14px; right:14px; display:flex; align-items:center; gap:10px; background:rgba(255,255,255,.88); backdrop-filter:blur(8px); border:1px solid #e4e4e7; border-radius:99px; padding:6px 8px 6px 14px; box-shadow:0 2px 10px rgba(20,20,30,.1);">
+      <span style="width:7px; height:7px; border-radius:99px; background:#22a04d;"></span>
+      <span style="font:400 11px 'Geist Mono',monospace; color:#71717a;">Steam Deck · 1280×800</span>
+      <span style="width:1px; height:14px; background:#e4e4e7;"></span>
+      <span style="width:26px; height:26px; border-radius:99px; display:flex; align-items:center; justify-content:center; color:#3f3f46;" style-hover="background:#f4f4f5;">
+        <svg width="14" height="14" viewBox="0 0 14 14"><path d="M1.5 5H4a1 1 0 0 0 1-1V1.5M9 1.5V4a1 1 0 0 0 1 1h2.5M5 12.5V10a1 1 0 0 0-1-1H1.5M12.5 9H10a1 1 0 0 0-1 1v2.5" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"></path></svg>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 1d · DARK THEME ══════════ -->
+<div id="1d" style="display:flex; flex-direction:column; gap:12px;">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="background:#09090b; color:#fff; font:600 11px 'Geist Mono',monospace; padding:3px 8px; border-radius:5px;">1d</span>
+    <span style="font-size:13px; font-weight:600;">Dark theme</span>
+    <span style="font-size:12px; color:#71717a;">main state in the dark palette</span>
+  </div>
+  <div style="width:1440px; height:900px; background:#09090b; border:1px solid #0e0e11; border-radius:10px; overflow:hidden; display:flex; position:relative; box-shadow:0 1px 3px rgba(0,0,0,.2); color:#fafafa;">
+    <div style="flex:1; display:flex; flex-direction:column; min-width:0;">
+      <div style="height:44px; flex:none; background:#18181b; border-bottom:1px solid #27272a; display:flex; align-items:center; gap:8px; padding:0 12px;">
+        <div style="display:flex; align-items:center; gap:7px; padding:0 4px 0 2px;"><div style="width:16px; height:16px; border-radius:5px; background:linear-gradient(135deg,#a5b0fc,#6366f1);"></div><span style="font-size:13px; font-weight:600;">zabloo</span><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">dev</span></div>
+        <div style="width:1px; height:18px; background:#27272a;"></div>
+        <div style="display:flex; align-items:center; gap:7px; border:1px solid #27272a; border-radius:6px; padding:5px 10px; font-size:12px;"><span style="color:#71717a; font-size:11px;">View</span><span style="font-weight:500;">controls</span><svg width="10" height="10" viewBox="0 0 10 10" style="color:#71717a;"><path d="M2 3.5 5 7l3-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg></div>
+        <div style="display:flex; align-items:center; gap:7px; border:1px solid #27272a; border-radius:6px; padding:5px 10px; font-size:12px;">
+          <svg width="13" height="13" viewBox="0 0 14 14" style="color:#a1a1aa;"><rect x="1.5" y="2.5" width="11" height="7.5" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"></rect><path d="M5 12h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg>
+          <span style="font-weight:500;">Steam Deck</span><span style="font:400 11px 'Geist Mono',monospace; color:#71717a;">1280×800</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" style="color:#71717a;"><path d="M2 3.5 5 7l3-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="display:flex; border:1px solid #27272a; border-radius:6px; overflow:hidden; font-size:11.5px;">
+          <span style="padding:5px 9px; background:#27272a; font-weight:500;">DPR auto</span>
+          <span style="padding:5px 8px; color:#a1a1aa; border-left:1px solid #27272a;">1×</span>
+          <span style="padding:5px 8px; color:#a1a1aa; border-left:1px solid #27272a;">2×</span>
+          <span style="padding:5px 8px; color:#a1a1aa; border-left:1px solid #27272a;">3×</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; border:1px solid rgba(129,140,248,.35); background:rgba(129,140,248,.12); color:#a5b0fc; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500;"><span style="font:500 11px 'Geist Mono',monospace;">{ }</span>Bindings</div>
+        <div style="margin-left:auto; display:flex; align-items:center; gap:6px; font-size:12px; color:#6ee7a0; background:rgba(52,199,120,.1); border:1px solid rgba(52,199,120,.28); border-radius:99px; padding:3px 10px 3px 8px;">
+          <span style="width:7px; height:7px; border-radius:99px; background:#34c778;"></span><span style="font-weight:500;">Live</span>
+        </div>
+        <div style="width:1px; height:18px; background:#27272a;"></div>
+        <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#a1a1aa; background:#27272a;">
+          <svg width="14" height="14" viewBox="0 0 16 16"><path d="M13.5 9.2A6 6 0 0 1 6.8 2.5a6 6 0 1 0 6.7 6.7Z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"></path></svg>
+        </div>
+        <div style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#a1a1aa;">
+          <svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 1.5H2.5A1 1 0 0 0 1.5 2.5V5M9 1.5h2.5a1 1 0 0 1 1 1V5M5 12.5H2.5a1 1 0 0 1-1-1V9M9 12.5h2.5a1 1 0 0 0 1-1V9" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+      </div>
+      <div style="flex:1; background:#09090b; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:0;">
+        <div style="font:400 11px 'Geist Mono',monospace; color:#71717a;">Steam Deck · 1280×800 · @1× · 60%</div>
+        <div style="width:768px; height:480px; border:1px solid #27272a; border-radius:6px; box-shadow:0 4px 18px rgba(0,0,0,.4); overflow:hidden; background:linear-gradient(160deg,#191c28,#111320); padding:36px 44px; box-sizing:border-box; color:#e8e9f2;">
+          <div style="font:600 19px 'Geist',sans-serif; letter-spacing:.22em;">SETTINGS</div>
+          <div style="display:flex; gap:22px; margin-top:18px; font-size:11px; letter-spacing:.12em; color:#7b7f96;">
+            <span style="color:#aab2ff; border-bottom:2px solid #818cf8; padding-bottom:5px;">AUDIO</span><span>VIDEO</span><span>CONTROLS</span><span>ACCESSIBILITY</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:10px; margin-top:22px; font-size:13.5px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px;"><span>Master volume</span><span style="display:flex; align-items:center; gap:10px;"><span style="width:130px; height:4px; background:#2c3046; border-radius:2px; position:relative;"><span style="position:absolute; left:0; top:0; height:4px; width:80%; background:#818cf8; border-radius:2px;"></span></span><span style="font:400 12px 'Geist Mono',monospace; color:#9aa0bd;">80</span></span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px;"><span>Music</span><span style="font:500 12px 'Geist Mono',monospace; color:#7b7f96;">‹ OFF ›</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px; background:rgba(129,140,248,.13); box-shadow:inset 2px 0 0 #818cf8;"><span style="color:#fff;">Sound effects</span><span style="font:500 12px 'Geist Mono',monospace; color:#aab2ff;">‹ ON ›</span></div>
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-radius:4px;"><span>Subtitles</span><span style="font:500 12px 'Geist Mono',monospace; color:#7b7f96;">‹ ON ›</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="height:198px; flex:none; background:#18181b; border-top:1px solid #27272a; display:flex; flex-direction:column;">
+        <div style="display:flex; align-items:center; gap:2px; padding:0 8px; border-bottom:1px solid #27272a; height:34px; flex:none;">
+          <div style="display:flex; background:#27272a; border-radius:8px; padding:3px; gap:2px;"><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; background:#09090b; color:#fafafa; box-shadow:0 1px 2px rgba(0,0,0,.3); display:flex; align-items:center; gap:6px;">Actions</span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#a1a1aa; display:flex; align-items:center; gap:6px;">Problems</span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#a1a1aa; display:flex; align-items:center; gap:6px;">Stats</span></div>
+          <span style="margin-left:auto; font-size:11px; color:#71717a; padding:4px 8px;">Clear</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" style="color:#71717a; margin:0 6px;"><path d="M2 4.5 6 8l4-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg>
+        </div>
+        <div style="flex:1; overflow:hidden; padding:8px 14px; font:400 11.5px/1.9 'Geist Mono',monospace; color:#d4d4d8;">
+          <div><span style="color:#52525b;">12:04:27</span>  <span style="color:#71717a;">view</span>  loaded → controls</div>
+          <div><span style="color:#52525b;">12:04:29</span>  <span style="color:#4cc79a;">write</span>  settings.music = false</div>
+          <div><span style="color:#52525b;">12:04:31</span>  <span style="color:#a5b0fc;">action</span> buy → shop.items.3 <span style="color:#71717a;">(#3)</span></div>
+          <div><span style="color:#52525b;">12:04:31</span>  <span style="color:#4cc79a;">write</span>  settings.sfx = true</div>
+          <div><span style="color:#52525b;">12:04:33</span>  <span style="color:#a5b0fc;">action</span> back</div>
+          <div><span style="color:#52525b;">12:04:36</span>  <span style="color:#a5b0fc;">action</span> focus → settings.volume</div>
+        </div>
+      </div>
+      <div style="height:26px; flex:none; background:#09090b; border-top:1px solid #27272a; display:flex; align-items:center; gap:14px; padding:0 12px; font-size:11px; color:#a1a1aa;">
+        <span style="display:flex; align-items:center; gap:5px;"><span style="width:6px; height:6px; border-radius:99px; background:#34c778;"></span>Live</span>
+        <span>0 problems</span><span style="font:400 10.5px 'Geist Mono',monospace; color:#71717a;">demo.envelope.json</span>
+        <span style="margin-left:auto; font:400 10.5px 'Geist Mono',monospace; color:#71717a;">60 fps · 1.9 ms</span>
+        <svg width="15" height="11" viewBox="0 0 16 11" style="color:#818cf8;"><path d="M4.5 1h7A3.5 3.5 0 0 1 15 4.5v2A3.5 3.5 0 0 1 11.5 10h-7A3.5 3.5 0 0 1 1 6.5v-2A3.5 3.5 0 0 1 4.5 1Z" stroke="currentColor" stroke-width="1.2" fill="none"></path><circle cx="5" cy="5.5" r="1" fill="currentColor"></circle><circle cx="11" cy="5.5" r="1" fill="currentColor"></circle></svg>
+      </div>
+    </div>
+    <div style="position:absolute; top:58px; right:14px; width:296px; background:#18181b; border:1px solid #27272a; border-radius:10px; box-shadow:0 10px 32px rgba(0,0,0,.45); display:flex; flex-direction:column; overflow:hidden; z-index:5;">
+      <div style="display:flex; align-items:center; padding:12px 14px 10px; border-bottom:1px solid #27272a;">
+        <span style="font-size:12px; font-weight:600;">Data bindings</span>
+        <span style="font-size:10.5px; color:#71717a; margin-left:8px;">6 paths</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" style="margin-left:auto; color:#52525b; cursor:grab;"><circle cx="4.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="4.5" cy="6" r="1" fill="currentColor"></circle><circle cx="8.5" cy="6" r="1" fill="currentColor"></circle><circle cx="4.5" cy="9.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="9.5" r="1" fill="currentColor"></circle></svg><span style="margin-left:10px; color:#71717a; font-size:14px; line-height:1; cursor:pointer;">×</span>
+      </div>
+      <div style="padding:12px 14px; display:flex; flex-direction:column; gap:14px; overflow:hidden;">
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">player.gold</span><span style="font-size:9.5px; color:#71717a; border:1px solid #27272a; border-radius:4px; padding:1px 5px;">number</span></div>
+          <div style="display:flex; align-items:center; border:1px solid #27272a; border-radius:6px; overflow:hidden; height:28px; background:#09090b;">
+            <span style="flex:1; padding:0 10px; font:400 12px 'Geist Mono',monospace;">1250</span>
+            <span style="display:flex; flex-direction:column; border-left:1px solid #27272a;"><span style="font-size:8px; color:#a1a1aa; padding:1px 7px; line-height:1.2;">▲</span><span style="font-size:8px; color:#a1a1aa; padding:1px 7px; line-height:1.2; border-top:1px solid #27272a;">▼</span></span>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">player.name</span><span style="font-size:9.5px; color:#71717a; border:1px solid #27272a; border-radius:4px; padding:1px 5px;">string</span></div>
+          <div style="border:1px solid #27272a; border-radius:6px; height:28px; display:flex; align-items:center; padding:0 10px; font:400 12px 'Geist Mono',monospace; background:#09090b;">Aria</div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; background:rgba(129,140,248,.1); border:1px solid rgba(129,140,248,.35); border-radius:8px; padding:8px 10px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">settings.sfx</span><span style="font:500 9.5px 'Geist Mono',monospace; color:#a5b0fc; background:rgba(129,140,248,.18); border-radius:4px; padding:1px 5px;">← UI</span></div>
+          <div style="width:36px; height:20px; border-radius:99px; background:#6366f1; position:relative;"><span style="position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff;"></span></div>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">settings.music</span><span style="font-size:9.5px; color:#71717a; border:1px solid #27272a; border-radius:4px; padding:1px 5px;">boolean</span></div>
+          <div style="width:36px; height:20px; border-radius:99px; background:#27272a; position:relative;"><span style="position:absolute; left:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#a1a1aa;"></span></div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">settings.volume</span><span style="font-size:9.5px; color:#71717a; border:1px solid #27272a; border-radius:4px; padding:1px 5px;">number</span></div>
+          <div style="display:flex; align-items:center; border:1px solid #27272a; border-radius:6px; overflow:hidden; height:28px; background:#09090b;">
+            <span style="flex:1; padding:0 10px; font:400 12px 'Geist Mono',monospace;">80</span>
+            <span style="display:flex; flex-direction:column; border-left:1px solid #27272a;"><span style="font-size:8px; color:#a1a1aa; padding:1px 7px; line-height:1.2;">▲</span><span style="font-size:8px; color:#a1a1aa; padding:1px 7px; line-height:1.2; border-top:1px solid #27272a;">▼</span></span>
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; border:1px solid #27272a; border-radius:8px; overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:6px; padding:7px 10px; background:#09090b;">
+            <svg width="9" height="9" viewBox="0 0 10 10" style="color:#a1a1aa;"><path d="M3 1.5 7.5 5 3 8.5Z" fill="currentColor"></path></svg>
+            <span style="font:500 11.5px 'Geist Mono',monospace;">shop.items</span>
+            <span style="font-size:9.5px; color:#71717a; border:1px solid #27272a; border-radius:4px; padding:1px 5px;">array(4)</span>
+            <span style="font-size:10px; color:#a5b0fc; margin-left:auto;">Edit JSON</span>
+          </div>
+          <pre style="margin:0; padding:8px 12px; border-top:1px solid #27272a; font:400 10.5px/1.6 'Geist Mono',monospace; color:#d4d4d8; background:#18181b;">[
+  { "id": "sword",  "price": 320 },
+  { "id": "shield", "price": 180 },
+  { "id": "tonic",  "price": 40 },
+  { "id": "map",    "price": 95 }
+]</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 1e · UI KIT ══════════ -->
+<div id="1e" style="display:flex; flex-direction:column; gap:12px;">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="background:#09090b; color:#fff; font:600 11px 'Geist Mono',monospace; padding:3px 8px; border-radius:5px;">1e</span>
+    <span style="font-size:13px; font-weight:600;">UI kit</span>
+    <span style="font-size:12px; color:#71717a;">chrome components, all states, light/dark tokens</span>
+  </div>
+  <div style="width:1440px; background:#ffffff; border:1px solid #e4e4e7; border-radius:10px; padding:40px 44px; box-sizing:border-box; display:grid; grid-template-columns:repeat(3, 1fr); gap:40px 48px; box-shadow:0 1px 3px rgba(0,0,0,.06);">
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">VIEW SELECTOR</div>
+      <div style="display:flex; align-items:center; gap:7px; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); padding:5px 10px; font-size:12px; background:#fff; width:fit-content;"><span style="color:#a1a1aa; font-size:11px;">View</span><span style="font-weight:500;">controls</span><svg width="10" height="10" viewBox="0 0 10 10" style="color:#a1a1aa;"><path d="M2 3.5 5 7l3-3.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"></path></svg></div>
+      <div style="width:200px; border:1px solid #e4e4e7; border-radius:8px; box-shadow:0 6px 20px rgba(20,20,30,.1); background:#fff; padding:6px; display:flex; flex-direction:column; gap:1px; font-size:12.5px; color:#3f3f46;">
+        <div style="padding:5px 9px; border-radius:6px;">layout</div>
+        <div style="padding:5px 9px; border-radius:6px; background:#f4f4f5;">typography <span style="font-size:10px; color:#a1a1aa;">· hover</span></div>
+        <div style="padding:5px 9px; border-radius:6px; background:#eef2ff; color:#4f46e5; font-weight:500;">controls</div>
+        <div style="padding:5px 9px; border-radius:6px; display:flex; align-items:center;">overlays<span style="margin-left:auto; width:6px; height:6px; border-radius:99px; background:#dc2626;"></span></div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">VIEWPORT PICKER · OPEN</div>
+      <div style="width:230px; border:1px solid #e4e4e7; border-radius:8px; box-shadow:0 6px 20px rgba(20,20,30,.1); overflow:hidden; font-size:12px; background:#fff;">
+        <div style="padding:6px; display:flex; flex-direction:column; gap:1px;">
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px;"><span>Fit window</span></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px;"><span>1080p</span><span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">1920×1080</span></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px;"><span>4K TV</span><span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">3840×2160</span></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px;"><span>Ultrawide</span><span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">2560×1080</span></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px; background:#eef2ff; color:#4f46e5; font-weight:500;"><span>Steam Deck</span><span style="font:400 11px 'Geist Mono',monospace; color:#818cf8;">1280×800</span></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px;"><span>Switch</span><span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">1280×720</span></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px;"><span>Phone portrait</span><span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">390×844</span></div>
+          <div style="display:flex; justify-content:space-between; padding:5px 9px; border-radius:6px;"><span>Phone landscape</span><span style="font:400 11px 'Geist Mono',monospace; color:#a1a1aa;">844×390</span></div>
+        </div>
+        <div style="border-top:1px solid #e4e4e7; padding:9px; display:flex; align-items:center; gap:6px;">
+          <span style="color:#71717a;">Custom</span>
+          <input value="1512" style="width:44px; border:1px solid #e4e4e7; border-radius:5px; padding:3px 6px; font:400 11px 'Geist Mono',monospace; outline:none; text-align:center;">
+          <span style="color:#a1a1aa;">×</span>
+          <input value="982" style="width:44px; border:1px solid #e4e4e7; border-radius:5px; padding:3px 6px; font:400 11px 'Geist Mono',monospace; outline:none; text-align:center;">
+          <span style="margin-left:auto; background:#09090b; color:#fff; border-radius:5px; padding:3px 9px; font-size:11px; font-weight:500;">Set</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">SEGMENTED · DPR</div>
+      <div style="display:flex; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); overflow:hidden; font-size:11.5px; width:fit-content;">
+        <span style="padding:5px 9px; background:#f4f4f5; font-weight:500;">auto</span>
+        <span style="padding:5px 9px; color:#71717a; border-left:1px solid #e4e4e7;">1×</span>
+        <span style="padding:5px 9px; color:#71717a; border-left:1px solid #e4e4e7;">2×</span>
+        <span style="padding:5px 9px; color:#71717a; border-left:1px solid #e4e4e7;">3×</span>
+      </div>
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa; margin-top:8px;">ICON BUTTONS</div>
+      <div style="display:flex; gap:8px;">
+        <span style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#71717a;"><svg width="15" height="15" viewBox="0 0 16 16"><circle cx="8" cy="8" r="3.2" stroke="currentColor" stroke-width="1.3" fill="none"></circle><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path></svg></span>
+        <span style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#71717a; background:#f4f4f5;"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M13.5 9.2A6 6 0 0 1 6.8 2.5a6 6 0 1 0 6.7 6.7Z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"></path></svg></span>
+        <span style="width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; color:#4f46e5; background:#eef2ff;"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M5 1.5H2.5A1 1 0 0 0 1.5 2.5V5M9 1.5h2.5a1 1 0 0 1 1 1V5M5 12.5H2.5a1 1 0 0 1-1-1V9M9 12.5h2.5a1 1 0 0 0 1-1V9" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round"></path></svg></span>
+      </div>
+      <div style="font-size:11px; color:#a1a1aa;">rest · toggled · zen active</div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">CONSOLE TABS</div>
+      <div style="width:fit-content;"><div style="display:flex; background:#f4f4f5; border-radius:8px; padding:3px; gap:2px;"><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; background:#ffffff; color:#09090b; box-shadow:0 1px 2px rgba(0,0,0,.08); display:flex; align-items:center; gap:6px;">Actions</span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#71717a; display:flex; align-items:center; gap:6px;">Problems<span style="background:#dc2626; color:#fff; font-size:9.5px; font-weight:600; border-radius:99px; padding:1px 6px;">1</span></span><span style="font-size:12px; font-weight:500; padding:3px 12px; border-radius:6px; color:#71717a; display:flex; align-items:center; gap:6px;">Stats</span></div></div>
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa; margin-top:8px;">STATS TAB CONTENT</div>
+      <div style="display:flex; gap:22px; font:400 11px 'Geist Mono',monospace; color:#3f3f46;">
+        <span style="display:flex; flex-direction:column; gap:2px;"><span style="color:#a1a1aa; font-size:9.5px;">fps</span><span style="font-size:14px;">idle</span></span>
+        <span style="display:flex; flex-direction:column; gap:2px;"><span style="color:#a1a1aa; font-size:9.5px;">frame</span><span style="font-size:14px;">1.9ms</span></span>
+        <span style="display:flex; flex-direction:column; gap:2px;"><span style="color:#a1a1aa; font-size:9.5px;">draws</span><span style="font-size:14px;">42</span></span>
+        <span style="display:flex; flex-direction:column; gap:2px;"><span style="color:#a1a1aa; font-size:9.5px;">verts</span><span style="font-size:14px;">18.2k</span></span>
+        <span style="display:flex; flex-direction:column; gap:2px;"><span style="color:#a1a1aa; font-size:9.5px;">atlases</span><span style="font-size:14px;">3 · 12MB</span></span>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">BINDING INPUTS</div>
+      <div style="display:flex; flex-direction:column; gap:10px; width:230px;">
+        <div style="display:flex; align-items:center; justify-content:space-between;"><span style="font:500 11.5px 'Geist Mono',monospace;">bool · off / on</span><span style="display:flex; gap:8px;"><span style="width:36px; height:20px; border-radius:99px; background:#e4e4e7; position:relative; display:inline-block;"><span style="position:absolute; left:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.15);"></span></span><span style="width:36px; height:20px; border-radius:99px; background:#4f46e5; position:relative; display:inline-block;"><span style="position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff;"></span></span></span></div>
+        <div style="display:flex; align-items:center; border:1px solid #e4e4e7; border-radius:6px; box-shadow:0 1px 2px rgba(0,0,0,.05); overflow:hidden; height:28px;"><span style="flex:1; padding:0 10px; font:400 12px 'Geist Mono',monospace;">1250</span><span style="display:flex; flex-direction:column; border-left:1px solid #e4e4e7;"><span style="font-size:8px; color:#71717a; padding:1px 7px; line-height:1.2;">▲</span><span style="font-size:8px; color:#71717a; padding:1px 7px; line-height:1.2; border-top:1px solid #e4e4e7;">▼</span></span></div>
+        <div style="display:flex; align-items:center; border:1.5px solid #4f46e5; border-radius:6px; height:27px; padding:0 10px; font:400 12px 'Geist Mono',monospace; box-shadow:0 0 0 3px #e0e7ff;">focused<span style="width:1px; height:13px; background:#4f46e5; margin-left:1px;"></span></div>
+        <div style="display:flex; align-items:center; justify-content:space-between; background:#eef2ff; border:1px solid #c7d2fe; border-radius:8px; padding:7px 10px;"><span style="display:flex; align-items:center; gap:6px;"><span style="font:500 11.5px 'Geist Mono',monospace;">two-way write</span><span style="font:500 9.5px 'Geist Mono',monospace; color:#4f46e5; background:#e0e7ff; border-radius:4px; padding:1px 5px;">← UI</span></span><span style="width:36px; height:20px; border-radius:99px; background:#4f46e5; position:relative; display:inline-block;"><span style="position:absolute; right:2px; top:2px; width:16px; height:16px; border-radius:99px; background:#fff;"></span></span></div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">BADGES</div>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; width:280px;">
+        <span style="display:flex; align-items:center; gap:6px; font-size:12px; color:#3f9152; background:#eaf6ee; border:1px solid #cde8d6; border-radius:99px; padding:3px 10px 3px 8px;"><span style="width:7px; height:7px; border-radius:99px; background:#22a04d;"></span><span style="font-weight:500;">Live</span></span>
+        <span style="display:flex; align-items:center; gap:6px; font-size:12px; color:#96690f; background:#fdf5e3; border:1px solid #f0dfb2; border-radius:99px; padding:3px 10px 3px 8px;"><span style="width:7px; height:7px; border-radius:99px; background:#d99711;"></span><span style="font-weight:500;">Stale</span></span>
+        <span style="display:flex; align-items:center; gap:6px; font-size:12px; color:#b91c1c; background:#fdecec; border:1px solid #f5c9c9; border-radius:99px; padding:3px 10px 3px 8px;"><span style="width:7px; height:7px; border-radius:99px; background:#dc2626;"></span><span style="font-weight:500;">Disconnected</span></span>
+        <span style="background:#dc2626; color:#fff; font-size:9.5px; font-weight:600; border-radius:99px; padding:1px 6px;">3</span>
+        <span style="font:400 10.5px 'Geist Mono',monospace; color:#a1a1aa; border:1px solid #e4e4e7; border-radius:5px; padding:2px 7px;">60 fps</span>
+        <svg width="15" height="11" viewBox="0 0 16 11" style="color:#d4d4d8;"><path d="M4.5 1h7A3.5 3.5 0 0 1 15 4.5v2A3.5 3.5 0 0 1 11.5 10h-7A3.5 3.5 0 0 1 1 6.5v-2A3.5 3.5 0 0 1 4.5 1Z" stroke="currentColor" stroke-width="1.2" fill="none"></path><circle cx="5" cy="5.5" r="1" fill="currentColor"></circle><circle cx="11" cy="5.5" r="1" fill="currentColor"></circle></svg>
+        <svg width="15" height="11" viewBox="0 0 16 11" style="color:#4f46e5;"><path d="M4.5 1h7A3.5 3.5 0 0 1 15 4.5v2A3.5 3.5 0 0 1 11.5 10h-7A3.5 3.5 0 0 1 4.5 1Z" stroke="currentColor" stroke-width="1.2" fill="none"></path><circle cx="5" cy="5.5" r="1" fill="currentColor"></circle><circle cx="11" cy="5.5" r="1" fill="currentColor"></circle></svg>
+      </div>
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa; margin-top:8px;">TOOLTIP</div>
+      <div style="width:fit-content; background:#09090b; color:#f4f4f5; font-size:11px; line-height:1.6; border-radius:6px; padding:7px 11px; box-shadow:0 4px 14px rgba(0,0,0,.2);">d-pad / stick: focus · A: press<br>B: back · right stick: scroll</div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">BUTTONS</div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span style="background:#09090b; color:#fafafa; border-radius:6px; padding:6px 14px; font-size:12px; font-weight:500; box-shadow:0 1px 2px rgba(0,0,0,.05);">Primary</span>
+        <span style="background:#f4f4f5; color:#09090b; border-radius:6px; padding:6px 14px; font-size:12px; font-weight:500;">Secondary</span>
+        <span style="border:1px solid #e4e4e7; color:#09090b; border-radius:6px; padding:6px 14px; font-size:12px; font-weight:500; box-shadow:0 1px 2px rgba(0,0,0,.05);">Outline</span>
+        <span style="color:#71717a; border-radius:6px; padding:6px 10px; font-size:12px; font-weight:500;">Ghost</span>
+      </div>
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa; margin-top:8px;">EMPTY STATE</div>
+      <div style="width:250px; border:1px dashed #e4e4e7; border-radius:8px; padding:22px 16px; display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center;">
+        <svg width="18" height="18" viewBox="0 0 18 18" style="color:#d4d4d8;"><rect x="2" y="2" width="14" height="14" rx="3" stroke="currentColor" stroke-width="1.3" fill="none" stroke-dasharray="3 2.5"></rect></svg>
+        <span style="font-size:12px; font-weight:500; color:#3f3f46;">No bindings</span>
+        <span style="font-size:11px; color:#a1a1aa; line-height:1.5;">This view declares no data paths.</span>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px; grid-column:span 2;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">TOKENS · LIGHT / DARK</div>
+      <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:10px;">
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#fafafa;"></span><span style="flex:1; background:#09090b;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">bg · #fafafa / #09090b</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#ffffff;"></span><span style="flex:1; background:#18181b;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">panel · #ffffff / #18181b</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#f4f4f5;"></span><span style="flex:1; background:#09090b;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">stage · #f4f4f5 / #09090b</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#e4e4e7;"></span><span style="flex:1; background:#27272a;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">border · #e4e4e7 / #27272a</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#09090b;"></span><span style="flex:1; background:#fafafa;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">text · #09090b / #fafafa</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#71717a;"></span><span style="flex:1; background:#a1a1aa;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">muted · #71717a / #a1a1aa</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#4f46e5;"></span><span style="flex:1; background:#818cf8;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">accent · #4f46e5 / #818cf8</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#eef2ff;"></span><span style="flex:1; background:#312e5e;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">accent-soft · #eef2ff / 15%</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#22a04d;"></span><span style="flex:1; background:#34c778;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">ok · #22a04d / #34c778</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#d99711;"></span><span style="flex:1; background:#fbbf24;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">warn · #d99711 / #fbbf24</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7;"><span style="flex:1; background:#dc2626;"></span><span style="flex:1; background:#f87171;"></span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">danger · #dc2626 / #f87171</span></div>
+        <div style="display:flex; flex-direction:column; gap:5px;"><div style="display:flex; height:34px; border-radius:6px; overflow:hidden; border:1px solid #e4e4e7; align-items:center;"><span style="flex:1; text-align:center; font:500 13px 'Geist',sans-serif;">Ag</span><span style="flex:1; text-align:center; font:500 13px 'Geist Mono',monospace;">Ag</span></div><span style="font:400 10px 'Geist Mono',monospace; color:#71717a;">Geist / Geist Mono</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">LOG LINE TYPES</div>
+      <div style="font:400 11.5px/1.9 'Geist Mono',monospace; color:#3f3f46;">
+        <div><span style="color:#d4d4d8;">12:04:31</span>  <span style="color:#4f46e5;">action</span> buy → shop.items.3 <span style="color:#a1a1aa;">(#3)</span></div>
+        <div><span style="color:#d4d4d8;">12:04:31</span>  <span style="color:#0e8a5f;">write</span>  settings.sfx = true</div>
+        <div><span style="color:#d4d4d8;">12:04:27</span>  <span style="color:#a1a1aa;">view</span>  loaded → controls</div>
+      </div>
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa; margin-top:8px;">DIAGNOSTIC SEVERITIES</div>
+      <div style="display:flex; gap:8px;">
+        <span style="background:#fdecec; color:#b91c1c; font:500 9.5px 'Geist Mono',monospace; border-radius:4px; padding:2px 7px;">FATAL</span>
+        <span style="background:#fdf5e3; color:#96690f; font:500 9.5px 'Geist Mono',monospace; border-radius:4px; padding:2px 7px;">WARN</span>
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:12px;">
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa;">BINDINGS · TOOLBAR TOGGLE</div>
+      <div style="display:flex; gap:8px;">
+        <div style="display:flex; align-items:center; gap:6px; border:1px solid #e4e4e7; color:#3f3f46; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500;"><span style="font:500 11px 'Geist Mono',monospace;">{ }</span>Bindings</div>
+        <div style="display:flex; align-items:center; gap:6px; border:1px solid #c7d2fe; background:#eef2ff; color:#4f46e5; border-radius:6px; padding:5px 10px; font-size:12px; font-weight:500;"><span style="font:500 11px 'Geist Mono',monospace;">{ }</span>Bindings</div>
+      </div>
+      <div style="font-size:11px; color:#a1a1aa;">closed · open</div>
+      <div style="font-size:10px; font-weight:600; letter-spacing:.09em; color:#a1a1aa; margin-top:8px;">FLOATING PANEL HEADER</div>
+      <div style="width:260px; border:1px solid #e4e4e7; border-radius:10px; box-shadow:0 10px 32px rgba(20,20,30,.16); background:#fff; overflow:hidden;">
+        <div style="display:flex; align-items:center; padding:12px 14px 10px; border-bottom:1px solid #e4e4e7;">
+          <span style="font-size:12px; font-weight:600;">Data bindings</span>
+          <span style="font-size:10.5px; color:#a1a1aa; margin-left:8px;">6 paths</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" style="margin-left:auto; color:#d4d4d8; cursor:grab;"><circle cx="4.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="2.5" r="1" fill="currentColor"></circle><circle cx="4.5" cy="6" r="1" fill="currentColor"></circle><circle cx="8.5" cy="6" r="1" fill="currentColor"></circle><circle cx="4.5" cy="9.5" r="1" fill="currentColor"></circle><circle cx="8.5" cy="9.5" r="1" fill="currentColor"></circle></svg><span style="margin-left:10px; color:#a1a1aa; font-size:14px; line-height:1; cursor:pointer;">×</span>
+        </div>
+        <div style="padding:10px 14px; font-size:11px; color:#a1a1aa;">Drag the grip to reposition · × closes (reopen from the toolbar).</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</section>
+</x-dc>
+</body>
+</html>

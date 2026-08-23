@@ -3,7 +3,7 @@
  * Draw calls, geometry, atlas memory and the frame's own work counters are exact
  * counts of what the renderer does, so CI can hold the line on them; the
  * wall-clock half (ms per frame) lives in `bench.test.ts` and is documented in
- * ai-docs, because asserting time in CI flakes. ZAB-40 consolidates these numbers
+ * `docs/internal/`, because asserting time in CI flakes. ZAB-40 consolidates these numbers
  * with Unity's.
  *
  * Two layers, and they measure different things:

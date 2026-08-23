@@ -14,7 +14,9 @@
       "!packages/renderer-web/native/vendor",
       "!packages/renderer-web/src/generated",
       "!golden/metrics",
-      "!wip"
+      "!wip",
+      "!docs/internal/specs",
+      "!docs/internal/plans"
     ]
   },
   "formatter": {

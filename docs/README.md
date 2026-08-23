@@ -87,3 +87,10 @@ algorithm has a reference implementation in TypeScript, the page names it; those
 variants are resolved at authoring time and never reach the IR: what the SDK receives is
 always a tree of the node types documented here. Its own surface is under
 [Authoring](#authoring).
+
+## Internal context
+
+[`internal/`](internal/README.md) holds the project's own working context — what the
+product is, the IR design notes, the architecture decision log, the roadmap, and the
+design/plan trail of past work. It lives in the repo so this one is self-contained; it is
+**not** user documentation, and nothing there is normative.

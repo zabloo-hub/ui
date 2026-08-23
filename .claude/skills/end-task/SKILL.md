@@ -38,8 +38,8 @@ Close out a finished task: Linear to Done + summary, docs reminder, cleanup.
 ## 4. Decision-log reminder
 
 - If architectural decisions were made during the task, remind the user (or
-  offer to do it) to record them in the private decision log
-  (`ai-docs`: `decisions-architecture.md` / `roadmap.md`), per the project's
+  offer to do it) to record them in `docs/internal/decisions-architecture.md`
+  (or `docs/internal/roadmap.md` for product direction), per the project's
   standing rule.
 
 ## 5. Cleanup

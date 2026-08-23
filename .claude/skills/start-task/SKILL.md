@@ -28,8 +28,8 @@ Do the steps in order. Do not skip the clarification or plan gates.
 ## 2. Load context
 
 - Fetch the full issue (`get_issue`) and its comments (`list_comments`).
-- If the issue references specs or docs (e.g. files under the private
-  `ai-docs` repo), read them.
+- If the issue references specs or docs (e.g. files under `docs/internal/`),
+  read them.
 - Check the issue's project/milestone if it adds relevant context.
 
 ## 3. Review and clarify — gate
