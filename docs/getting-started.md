@@ -452,7 +452,6 @@ components that emit them. Worth a skim before you build a screen: `ScrollView`,
 | [`hello-button`](../examples/hello-button) | The vertical slice: a pressable button, a `Collapse`, an `Accordion`, a bound `ProgressBar`. |
 | [`inventory-demo`](../examples/inventory-demo) | Hundreds of rows in a `ScrollView`, keyed identity, two-way writes from inside a list. |
 | [`settings-screen`](../examples/settings-screen) | Tabs, a switch, a slider, a dropdown, a text field — all bound, composed as one real screen. |
-| [`unity-playground`](../examples/unity-playground) | A Unity project consuming the SDK, with the driver script from step 6. |
 
 Which one to open for what is in [`examples/README.md`](../examples/README.md).
 

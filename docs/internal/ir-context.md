@@ -210,6 +210,16 @@
 > **`<textarea>` oculto espejado en los dos sentidos** (IME real, portapapeles, teclado
 > de móvil), que es del target y no del contrato. Ver `decisions-architecture.md`
 > (2026-08-11, TextInput) y `specs/2026-08-11-textinput-design.md`.
+>
+> **Status 2026-08-24: el motor que renderiza es GODOT, y el core es C++ (ZAB-134,
+> F11)** — no es una decisión de la IR, pero cambia quién la lee: donde estas notas
+> dicen "el SDK", a partir de ahora es una **GDExtension en C++** cuyo C++ **es el core
+> compartido**, con `sdk/godot` como adaptador fino. El SDK de Unity queda cancelado a
+> 4 de 13 tipos. Para la IR esto no mueve nada — y precisamente que no mueva nada es la
+> prueba de que el contrato era engine-agnostic —, pero sí fija **cómo se comprueba**:
+> el core produce un `ViewSnapshot` sin motor, así que el corpus `golden/` pasa a ser
+> literalmente el test del port. Ver `decisions-architecture.md` (2026-08-24) y
+> `specs/2026-08-24-godot-sdk-language-design.md`.
 
 ---
 
@@ -387,12 +397,19 @@ unknown nodes/props? render a fallback? refuse?). Capability/version negotiation
 Because we self-render, the relevant question per engine is **"how does it give us a GPU
 canvas / let us submit custom geometry?"** — not "what widgets/layout/theming does it have."
 
-| Concern            | Unity                              | Godot                      | Unreal                        |
-|--------------------|------------------------------------|----------------------------|-------------------------------|
-| Custom geometry    | UI Toolkit `generateVisualContent` / Mesh API | Custom `_draw` / RenderingServer | Slate custom widget / RHI |
-| We provide         | tessellated mesh + material        | tessellated mesh           | tessellated mesh              |
-| Engine provides    | draw call + input plumbing         | draw call + input          | draw call + input             |
-| Text/fonts         | our atlas + our rasterizer (stb, decided 2026-08-11) | our atlas + our rasterizer (stb) | our atlas + our rasterizer (stb) |
+| Concern            | Godot (**first, in progress**)     | Unreal                        | Unity (cancelled)             |
+|--------------------|------------------------------------|-------------------------------|-------------------------------|
+| Custom geometry    | `RenderingServer.canvas_item_add_triangle_array` | Slate custom widget / RHI | UI Toolkit `generateVisualContent` / Mesh API |
+| How the core gets in | **GDExtension in C++** (`godot-cpp`) — the core *is* the extension | the same C++ core as a module/plugin | a native plugin over the same core, if it comes back |
+| We provide         | tessellated mesh + texture         | tessellated mesh              | tessellated mesh + material   |
+| Engine provides    | draw call + input plumbing         | draw call + input             | draw call + input             |
+| Text/fonts         | our atlas + our rasterizer (`stb_truetype.h`, decided 2026-08-11) | the same, verbatim | (would have been StbTrueTypeSharp) |
+
+Since 2026-08-24 that table has one column that matters and two that are plans: **the
+core is C++ and it is shared**, so a new engine adds an adapter — a way to hand over
+triangles and a way to receive input — and nothing else. The rest of the row is the same
+code. That is also why the "we provide / engine provides" split has stayed identical
+across all three columns since the model was chosen: it was never an engine question.
 
 The takeaway driving the IR: **don't model it as CSS/HTML and don't model it as native
 widgets.** Model it as a resolved, explicit, declarative component model **with a vector paint

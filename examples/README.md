@@ -26,7 +26,6 @@ push each save to the Unity editor as well.
 | [`hello-button`](hello-button/README.md) | The smallest whole project: one screen, one bound value, one action. Start here to read one. |
 | [`inventory-demo`](inventory-demo/README.md) | A real screen built on data: hundreds of virtualized rows, a horizontal strip, a Collapse inside a scroller. |
 | [`settings-screen`](settings-screen/README.md) | A real screen built on controls: tabs, toggles, sliders, a dropdown and a text field, all bound. |
-| [`unity-playground`](unity-playground/README.md) | A Unity project consuming the SDK locally — the other render target. |
 
 The showcase is exhaustive and the other two zabloo projects are realistic; they are
 different questions. "How does `maxLines` behave?" is a showcase question. "How do I lay a

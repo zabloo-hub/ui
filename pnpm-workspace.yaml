@@ -1,10 +1,6 @@
 packages:
   - packages/*
   - examples/*
-  # Proyecto Unity puro (C#, assets y ProjectSettings): no tiene TypeScript que
-  # typechequear ni dependencias npm que instalar. Sin package.json pnpm ya lo
-  # ignoraba, pero en silencio; aquí queda dicho. biome.json lo excluye igual.
-  - "!examples/unity-playground"
 
 onlyBuiltDependencies:
   - esbuild

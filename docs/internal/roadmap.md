@@ -15,8 +15,12 @@
 > **Revisado 2026-08-22**: **F9 ARRANCADA — primera publicación en npm**: `@zabloo/*@0.2.0`
 > y `create-zabloo-app@0.1.1`, la parte web, con Unity detrás (enmienda consciente a
 > "feature-complete antes de publicar"; ver `decisions-architecture.md` 2026-08-22).
+> **Revisado 2026-08-24**: **F11 — SDK de Godot**, y **Godot pasa a ser el primer motor
+> que renderiza**: el batch de Unity (U1–U10) se cancela a 4/13 tipos y el SDK es una
+> **GDExtension en C++ que ES el core compartido** (ZAB-134). Fase actual: **F11**. Ver
+> la fase 11 más abajo y `decisions-architecture.md` (2026-08-24).
 
-## Fase actual — Rebanada vertical (validar la IR v1 de punta a punta)
+## Fase inicial (COMPLETADA) — Rebanada vertical (validar la IR v1 de punta a punta)
 
 La IR v1 mínima está **decidida** (2026-08-01): layout Flexbox en runtime del SDK (sin
 rects horneados), vocabulario cerrado `Container`/`Text`/`Button`, comportamiento en el
@@ -174,16 +178,54 @@ camino y se consolida en F8.
     existe; `wip/` fuera del repo público; y QA visual contra los cinco artboards
     (1a–1e) pasada. Deuda aceptada y con ticket: sin code splitting (ZAB-107).
 
+11. **F11 — SDK de Godot** (abierta 2026-08-24, ZAB-134…150, tickets `[G#]`).
+    **Godot es el primer motor que renderiza**, y el batch de Unity se cancela: el
+    SDK de Unity se quedó en **4 de 13 tipos** y no se termina. La decisión que abre
+    la fase (**G1**, ZAB-134) es de lenguaje y forma, y es grande: el SDK es una
+    **GDExtension en C++**, y ese C++ **ES el core compartido** — layout, texto,
+    teselado, runtime de estados/bindings/transiciones y el `ViewSnapshot` —, con
+    `sdk/godot` como adaptador fino que sube triángulos y traduce input. Con eso se
+    **cierra el abierto de 2026-07-06** ("cuándo extraer el teselador a un core C++"):
+    se extrae ahora porque el primer motor que renderiza ya lo necesita.
+
+    Lo que hace la fase verificable es una propiedad, no un proceso: **el core
+    produce un `ViewSnapshot` sin motor alguno**, así que el corpus `golden/` (18
+    casos) corre contra un binario nativo en CI, en una CPU pelada, sin Godot y sin
+    GPU. Por eso el orden es **decisión → chasis (G2) → harness golden (G3)** y solo
+    después las capacidades, cada una cerrando contra su caso del corpus, en el mismo
+    orden en que las cerró el web: texto → assets → clip/scroll → estados/focus/canal
+    de host → transiciones → overlays → controles → TextInput → Repeat → gamepad →
+    dev loop → perf/builds → forward-compat → docs y distribución.
+
+    El renderer web queda como **implementación de referencia**: sus módulos puros
+    son la referencia literal que se porta (~12.600 líneas de lógica entre
+    `renderer-web` sin su capa GL y `@zabloo/format`), y el corpus es el árbitro
+    cuando los dos targets discrepan.
+
+    **Plataformas v1:** desktop y móvil soportados; **web experimental** (GDExtension
+    en web pide export templates `dlink`) y **fuera** del criterio de salida;
+    consolas "compila, no validado". **Mínimo Godot 4.4** — por la compatibilidad
+    hacia adelante de GDExtension, eso cubre también 4.5, 4.6 y 4.7.
+    **Criterio de salida:** el corpus golden completo pasa en Godot (métricas
+    byte-idénticas salvo tolerancia documentada), `examples/settings-screen` es 100 %
+    navegable con mando en un export real, `zabloo dev --godot` recarga en vivo, el
+    addon se instala desde un zip, y las docs públicas describen Godot como primer
+    motor. Ver `decisions-architecture.md` (2026-08-24) y
+    `specs/2026-08-24-godot-sdk-language-design.md`.
+
 > Sin fechas: fases ordenadas por dependencias técnicas, cada una con criterio de
 > salida. El ritmo lo marca la disponibilidad (solo founder).
 
 ## Hitos posteriores (alto nivel, por confirmar)
 
-- Extracción (o no) del **teselador a un core C++ compartido** + adaptadores finos por motor.
+- ~~Extracción (o no) del **teselador a un core C++ compartido** + adaptadores finos por
+  motor.~~ **Decidido 2026-08-24 y en curso: se extrae, y es F11.** El core C++ nace como
+  la GDExtension de Godot; el siguiente motor es un adaptador sobre él, no otro port.
 - **Plataforma** (repo `app`): MVP de creación/gestión de contenido + hosting + entrega de
   hot-update. El **editor visual web** (WYSIWYG con el mismo renderer vía WebGL) viene
   después, sobre la misma IR.
-- Diseño (no render) de los adaptadores de **Godot** y **Unreal**.
+- Adaptador de **Unreal** sobre el core C++ (Godot ya no está aquí: es F11). Y el regreso
+  de **Unity**, si llega, por la misma vía — plugin nativo sobre el core, nunca un port.
 - Landing / página de producto de zabloo/ui (en zabloo.com, repo `landing`).
 - Primeros **blocks/templates premium**.
 

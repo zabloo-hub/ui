@@ -74,6 +74,10 @@ the start and every IR decision is validated against all three engines.
 **♻️ Still valid (updated 2026-07-06).** Unity-first survives; the landing path is now
 **UI Toolkit custom geometry** (`generateVisualContent` / Mesh API), not native-widget
 generation. See the new 2026-07-06 decision.
+**⚠️ Superseded by 2026-08-24 — Godot is the first engine that renders.** "One engine
+first, with the IR kept honest for all three" **survives**; the engine is now **Godot**,
+via a GDExtension in C++ that *is* the shared core. The Unity SDK is cancelled at 4/13
+node types.
 
 ## 2026-06-24 — Authoring model: hybrid (local code + CLI primary)
 **Decision:** the **primary** authoring path is **local code + CLI** (`zabloo build` → IR
@@ -167,6 +171,12 @@ Godot, Unreal…).
 the Unity SDK; the minimal draw-command set; the v1 component catalog (button, text, image,
 list, flex container + 1–2 "showy" components like the radial selector); text/glyph
 strategy (the hardest part of a self-renderer).
+**⚠️ Superseded by 2026-08-24 — Godot first, and the C++ core is extracted now.** "Shared
+core + thin per-engine adapters" **survives and is being built**; Unity is no longer the
+first adapter. That entry also **closes the `Open:` above**: the tessellator is extracted
+into a shared C++ core now, because the first engine that renders needs it — writing it
+inside an adapter would mean writing it twice. (The other three `Open:` items were closed
+earlier: draw commands 2026-08-01, catalog by F1–F7, text 2026-08-02 + 2026-08-11.)
 
 ## 2026-07-09 — Authoring v1: React bindings (`@zabloo/react`) that emit IR; visual editor later
 **Decision:** the primary authoring path for v1 is **`@zabloo/react`** — a React binding
@@ -2916,3 +2926,111 @@ anteriores a esta fecha mencionan `ai-docs` como parte de su historia; se conser
 cual salvo las rutas, que apuntan a su nueva ubicación.
 
 **Supersedes:** 2026-06-24 "Estrategia de contexto de IA (centralizado en `ai-docs`)".
+
+## 2026-08-24 — El SDK de Godot es una GDExtension en C++, y ese C++ ES el core compartido (ZAB-134, F11 G1)
+
+**Decisión:** el primer motor que renderiza pasa a ser **Godot**, y su SDK es una
+**GDExtension en C++** (`godot-cpp`). Ese C++ no es "el lenguaje del adaptador de
+Godot": es **el core compartido** — layout, texto, teselado, runtime de estados,
+bindings y transiciones, y el `ViewSnapshot` — con `sdk/godot` como adaptador fino
+que sube triángulos por `canvas_item_add_triangle_array` y traduce input.
+
+**Esto cierra el abierto de 2026-07-06** ("cuándo extraer el teselador a un core C++
+compartido vs. empezarlo dentro del SDK de Unity"), y lo cierra por el único motivo
+que lo hacía honesto: **es la primera vez que la extracción paga por sí sola**. No se
+extrae por anticipación — se extrae porque el primer motor que renderiza ya lo
+necesita, y escribirlo dentro del adaptador sería escribirlo dos veces.
+
+**Motivo (el criterio de siempre — ¿aguanta en Godot/Unreal/consolas?):**
+
+1. **Corre en todo lo que corre Godot, consolas incluidas.** Los ports de consola de
+   Godot son C++ y los hacen porting houses aprobadas; un binario nuestro compilado
+   con su toolchain es trabajo que ya saben hacer. Una GDExtension añade complejidad a
+   un port —hay que decirlo—, pero es complejidad que se cobra y se resuelve, no un
+   "no soportado".
+2. **`stb_truetype.h` entra tal cual.** El rasterizador core-owned (2026-08-11) se
+   eligió precisamente porque es C de dominio público. En C++ es un `#include`; en C#
+   es un port en el que hay que confiar que produzca **los mismos bitmaps**, que es la
+   divergencia silenciosa contra la que se decidió core-owned.
+3. **Unreal reutiliza el core en vez de reescribirlo.** Es la única opción que
+   convierte el segundo motor en un adaptador y no en un tercer port de ~12.600 líneas.
+4. **El canvas del editor visual puede ser el mismo core en WASM** — ya lo es a
+   medias: `stb_truetype` corre hoy en el renderer web compilado a WASM.
+
+**La frontera core/adaptador se define por una propiedad testeable, no por gusto:**
+*el core tiene que poder producir un `ViewSnapshot` completo sin motor alguno*. De ahí
+sale el reparto entero sin discutirlo caso por caso, y de ahí sale **lo que hace
+posible G3**: el corpus `golden/` (18 casos) se corre contra un binario nativo en CI,
+en una CPU pelada, sin descargar Godot y sin GPU. Cualquier lógica que se cuele en el
+adaptador se cae de esa red automáticamente — la frontera se defiende sola.
+
+**Lo demás que este ticket cierra:**
+
+* **Mínimo Godot 4.4** (`compatibility_minimum`), compilando `godot-cpp` contra esa
+  API. No necesitamos nada posterior, y por la compatibilidad hacia adelante de
+  GDExtension eso significa que carga también en 4.5, 4.6 y el 4.7.2 de hoy.
+* **Plataformas v1:** desktop (linux/macos/windows) y móvil (android/ios)
+  **soportados**; **web experimental** — compila a wasm y carga en un export `dlink`,
+  y **no es criterio de salida de F11**, porque atarlo a la cadena `dlink` +
+  Emscripten es atarlo a algo que no controlamos (consecuencia para G15: en web el
+  criterio es *carga*, no *soportado*); **consolas "compila, no validado"**.
+* **Layout del repo:** `core/` en la **raíz**, hermano de `sdk/`, `packages/` y
+  `golden/` — no en `packages/` (ahí `packages/*` significa paquete del workspace
+  pnpm, y todos salvo `preview` se publican en npm) ni en `sdk/` (difuminaría justo la
+  frontera que la regla de oro protege). Más `sdk/godot/addons/zabloo/` (addon
+  instalable) y `examples/godot-playground/`.
+* **Toolchain y CI:** SCons; job `core-tests` en linux que compila el core **solo** y
+  corre el corpus (es el que falla en cada PR, y el que tiene que ser rápido), más
+  builds por plataforma que compilan sin ejecutar. El de web puede fallar sin bloquear
+  hasta que la cadena `dlink` sea estable.
+* **Unity:** `sdk/unity` **se borra en G17**, junto al barrido de docs públicas — un
+  PR que lo borre antes dejaría `README.md` y `getting-started.md` citando un
+  directorio inexistente. Vuelve algún día como **adaptador fino del core C++** vía
+  plugin nativo, **no** como el port a C# del batch cancelado; las ~1.700 líneas de C#
+  actuales (4 de 13 tipos) no se rescatan. **`zabloo dev --unity` se queda hasta que
+  exista `--godot`** (G14) y se va con él.
+* **Distribución del addon:** **zip por release** adjunto a la GitHub Release (el
+  pipeline existe desde F9); **Asset Library después**, cuando haya catálogo que
+  enseñar. No es un paquete npm ni entra en el grupo `fixed` de 2026-08-22 — es un
+  artefacto de otra plataforma, con su propio ciclo y su propia audiencia.
+
+**Tres datos del planteamiento que estaban mal, y se corrigen porque cambian el
+argumento:**
+
+1. **GDExtension no se recompila por versión menor.** Desde **4.1** la compatibilidad
+   binaria es hacia adelante dentro del 4.x: compilada contra 4.4, carga en 4.7. Lo
+   que rompe es al revés, y el salto de major. El contra que el ticket apuntaba a (a)
+   es mucho más pequeño de lo que parecía — y es lo que hace barata la Decisión del
+   mínimo.
+2. **El estable de hoy es 4.7.2** (18 ago 2026), no 4.4. El mínimo propuesto sigue
+   siendo el correcto, pero por decisión y no por inercia.
+3. **Las dos opciones vivas tienen agujero de plataforma, y no es el mismo.** El
+   ticket cargaba contra (b) por consolas — cierto — sin decir que (a) paga en web.
+   Escribirlo entero es lo que hace la tabla de plataformas honesta.
+
+**Alternativas descartadas:**
+
+- **(b) C# (.NET) en Godot** — el camino cómodo (lenguaje cercano, buen tooling, y
+  rescataba el C# de `sdk/unity`). Cae por producto antes que por arquitectura: el
+  modelo self-render existe, entre otras cosas, **porque las consolas no tienen
+  Chromium** (2026-07-06), y elegir el runtime cuyo soporte de consola es *beta, de un
+  solo proveedor y de pago* convierte ese argumento en una nota al pie. Además la
+  documentación oficial del estable de hoy dice literal que un proyecto en C# **no**
+  puede exportarse a web, y marca Android e iOS como experimentales. Y no adelanta
+  nada: Unreal empezaría de cero, el core compartido seguiría abierto, y el
+  rasterizador dependería de que un port de C# dé los mismos bitmaps que el C original.
+- **(c) GDScript** — un intérprete corriendo el bucle caliente (layout, teselado y
+  resolve son **por frame**, y ZAB-55/ZAB-73 dejaron los presupuestos del renderer web
+  en fracciones de milisegundo sobre un JIT tras dos pasadas de optimización); sin FFI
+  no hay stb, y sin stb no hay texto pixel-idéntico entre targets; y no le sirve a
+  ningún otro motor. Sí es el lenguaje razonable para los **scripts de conveniencia
+  del addon** (panel del editor, dev mode), donde no hay bucle caliente.
+
+**Coste aceptado:** toolchain nativa (SCons, binarios por plataforma en CI, un
+`.gdextension` que mantener), C++ para un founder que viene de JS, depuración más dura,
+el peaje de web, y sobre todo **el port**: ~12.600 líneas de lógica portable
+(`renderer-web` sin su capa GL ni su andamiaje, más `@zabloo/format`) desde un lenguaje
+con GC a uno sin él. La red es el corpus golden, y por eso G3 va inmediatamente
+después del chasis y antes que cualquier capacidad.
+
+**Spec completa:** `specs/2026-08-24-godot-sdk-language-design.md`.
