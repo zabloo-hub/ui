@@ -330,20 +330,24 @@ struct Node {
   Easing spinner_easing = Easing::EaseInOut;
 };
 
-/** One view, kept with the id it loads by. Order is the payload's order. */
-struct View {
+/**
+ * One view as the envelope defines it, kept with the id it loads by. Order is the
+ * payload's order. `View` (view.h) is the RUNTIME of one of these on screen —
+ * content and runtime are separate so a hot-update swaps one and not the other.
+ */
+struct ViewDef {
   std::string id;
   Node root;
 };
 
 struct Envelope {
   int v = IR_VERSION;
-  std::vector<View> views;
+  std::vector<ViewDef> views;
   /** Flat, as the format defines it: one lookup, no nesting to walk. */
   std::vector<std::pair<std::string, TokenValue>> tokens;
   std::vector<AssetEntry> assets;
 
-  const View *view(std::string_view id) const;
+  const ViewDef *view(std::string_view id) const;
   const TokenValue *token(std::string_view name) const;
   const AssetEntry *asset(std::string_view id) const;
 };

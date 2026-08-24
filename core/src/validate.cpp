@@ -872,7 +872,7 @@ EnvelopeReport validate_envelope(JsonRef value) {
     const std::string id(views.key_at(i));
     ctx.ids.clear();
     ctx.anchors.clear();
-    View view;
+    ViewDef view;
     view.id = id;
     if (!sanitize_node(ctx, views.at(i), view_path(id), NodeKind::View, 0, view.root)) continue;
     for (const auto &anchor : ctx.anchors) {

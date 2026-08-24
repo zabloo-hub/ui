@@ -110,7 +110,7 @@ TEST(validate, the_repaired_tree_is_what_the_reference_repairs_it_to) {
       zabloo::testing::read_file(zabloo::testing::repo_root() + "/core/tests/fixtures/hostile.json");
   const EnvelopeReport report = read_envelope(text);
   CHECK_EQ(report.envelope.views.size(), 1u);
-  const View *view = report.envelope.view("hostile");
+  const ViewDef *view = report.envelope.view("hostile");
   CHECK(view != nullptr);
   if (view == nullptr) return;
 

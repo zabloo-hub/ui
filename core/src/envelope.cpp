@@ -47,8 +47,8 @@ std::string_view asset_id_from_ref(std::string_view ref) {
   return is_asset_ref(ref) ? ref.substr(ASSET_PREFIX.size()) : std::string_view();
 }
 
-const View *Envelope::view(std::string_view id) const {
-  for (const View &candidate : views) {
+const ViewDef *Envelope::view(std::string_view id) const {
+  for (const ViewDef &candidate : views) {
     if (candidate.id == id) return &candidate;
   }
   return nullptr;
