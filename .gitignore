@@ -43,6 +43,22 @@ tmp/
 # --- WASM intermedio (el base64 committeado en src/generated es la fuente) ---
 packages/renderer-web/native/*.wasm
 
+# --- Build nativo (core C++ + GDExtension de Godot) ---
+# Los binarios se compilan; el addon publicable se arma en release (2026-08-24).
+core/bin/
+sdk/godot/bin/
+sdk/godot/addons/zabloo/bin/
+.sconsign.dblite
+*.o
+*.obj
+*.os
+*.a
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.dSYM/
+
 # --- Contexto de Claude ---
 # CLAUDE.md y docs/internal/ SÍ se versionan: el repo se explica solo (2026-08-23).
 # Solo lo local del entorno queda fuera:

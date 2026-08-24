@@ -1,0 +1,56 @@
+{
+  "v": 1,
+  "tokens": {
+    "space.4": 16,
+    "color.brand": "#4f46e5",
+    "bad.token": { "nested": true },
+    "also.bad": null
+  },
+  "assets": {
+    "icons/coin.png": { "hash": "abc", "mime": "image/png", "size": 12, "width": 8, "height": 8 },
+    "icons/broken.png": { "hash": "", "mime": "image/png", "size": 1 },
+    "icons/nodata.png": { "hash": "d", "mime": "image/png", "size": 1, "data": "not base64!" }
+  },
+  "views": {
+    "hostile": {
+      "type": "Container",
+      "id": "root",
+      "layout": { "direction": 7, "gap": "{missing.token}", "wrap": "yes", "grow": "1" },
+      "style": { "background": "{color.brand}", "radius": [], "opacity": "half" },
+      "states": { "focused": { "style": { "borderColor": 3 } }, "pressed": 9 },
+      "transition": { "easing": "ease-out" },
+      "children": [
+        { "type": "Text", "id": "root" },
+        { "type": "Text", "text": "" },
+        { "type": "Text", "text": { "bind": "player..gold" } },
+        { "type": "Image", "src": "asset:icons/missing.png" },
+        { "type": "Image", "src": "not-an-asset" },
+        "just a string",
+        { "type": "" },
+        { "type": "HoloPanel", "layout": { "width": 40 }, "disabled": true, "children": [] },
+        {
+          "type": "Collapse",
+          "id": "col",
+          "open": "maybe",
+          "children": [{ "type": "Text", "text": "Header" }, 42]
+        },
+        {
+          "type": "Slider",
+          "min": 5,
+          "max": 1,
+          "value": { "bind": "audio.volume" },
+          "children": []
+        },
+        { "type": "Repeat", "items": "shop.items", "children": [] },
+        {
+          "type": "Overlay",
+          "anchor": { "id": "nowhere", "at": "diagonal" },
+          "modal": "true",
+          "children": []
+        },
+        { "type": "Container", "children": {} }
+      ]
+    },
+    "gone": { "type": "Text" }
+  }
+}
