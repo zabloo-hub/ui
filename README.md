@@ -171,8 +171,7 @@ ui/
     ├── showcase/          the whole catalog, one view per capability, nine views
     ├── hello-button/      the vertical slice: one pressable Button, React → IR → Unity
     ├── inventory-demo/    a shop with real overflow — list, category strip, nested Collapse
-    ├── settings-screen/   the whole form catalog composed as one real screen
-    └── unity-playground/  Unity project consuming the SDK locally
+    └── settings-screen/   the whole form catalog composed as one real screen
 ```
 
 Every example is a runnable authoring project: `pnpm --filter <name>-example dev` opens
