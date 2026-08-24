@@ -33,13 +33,22 @@ The IR is the **keystone** of the whole system. Its full design context is in
 
 ## Scope
 
-- **v1: only the Unity SDK renders output.** Technical landing path: **UI Toolkit with
-  custom geometry** (`generateVisualContent` / the Mesh API). Godot and Unreal are
-  **designed from the start** (every IR decision is validated against all three engines)
-  but do not render yet.
-- **Multi-engine later** via a **shared core** (the tessellator + the IR runtime) plus
-  **thin per-engine adapters** (Unity, then Godot, Unreal…). Open decision: when to extract
-  the tessellator into a shared **C++** core vs. starting it inside the Unity SDK.
+- **Godot is the first engine that renders** (decided 2026-08-24), through a
+  **GDExtension in C++** — and that C++ **is the shared core**: layout, text, tessellation,
+  the state/binding/transition runtime and the `ViewSnapshot`. `sdk/godot` is a thin
+  adapter that uploads triangles (`canvas_item_add_triangle_array`) and translates input.
+  Unreal is **designed from the start** (every IR decision is validated against all three
+  engines) but does not render yet.
+- **The core is extracted now, not later.** The 2026-07-06 open question ("when to extract
+  the tessellator into a shared C++ core") is closed for one reason: the first engine that
+  renders needs it, so writing it inside an adapter would mean writing it twice. Every
+  further engine — Unreal, and Unity when it comes back — is a **thin adapter** on the same
+  core, never another port.
+- **The core must be able to produce a `ViewSnapshot` with no engine at all.** That is what
+  draws the core/adapter line, and it is what lets the `golden/` corpus run against a
+  native binary in CI on a bare CPU — no engine, no GPU.
+- **The Unity SDK is cancelled** at 4 of 13 node types (`sdk/unity` is deleted in F11's
+  G17). Unity returns some day as a thin adapter over this core, not as a C# port.
 - **Content lives on the platform** and is delivered to the SDK, enabling hot-update.
 
 ## Authoring (decided 2026-07-09: React bindings first)
@@ -64,8 +73,10 @@ payload** (one loading path). And the SDK **renders** the IR (tessellation) — 
 ## Stack
 
 - **TypeScript / Node** for the platform (`app`) and the core's authoring/tooling side.
-- The **tessellator + IR runtime** is a candidate for a shared **C++** core; the first SDK
-  ships in **Unity (C#)** via UI Toolkit custom geometry.
+- The **tessellator + IR runtime** is a shared **C++** core (`core/`), decided 2026-08-24
+  and built with SCons. The first SDK ships it as a **GDExtension for Godot 4.4+**
+  (`godot-cpp`); v1 platforms are desktop and mobile, with web experimental (GDExtension
+  on the web needs `dlink` export templates) and consoles "compiles, not validated".
 - npm scope: **`@zabloo/*`**. CLI command: **`zabloo`** (alias `zb`) — role decided
   2026-08-02: `export` (v1), later `dev` / `login` / `push`. Project DX is Flutter/RN-style:
   `create-zabloo-app` scaffold, file-based views in `src/views/`, `pnpm build` = `zabloo
@@ -75,7 +86,7 @@ payload** (one loading path). And the SDK **renders** the IR (tessellation) — 
 ## Repos (org `zabloo-hub`)
 
 - **`ui`** (public, OSS): the shared **core** (tessellator + IR runtime), the **per-engine
-  SDKs** (Unity first), the **IR/format spec**, and the **base component library**.
+  SDKs** (Godot first), the **IR/format spec**, and the **base component library**.
 - **`app`** (private, commercial): the **platform** (content authoring + management +
   hosting + hot-update delivery), billing/licensing, team features — landing/product
   pages live on zabloo.com (repo `landing`), decided 2026-08-10.
@@ -88,28 +99,41 @@ Every repo is **self-contained**: its own context is committed inside it. This r
 context is `docs/internal/` (this file, `ir-context.md`, `decisions-architecture.md`,
 `roadmap.md`, `specs/`, `plans/`), loaded from `CLAUDE.md`.
 
-### Proposed layout of the `ui` repo (revisable)
+### Layout of the `ui` repo (`core/` decided 2026-08-24; see `docs/project-structure.md`)
 
 ```
 ui/
-├── packages/    core (IR runtime + tessellator) · format (IR spec/types) · authoring tooling
-├── sdk/         unity (C#, reference v1) · godot · unreal   (thin engine adapters)
-└── components/  base component library (free, open source)
+├── core/        the shared C++ core: layout · text · tessellation · runtime · ViewSnapshot
+├── packages/    the pnpm workspace (TS): format · react · cli · renderer-web · preview
+├── sdk/         godot (thin adapter + installable addon) · unreal later
+├── examples/    zabloo projects, plus one engine playground per SDK
+└── golden/      the cross-target corpus: envelopes + the metrics every target reproduces
 ```
+
+`core/` sits at the **root**, a sibling of `sdk/` and `packages/`, on purpose. Not inside
+`packages/`, where `packages/*` means *pnpm workspace package* (all published to npm but
+`preview`); and not inside `sdk/`, which would blur the very line the golden rule protects —
+the `sdk/*` know about their engine, the core knows about none.
 
 ## How we work (current phase)
 
-> IMPORTANT: We are in the **vertical-slice** phase (since 2026-08-01). The **IR v1
-> minimal scope is decided** (see `decisions-architecture.md` 2026-08-01 and the agenda
-> in `ir-context.md`); the next step is validating it end-to-end with a slice
-> (JSX → IR JSON → Unity SDK renders a pressable Button), starting with a **text/glyph
-> spike**. Spike/slice code is expected — but no premature productization beyond the
-> slice. Where a decision is still open (variants, focus, composites, text strategy),
-> **argue the trade-offs** instead of silently picking one.
+> IMPORTANT: We are in the **Godot SDK** phase (F11, since 2026-08-24). The IR agenda is
+> closed, the catalog is complete and hardened in the **web renderer** — which is the
+> **reference implementation**, and whose pure modules (`states.ts`, `overlay.ts`,
+> `slider.ts`, `textinput.ts`, `transition.ts`, `gamepad.ts`…) are the literal reference
+> being ported — and `@zabloo/*` 0.2.0 is published on npm. The work now is building the
+> **C++ core** and the **Godot adapter** on top of it, capability by capability, each one
+> closing against its case in the `golden/` corpus.
+>
+> Two rules that follow from that: the **corpus is the contract** (same envelope → same
+> metrics; if Godot and the web disagree, one of them is wrong and the spec says which),
+> and **the web renderer's behavior is not up for reinterpretation** during the port —
+> if the port finds a genuine bug in it, fix it there and re-record the corpus, rather
+> than letting the two targets drift.
 
 The author is a **solo founder** with ~10 years of frontend/React + Three.js/WebGL,
-**learning the engines** (Unity/C#, Godot, Unreal). When something is engine-specific,
-**explain it** instead of assuming prior knowledge.
+**learning the engines** (Godot, Unreal) and **not a C++ native**. When something is
+engine- or C++-specific, **explain it** instead of assuming prior knowledge.
 
 - Do **not** propose solutions based on embedding browsers (CEF/webview): that path is
   **rejected** and the reason is in `decisions-architecture.md`.
