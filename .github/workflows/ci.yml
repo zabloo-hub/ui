@@ -80,3 +80,59 @@ jobs:
       # platform-independent.
       - run: pnpm verify:pack
         if: runner.os == 'Linux'
+
+  # The job that fails on every PR, so it is the one that has to be fast: it
+  # compiles the core ALONE — no godot-cpp, no Godot, no GPU — and runs its
+  # tests. That it can is the property the whole frontier of ZAB-134 rests on:
+  # the core produces a ViewSnapshot with no engine, so the golden corpus can be
+  # its test (G3, ZAB-136).
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      # Warnings are errors here and nowhere else: this is our code, built with
+      # one compiler we choose. The extension build below compiles godot-cpp too,
+      # which is not ours to keep warning-free.
+      - name: Build the core and run its tests
+        working-directory: core
+        run: scons werror=true test
+
+  # Compiles the GDExtension for the desktop platforms and keeps the artifact.
+  # It does not RUN anything: what needs a real engine — geometry reaching a draw
+  # call, input arriving, an export booting — is verified by hand against the
+  # playground and, at the end of the milestone, by G15 (ZAB-148). Mobile and web
+  # join the matrix there; web is experimental by decision and never blocks
+  # (2026-08-24, Decision 4).
+  godot-extension:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      - name: Build the extension
+        working-directory: sdk/godot
+        run: scons target=template_release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zabloo-addon-${{ matrix.os }}
+          path: sdk/godot/addons/zabloo/bin/
+          if-no-files-found: error

@@ -1,0 +1,8 @@
+# Godot's own caches.
+.godot/
+export_presets.cfg
+
+# The addon is COPIED in by `scons install` from sdk/godot, the same way a game
+# consumes a release zip. Committing it would mean committing binaries and
+# keeping two copies of the addon in sync.
+addons/

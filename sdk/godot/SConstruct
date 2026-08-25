@@ -1,0 +1,76 @@
+"""Builds the Zabloo GDExtension: the shared core plus a thin Godot adapter.
+
+    scons                      a debug build for the host platform
+    scons target=template_release
+    scons platform=macos arch=universal
+
+`godot-cpp` comes in as a submodule and brings its own SConstruct, which is what
+decides the platform, the architecture and the flags — this file only adds
+sources to the environment it hands back.
+
+The core's own .cpp files are compiled straight into the extension rather than
+linked from `core/bin/`: one set of flags for both halves, and no static library
+built with a different toolchain than the one godot-cpp chose. `core/SConstruct`
+still builds it alone, which is what the `core-tests` job needs — the core has to
+be buildable without any of this.
+"""
+
+import os
+import subprocess
+import sys
+
+env = SConscript("godot-cpp/SConstruct")
+
+# A Command Line Tools install upgraded across a macOS release can end up with
+# the SDKs current and the toolchain's own libc++ a husk — the headers are in the
+# SDK and clang looks for them next to itself, so <cstddef> stops existing. Same
+# fallback as `core/SConstruct`, applied to the environment godot-cpp handed back
+# (SCons resolves construction variables at build time, so it reaches its objects
+# as well as ours).
+if sys.platform == "darwin":
+    sdk = subprocess.run(
+        ["xcrun", "--show-sdk-path"], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    toolchain = os.path.join(
+        os.path.dirname(env.WhereIs("c++") or "/usr/bin/c++"), "..", "include", "c++", "v1"
+    )
+    sdk_libcxx = os.path.join(sdk, "usr", "include", "c++", "v1") if sdk else ""
+    if (
+        sdk_libcxx
+        and not os.path.exists(os.path.join(toolchain, "cstddef"))
+        and os.path.exists(os.path.join(sdk_libcxx, "cstddef"))
+    ):
+        env.Append(CXXFLAGS=["-cxx-isystem", sdk_libcxx])
+
+core = os.path.join("..", "..", "core", "src")
+env.Append(CPPPATH=[core, "src"])
+
+sources = Glob("src/*.cpp") + Glob(os.path.join(core, "*.cpp"))
+
+# The name carries the platform and the target because a `.gdextension` lists one
+# library per (platform, target) and loads the one that matches at runtime.
+suffix = env["suffix"]
+library = env.SharedLibrary(
+    "addons/zabloo/bin/libzabloo{}{}".format(suffix, env["SHLIBSUFFIX"]),
+    source=sources,
+)
+
+Default(library)
+
+
+def install_addon(target, source, env):
+    """`scons install` — puts the addon where a game would unzip a release."""
+    import shutil
+
+    into = os.path.join("..", "..", "examples", "godot-playground", "addons", "zabloo")
+    if os.path.exists(into):
+        shutil.rmtree(into)
+    shutil.copytree("addons/zabloo", into)
+    print("installed the addon into examples/godot-playground/addons/zabloo")
+    return None
+
+
+if "install" in COMMAND_LINE_TARGETS:
+    installer = env.Command("install-addon", library, install_addon)
+    env.AlwaysBuild(installer)
+    env.Alias("install", installer)
