@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "glyphs.h"
 #include "layout.h"
 #include "tessellator.h"
 #include "validate.h"
@@ -70,6 +71,16 @@ class View {
   std::vector<ActionEvent> drain_actions();
 
   const LayoutNode &root() const { return root_; }
+  /**
+   * The live glyph atlases, most recently used last.
+   *
+   * The adapter reconciles its own textures against this list every frame: an
+   * atlas that is gone from it has been evicted, and one whose `version()` moved
+   * has new glyphs in it. A list of at most eight is cheaper to sweep than a
+   * callback is to wire, and there is no window in which a texture outlives the
+   * atlas it belongs to.
+   */
+  const FontLibrary &fonts() const { return fonts_; }
   /** The node holding focus, or null. Moving it is G7's (ZAB-140). */
   const LayoutNode *focus() const { return focus_; }
   /** The node under the pointer, and the one it is holding down. Either may be null. */
@@ -86,6 +97,12 @@ class View {
   LayoutNode root_;
   Rect viewport_;
   GeometryBuilder geometry_;
+  /**
+   * One atlas per point size, at a device scale of 1: the corpus measures there,
+   * and a HiDPI surface is the adapter telling the view about its scale, which
+   * is G15's (ZAB-148). Every metric this hands back is in logical px either way.
+   */
+  FontLibrary fonts_;
   std::vector<ActionEvent> actions_;
   /** Bumped per frame; what stamps the per-node style cache. */
   int64_t frame_ = 0;
@@ -97,9 +114,17 @@ class View {
   friend class Leaves;
 
   void sync_flags(LayoutNode &node);
+  /** Breaks a `Text` into lines, reusing last frame's block when nothing moved. */
+  Size measure_text(LayoutNode &node, std::optional<double> available);
+  /** Places every laid-out `Text` of the tree — one pass, right after the arrange. */
+  void place_text(LayoutNode &node);
+  /** The resolved `fontSize`, rounded and clamped: the key an atlas is kept by. */
+  double font_size(const Style &style) const;
+  TextLayoutOptions text_options(const Style &style, double font_line_height,
+                                 std::optional<double> max_width) const;
   LayoutNode *first_autofocus(LayoutNode &node);
   void resolve(LayoutNode &node);
-  void paint_node(const LayoutNode &node, double opacity);
+  void paint_node(LayoutNode &node, double opacity);
   const Style &style_of(LayoutNode &node);
 
   double dim(const Dim &value, double fallback) const;

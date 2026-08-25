@@ -133,6 +133,45 @@ TEST(view, painting_multiplies_opacity_down_the_subtree) {
   CHECK_NEAR(batch.colors[19], 0.25, 0.001);
 }
 
+TEST(view, a_label_with_no_style_still_paints_its_glyphs) {
+  // An undeclared `color` is the default text color, not "nothing to paint" —
+  // unlike a background, where absent means the node paints no box at all. The
+  // inherited opacity multiplies the glyphs exactly as it does a fill.
+  Document document = loaded(R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"Container","style":{"opacity":0.5},"layout":{"width":200,"height":50},
+      "children":[{"type":"Text","id":"label","text":"Hi"}]}}})");
+  View *view = document.view();
+  const LayoutNode &label = view->root().children[0];
+  CHECK(label.has_text_block);
+  CHECK(label.text_block.width > 0.0);
+
+  const std::vector<Batch> &batches = view->paint().batches();
+  CHECK_EQ(batches.size(), 2u);
+  // Two glyphs, and the alpha they carry is the subtree's.
+  CHECK_EQ(batches[1].vertex_count(), 8u);
+  if (batches[1].colors.size() >= 4) CHECK_NEAR(batches[1].colors[3], 0.5, 0.001);
+}
+
+TEST(view, a_wrapped_label_reports_the_lines_it_was_measured_with) {
+  // Paint and the snapshot read the block and the placement the measure and the
+  // arrange left on the node — never a second computation of either, which is
+  // what keeps a recorded baseline the one the tessellator actually used.
+  Document document = loaded(R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"Container","layout":{"padding":10},
+      "children":[{"type":"Text","id":"prose","layout":{"width":60},
+                   "text":"uno dos tres"}]}}})",
+                             200, 200);
+  const LayoutNode &prose = document.view()->root().children[0];
+  CHECK(prose.text_block.lines.size() > 1u);
+  CHECK_EQ(prose.text_lines.size(), prose.text_block.lines.size());
+  // Placed inside the padding box, and stacked a line height apart.
+  CHECK_NEAR(prose.text_lines[0].x, prose.rect.x, 0.001);
+  CHECK_NEAR(prose.text_lines[1].y - prose.text_lines[0].y, prose.text_block.line_height, 0.001);
+  // The node is as tall as the lines it holds, so the box the flexbox reserved
+  // is the box the glyphs need.
+  CHECK_NEAR(prose.rect.height, prose.text_block.height, 0.001);
+}
+
 TEST(view, a_refused_hot_update_costs_the_update_and_not_the_session) {
   Document document;
   CHECK(document.load(BUTTON_VIEW));

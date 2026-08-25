@@ -72,8 +72,26 @@ if os.environ.get("LDFLAGS"):
 
 env.Append(CPPPATH=["#src"])
 
-sources = Glob("src/*.cpp")
-library = env.StaticLibrary("bin/zabloocore", sources)
+# `src/generated/*.cpp` is the embedded font (see core/scripts/embed_font.py):
+# committed, so building never needs Python.
+sources = Glob("src/*.cpp") + Glob("src/generated/*.cpp")
+
+# The vendored rasterizer, compiled ALONE and on its own terms.
+#
+# Warnings off because `-Werror` over someone else's public-domain header is a
+# rule that can only be satisfied by editing it, and hidden visibility because
+# the extension is loaded into processes that may carry their own copy of stb —
+# two `stbtt_InitFont` resolving to one another is exactly the divergence
+# core-owned rasterization exists to prevent (see the file's own comment).
+vendor_env = env.Clone()
+vendor_env["CXXFLAGS"] = [flag for flag in vendor_env["CXXFLAGS"] if not flag.startswith("-W")]
+if msvc:
+    vendor_env.Append(CXXFLAGS=["/w"])
+else:
+    vendor_env.Append(CXXFLAGS=["-w", "-fvisibility=hidden"])
+vendor = vendor_env.StaticObject("src/vendor/stb_truetype_impl.cpp")
+
+library = env.StaticLibrary("bin/zabloocore", sources + vendor)
 
 # Every header, compiled ALONE.
 #
@@ -83,6 +101,8 @@ library = env.StaticLibrary("bin/zabloocore", sources)
 # the first time CI saw it, because `enum class ... : uint8_t` stops parsing when
 # `uint8_t` is not a type yet. One translation unit per header turns that into a
 # local error at the moment it is written.
+# `src/vendor` and `src/generated` are excluded: one is not ours to keep clean,
+# the other is a byte array with a two-line header.
 headers = sorted(str(node) for node in Glob("src/*.h"))
 probes = []
 probe_dir = os.path.join("bin", "headers")

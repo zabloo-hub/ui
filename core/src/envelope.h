@@ -199,7 +199,8 @@ NodeType node_type_from(std::string_view name);
 // --- structures -----------------------------------------------------------
 
 struct Layout {
-  Direction direction = Direction::Row;
+  /** Column, as `docs/format/layout.md` says: a stack is the common case. */
+  Direction direction = Direction::Column;
   Justify justify = Justify::Start;
   Align align = Align::Start;
   Dim gap;

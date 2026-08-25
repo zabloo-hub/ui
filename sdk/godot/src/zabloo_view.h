@@ -16,10 +16,14 @@
 #pragma once
 
 #include <godot_cpp/classes/control.hpp>
+#include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
+
+#include <cstdint>
+#include <unordered_map>
 
 #include "view.h"
 
@@ -82,8 +86,25 @@ class ZablooView : public Control {
   PackedColorArray colors_;
   PackedVector2Array uvs_;
 
+  /** One texture per live glyph atlas, and the atlas version it was made from. */
+  struct AtlasTexture {
+    Ref<ImageTexture> texture;
+    uint32_t version = 0;
+    int size = 0;
+  };
+  /** Keyed by the core's atlas pointer, which is what a batch names. */
+  std::unordered_map<const void *, AtlasTexture> atlases_;
+
   /** Re-runs the core's layout against the current control size and redraws. */
   void relayout();
+  /**
+   * Brings the atlas textures up to date with the core's live atlases: uploads
+   * the ones that gained glyphs, and forgets the ones the LRU dropped.
+   *
+   * A sweep rather than a callback (see `View::fonts`): eight entries at most,
+   * and one mechanism answers both "did it grow?" and "is it gone?".
+   */
+  void sync_atlases();
   /** Emits everything the last input produced as `action` signals. */
   void flush_actions();
   void report_diagnostics() const;

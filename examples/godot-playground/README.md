@@ -22,14 +22,14 @@ the named action and writes it to the label at the bottom.
 
 ## What renders today, and what does not
 
-G2 is the chassis: the loader, the layout pass, the tessellator and the pointer.
+G2 is the chassis — the loader, the layout pass, the tessellator and the pointer —
+and G4 added the text engine, so labels now measure, wrap and paint their glyphs.
 The rest of the catalog arrives capability by capability, and until it does those
 nodes degrade rather than disappear — the same forward-tolerance a game gets from
 an SDK older than its content:
 
 | Not yet | Lands in |
 |---|---|
-| Text — glyphs are not rasterized, so labels take no width | G4 (ZAB-137) |
 | Images | G5 (ZAB-138) |
 | Clipping and scrolling | G6 (ZAB-139) |
 | Focus navigation, bindings reading the data channel | G7 (ZAB-140) |

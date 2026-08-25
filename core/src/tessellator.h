@@ -12,9 +12,11 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 #include "color.h"
+#include "glyphs.h"
 #include "layout.h"
 
 namespace zabloo {
@@ -22,9 +24,17 @@ namespace zabloo {
 /** One draw call: a run of triangles sharing a texture. */
 struct Batch {
   /**
-   * Opaque handle the adapter maps to its own texture object. Null is untextured
-   * geometry. From G4 (ZAB-137) the glyph atlas arrives here, and solids join it
-   * through the reserved white pixel so text and shapes share one draw call.
+   * The `GlyphAtlas` this run of triangles samples, as an opaque handle the
+   * adapter maps to its own texture object. Null is untextured geometry, which
+   * every solid is.
+   *
+   * Solids deliberately do NOT join the atlas through its white pixel, even
+   * though the pixel is reserved for exactly that: the reference renderer binds
+   * a built-in 1×1 white texture for them instead, and a second target that
+   * merged the two batches would be answering the same envelope with a
+   * different number of draw calls. The pixel stays reserved because that is
+   * what an engine with no untextured path (or a future atlas of images) will
+   * need.
    */
   const void *texture = nullptr;
   /** `x, y` per vertex, in view space. */
@@ -62,6 +72,21 @@ class GeometryBuilder {
    */
   void rounded_rect_border(const Rect &rect, double radius, double width, Color color);
 
+  /**
+   * A run of text, its baseline at `origin_y + atlas.ascent()` — the placed top
+   * of a line, as `place_lines` hands it over.
+   *
+   * The kerning `text.h` measured with is applied here too: a run painted
+   * without it would not fit the box the layout pass reserved for it.
+   */
+  void text(double origin_x, double origin_y, std::string_view content, GlyphAtlas &atlas,
+            Color color);
+
+  /**
+   * Solids first, then one batch per atlas in the order the atlases were first
+   * painted with — backgrounds under glyphs, which is the same order the
+   * reference emits and therefore the same result on both.
+   */
   const std::vector<Batch> &batches() const { return batches_; }
   /** Vertices across every batch — what the perf budgets of G15 will read. */
   uint32_t vertex_count() const;
@@ -70,6 +95,8 @@ class GeometryBuilder {
   std::vector<Batch> batches_;
 
   Batch &solid();
+  /** The batch for one atlas, appended after the solids the first time it paints. */
+  Batch &textured(const void *texture);
 };
 
 }  // namespace zabloo

@@ -13,10 +13,8 @@
     "criterion claims it."
   ],
   "cases": {
-    "states-tokens": "Text metrics: the widths, line heights and baselines recorded here come from the rasterizer of G4 (ZAB-137). Everything else about this case — token resolution, the state merge, autofocus — already matches, so its diff is entirely Text nodes.",
-    "text-wrap": "The wrap pass: break points, hard breaks, maxLines, ellipsis and alignment — G4 (ZAB-137).",
-    "unknown-type": "Text metrics (G4, ZAB-137). The degradation rule this case records is already implemented: an unknown type lays out as a Container keeping its props and its children.",
-    "bindings": "Bound text, bound visibility and a bound Toggle — G7 (ZAB-140). Text metrics on top (G4, ZAB-137).",
+    "unknown-type": "A Toggle's checked state and its value — G10 (ZAB-143). The degradation rule this case is a record of is already implemented, and so are the text metrics of the labels around it: what is left of its diff is the one control inside the disabled group.",
+    "bindings": "Bound text, bound visibility and a bound Toggle — G7 (ZAB-140).",
     "collapse-tabs": "display:none through a Collapse and an exclusive-select group — G7 (ZAB-140).",
     "disabled": "The inherited disabled flag arrives with the data that declares it — G7 (ZAB-140) — over a Collapse, a ScrollView and three controls.",
     "assets-image": "The asset manifest and an Image's intrinsic size — G5 (ZAB-138).",

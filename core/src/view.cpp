@@ -9,6 +9,8 @@
 #include <utility>
 #include <vector>
 
+#include "text.h"
+
 namespace zabloo {
 namespace {
 
@@ -36,35 +38,106 @@ bool input_type(const LayoutNode &node) { return node.ir->type == NodeType::Butt
 // --- leaves ---------------------------------------------------------------
 
 /**
- * Sizing for the childless types.
- *
- * `Text` measures ZERO WIDE and one line tall until G4 (ZAB-137) brings the
- * rasterizer, the atlas and the wrap pass. That is not an arbitrary placeholder:
- * it is exactly what the reference does with an EMPTY string (ZAB-65), so a
- * label still holds its slot and its surrounding gaps, and a row does not
- * re-space itself the day the glyphs arrive — the box grows sideways, nothing
- * moves to a different line. `Image` waits for the manifest in G5 (ZAB-138).
+ * Sizing for the childless types. `Image` waits for the manifest in G5
+ * (ZAB-138); a `TextInput` is one line tall and has no intrinsic width, which is
+ * G11's (ZAB-144).
  */
 class View::Leaves : public LeafMeasurer {
  public:
   explicit Leaves(View &view) : view_(view) {}
 
   Size measure_leaf(LayoutNode &node, std::optional<double> available) override {
-    (void)available;
     if (node.ir->type != NodeType::Text) return Size{};
-    const Style &style = view_.style_of(node);
-    const double size = std::min(
-        MAX_FONT_SIZE, std::max(1.0, std::round(view_.dim(style.font_size, DEFAULT_FONT_SIZE))));
-    return Size{0.0, std::max(0.0, view_.dim(style.line_height, size))};
+    return view_.measure_text(node, available);
   }
 
  private:
   View &view_;
 };
 
+/**
+ * Wrapping happens HERE, once per frame: the block is kept on the node so paint
+ * and the snapshot reuse these very lines instead of breaking the text a second
+ * time. The node also keeps WHAT it wrapped, so the frames that changed none of
+ * it — most of them, for the static labels a UI is mostly made of — reuse the
+ * block instead of measuring every glyph again (ZAB-69).
+ */
+Size View::measure_text(LayoutNode &node, std::optional<double> available) {
+  const Style &style = style_of(node);
+  GlyphAtlas &atlas = fonts_.get(font_size(style));
+  const TextLayoutOptions options = text_options(style, atlas.font_line_height(), available);
+  // A bound `text` reads as no value until G7 (ZAB-140), and no value is the
+  // empty string — which measures one line tall and zero wide (ZAB-65), so the
+  // label holds its slot and its gaps rather than collapsing them.
+  const std::string content = node.ir->text.literal(std::string());
+
+  node.text_ascent = atlas.ascent();
+  node.text_font_line_height = atlas.font_line_height();
+  if (node.has_text_block && node.text_metrics == &atlas && node.text_content == content &&
+      node.text_options == options) {
+    return Size{node.text_block.width, node.text_block.height};
+  }
+
+  node.text_block = layout_text(content, atlas, options);
+  node.has_text_block = true;
+  node.text_content = content;
+  node.text_metrics = &atlas;
+  node.text_options = options;
+  return Size{node.text_block.width, node.text_block.height};
+}
+
+double View::font_size(const Style &style) const {
+  const double size = std::round(dim(style.font_size, DEFAULT_FONT_SIZE));
+  return std::min(MAX_FONT_SIZE, std::max(1.0, size));
+}
+
+/**
+ * The text-layout knobs, resolved against the font (decision 2026-08-11,
+ * ZAB-17): text wraps by default, to the width the flexbox offered the node.
+ */
+TextLayoutOptions View::text_options(const Style &style, double font_line_height,
+                                     std::optional<double> max_width) const {
+  TextLayoutOptions options;
+  options.wrap = style.wrap.value_or(true);
+  options.max_width = max_width;
+  options.line_height = std::max(0.0, dim(style.line_height, font_line_height));
+  // A cap below one line is not a cap: it would leave nothing to paint.
+  options.max_lines =
+      style.max_lines.has_value() && *style.max_lines >= 1.0
+          ? std::optional<int>(static_cast<int>(std::floor(*style.max_lines)))
+          : std::nullopt;
+  options.overflow = style.overflow.value_or(TextOverflow::Clip);
+  return options;
+}
+
+/**
+ * Where this frame's lines sit, walked once after the arrange.
+ *
+ * Paint and the metrics snapshot both read what this leaves on the node, on
+ * purpose: a baseline recorded in a golden file has to be the baseline the
+ * tessellator actually used, not a second computation of it that could drift.
+ */
+void View::place_text(LayoutNode &node) {
+  if (!in_layout(node)) return;
+  if (node.ir->type == NodeType::Text && node.has_text_block) {
+    // Lines are placed inside the padding box: a Text's own padding already grew
+    // its measured size, so it has to keep the glyphs off the edge too.
+    const double padding = node.resolved.padding;
+    const Rect box{node.rect.x + padding, node.rect.y + padding,
+                   std::max(0.0, node.rect.width - padding * 2.0),
+                   std::max(0.0, node.rect.height - padding * 2.0)};
+    const Style &style = style_of(node);
+    place_lines(node.text_block, box, node.text_font_line_height,
+                style.text_align.value_or(TextAlign::Start),
+                style.text_align_y.value_or(TextAlign::Start), node.text_lines);
+  }
+  for (LayoutNode &child : node.children) place_text(child);
+}
+
 // --- view -----------------------------------------------------------------
 
-View::View(const Envelope &envelope, std::string_view view_id) : envelope_(&envelope) {
+View::View(const Envelope &envelope, std::string_view view_id)
+    : envelope_(&envelope), fonts_(1.0, default_font()) {
   const ViewDef *found = envelope.view(view_id);
   id_ = std::string(view_id);
   ir_root_ = found != nullptr ? &found->root : nullptr;
@@ -100,6 +173,7 @@ void View::layout_frame() {
   Leaves leaves(*this);
   measure(root_, leaves, viewport_.width);
   arrange(root_, viewport_);
+  place_text(root_);
 }
 
 /**
@@ -225,7 +299,7 @@ const GeometryBuilder &View::paint() {
  * (2026-08-06), so a parent at 0.5 over a child at 0.5 paints at 0.25 without
  * anything rendering to a texture.
  */
-void View::paint_node(const LayoutNode &node, double opacity) {
+void View::paint_node(LayoutNode &node, double opacity) {
   if (!in_layout(node)) return;
   const double own = opacity * node.resolved.opacity;
   if (node.resolved.background.has_value()) {
@@ -237,8 +311,21 @@ void View::paint_node(const LayoutNode &node, double opacity) {
     geometry_.rounded_rect_border(node.rect, node.resolved.radius, node.resolved.border_width,
                                   fade(*node.resolved.border_color, own));
   }
-  // G4 (ZAB-137) paints the glyphs of a `Text` here, G5 (ZAB-138) an `Image`.
-  for (const LayoutNode &child : node.children) paint_node(child, own);
+  // Glyphs paint in the node's own `color` — the same "color of the content"
+  // that will tint an `Image` in G5 (ZAB-138) — with the inherited opacity
+  // already folded in, exactly as the fill above.
+  if (node.ir->type == NodeType::Text && node.has_text_block) {
+    GlyphAtlas &atlas = fonts_.get(font_size(style_of(node)));
+    // An undeclared `color` paints in the default text color rather than not at
+    // all: a label with no style is still a label, which is not the case for a
+    // background (absent means nothing is painted, never black).
+    const Color color = fade(node.resolved.color.value_or(DEFAULT_TEXT_COLOR), own);
+    for (size_t i = 0; i < node.text_block.lines.size() && i < node.text_lines.size(); i++) {
+      geometry_.text(node.text_lines[i].x, node.text_lines[i].y, node.text_block.lines[i].text,
+                     atlas, color);
+    }
+  }
+  for (LayoutNode &child : node.children) paint_node(child, own);
 }
 
 // --- input ----------------------------------------------------------------

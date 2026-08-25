@@ -47,7 +47,10 @@ makes a corrupt hot-update cost the update and not the session.
 
 ## Status
 
-This is the chassis (G2). `Container`, `Button` and implicit paint render; the
-rest of the catalog arrives capability by capability and degrades until it does —
+This is the chassis (G2) plus the text engine (G4). `Container`, `Button`, `Text`
+and implicit paint render — glyphs come from our own rasterizer over the TTF the
+core embeds, never from Godot's `TextServer`, which is what makes a line break in
+the same place here and in the web renderer. The rest of the catalog arrives
+capability by capability and degrades until it does —
 see [the playground's README](../../examples/godot-playground/README.md) for what
 is missing and which ticket closes it.

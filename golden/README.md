@@ -142,8 +142,50 @@ in that file, with a reason.
 Comparing *pixels* needs a GPU, so it is **not** in CI and is not automated: it
 is the side-by-side capture of the same envelope in both targets, with the
 tolerance written down next to it. Text is what it exists for — same algorithm
-and same font, but not the same FPU — and it lands with the text engine
-(ZAB-137).
+and same font, but not the same FPU, and not the same sampler.
+
+**What the metrics already settle, and images cannot add to.** Since the text
+engine landed (ZAB-137) both targets rasterize stb_truetype over the same
+Liberation Sans, and `text-wrap` compares **byte for byte**: the same break
+points, the same line widths to three decimals, the same baselines. A capture
+cannot disagree with that about *where* a glyph is. What it can catch is
+everything downstream of the metrics — the coverage a rasterized bitmap lands
+with, the filtering an engine samples it through, the blend the canvas composites
+it with — which is exactly the part no snapshot describes.
+
+**The procedure.** One envelope, both targets, the same viewport, one image each:
+
+1. `pnpm zabloo preview golden/envelopes/text-wrap.json` — it serves any envelope
+   on disk, no project needed. Set the viewport to **480×320** and the DPR to
+   **1** in the topbar, and capture the canvas alone.
+2. `cd sdk/godot && scons install`, open `examples/godot-playground`, point the
+   `ZablooView` at `golden/envelopes/text-wrap.json`, size the control to
+   **480×320** and capture the viewport.
+3. Compare the two at 1:1. They are not committed — see below.
+
+**The tolerance.** A glyph's *placement* must match exactly — same line breaks,
+same left edges, same baselines to the pixel — because both sides snap the glyph
+origin to the same grid and read the placement out of the same numbers the corpus
+already compares. Its *coverage bytes* are identical too, by construction: one
+rasterizer, one font, one scale.
+
+What is left to differ is only what happens to those bytes afterwards, and it is
+**≤ 2/255 per channel along antialiased edges, nowhere else**. The web's atlas is
+a canvas, which a browser keeps with premultiplied alpha and hands to WebGL
+through its own color management; the core hands an engine the raw coverage and
+lets it sample and blend on its own terms. A rounding step or two at the boundary
+between ink and background is that, and nothing more.
+
+Anything with one of these shapes is a **bug, not tolerance**: a line that breaks
+in another place, a run that drifts sideways as it goes (a kerning or an advance
+applied on one side only), a baseline off by a pixel (ascent, half-leading, or a
+snap that rounds the other way), or a solid interior that differs at all —
+antialiasing lives on edges, so the middle of a stroke has nothing to round.
+
+Captures are **not committed**. They are dated evidence of one run on one GPU,
+and a PNG in git that nobody can re-derive is worse than the procedure that
+produces one: the rule the corpus lives by is that a record has to be
+reproducible, and this one is not. What belongs in a PR is the observation.
 
 ## What does NOT belong here
 

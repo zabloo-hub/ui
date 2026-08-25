@@ -20,11 +20,13 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "color.h"
 #include "envelope.h"
 #include "states.h"
+#include "text.h"
 
 namespace zabloo {
 
@@ -89,6 +91,29 @@ struct LayoutNode {
   Size natural;
   Size measured;
   Rect rect;
+
+  // --- text (a `Text` node only) ---
+  /**
+   * This frame's lines, and where they landed. Broken once by the measure pass
+   * and placed once after the arrange, so paint and the snapshot read the very
+   * same lines: a baseline recorded in a golden file has to be the baseline the
+   * tessellator actually used, not a second computation of it that could drift.
+   */
+  TextBlock text_block;
+  bool has_text_block = false;
+  std::vector<PlacedLine> text_lines;
+  /** The atlas's own metrics, kept so placement needs no font at all. */
+  double text_ascent = 0.0;
+  double text_font_line_height = 0.0;
+  /**
+   * What produced `text_block` — content, atlas identity and options. A frame
+   * that changed none of them reuses the block instead of breaking the text
+   * again, which is most frames for the static labels a UI is mostly made of
+   * (ZAB-69).
+   */
+  std::string text_content;
+  const void *text_metrics = nullptr;
+  TextLayoutOptions text_options;
 
   // --- runtime state owned by the core, keyed by component identity ---
   bool pressed = false;
