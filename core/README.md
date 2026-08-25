@@ -23,6 +23,9 @@ scons test validate   # only the cases whose name contains "validate"
 
 Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else.
 
+`scons test golden` runs the corpus — see
+[`golden/README.md`](../golden/README.md#running-the-corpus-against-the-c-core).
+
 ## What is in here
 
 | | |
@@ -36,6 +39,7 @@ Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else.
 | `tessellator.{h,cpp}` | Implicit paint: rounded rects and inset borders, into batches |
 | `view.{h,cpp}` | The runtime — resolve, lay out, paint, hit-test — and `Document`, the stable handle |
 | `color.{h,cpp}` | `#rrggbb[aa]` and the multiplicative opacity fade |
+| `snapshot.{h,cpp}` | The `ViewSnapshot`: one frame's metrics as the bytes a golden file holds |
 
 ## The rule this directory lives by
 

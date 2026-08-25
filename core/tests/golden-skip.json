@@ -1,0 +1,33 @@
+{
+  "about": [
+    "Cases of golden/cases.json the core cannot reproduce YET, and why.",
+    "",
+    "The corpus is the contract of F11: every G# ticket closes when its cases",
+    "compare byte-identical against golden/metrics/. This file is what keeps CI",
+    "green in the meantime, and it is a checklist, not a carpet: a skipped case",
+    "is still RUN, and one that starts passing FAILS the suite asking to be",
+    "removed from here. Deleting your ticket's line is part of its exit criteria.",
+    "",
+    "A reason names the capability that is missing and the ticket that lands it.",
+    "Where a case waits on several, the first named is the one whose exit",
+    "criterion claims it."
+  ],
+  "cases": {
+    "states-tokens": "Text metrics: the widths, line heights and baselines recorded here come from the rasterizer of G4 (ZAB-137). Everything else about this case — token resolution, the state merge, autofocus — already matches, so its diff is entirely Text nodes.",
+    "text-wrap": "The wrap pass: break points, hard breaks, maxLines, ellipsis and alignment — G4 (ZAB-137).",
+    "unknown-type": "Text metrics (G4, ZAB-137). The degradation rule this case records is already implemented: an unknown type lays out as a Container keeping its props and its children.",
+    "bindings": "Bound text, bound visibility and a bound Toggle — G7 (ZAB-140). Text metrics on top (G4, ZAB-137).",
+    "collapse-tabs": "display:none through a Collapse and an exclusive-select group — G7 (ZAB-140).",
+    "disabled": "The inherited disabled flag arrives with the data that declares it — G7 (ZAB-140) — over a Collapse, a ScrollView and three controls.",
+    "assets-image": "The asset manifest and an Image's intrinsic size — G5 (ZAB-138).",
+    "scroll-clip": "Scrollable extents and clipped subtrees — G6 (ZAB-139).",
+    "transitions": "Tweened values measured at rest, which needs both the clock and the transition engine — G8 (ZAB-141).",
+    "overlays": "The overlay layer in (z, document order), with a modal taking the focus with it — G9 (ZAB-142).",
+    "anchors": "Anchored placement with its flip and its slide — G9 (ZAB-142).",
+    "controls": "Toggle slots, both Slider axes, a bound ProgressBar and the Spinner wave — G10 (ZAB-143).",
+    "textinput": "Field geometry, the caret and the empty state — G11 (ZAB-144).",
+    "settings": "The whole F5 catalog composed as one screen, so it clears when its last piece does — the TextInput of G11 (ZAB-144).",
+    "repeat": "A bound array expanded into instances and virtualized — G12 (ZAB-145).",
+    "gamepad-nav": "The pad script: spatial navigation and stick scrolling replayed through the poll loop — G13 (ZAB-146)."
+  }
+}

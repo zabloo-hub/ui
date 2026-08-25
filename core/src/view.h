@@ -72,7 +72,12 @@ class View {
   const LayoutNode &root() const { return root_; }
   /** The node holding focus, or null. Moving it is G7's (ZAB-140). */
   const LayoutNode *focus() const { return focus_; }
+  /** The node under the pointer, and the one it is holding down. Either may be null. */
+  const LayoutNode *hover() const { return hovered_; }
+  const LayoutNode *pressed() const { return pressed_; }
   const std::string &id() const { return id_; }
+  /** The viewport the last `set_size` gave, at the origin. */
+  const Rect &viewport() const { return viewport_; }
 
  private:
   const Envelope *envelope_ = nullptr;

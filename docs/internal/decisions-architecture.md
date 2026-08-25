@@ -3118,3 +3118,79 @@ y los añade G15, que es quien puede verificar que además de compilar arranca �
 escribir hoy YAML que nadie ha visto pasar no es cobertura.
 
 **Spec completa:** `specs/2026-08-24-core-cpp-foundation-design.md`.
+
+## 2026-08-25 — El corpus como criterio de salida: skip-list con guardia, y el byte como unidad (ZAB-136, F11 G3)
+
+**Decisión:** el harness golden se construye **antes** que ninguna capacidad, y a
+partir de él la regla de F11 es que **un caso del corpus está comparado byte a byte
+o está nombrado en la skip-list, con un motivo y un ticket**. No hay tercera
+opción: nada afloja una comparación, ni una tolerancia por campo, ni un modo
+parcial. `core/tests/golden-skip.json` arranca con dieciséis de los diecisiete
+casos de métricas y **cada ticket G# vacía los suyos como parte de su criterio de
+salida**.
+
+**Lo que hace que la lista no se pudra:** un caso saltado **se ejecuta igual**, y si
+empieza a coincidir con su registro el test **falla** pidiendo que se le quite. Sin
+eso, una skip-list es un fichero que se llena y no se vacía — y el motivo por el que
+esto está escrito aquí y no solo en el README es que es lo que convierte trece
+criterios de salida en algo mecánico en vez de en algo que alguien tiene que
+acordarse de comprobar. Corolario del mismo espíritu: un caso **fuera** de la lista
+que pida algo que el runner no puede reproducir todavía (reloj, pad, un dato de
+tipo array) **falla en voz alta** en lugar de medir un frame que no es el que el
+corpus grabó, que es la forma en que un harness pasa por el motivo equivocado.
+
+**Corrección al criterio de salida de G1/G2:** los "cuatro casos de G2" **no**
+pueden comparar byte-idénticos hoy. `states-tokens` y `unknown-type` llevan nodos
+`Text`, y lo grabado son anchos y baselines reales (`62.234`, `18.398`) que solo
+produce el rasterizador de G4; y como el alto de un `Text` desplaza el `y` de sus
+hermanos, tampoco vale comparar "todo menos el texto". `future-major` no tiene
+fichero de métricas — es una refusal, y se asierta desde el propio `refuses` del
+corpus. Queda `flex-layout`, el único caso sin texto, y compara **el
+`ViewSnapshot` entero**, no solo los rects. Comprobado, no supuesto: des-saltando
+`states-tokens` las diez diferencias cuelgan **todas** de un `Text`, mientras
+botones, estilos, estados y foco cuadran — que es exactamente lo que la línea de la
+skip-list afirma.
+
+**Dos detalles del port que son contrato y no estilo:**
+
+1. **Los números se imprimen desde el entero cuantizado** (`llround(v * 1000)` y
+   los decimales recortados a mano), no con `to_chars` —no disponible para
+   `double` en la libc++ de las Command Line Tools, el mismo hallazgo que G2
+   documentó para su mitad lectora— y **jamás con `printf`**, que lee el separador
+   decimal del **locale**: un juego corriendo en español escribiría `0,5` y todas
+   las métricas aguas abajo dejarían de comparar **en silencio**. Es la misma clase
+   de divergencia callada que llevó a la rasterización core-owned en 2026-08-11.
+   `snapshot_number` es público por eso: quien COMPARA dos snapshots tiene que
+   escribir un número igual que el fichero lo deletrea, o el diff manda a leer al
+   sitio equivocado.
+2. **La forma del `ViewSnapshot` se escribe entera desde el primer día**, con los
+   campos que el runtime aún no puede llenar (`text`, `clip`, `scroll`, `value`,
+   `field`, `window`, `layer`) **ausentes** y con el ticket que los llena anotado en
+   su sitio. Ausente ya significa "este nodo no tiene ninguno" en todo el documento,
+   así que llenarlos más tarde es aditivo; inventar un `false` que nadie calculó
+   sería una mentira distinta de un silencio honesto.
+
+**Diff legible como entregable, no como adorno:** una diferencia se reporta por path
+dentro del snapshot, con el `ref` del nodo que el autor escribió y ambos valores
+(`tree.children[0].rect.width (ref "primary-label"): expected 62.234, actual 0`) —
+el mismo formato en los dos targets. Y cuando el paseo no encuentra ninguna
+diferencia pero los bytes difieren (orden de claves, formato de un número), **lo
+dice**: la comparación es de bytes, así que callar ahí sería el único sitio donde el
+harness pasaría sin poder explicar por qué.
+
+**Imágenes golden:** siguen fuera de CI y sin automatizar — piden GPU. Son la
+captura side-by-side del mismo envelope en ambos targets con su tolerancia escrita
+al lado, y aterrizan con el motor de texto (G4), que es para lo que existen.
+
+**Consecuencias menores, dichas para que no sorprendan:** dos tests de G2 se retiran
+por quedar subsumidos (el paseo de rects de `flex-layout` y la carga limpia de tres
+envelopes, ahora comprobada sobre los diecisiete) — afirmar el mismo hecho dos veces
+con dos mensajes distintos es cómo se pierde de vista cuál es el que manda; y
+`scons test <filtro>` pasa a funcionar, porque el comando que los README ya
+documentaban corría todos los casos y después moría intentando construir un fichero
+con el nombre del filtro.
+
+**Dónde vive:** `core/src/snapshot.{h,cpp}` (el port), `core/tests/test_golden.cpp`
+(el runner), `core/tests/test_snapshot.cpp` (las reglas que ningún caso grabado
+fija), `core/tests/golden-skip.json` (la lista) y
+`golden/README.md` › *Running the corpus against the C++ core*.
