@@ -1,0 +1,116 @@
+"""Builds the shared core and its test runner.
+
+SCons because that is what `godot-cpp` uses and what its documentation assumes
+(2026-08-24, Decision 6) — the adapter's build in `sdk/godot` reuses this one's
+output, so one tool for both is one tool to learn.
+
+Two targets:
+
+    scons                 core/bin/libzabloocore.a  +  core/bin/zabloo-core-tests
+    scons test            the above, then run the tests
+    scons target=release  optimized, no assertions
+
+The core links nothing. No Godot, no GPU, no JSON library — that is the whole
+point of the frontier drawn in ZAB-134: if it needed an engine, it could not be
+tested on a bare CPU in CI.
+"""
+
+import os
+import subprocess
+import sys
+
+opts = Variables()
+opts.Add(EnumVariable("target", "Build profile", "debug", ["debug", "release"]))
+opts.Add(BoolVariable("werror", "Treat warnings as errors", False))
+
+env = Environment(variables=opts, ENV=os.environ)
+Help(opts.GenerateHelpText(env))
+
+msvc = env["CC"] == "cl"
+
+if msvc:
+    env.Append(CXXFLAGS=["/std:c++17", "/EHsc", "/W4", "/permissive-"])
+    env.Append(CXXFLAGS=["/Zi", "/Od"] if env["target"] == "debug" else ["/O2", "/DNDEBUG"])
+    if env["werror"]:
+        env.Append(CXXFLAGS=["/WX"])
+else:
+    env.Append(CXXFLAGS=["-std=c++17", "-Wall", "-Wextra", "-Wpedantic"])
+    env.Append(CXXFLAGS=["-g", "-O0"] if env["target"] == "debug" else ["-O2", "-DNDEBUG"])
+    if env["werror"]:
+        env.Append(CXXFLAGS=["-Werror"])
+
+# macOS: SCons hands the compiler a bare environment, so it never learns where the
+# SDK lives and <cstdint> stops existing. Ask xcrun once and pass it on.
+if sys.platform == "darwin" and not msvc:
+    sdk = subprocess.run(
+        ["xcrun", "--show-sdk-path"], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    if sdk:
+        env.Append(CCFLAGS=["-isysroot", sdk], LINKFLAGS=["-isysroot", sdk])
+        # A Command Line Tools install upgraded across a macOS release can end up
+        # with the SDKs current and the toolchain's own libc++ a husk — the
+        # headers are in the SDK, and clang looks for them next to itself. Point
+        # it at the SDK's copy when the local one is not a real library.
+        toolchain_libcxx = os.path.join(
+            os.path.dirname(env.WhereIs("c++") or "/usr/bin/c++"), "..", "include", "c++", "v1"
+        )
+        sdk_libcxx = os.path.join(sdk, "usr", "include", "c++", "v1")
+        if not os.path.exists(os.path.join(toolchain_libcxx, "cstdint")) and os.path.exists(
+            os.path.join(sdk_libcxx, "cstdint")
+        ):
+            env.Append(CXXFLAGS=["-cxx-isystem", sdk_libcxx])
+
+# Standard escape hatch: a cross-compile or an unusual toolchain is configured
+# from the environment, not by editing this file.
+for name in ("CXX", "CC", "AR", "RANLIB"):
+    if os.environ.get(name):
+        env[name] = os.environ[name]
+if os.environ.get("CXXFLAGS"):
+    env.Append(CXXFLAGS=os.environ["CXXFLAGS"].split())
+if os.environ.get("LDFLAGS"):
+    env.Append(LINKFLAGS=os.environ["LDFLAGS"].split())
+
+env.Append(CPPPATH=["#src"])
+
+sources = Glob("src/*.cpp")
+library = env.StaticLibrary("bin/zabloocore", sources)
+
+# Every header, compiled ALONE.
+#
+# A header that leans on whatever its .cpp happened to include first builds fine
+# until the standard library changes underneath it: `<cstdint>` missing from
+# `diagnostics.h` compiled clean on libc++ for weeks and broke every Linux build
+# the first time CI saw it, because `enum class ... : uint8_t` stops parsing when
+# `uint8_t` is not a type yet. One translation unit per header turns that into a
+# local error at the moment it is written.
+headers = sorted(str(node) for node in Glob("src/*.h"))
+probes = []
+probe_dir = os.path.join("bin", "headers")
+if not os.path.isdir(probe_dir):
+    os.makedirs(probe_dir)
+for header in headers:
+    name = os.path.basename(header)
+    probe = os.path.join(probe_dir, name.replace(".h", "_alone.cpp"))
+    contents = '#include "%s"\n' % name
+    if not os.path.exists(probe) or open(probe).read() != contents:
+        with open(probe, "w") as out:
+            out.write(contents)
+    probes.append(probe)
+standalone = env.StaticLibrary("bin/zabloo-headers-alone", probes)
+
+test_env = env.Clone()
+test_env.Append(CPPPATH=["#tests"])
+tests = test_env.Program("bin/zabloo-core-tests", Glob("tests/*.cpp") + library)
+
+Default(library, standalone, tests)
+
+
+def run_tests(target, source, env):
+    """`scons test` — the command CI runs, and the one to run before a commit."""
+    return subprocess.call([str(tests[0])])
+
+
+if "test" in COMMAND_LINE_TARGETS:
+    runner = env.Command("run-tests", tests, run_tests)
+    env.AlwaysBuild(runner)
+    env.Alias("test", runner)

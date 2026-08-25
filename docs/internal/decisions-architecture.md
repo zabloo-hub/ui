@@ -3034,3 +3034,87 @@ con GC a uno sin él. La red es el corpus golden, y por eso G3 va inmediatamente
 después del chasis y antes que cualquier capacidad.
 
 **Spec completa:** `specs/2026-08-24-godot-sdk-language-design.md`.
+
+## 2026-08-24 — El core C++ por dentro: cero dependencias, IR tipada y el nodo de Godot como handle (ZAB-135, F11 G2)
+
+**Decisión:** el chasis del primer motor que renderiza, y con él los dos abiertos
+que G1 dejó explícitamente para "cuando se compile": **cómo se organiza el core**
+y **el estándar de C++ y sus dependencias**. C++17 (lo que pide `godot-cpp` 4.4) y
+**cero dependencias de terceros** — parser JSON propio y harness de tests propio.
+
+**Por qué cero deps, que es lo que va contra el instinto.** Lo cómodo era
+vendorear `nlohmann/json` y `doctest`: dos headers MIT, un día menos de trabajo.
+Se descarta por dos motivos que apuntan al mismo sitio:
+
+1. **El parser es nuestro porque la política de carga es nuestra.** ZAB-37 no pide
+   "parsear JSON": pide rutas de diagnóstico exactas, un tope de profundidad que
+   responde en vez de desbordar la pila, y **ninguna excepción** (un payload roto
+   es una respuesta ordinaria). Con una librería, cada una de esas tres cosas es un
+   mapeo desde su modelo de errores al nuestro — y el mapeo es justo donde la
+   paridad con `@zabloo/format` se pierde en silencio.
+2. **El harness es nuestro porque `core-tests` es el job que falla en cada PR.** Es
+   el bucle de feedback más rápido del milestone; un header de 10k líneas en cada
+   TU es un impuesto sobre él. Lo que un test necesita cabe en 120 líneas.
+
+**Dos hallazgos de la máquina que cambian el código y no solo el build**, y que
+son la razón por la que la conversión de números se escribe a mano:
+`std::from_chars` para `double` está marcado *unavailable* por debajo de **macOS
+26** en la libc++ de Apple (usarlo ataría el deployment target de todos los builds
+de macOS a un detalle del parseo), y **`strtod` lee el separador decimal del
+locale** — un juego con locale español parsearía `"0.5"` como `0`, en silencio, y
+todas las métricas aguas abajo saldrían mal sin que ningún test lo notara. La
+gramática de JSON es fija y sin locale; la conversión también. **Corolario:** un
+número con cero a la izquierda se **rechaza** — ser indulgente ahí sería aceptar un
+payload que el renderer web rechaza, y que los dos targets difieran en qué carga es
+exactamente lo que el corpus existe para impedir.
+
+**La IR se modela TIPADA**, no como un DOM reparado: `validate.cpp` construye
+structs y el runtime trabaja sobre ellos, sin lookups por string por frame. Dos
+consecuencias que hay que decir en voz alta: las props desconocidas **se
+descartan** (nadie las lee — el core no reserializa — y la tolerancia que importa,
+pasar en silencio y sin diagnóstico, se conserva), y un miembro desconocido de un
+set cerrado se mapea al default **al leerlo**, que es la lectura tipada de "formas,
+nunca vocabularios". `Node` es un struct plano con las props de los 13 tipos
+encima: la referencia lee un objeto JS igual de plano, layout y paint hacen
+`switch` sobre `type` y no sobre una clase, y un `variant` compraría seguridad de
+tipos que el JSON nunca tuvo a cambio de un cast en cada uso.
+
+**Contenido y runtime son dos árboles** (`Node` inmutable, `LayoutNode` con rects,
+estados y scratch), que es lo que hace de un hot-update **cambiar uno y no los
+dos**. De ahí una regla de vida que costó un bug encontrado por los tests: `View`
+no se puede mover (guarda punteros `parent` dentro de sus propios vectores) y el
+`Envelope` vive detrás de un puntero en el `Document`, para que su dirección
+sobreviva a mover el documento.
+
+**En Godot el nodo ES el handle estable.** En Unity `ZablooDocument` era un objeto
+aparte porque las vistas eran desechables; aquí el `Control` vive en el árbol de
+escena, así que `ZablooView` posee el `Document` y la caché de `set_data` vive en
+él — los datos que el juego empujó sobreviven a un cambio de contenido sin API
+nueva. La superficie que ve el juego es la de v1 entera y no más: **acciones con
+nombre hacia fuera** (señal `action(name, context)`) y **datos hacia dentro**. El
+layout de Godot no se usa: anchors y Containers serían un segundo sistema de
+layout discrepando con el que corre en todos los demás targets.
+
+**Lo que se comprueba, y cómo.** La paridad no se afirma de memoria: un envelope
+hostil pasado por `@zabloo/format` da 28 diagnósticos y el test afirma los mismos
+códigos, las mismas rutas y el mismo orden; `flex-layout` —el único caso del corpus
+sin `Text`, así que no espera al motor de texto— se compara **rect a rect** contra
+`golden/metrics/`, sus 20 nodos; y `states-tokens` se compara contra los `style`
+grabados, que no dependen de las métricas de texto. Lo que necesita motor de verdad
+se verifica a mano en `examples/godot-playground` y lo formaliza G15.
+
+**Alcance, dicho en positivo:** el chasis renderiza `Container`, `Button` y el
+paint implícito; el resto **degrada** en vez de desaparecer, que es la misma
+forward-tolerance que un juego recibe de un SDK más viejo que su contenido —
+`Text` sin glifos (mide una línea de alto y cero de ancho, que es literalmente la
+regla del `Text` vacío de ZAB-65, no un placeholder inventado), `ScrollView` sin
+recorte, `transition` ignorado, controles como contenedores. La tabla completa, con
+el ticket que cierra cada fila, está en la spec.
+
+**CI:** `core-tests` (linux, `werror`, compila el core SOLO y corre sus tests) y
+`godot-extension` × {linux, macos, windows}. **Móvil y web no entran hoy**: piden
+NDK/SDK en el runner y la cadena `dlink` que G1 dejó fuera del criterio de salida,
+y los añade G15, que es quien puede verificar que además de compilar arranca —
+escribir hoy YAML que nadie ha visto pasar no es cobertura.
+
+**Spec completa:** `specs/2026-08-24-core-cpp-foundation-design.md`.

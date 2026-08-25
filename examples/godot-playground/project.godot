@@ -1,0 +1,23 @@
+; The playground: the smallest Godot project that renders a zabloo envelope.
+;
+; It consumes the addon the way a game does — a copy under `addons/` — rather
+; than reaching into `sdk/godot` behind Godot's back. `scons install` in
+; `sdk/godot` puts it there, which is the same move as unzipping a release
+; (2026-08-24, Decision 8); `addons/` is gitignored for that reason.
+
+config_version=5
+
+[application]
+
+config/name="Zabloo Playground"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.4", "Forward Plus")
+
+[display]
+
+window/size/viewport_width=960
+window/size/viewport_height=600
+
+[rendering]
+
+environment/defaults/default_clear_color=Color(0.063, 0.071, 0.09, 1)

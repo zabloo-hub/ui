@@ -1,0 +1,25 @@
+[configuration]
+
+entry_symbol = "zabloo_library_init"
+; Compiled against the 4.4 API. GDExtension is binary-compatible FORWARD inside
+; 4.x, so this same build loads in 4.5, 4.6 and 4.7 — what breaks is the other
+; direction and the jump to a new major (2026-08-24, Decision 3).
+compatibility_minimum = "4.4"
+
+[libraries]
+
+; macOS builds universal by default, and the file name carries that: the suffix
+; godot-cpp stamps in is `.<platform>.<target>[.<arch>]`, so it has to be spelled
+; out here or Godot looks for a library that was never built.
+macos.debug = "res://addons/zabloo/bin/libzabloo.macos.template_debug.universal.dylib"
+macos.release = "res://addons/zabloo/bin/libzabloo.macos.template_release.universal.dylib"
+linux.debug.x86_64 = "res://addons/zabloo/bin/libzabloo.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://addons/zabloo/bin/libzabloo.linux.template_release.x86_64.so"
+linux.debug.arm64 = "res://addons/zabloo/bin/libzabloo.linux.template_debug.arm64.so"
+linux.release.arm64 = "res://addons/zabloo/bin/libzabloo.linux.template_release.arm64.so"
+windows.debug.x86_64 = "res://addons/zabloo/bin/libzabloo.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://addons/zabloo/bin/libzabloo.windows.template_release.x86_64.dll"
+android.debug.arm64 = "res://addons/zabloo/bin/libzabloo.android.template_debug.arm64.so"
+android.release.arm64 = "res://addons/zabloo/bin/libzabloo.android.template_release.arm64.so"
+ios.debug = "res://addons/zabloo/bin/libzabloo.ios.template_debug.arm64.dylib"
+ios.release = "res://addons/zabloo/bin/libzabloo.ios.template_release.arm64.dylib"
