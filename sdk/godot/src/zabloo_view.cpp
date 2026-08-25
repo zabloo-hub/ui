@@ -2,11 +2,16 @@
 
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/global_constants.hpp>
+#include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
+#include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+
+#include <cstring>
 
 using namespace godot;
 
@@ -149,14 +154,59 @@ void ZablooView::relayout() {
 }
 
 /**
+ * The glyph atlases as Godot textures.
+ *
+ * The pixels are LA8 — white with the coverage as alpha — so the vertex color a
+ * batch carries tints them by a plain multiply, which is how a `Text` gets its
+ * `style.color` and its inherited opacity in one go.
+ *
+ * `update()` only takes an image of the same size, and an atlas that filled up
+ * DOUBLES its side (ZAB-55), so a grown one is set rather than updated.
+ */
+void ZablooView::sync_atlases() {
+  zabloo::View *view = document_.view();
+  if (view == nullptr) return;
+
+  std::unordered_map<const void *, AtlasTexture> live;
+  live.reserve(view->fonts().all().size());
+  for (const auto &atlas : view->fonts().all()) {
+    const void *key = atlas.get();
+    const auto found = atlases_.find(key);
+    AtlasTexture entry = found != atlases_.end() ? found->second : AtlasTexture{};
+    if (entry.texture.is_null() || entry.version != atlas->version()) {
+      const std::vector<uint8_t> &pixels = atlas->pixels();
+      PackedByteArray bytes;
+      bytes.resize(static_cast<int64_t>(pixels.size()));
+      memcpy(bytes.ptrw(), pixels.data(), pixels.size());
+      const Ref<Image> image = Image::create_from_data(atlas->size(), atlas->size(), false,
+                                                       Image::FORMAT_LA8, bytes);
+      if (entry.texture.is_null()) {
+        entry.texture = ImageTexture::create_from_image(image);
+      } else if (entry.size == atlas->size()) {
+        entry.texture->update(image);
+      } else {
+        entry.texture->set_image(image);
+      }
+      entry.version = atlas->version();
+      entry.size = atlas->size();
+    }
+    live.emplace(key, entry);
+  }
+  // What is left behind is what the LRU evicted: dropping the reference here is
+  // what frees its texture, and it happens before anything can draw with it.
+  atlases_.swap(live);
+}
+
+/**
  * Upload: one `canvas_item_add_triangle_array` per batch, which is one draw call
- * per batch. G4 (ZAB-137) brings the glyph atlas, and solids join it through the
- * reserved white pixel, so a whole screen of shapes and text becomes one call.
+ * per batch — the solids of the whole screen, and then one per glyph atlas in
+ * play. Solids carry no texture, exactly as the reference renderer draws them.
  */
 void ZablooView::_draw() {
   zabloo::View *view = document_.view();
   if (view == nullptr) return;
 
+  sync_atlases();
   RenderingServer *server = RenderingServer::get_singleton();
   const RID canvas = get_canvas_item();
   for (const zabloo::Batch &batch : view->paint().batches()) {
@@ -180,7 +230,18 @@ void ZablooView::_draw() {
       color_out[i] = Color(batch.colors[i * 4], batch.colors[i * 4 + 1], batch.colors[i * 4 + 2],
                            batch.colors[i * 4 + 3]);
     }
-    server->canvas_item_add_triangle_array(canvas, indices_, points_, colors_, uvs_);
+    // Bones and weights are the two arguments in the way of the texture, which
+    // is the one that matters here: a batch that names an atlas samples it, and
+    // a solid one draws with no texture at all.
+    RID texture;
+    if (batch.texture != nullptr) {
+      const auto found = atlases_.find(batch.texture);
+      if (found != atlases_.end() && found->second.texture.is_valid()) {
+        texture = found->second.texture->get_rid();
+      }
+    }
+    server->canvas_item_add_triangle_array(canvas, indices_, points_, colors_, uvs_,
+                                           PackedInt32Array(), PackedFloat32Array(), texture);
   }
 }
 

@@ -417,7 +417,7 @@ void read_layout(Ctx &ctx, JsonRef node, const std::string &path, Layout &out) {
   const std::string at = field(path, "layout");
   std::string text;
   string_prop(ctx, layout, at, "direction", text);
-  if (!text.empty()) out.direction = enum_from(text, DIRECTIONS, Direction::Row);
+  if (!text.empty()) out.direction = enum_from(text, DIRECTIONS, Direction::Column);
   text.clear();
   string_prop(ctx, layout, at, "justify", text);
   if (!text.empty()) out.justify = enum_from(text, JUSTIFIES, Justify::Start);

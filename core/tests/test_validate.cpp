@@ -136,7 +136,10 @@ TEST(validate, the_repaired_tree_is_what_the_reference_repairs_it_to) {
   // A mistyped prop falls to its default; the node itself is untouched.
   CHECK(!collapse.open.has_value());
   CHECK_EQ(view->root.children[6].modal, true);
-  CHECK_EQ(static_cast<int>(view->root.layout.direction), static_cast<int>(Direction::Row));
+  // `direction: 7` is not a direction, so the prop is the column every layout
+  // without one is (`docs/format/layout.md`) — the default of the PROP, never
+  // the first member of the enum.
+  CHECK_EQ(static_cast<int>(view->root.layout.direction), static_cast<int>(Direction::Column));
   CHECK(!view->root.transition.present);
 
   // Tokens survive as the flat dictionary; the two malformed entries do not.

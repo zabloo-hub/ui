@@ -13,6 +13,7 @@
 
 #include "color.h"
 #include "layout.h"
+#include "text.h"
 
 namespace zabloo {
 namespace {
@@ -375,11 +376,43 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs) {
     writer.end_object();
   }
 
-  // `text` (G4, ZAB-137), `clip` and `scroll` (G6, ZAB-139), `value` and `field`
-  // (G11, ZAB-144) and `window` (G12, ZAB-145) belong between the style and the
-  // children, in that order. Each is written by the ticket that gives the runtime
-  // something to say; until then the field is absent, which is what "this node
-  // has none" already means everywhere else in this document.
+  // How this frame broke the text and where the lines landed. Only a `Text` has
+  // any, and only once the measure pass has broken it — so an empty `Text` still
+  // reports its one empty line, which is what says it holds a slot (ZAB-65).
+  if (node.ir->type == NodeType::Text && node.has_text_block) {
+    writer.key("text");
+    writer.begin_object();
+    writer.key("lines");
+    writer.begin_array();
+    for (size_t i = 0; i < node.text_block.lines.size(); i++) {
+      const TextLine &line = node.text_block.lines[i];
+      const PlacedLine placed = i < node.text_lines.size() ? node.text_lines[i] : PlacedLine{};
+      writer.element();
+      writer.begin_object();
+      writer.key("text");
+      writer.string(line.text);
+      writer.key("width");
+      writer.number_value(line.width);
+      writer.key("x");
+      writer.number_value(placed.x);
+      // The tessellator adds the ascent to the placed top: that sum IS the baseline.
+      writer.key("baseline");
+      writer.number_value(placed.y + node.text_ascent);
+      writer.end_object();
+    }
+    writer.end_array();
+    writer.key("lineHeight");
+    writer.number_value(node.text_block.line_height);
+    writer.key("truncated");
+    writer.bool_value(node.text_block.truncated);
+    writer.end_object();
+  }
+
+  // `clip` and `scroll` (G6, ZAB-139), `value` and `field` (G11, ZAB-144) and
+  // `window` (G12, ZAB-145) belong here, in that order. Each is written by the
+  // ticket that gives the runtime something to say; until then the field is
+  // absent, which is what "this node has none" already means everywhere else in
+  // this document.
 
   if (!node.children.empty()) {
     writer.key("children");

@@ -45,7 +45,24 @@ if sys.platform == "darwin":
 core = os.path.join("..", "..", "core", "src")
 env.Append(CPPPATH=[core, "src"])
 
-sources = Glob("src/*.cpp") + Glob(os.path.join(core, "*.cpp"))
+# `core/src/generated/` is the embedded TTF the text engine rasterizes (G4).
+sources = (
+    Glob("src/*.cpp")
+    + Glob(os.path.join(core, "*.cpp"))
+    + Glob(os.path.join(core, "generated", "*.cpp"))
+)
+
+# The vendored rasterizer, on the same terms `core/SConstruct` gives it: warnings
+# off (it is not ours to keep clean) and hidden visibility (an engine may carry
+# its own copy of stb, and two of them resolving to one another is the divergence
+# core-owned rasterization exists to prevent). See its own file for the rest.
+vendor_env = env.Clone()
+vendor_env["CXXFLAGS"] = [flag for flag in vendor_env["CXXFLAGS"] if not str(flag).startswith("-W")]
+if env.get("CC") == "cl":
+    vendor_env.Append(CXXFLAGS=["/w"])
+else:
+    vendor_env.Append(CXXFLAGS=["-w", "-fvisibility=hidden"])
+sources += vendor_env.SharedObject(os.path.join(core, "vendor", "stb_truetype_impl.cpp"))
 
 # The name carries the platform and the target because a `.gdextension` lists one
 # library per (platform, target) and loads the one that matches at runtime.

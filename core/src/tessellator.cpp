@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
+
+#include "utf8.h"
 
 namespace zabloo {
 namespace {
@@ -53,9 +56,22 @@ void push_triangle(Batch &batch, uint32_t a, uint32_t b, uint32_t c) {
   batch.indices.push_back(c);
 }
 
+/**
+ * `Math.round`, which rounds a half UP and not away from zero. The difference
+ * only shows on a negative coordinate — a glyph scrolled off the left edge — and
+ * it is a half pixel, but the reference is what the two targets are compared
+ * against, so it is the one that decides.
+ */
+double round_half_up(double value) { return std::floor(value + 0.5); }
+
 }  // namespace
 
 void GeometryBuilder::reset() {
+  // Batch 0 is the solids', always. It is claimed here rather than by the first
+  // `solid()` because a frame whose first paint is a `Text` would otherwise open
+  // the atlas batch first and hand `solid()` — which is `front()` — geometry
+  // sampling the glyphs.
+  if (batches_.empty()) batches_.emplace_back();
   for (Batch &batch : batches_) {
     batch.positions.clear();
     batch.uvs.clear();
@@ -67,6 +83,17 @@ void GeometryBuilder::reset() {
 Batch &GeometryBuilder::solid() {
   if (batches_.empty()) batches_.emplace_back();
   return batches_.front();
+}
+
+Batch &GeometryBuilder::textured(const void *texture) {
+  // Batches survive `reset` with their capacity and their texture, so a scene
+  // that paints the same sizes every frame reuses the very same buffers.
+  for (Batch &batch : batches_) {
+    if (batch.texture == texture) return batch;
+  }
+  batches_.emplace_back();
+  batches_.back().texture = texture;
+  return batches_.back();
 }
 
 uint32_t GeometryBuilder::vertex_count() const {
@@ -131,6 +158,47 @@ void GeometryBuilder::rounded_rect_border(const Rect &rect, double radius, doubl
     const uint32_t next = (i + 1) % PERIMETER_POINTS;
     push_triangle(batch, base + i, base + next, base + PERIMETER_POINTS + next);
     push_triangle(batch, base + PERIMETER_POINTS + next, base + PERIMETER_POINTS + i, base + i);
+  }
+}
+
+void GeometryBuilder::text(double origin_x, double origin_y, std::string_view content,
+                           GlyphAtlas &atlas, Color color) {
+  Batch &batch = textured(&atlas);
+  const double baseline = origin_y + atlas.ascent();
+  // One cursor per run, not per glyph: the pen and the previous code point are
+  // all the loop carries forward.
+  double pen = origin_x;
+  char32_t previous = 0;
+  size_t index = 0;
+
+  while (index < content.size()) {
+    const char32_t code_point = utf8_next(content, index);
+    const GlyphInfo glyph = atlas.get(code_point);
+    if (previous != 0) pen += atlas.kern(previous, code_point);
+    previous = code_point;
+
+    if (glyph.has_quad) {
+      // Snap the glyph origin to the physical pixel grid: a fractional position
+      // under linear filtering blurs the glyph by half a pixel. The extents are
+      // whole device px already, since the atlas rasterized at this very scale.
+      // One device pixel is one logical pixel until the adapter tells the view
+      // about a HiDPI surface, which is G15's (ZAB-148) — the same scale the
+      // atlas takes and nobody passes yet.
+      const double x0 = round_half_up(pen + glyph.min_x);
+      const double y0 = round_half_up(baseline - glyph.max_y);
+      const double x1 = x0 + (glyph.max_x - glyph.min_x);
+      const double y1 = y0 + (glyph.max_y - glyph.min_y);
+      const uint32_t base = batch.vertex_count();
+      // The atlas's v grows downward (the row order a texture uploads in), so
+      // v0 is the glyph's top.
+      push_vertex(batch, x0, y0, static_cast<float>(glyph.u0), static_cast<float>(glyph.v0), color);
+      push_vertex(batch, x1, y0, static_cast<float>(glyph.u1), static_cast<float>(glyph.v0), color);
+      push_vertex(batch, x1, y1, static_cast<float>(glyph.u1), static_cast<float>(glyph.v1), color);
+      push_vertex(batch, x0, y1, static_cast<float>(glyph.u0), static_cast<float>(glyph.v1), color);
+      push_triangle(batch, base, base + 1, base + 2);
+      push_triangle(batch, base, base + 2, base + 3);
+    }
+    pen += glyph.advance;
   }
 }
 

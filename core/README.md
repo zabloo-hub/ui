@@ -21,7 +21,10 @@ scons target=release  # optimized
 scons test validate   # only the cases whose name contains "validate"
 ```
 
-Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else.
+Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else — the font
+the text engine rasterizes is embedded as committed source, so no asset pipeline
+and no Python are involved in a build. Re-run `python3 scripts/embed_font.py`
+only if `assets/fonts/` ever changes, and commit what it writes.
 
 `scons test golden` runs the corpus — see
 [`golden/README.md`](../golden/README.md#running-the-corpus-against-the-c-core).
@@ -36,10 +39,16 @@ Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else.
 | `validate.{h,cpp}` | The loader's policy (ZAB-37): repair, never throw, refuse only on a major mismatch |
 | `states.{h,cpp}` | The normative state merge order |
 | `layout.{h,cpp}` | The v1 Yoga subset, `wrap` included. Pure geometry over resolved inputs |
+| `ttf.{h,cpp}` | The rasterizer: stb_truetype over the shipped TTF, with the unit contract every target shares |
+| `glyphs.{h,cpp}` | The atlas we own — packing, growth, the kerning cache — and the LRU of one per point size |
+| `text.{h,cpp}` | The normative wrap: break points, hard breaks, `maxLines`, ellipsis, alignment |
+| `utf8.{h,cpp}` | Strings walked by code point, which is the unit everything above indexes |
 | `tessellator.{h,cpp}` | Implicit paint: rounded rects and inset borders, into batches |
 | `view.{h,cpp}` | The runtime — resolve, lay out, paint, hit-test — and `Document`, the stable handle |
 | `color.{h,cpp}` | `#rrggbb[aa]` and the multiplicative opacity fade |
 | `snapshot.{h,cpp}` | The `ViewSnapshot`: one frame's metrics as the bytes a golden file holds |
+| `vendor/` | stb_truetype, verbatim — see [its README](src/vendor/README.md) |
+| `generated/` | The embedded TTF, written by `scripts/embed_font.py` and committed |
 
 ## The rule this directory lives by
 

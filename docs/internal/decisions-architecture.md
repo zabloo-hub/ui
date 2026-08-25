@@ -3194,3 +3194,110 @@ con el nombre del filtro.
 (el runner), `core/tests/test_snapshot.cpp` (las reglas que ningún caso grabado
 fija), `core/tests/golden-skip.json` (la lista) y
 `golden/README.md` › *Running the corpus against the C++ core*.
+
+## 2026-08-25 — El motor de texto del core: stb dentro, la fuente empotrada, y el tipo de letra que destapó un default equivocado (ZAB-137, F11 G4)
+
+**Decisión:** el texto del core es un **port literal** de `ttf.ts` + `glyphs.ts` +
+`text.ts`, con `stb_truetype.h` compilado dentro y la Liberation Sans **empotrada
+en el binario**. El `TextServer` de Godot no se usa para nada —ni medir ni
+rasterizar—, que es la condición para que el corpus compare: `text-wrap` y
+`states-tokens` salen de la skip-list comparando **byte a byte**, y con ellos
+entra en el `ViewSnapshot` el campo `text` (líneas, anchos, x y baselines).
+
+**Cero dependencias, y por tanto dos copias de stb.** `core/src/vendor/` es
+verbatim la misma v1.26 que ya vendorea `packages/renderer-web/native/vendor/`.
+Dos copias y no un directorio compartido porque cada mitad tiene que construirse
+sola: el core con SCons y un compilador y nada más, y `renderer-web` publicándose
+en npm sin el repo alrededor. Se mueven juntas, y si algún día no lo hacen el
+corpus lo dice como un muro de métricas de texto que dejan de cuadrar. La
+implementación vive en **un TU propio** compilado con los warnings apagados
+(`-Werror` sobre código ajeno es una regla que solo se puede cumplir editándolo) y
+con **`-fvisibility=hidden`**: la extensión se carga en un proceso que puede
+llevar su propia copia de stb, y dos `stbtt_InitFont` resolviéndose el uno al otro
+son exactamente la divergencia silenciosa contra la que se decidió el rasterizador
+core-owned.
+
+**La fuente va empotrada como base64 troceado, no como array de bytes.** 410 KB en
+`0x00,` son 2 MB de fuente que cada compilador reparsea; en base64 son 550 KB que
+se decodifican una vez al arrancar. Los trozos existen porque **MSVC rechaza un
+literal de string de más de 65535 bytes**. Va empotrada y no leída de disco porque
+el core tiene que medir texto sin motor, sin sistema de ficheros y sin pipeline de
+assets —es la frontera de ZAB-134— y porque una fuente que llega asíncrona
+significa un primer frame medido contra otra cosa. El fichero generado está
+committeado, así que compilar el core nunca necesita Python; el script
+(`core/scripts/embed_font.py`) es Python y no Node justamente para no meter una
+segunda toolchain en un directorio que presume de no tener ninguna.
+
+**La trampa de paridad, escrita donde se paga:** todo producto de un entero de
+unidades de diseño por una escala se hace **en `double`, ensanchando el `float`
+explícitamente**. La referencia lo hace por construcción (JavaScript tiene un solo
+tipo numérico); hacer la multiplicación en `float` aquí redondea distinto y un
+párrafo largo se separa de su registro en el tercer decimal. El mismo cuidado en
+el snap del glifo: `Math.round` redondea el medio **hacia arriba** y `std::round`
+lo redondea **alejándose del cero**, así que el core usa `floor(v + 0.5)`. Solo se
+nota en una coordenada negativa —un glifo scrolleado fuera— y es medio píxel, pero
+la referencia es contra quien se comparan los dos targets.
+
+**El atlas es LA8 y los sólidos NO se suben a él.** Los comentarios que G2 dejó
+escritos prometían que en G4 los sólidos se unirían al atlas por el píxel blanco
+reservado y toda la pantalla sería un draw call. **La referencia no hace eso**: su
+capa GL ata una textura blanca de 1×1 para la geometría sólida, así que un core
+que fusionara los dos batches respondería al mismo envelope con otro número de
+draw calls. Se corrige la promesa en vez de inventar la divergencia: sólidos
+primero (sin textura), después un batch por atlas. El píxel blanco se queda
+reservado porque es lo que necesitará un motor sin camino sin-textura. LA8 —blanco
+con la cobertura como alfa— es la mitad de memoria que RGBA y lo que un
+`ImageTexture` quiere; el tinte sale de multiplicar por el color del vértice, que
+es como un `Text` recibe su `style.color` y su opacidad heredada de una vez.
+
+**El adaptador barre, no escucha.** La `FontLibrary` no tiene callback de
+evicción, a diferencia de la referencia: `sdk/godot` reconcilia sus texturas
+contra la lista de atlas vivos en cada `_draw`. Ocho entradas como mucho, y un
+solo mecanismo contesta a la vez «¿ha crecido?» (la `version()` se movió) y «¿ya
+no está?» (no aparece en la lista), sin ventana en la que una textura sobreviva al
+atlas que la nombra. Un atlas que se llena **dobla su lado**, así que la subida
+distingue `update()` (mismo tamaño) de `set_image()` (creció).
+
+**La colocación se calcula una vez, tras el arrange, y no perezosamente.** La
+referencia coloca las líneas dentro de `placeText()`, que llaman el paint y el
+snapshot por separado. Aquí una pasada corta después del arrange deja las
+posiciones en el nodo, y de ahí las leen los dos. Compra dos cosas: el baseline
+que un fichero golden registra es literalmente el que usó el teselador —no una
+segunda cuenta que podría derivar— y `snapshot_view` sigue siendo **const**, que
+es la promesa de que medir un frame no puede moverlo.
+
+**Lo que el texto destapó: el `direction` por defecto del core estaba mal.**
+`states-tokens` dejó de cuadrar en el label de un `Button` con `justify: center`,
+y no por el texto: el core tenía `Direction::Row` como default y el contrato
+—`docs/format/layout.md`, y la referencia, que lee `direction === "row"`— dice
+**`"column"`**. Estaba invisible desde G2 porque ningún caso comparable tenía un
+hijo cuya colocación en el eje principal dependiera del default, y solo se ve
+cuando el hijo mide algo. Es el caso de libro de por qué el corpus se construyó
+antes que las capacidades.
+
+**`unknown-type` NO sale de la skip-list, y su motivo estaba mal escrito.** Decía
+que solo le faltaban las métricas de texto; con G4 dentro, lo que queda de su diff
+es un `Toggle` con `states: ["checked"]` y `value: 1` — G10 (ZAB-143). Se reapunta
+en vez de borrarse. `bindings` pierde su coletilla de G4 y se queda esperando a G7.
+
+**Convergencia visual: procedimiento y tolerancia ahora, captura en G15.** Las
+imágenes golden piden GPU, así que no están en CI y no se automatizan. Lo que sí
+queda escrito en `golden/README.md` es qué se captura, con qué viewport, y **qué
+es tolerancia y qué es bug**: la *colocación* de un glifo tiene que coincidir
+exactamente —mismos cortes, mismos bordes izquierdos, mismo baseline al píxel,
+porque las dos mitades snapean al mismo grid y leen los mismos números que el
+corpus ya compara—, mientras que su *cobertura* puede diferir hasta ~2/255 por
+canal **solo en los bordes antialiaseados** (un paso de redondeo en un alfa de 8
+bits, que los dos targets se comen en sitios distintos: la web sube RGBA y Godot
+LA8, y los samplers filtran en espacios de color distintos). Una línea que rompe
+en otro sitio, un run que deriva lateralmente, un baseline a un píxel o un
+interior sólido distinto **no son tolerancia**. Las capturas **no se committean**:
+son evidencia fechada de una GPU concreta, y un PNG que nadie puede re-derivar es
+peor que el procedimiento que lo produce.
+
+**Alcance que se queda fuera, con su motivo:** shaping complejo (árabe, índico) →
+v2 con HarfBuzz, como decidió 2026-08-11; hinting, que a tamaños de UI apenas se
+percibe; SDF (`stbtt_GetGlyphSDF`), evolución natural sin cambiar de rasterizador;
+y la escala de dispositivo, que el atlas ya acepta como parámetro pero nadie
+conecta todavía —el corpus mide a 1 y un HiDPI real es el adaptador contándole al
+core su escala, que es de G15 (ZAB-148).
