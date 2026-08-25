@@ -1,7 +1,13 @@
 #include "json.h"
 
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace zabloo {
 

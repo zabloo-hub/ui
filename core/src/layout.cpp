@@ -1,6 +1,9 @@
 #include "layout.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
 
 namespace zabloo {
 namespace {

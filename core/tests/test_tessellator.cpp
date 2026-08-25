@@ -1,3 +1,6 @@
+#include <cstddef>
+#include <cstdint>
+
 #include "tessellator.h"
 #include "testing.h"
 

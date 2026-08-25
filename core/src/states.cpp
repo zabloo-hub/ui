@@ -1,3 +1,6 @@
+#include <cstddef>
+#include <optional>
+
 #include "states.h"
 
 namespace zabloo {

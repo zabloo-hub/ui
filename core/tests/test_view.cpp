@@ -1,4 +1,5 @@
 #include <string>
+#include <vector>
 
 #include "testing.h"
 #include "view.h"

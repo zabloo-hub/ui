@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "envelope.h"
 
 namespace zabloo {

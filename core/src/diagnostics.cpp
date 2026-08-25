@@ -1,3 +1,5 @@
+#include <vector>
+
 #include "diagnostics.h"
 
 namespace zabloo {

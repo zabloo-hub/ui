@@ -75,11 +75,34 @@ env.Append(CPPPATH=["#src"])
 sources = Glob("src/*.cpp")
 library = env.StaticLibrary("bin/zabloocore", sources)
 
+# Every header, compiled ALONE.
+#
+# A header that leans on whatever its .cpp happened to include first builds fine
+# until the standard library changes underneath it: `<cstdint>` missing from
+# `diagnostics.h` compiled clean on libc++ for weeks and broke every Linux build
+# the first time CI saw it, because `enum class ... : uint8_t` stops parsing when
+# `uint8_t` is not a type yet. One translation unit per header turns that into a
+# local error at the moment it is written.
+headers = sorted(str(node) for node in Glob("src/*.h"))
+probes = []
+probe_dir = os.path.join("bin", "headers")
+if not os.path.isdir(probe_dir):
+    os.makedirs(probe_dir)
+for header in headers:
+    name = os.path.basename(header)
+    probe = os.path.join(probe_dir, name.replace(".h", "_alone.cpp"))
+    contents = '#include "%s"\n' % name
+    if not os.path.exists(probe) or open(probe).read() != contents:
+        with open(probe, "w") as out:
+            out.write(contents)
+    probes.append(probe)
+standalone = env.StaticLibrary("bin/zabloo-headers-alone", probes)
+
 test_env = env.Clone()
 test_env.Append(CPPPATH=["#tests"])
 tests = test_env.Program("bin/zabloo-core-tests", Glob("tests/*.cpp") + library)
 
-Default(library, tests)
+Default(library, standalone, tests)
 
 
 def run_tests(target, source, env):

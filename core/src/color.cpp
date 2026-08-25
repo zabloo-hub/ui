@@ -1,3 +1,6 @@
+#include <cstddef>
+#include <string_view>
+
 #include "color.h"
 
 namespace zabloo {
