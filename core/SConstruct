@@ -105,12 +105,22 @@ tests = test_env.Program("bin/zabloo-core-tests", Glob("tests/*.cpp") + library)
 Default(library, standalone, tests)
 
 
+# Anything else on the command line next to `test` is a FILTER for the runner,
+# not a target of its own: `scons test golden` runs the cases whose "suite.name"
+# contains "golden". They are aliased onto the same node, which is what keeps
+# SCons from going off to build a file named after the filter — before this, the
+# command the READMEs documented ran every case and then died on the filter.
+test_filters = [name for name in COMMAND_LINE_TARGETS if name != "test" and "/" not in name]
+
+
 def run_tests(target, source, env):
     """`scons test` — the command CI runs, and the one to run before a commit."""
-    return subprocess.call([str(tests[0])])
+    return subprocess.call([str(tests[0])] + test_filters[:1])
 
 
 if "test" in COMMAND_LINE_TARGETS:
     runner = env.Command("run-tests", tests, run_tests)
     env.AlwaysBuild(runner)
     env.Alias("test", runner)
+    for name in test_filters:
+        env.Alias(name, runner)

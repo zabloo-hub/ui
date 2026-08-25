@@ -21,36 +21,6 @@ std::string golden(const std::string &relative) {
   return zabloo::testing::read_file(zabloo::testing::repo_root() + "/golden/" + relative);
 }
 
-/**
- * Walks a recorded tree and the laid-out one together. The corpus is the
- * contract: same envelope, same viewport, same rects — so a mismatch names the
- * node it happened at rather than reporting a count.
- */
-void compare(const LayoutNode &node, JsonRef expected, const std::string &where) {
-  CHECK_EQ(where + ": " + node.ir->type_name, where + ": " +
-                                                  std::string(expected.get("type").as_string()));
-  const JsonRef rect = expected.get("rect");
-  CHECK_NEAR(node.rect.x, rect.get("x").as_number(), EPSILON);
-  CHECK_NEAR(node.rect.y, rect.get("y").as_number(), EPSILON);
-  CHECK_NEAR(node.rect.width, rect.get("width").as_number(), EPSILON);
-  CHECK_NEAR(node.rect.height, rect.get("height").as_number(), EPSILON);
-  if (std::fabs(node.rect.x - rect.get("x").as_number()) > EPSILON ||
-      std::fabs(node.rect.y - rect.get("y").as_number()) > EPSILON ||
-      std::fabs(node.rect.width - rect.get("width").as_number()) > EPSILON ||
-      std::fabs(node.rect.height - rect.get("height").as_number()) > EPSILON) {
-    ::zabloo::testing::report(__FILE__, __LINE__,
-                              "at " + where + " (" + std::string(expected.get("ref").as_string()) +
-                                  ")");
-  }
-
-  const JsonRef children = expected.get("children");
-  CHECK_EQ(where + " children: " + std::to_string(node.children.size()),
-           where + " children: " + std::to_string(children.size()));
-  for (uint32_t i = 0; i < std::min<uint32_t>(children.size(), node.children.size()); i++) {
-    compare(node.children[i], children.at(i), where + "." + std::to_string(i));
-  }
-}
-
 /** The recorded style is the RESOLVED one: tokens looked up, states merged. */
 void compare_styles(const LayoutNode &node, JsonRef expected, const std::string &where) {
   const JsonRef style = expected.get("style");
@@ -88,33 +58,11 @@ void compare_styles(const LayoutNode &node, JsonRef expected, const std::string 
 
 }  // namespace
 
-TEST(layout, flex_layout_matches_the_corpus_rect_for_rect) {
-  // The Yoga subset end to end: direction, justify, align, gap, padding, grow and
-  // wrap, over a case with no `Text` in it — so what it measures is the layout
-  // pass and nothing else, and the comparison can be exact rather than by eye
-  // while the text engine is still G4's.
-  const std::string envelope_text = golden("envelopes/flex-layout.json");
-  const std::string metrics_text = golden("metrics/flex-layout.json");
-  CHECK(!envelope_text.empty());
-  CHECK(!metrics_text.empty());
-
-  Document document;
-  CHECK(document.load(envelope_text));
-  CHECK(document.show("flex-layout"));
-  View *view = document.view();
-  CHECK(view != nullptr);
-  if (view == nullptr) return;
-
-  const JsonParse metrics = JsonDoc::parse(metrics_text);
-  CHECK(metrics.ok);
-  const JsonRef size = metrics.doc.root().get("size");
-  view->set_size(size.get("width").as_number(), size.get("height").as_number());
-  view->layout_frame();
-
-  compare(view->root(), metrics.doc.root().get("tree"), "root");
-}
-
-// --- the rules on their own, so a corpus failure has somewhere to point ---
+// `flex-layout` is compared BYTE FOR BYTE by the golden harness
+// (`test_golden.cpp`), which walks the whole `ViewSnapshot` and not just the
+// rects. What stays here is the half of the corpus that harness cannot reach
+// yet — `states-tokens`, whose styles are final while its text is G4's — and the
+// rules on their own, so a corpus failure has somewhere to point.
 
 namespace {
 

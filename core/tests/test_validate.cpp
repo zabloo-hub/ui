@@ -40,19 +40,9 @@ std::string golden(const char *name) {
 
 }  // namespace
 
-TEST(validate, the_corpus_loads_the_way_the_corpus_says_it_does) {
-  // `golden/cases.json` declares exactly one refusal in eighteen cases, and the
-  // other seventeen as clean loads. That claim is the contract this port has to
-  // reproduce before any of the harder ones matter.
-  for (const char *name : {"flex-layout.json", "states-tokens.json", "unknown-type.json"}) {
-    const std::string text = golden(name);
-    CHECK(!text.empty());
-    const EnvelopeReport report = read_envelope(text);
-    CHECK(report.ok);
-    expect_diagnostics(report, {});
-  }
-}
-
+// That every envelope of the corpus loads clean is asserted over ALL of them by
+// the golden harness (`test_golden.cpp`); what needs saying here is the refusal,
+// down to the message a reader of a failed hot-update gets.
 TEST(validate, an_incompatible_major_is_refused_and_nothing_renders) {
   // The one forward-tolerance rule that is a refusal rather than a degradation:
   // `v` is the major and the comparison is equality in both directions.

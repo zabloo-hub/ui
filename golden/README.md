@@ -4,9 +4,9 @@ Reference envelopes and the metrics every target must reproduce from them.
 
 This directory is **not** part of any package. It sits at the repo root because
 it is a **cross-target** artifact: the web renderer measures itself against it
-today (ZAB-48), and the Unity SDK will be measured against these same files
-(ZAB-38). An envelope that lived inside `packages/renderer-web` would be a
-fixture of the web test suite; here it is a specification of what the IR means.
+(ZAB-48) and so does the **C++ core** every engine SDK is built on (ZAB-136). An
+envelope that lived inside `packages/renderer-web` would be a fixture of the web
+test suite; here it is a specification of what the IR means.
 
 ```
 golden/
@@ -39,8 +39,8 @@ for the poll loop to see it in (`{"advanceMs": 16}`) — and nothing happens unt
 one of those spans runs, exactly as on a real pad. Indices are the standard
 mapping: `0`=A, `1`=B, `12`–`15`=d-pad, axes `0`/`1` left stick, `2`/`3` right.
 
-Two rules the runner applies to every case, and that the Unity side has to apply
-too:
+Two rules the runner applies to every case, and that every other target has to
+apply too:
 
 1. **Text is measured with the SDK's own rasterizer** (stb\_truetype over the
    shipped TTF), never a platform one. Same algorithm, same font, same metrics.
@@ -51,11 +51,11 @@ too:
 ## The metrics
 
 `metrics/<case>.json` is a `ViewSnapshot` (see
-`packages/renderer-web/src/snapshot.ts`): layout rects, wrap points with their
-baselines, active states, resolved paint values, clipping regions, scroll
-extents, control values, realized windows and the overlay layer in paint order.
-No pixels — golden **images** are ZAB-38's other half and need a GPU; everything
-here runs on a bare CPU in CI.
+`packages/renderer-web/src/snapshot.ts`, and `core/src/snapshot.cpp` for the port
+of it): layout rects, wrap points with their baselines, active states, resolved
+paint values, clipping regions, scroll extents, control values, realized windows
+and the overlay layer in paint order. No pixels — golden **images** need a GPU
+and stay a manual step (see below); everything here runs on a bare CPU in CI.
 
 Numbers are rounded to 3 decimals so the last bits of a floating-point multiply
 never rewrite a file.
@@ -65,7 +65,8 @@ never rewrite a file.
 Not every normative rule of the format produces a frame. A case with `refuses`
 records the other kind: the envelope must be **rejected**, with the diagnostic
 code it names, and nothing must render. It has no file under `metrics/` — there
-is nothing to measure — and the assertion lives in `golden.test.ts` instead.
+is nothing to measure — so the assertion lives in each target's runner instead
+(`golden.test.ts`, `core/tests/test_golden.cpp`).
 
 ```json
 "future-major": {
@@ -100,6 +101,50 @@ drag that must not become a click, an action carrying the item it fired from —
 are **not** here. They are hand-written assertions in
 `packages/renderer-web/src/view.test.ts`.
 
+## Running the corpus against the C++ core
+
+The core produces a `ViewSnapshot` **with no engine at all** — that is the
+frontier decision 2026-08-24 drew — so the same corpus runs against a native
+binary on a bare CPU, with no Godot and no GPU:
+
+```sh
+cd core && scons test          # everything
+cd core && scons test golden   # only the corpus
+```
+
+That is the very command CI runs (`core-tests`), and it is the one to run before
+committing anything under `core/`.
+
+A failure names the case, the path inside the snapshot and both values, so a diff
+reads the same on either target:
+
+```
+flex-layout does not reproduce golden/metrics/flex-layout.json
+    tree.children[1].rect.width (ref "row-gap"): expected 128, actual 132
+    tree.children[1].children[0].style.radius (ref "chip"): expected 6, actual (absent)
+```
+
+### The skip list
+
+`core/tests/golden-skip.json` names the cases the core cannot reproduce **yet**,
+each with the capability it is waiting on and the ticket that lands it. It keeps
+CI green while F11 is built capability by capability, and **removing your
+ticket's line is part of its exit criteria**.
+
+It is a checklist, not a carpet. A skipped case is still replayed, and one that
+starts agreeing with its record **fails the suite** asking to be taken off the
+list — so the file cannot quietly outlive the gap it documents. Nothing else is
+allowed to soften a comparison: a case is either compared byte for byte or named
+in that file, with a reason.
+
+### Golden images
+
+Comparing *pixels* needs a GPU, so it is **not** in CI and is not automated: it
+is the side-by-side capture of the same envelope in both targets, with the
+tolerance written down next to it. Text is what it exists for — same algorithm
+and same font, but not the same FPU — and it lands with the text engine
+(ZAB-137).
+
 ## What does NOT belong here
 
 **Performance scenes.** The corpus documents BEHAVIOR, so its cases are as small
@@ -119,6 +164,10 @@ recorded rects would be a megabyte of golden nobody reads.
    record of what the renderer does, so they are only correct if you say so.
 4. If the capability has an invariant a diff would not catch, assert it in
    `view.test.ts`.
+5. Add the case to `core/tests/golden-skip.json` with the ticket that will make
+   the core reproduce it. A capability the reference has and the core does not is
+   exactly what that file is for — and until the line exists, `scons test` in
+   `core/` fails on the new case.
 
 The suite fails if an envelope on disk has no case, if a case warns while
 rendering, if a node type of the v1 catalog appears in no case at all, or if
