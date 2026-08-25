@@ -8,8 +8,11 @@ compatibility_minimum = "4.4"
 
 [libraries]
 
-macos.debug = "res://addons/zabloo/bin/libzabloo.macos.template_debug.dylib"
-macos.release = "res://addons/zabloo/bin/libzabloo.macos.template_release.dylib"
+; macOS builds universal by default, and the file name carries that: the suffix
+; godot-cpp stamps in is `.<platform>.<target>[.<arch>]`, so it has to be spelled
+; out here or Godot looks for a library that was never built.
+macos.debug = "res://addons/zabloo/bin/libzabloo.macos.template_debug.universal.dylib"
+macos.release = "res://addons/zabloo/bin/libzabloo.macos.template_release.universal.dylib"
 linux.debug.x86_64 = "res://addons/zabloo/bin/libzabloo.linux.template_debug.x86_64.so"
 linux.release.x86_64 = "res://addons/zabloo/bin/libzabloo.linux.template_release.x86_64.so"
 linux.debug.arm64 = "res://addons/zabloo/bin/libzabloo.linux.template_debug.arm64.so"
@@ -18,5 +21,5 @@ windows.debug.x86_64 = "res://addons/zabloo/bin/libzabloo.windows.template_debug
 windows.release.x86_64 = "res://addons/zabloo/bin/libzabloo.windows.template_release.x86_64.dll"
 android.debug.arm64 = "res://addons/zabloo/bin/libzabloo.android.template_debug.arm64.so"
 android.release.arm64 = "res://addons/zabloo/bin/libzabloo.android.template_release.arm64.so"
-ios.debug = "res://addons/zabloo/bin/libzabloo.ios.template_debug.dylib"
-ios.release = "res://addons/zabloo/bin/libzabloo.ios.template_release.dylib"
+ios.debug = "res://addons/zabloo/bin/libzabloo.ios.template_debug.arm64.dylib"
+ios.release = "res://addons/zabloo/bin/libzabloo.ios.template_release.arm64.dylib"
