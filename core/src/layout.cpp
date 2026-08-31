@@ -127,6 +127,12 @@ void build_layout_tree(const Node &ir, LayoutNode &out) {
   // Reserved exactly, so pushing a child never moves the ones already there.
   out.children.reserve(ir.children.size());
   for (const Node &child : ir.children) {
+    // A statically hidden subtree is not built at all. `visible: false` has
+    // display:none semantics and nothing can turn it back on, so it has no
+    // runtime worth keeping — and the snapshot of a view that declares one shows
+    // no node, which is what the reference records. A BOUND `visible` builds
+    // normally: the data may well say yes.
+    if (child.visible.kind == Bindable<bool>::Kind::Value && !child.visible.value) continue;
     out.children.emplace_back();
     build_layout_tree(child, out.children.back());
   }

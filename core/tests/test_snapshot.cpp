@@ -39,9 +39,12 @@ TEST(snapshot, a_node_out_of_layout_says_only_that_it_is_out) {
   // Its rect, its style and its children are whatever the last frame that DID
   // lay it out left behind: recording them would be a lie about a node that is
   // not on screen. Which mechanism hid it is the one thing worth saying.
+  //
+  // The `visible` here is BOUND, which is the only way a node reports itself out
+  // this way: a statically hidden one is never built, so it has nothing to say.
   const std::string text = snapshot_of(R"({"v":1,"tokens":{},"views":{"a":{
       "type":"Container","layout":{"width":100,"height":50},
-      "children":[{"type":"Container","id":"gone","visible":false,
+      "children":[{"type":"Container","id":"gone","visible":{"bind":"ui.gone"},
                    "style":{"background":"#ff0000"},"layout":{"width":10,"height":10},
                    "children":[{"type":"Container","id":"inside"}]}]}}})");
 

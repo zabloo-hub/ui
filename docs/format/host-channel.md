@@ -15,8 +15,9 @@ game ──── SetData / SetOpen / SetChecked / … ────▶ UI
 ```
 
 The signatures below are the **web target**'s (`@zabloo/renderer-web`), given inline as the
-concrete spelling of each operation. Unity — the reference SDK for v1 — exposes the same
-contract on `ZablooDocument` (`SetData`, `Reload`) and on `ZablooView` (`View.SetOpen`).
+concrete spelling of each operation. The **Godot** SDK exposes the same contract on the
+`ZablooView` node, spelled the way an engine node is: `snake_case` methods for the
+operations, and **signals** for the callbacks.
 
 ## The operations (normative)
 
@@ -29,6 +30,25 @@ contract on `ZablooDocument` (`SetData`, `Reload`) and on `ZablooView` (`View.Se
 | `SetValue` | `setValue(id: string, value: number): boolean` | Moves a [`Slider`](../components/slider.md) — exactly the gesture the player would have made, hooks included. |
 | `SetText` | `setText(id: string, text: string): boolean` | Writes a [`TextInput`](../components/textinput.md)'s text, as if it had been typed. |
 | `SetScroll` | `setScroll(id: string, x: number, y: number): boolean` | Moves a [`ScrollView`](../components/scrollview.md)'s offset. |
+
+### Godot spelling
+
+| Operation | Godot | Callback | Godot signal |
+|---|---|---|---|
+| `SetData` | `set_data(path: String, value: Variant)` | Action | `action(name: String, context: Dictionary)` |
+| `SetOpen` | `set_open(id: String, open: bool) -> bool` | Data changed | `data_changed(path: String, value: Variant)` |
+| `SetSelectedTab` | `set_selected_tab(id: String, index: int) -> bool` | Diagnostic | `diagnostic(code: String, message: String, fatal: bool)` |
+| `SetChecked` | `set_checked(id: String, checked: bool) -> bool` | | |
+| `Reload` | `reload(json: String) -> bool` | | |
+
+A `Variant` carries what the channel carries: a bool, a number, a string, and — because a
+bound path addresses **into** what was pushed — an `Array` or a `Dictionary` too.
+`set_data("shop.items", [...])` is what makes `{"bind": "shop.items.1.name"}` resolve.
+
+`SetValue`, `SetText` and `SetScroll` are not on the Godot node yet: their subjects
+(`Slider`, `TextInput`, `ScrollView`) have no runtime there until ZAB-143, ZAB-144 and
+ZAB-139. Binding them now would mean answering `false` for a control that exists, which is
+the one thing the return value is not allowed to mean.
 
 ### Addressing by id
 

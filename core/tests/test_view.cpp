@@ -211,21 +211,20 @@ TEST(view, a_hot_update_keeps_the_view_that_was_on_screen) {
 
 TEST(view, pushed_data_outlives_the_content_it_was_pushed_for) {
   // Cached on the DOCUMENT, not the view: a content swap must not cost the game
-  // the state it already sent (2026-08-03). Reading it into bindings is G7's.
+  // the state it already sent (2026-08-03).
   Document document;
   document.load(BUTTON_VIEW);
-  DataValue gold;
-  gold.kind = DataValue::Kind::Number;
-  gold.number = 1200;
-  document.set_data("player.gold", gold);
+  document.set_data("player.gold", DataValue::of_number(1200));
   document.load(BUTTON_VIEW);
   const DataValue *kept = document.data("player.gold");
   CHECK(kept != nullptr);
   if (kept != nullptr) CHECK_NEAR(kept->number, 1200.0, 0.001);
 
-  // Writing the same path again replaces it instead of stacking a second entry.
-  document.set_data("player.gold", gold);
-  CHECK_EQ(document.data().size(), 1u);
+  // Writing the same path again replaces it instead of stacking a second value.
+  document.set_data("player.gold", DataValue::of_number(900));
+  const DataValue *replaced = document.data("player.gold");
+  CHECK(replaced != nullptr);
+  if (replaced != nullptr) CHECK_NEAR(replaced->number, 900.0, 0.001);
 }
 
 TEST(view, an_unknown_view_id_leaves_what_was_on_screen) {
@@ -233,4 +232,374 @@ TEST(view, an_unknown_view_id_leaves_what_was_on_screen) {
   const View *before = document.view();
   CHECK(!document.show("nope"));
   CHECK(document.view() == before);
+}
+
+// --- bindings (G7) --------------------------------------------------------
+
+namespace {
+
+/** A bound label, a bound row and a bound Toggle — the three shapes of a binding. */
+const char *BOUND_VIEW = R"({"v":1,"tokens":{},"views":{"hud":{
+  "type":"Container","layout":{"direction":"column","gap":8},
+  "children":[
+    {"type":"Text","id":"gold","text":{"bind":"player.gold"}},
+    {"type":"Text","id":"deep","text":{"bind":"shop.items.1.name"}},
+    {"type":"Container","id":"row","visible":{"bind":"flags.premium"},
+     "layout":{"width":60,"height":20}},
+    {"type":"Toggle","id":"sound","checked":{"bind":"settings.sound"},"onChange":"sound-changed",
+     "layout":{"width":40,"height":20}}]}}})";
+
+const LayoutNode &child_of(const View &view, size_t index) {
+  return view.root().children[index];
+}
+
+}  // namespace
+
+TEST(view, a_bound_text_paints_what_the_data_says_and_nothing_when_it_says_nothing) {
+  Document document = loaded(BOUND_VIEW, 200, 200);
+  View *view = document.view();
+  // No value is the empty string, which still measures one line tall (ZAB-65) —
+  // so the label holds its slot and its gaps rather than collapsing them.
+  CHECK_EQ(child_of(*view, 0).text_content, std::string(""));
+  CHECK(child_of(*view, 0).rect.height > 0.0);
+
+  document.set_data("player.gold", DataValue::of_number(1200));
+  view->layout_frame();
+  CHECK_EQ(child_of(*view, 0).text_content, std::string("1200"));
+  CHECK(child_of(*view, 0).rect.width > 0.0);
+}
+
+TEST(view, a_path_addresses_into_the_array_the_game_pushed) {
+  Document document = loaded(BOUND_VIEW, 200, 200);
+  DataValue items = DataValue::array();
+  DataValue second = DataValue::object();
+  second.insert("name", DataValue::of_text("Espada"));
+  items.push(DataValue::object());
+  items.push(std::move(second));
+  document.set_data("shop.items", std::move(items));
+  document.view()->layout_frame();
+  CHECK_EQ(child_of(*document.view(), 1).text_content, std::string("Espada"));
+}
+
+TEST(view, a_bound_visible_starts_hidden_and_the_data_reveals_it) {
+  Document document = loaded(BOUND_VIEW, 200, 200);
+  View *view = document.view();
+  // Data-driven visibility means "visible when the data says so" (2026-08-03).
+  CHECK(!in_layout(child_of(*view, 2)));
+  document.set_data("flags.premium", DataValue::of_bool(true));
+  view->layout_frame();
+  CHECK(in_layout(child_of(*view, 2)));
+  CHECK_NEAR(child_of(*view, 2).rect.width, 60.0, 0.001);
+
+  document.set_data("flags.premium", DataValue::of_bool(false));
+  view->layout_frame();
+  CHECK(!in_layout(child_of(*view, 2)));
+}
+
+TEST(view, data_pushed_before_a_view_existed_is_read_as_it_builds) {
+  // The store is the DOCUMENT's, so this is not a special case: the next view
+  // simply reads it while it builds. A game pushes its state whenever it has it.
+  Document document;
+  document.set_data("settings.sound", DataValue::of_bool(true));
+  document.set_data("player.gold", DataValue::of_number(7));
+  CHECK(document.load(BOUND_VIEW));
+  document.view()->set_size(200, 200);
+  document.view()->layout_frame();
+  CHECK(child_of(*document.view(), 3).checked);
+  CHECK_EQ(child_of(*document.view(), 0).text_content, std::string("7"));
+}
+
+TEST(view, a_toggle_writes_its_value_back_and_tells_the_game_once) {
+  Document document = loaded(BOUND_VIEW, 200, 200);
+  View *view = document.view();
+  CHECK(view->set_checked("sound", true));
+  CHECK(child_of(*view, 3).checked);
+
+  // The return leg of the data channel: the store has it, and the game hears it.
+  CHECK(is_truthy(document.data("settings.sound")));
+  const std::vector<DataChange> changes = view->drain_data_changes();
+  CHECK_EQ(changes.size(), 1u);
+  if (!changes.empty()) CHECK_EQ(changes[0].path, std::string("settings.sound"));
+  const std::vector<ActionEvent> actions = view->drain_actions();
+  CHECK_EQ(actions.size(), 1u);
+  if (!actions.empty()) CHECK_EQ(actions[0].name, std::string("sound-changed"));
+
+  // Setting it to what it already is moves nothing, so nothing is reported.
+  CHECK(view->set_checked("sound", true));
+  CHECK(view->drain_data_changes().empty());
+  CHECK(view->drain_actions().empty());
+}
+
+TEST(view, the_host_channel_says_whether_it_found_the_control) {
+  // A `false` means no node of that type carries that id and NOTHING was
+  // applied: a game looping over ids must not die because one screen changed.
+  Document document = loaded(BOUND_VIEW, 200, 200);
+  View *view = document.view();
+  CHECK(!view->set_checked("nope", true));
+  CHECK(!view->set_checked("gold", true));  // wrong type
+  CHECK(!view->set_open("sound", true));
+  CHECK(!view->set_selected_tab("sound", 1));
+}
+
+// --- Collapse and groups (G7) ---------------------------------------------
+
+namespace {
+
+const char *ACCORDION_VIEW = R"({"v":1,"tokens":{},"views":{"a":{
+  "type":"Container","id":"accordion","group":"exclusive-open",
+  "layout":{"direction":"column"},
+  "children":[
+    {"type":"Collapse","id":"one","open":true,"layout":{"direction":"column"},
+     "children":[{"type":"Container","id":"one-head","layout":{"width":100,"height":20}},
+                 {"type":"Container","id":"one-body","layout":{"width":100,"height":50}}]},
+    {"type":"Collapse","id":"two","open":false,"layout":{"direction":"column"},
+     "children":[{"type":"Container","id":"two-head","layout":{"width":100,"height":20}},
+                 {"type":"Container","id":"two-body","layout":{"width":100,"height":50}}]}]}}})";
+
+const char *TABS_VIEW = R"({"v":1,"tokens":{},"views":{"a":{
+  "type":"Container","id":"tabs","group":"exclusive-select","selected":1,
+  "layout":{"direction":"column"},
+  "children":[
+    {"type":"Container","id":"bar","layout":{"direction":"row"},
+     "children":[{"type":"Text","id":"title","text":"Ajustes"},
+                 {"type":"Button","id":"tab-0","layout":{"width":50,"height":20}},
+                 {"type":"Button","id":"tab-1","layout":{"width":50,"height":20}}]},
+    {"type":"Container","id":"panel-0","layout":{"width":100,"height":40}},
+    {"type":"Container","id":"panel-1","layout":{"width":100,"height":40}}]}}})";
+
+const char *RADIO_VIEW = R"({"v":1,"tokens":{},"views":{"a":{
+  "type":"Container","id":"quality","group":"exclusive-check",
+  "value":{"bind":"settings.quality"},"onChange":"quality-changed",
+  "layout":{"direction":"column"},
+  "children":[
+    {"type":"Toggle","id":"low","value":"low","onChange":"picked",
+     "layout":{"width":40,"height":20}},
+    {"type":"Toggle","id":"high","value":"high","layout":{"width":40,"height":20}}]}}})";
+
+}  // namespace
+
+TEST(view, a_collapse_shows_its_content_from_children_one_on) {
+  Document document = loaded(ACCORDION_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &one = view->root().children[0];
+  const LayoutNode &two = view->root().children[1];
+  // `children[0]` is the header — always visible — and the rest enters and leaves
+  // the layout with display:none semantics (the `<details>` model).
+  CHECK(in_layout(one.children[1]));
+  CHECK(!in_layout(two.children[1]));
+  CHECK_NEAR(one.rect.height, 70.0, 0.001);
+  CHECK_NEAR(two.rect.height, 20.0, 0.001);
+}
+
+TEST(view, opening_one_section_of_an_accordion_closes_its_siblings) {
+  Document document = loaded(ACCORDION_VIEW, 200, 200);
+  View *view = document.view();
+  CHECK(view->set_open("two", true));
+  view->layout_frame();
+  CHECK(view->root().children[1].open);
+  // Enforced GENERICALLY from the `group` on the parent: a composite is never an
+  // IR type (2026-08-03 §5).
+  CHECK(!view->root().children[0].open);
+  CHECK(!in_layout(view->root().children[0].children[1]));
+
+  // Closing one does not open anything: exclusivity is about opening.
+  CHECK(view->set_open("two", false));
+  view->layout_frame();
+  CHECK(!view->root().children[1].open);
+  CHECK(!view->root().children[0].open);
+}
+
+TEST(view, pressing_a_collapse_header_toggles_the_section_it_opens) {
+  Document document = loaded(ACCORDION_VIEW, 200, 200);
+  View *view = document.view();
+  // The header is focusable, the Collapse is not: what is pressed is the header,
+  // what toggles is its parent.
+  CHECK(view->move_focus(0, 1));
+  CHECK(view->focus() == &view->root().children[0].children[0]);
+  view->press_focused(true);
+  view->press_focused(false);
+  CHECK(!view->root().children[0].open);
+}
+
+TEST(view, the_selected_tab_is_the_only_panel_in_layout_and_wears_selected) {
+  Document document = loaded(TABS_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &bar = view->root().children[0];
+  // A `Text` in the bar is decoration: it does not shift the tab indices.
+  CHECK(!bar.children[1].selected);
+  CHECK(bar.children[2].selected);
+  CHECK(!in_layout(view->root().children[1]));
+  CHECK(in_layout(view->root().children[2]));
+
+  CHECK(view->set_selected_tab("tabs", 0));
+  view->layout_frame();
+  CHECK(bar.children[1].selected);
+  CHECK(in_layout(view->root().children[1]));
+  CHECK(!in_layout(view->root().children[2]));
+}
+
+TEST(view, activating_a_tab_button_moves_the_selection_and_fires_its_action) {
+  Document document = loaded(TABS_VIEW, 200, 200);
+  View *view = document.view();
+  // Straight to the first tab button: nothing before it in the bar takes input.
+  CHECK(view->move_focus(0, 1));
+  CHECK(view->focus() == &view->root().children[0].children[1]);
+  view->press_focused(true);
+  view->press_focused(false);
+  view->layout_frame();
+  CHECK_EQ(view->root().selected_index, 0);
+  CHECK(in_layout(view->root().children[1]));
+}
+
+TEST(view, a_radio_group_holds_one_value_and_the_options_derive_from_it) {
+  Document document;
+  document.set_data("settings.quality", DataValue::of_text("high"));
+  CHECK(document.load(RADIO_VIEW));
+  View *view = document.view();
+  view->set_size(200, 200);
+  view->layout_frame();
+  CHECK(!view->root().children[0].checked);
+  CHECK(view->root().children[1].checked);
+
+  // Choosing the other option moves the GROUP's value, writes it back, and fires
+  // both hooks: the option's own first, then the group's (ZAB-64).
+  CHECK(view->set_checked("low", true));
+  CHECK(view->root().children[0].checked);
+  CHECK(!view->root().children[1].checked);
+  const DataValue *written = document.data("settings.quality");
+  CHECK(written != nullptr);
+  if (written != nullptr) CHECK_EQ(written->text, std::string("low"));
+  const std::vector<ActionEvent> actions = view->drain_actions();
+  CHECK_EQ(actions.size(), 2u);
+  if (actions.size() == 2) {
+    CHECK_EQ(actions[0].name, std::string("picked"));
+    CHECK_EQ(actions[1].name, std::string("quality-changed"));
+  }
+}
+
+TEST(view, re_picking_the_selected_radio_reports_nothing_and_never_empties_it) {
+  Document document;
+  document.set_data("settings.quality", DataValue::of_text("low"));
+  CHECK(document.load(RADIO_VIEW));
+  View *view = document.view();
+  view->set_size(200, 200);
+  view->layout_frame();
+
+  CHECK(view->set_checked("low", true));
+  CHECK(view->root().children[0].checked);
+  // Nothing moved, so nothing is reported — not the option's hook, not the
+  // group's, not a write.
+  CHECK(view->drain_actions().empty());
+  CHECK(view->drain_data_changes().empty());
+
+  // And a radio never turns OFF: a group is not left empty.
+  CHECK(view->set_checked("low", false));
+  CHECK(view->root().children[0].checked);
+}
+
+// --- focus, navigation and `disabled` (G7) --------------------------------
+
+namespace {
+
+/** A row of three buttons over a fourth, with the middle one the game can switch off. */
+const char *NAV_VIEW = R"({"v":1,"tokens":{},"views":{"a":{
+  "type":"Container","layout":{"direction":"column","gap":10},
+  "children":[
+    {"type":"Container","id":"row","layout":{"direction":"row","gap":10},
+     "children":[
+       {"type":"Button","id":"left","autofocus":true,"layout":{"width":40,"height":20}},
+       {"type":"Button","id":"middle","disabled":{"bind":"ui.off"},
+        "layout":{"width":40,"height":20},"onClick":"middle"},
+       {"type":"Button","id":"right","layout":{"width":40,"height":20}}]},
+    {"type":"Button","id":"under","layout":{"width":40,"height":20}}]}}})";
+
+const LayoutNode &nav(const View &view, size_t index) {
+  return view.root().children[0].children[index];
+}
+
+}  // namespace
+
+TEST(view, the_arrows_walk_the_focus_by_the_rects_on_screen) {
+  Document document = loaded(NAV_VIEW, 300, 200);
+  View *view = document.view();
+  CHECK(view->focus() == &nav(*view, 0));
+  CHECK(view->move_focus(1, 0));
+  CHECK(view->focus() == &nav(*view, 1));
+  CHECK(view->move_focus(1, 0));
+  CHECK(view->focus() == &nav(*view, 2));
+  // Nothing further right: the focus stays where it is rather than wrapping.
+  CHECK(!view->move_focus(1, 0));
+  CHECK(view->focus() == &nav(*view, 2));
+  CHECK(view->move_focus(-1, 0));
+  CHECK(view->focus() == &nav(*view, 1));
+  // Down leaves the row: the walk is over live rects, not over the document.
+  CHECK(view->move_focus(0, 1));
+  CHECK(view->focus() == &view->root().children[1]);
+}
+
+TEST(view, a_control_the_game_switches_off_lets_go_of_what_it_held) {
+  Document document = loaded(NAV_VIEW, 300, 200);
+  View *view = document.view();
+  view->move_focus(1, 0);
+  CHECK(view->focus() == &nav(*view, 1));
+  view->press_focused(true);
+  CHECK(nav(*view, 1).pressed);
+
+  document.set_data("ui.off", DataValue::of_bool(true));
+  view->layout_frame();
+  // The focus goes to NOTHING rather than to a neighbour: the player did not ask
+  // to move. The gesture is cancelled, not concluded (ZAB-63).
+  CHECK(view->focus() == nullptr);
+  CHECK(!nav(*view, 1).pressed);
+  CHECK(view->drain_actions().empty());
+
+  // And it is out of the walk entirely: the arrows step straight over it.
+  CHECK(view->move_focus(1, 0));
+  CHECK(view->focus() == &nav(*view, 0));
+  CHECK(view->move_focus(1, 0));
+  CHECK(view->focus() == &nav(*view, 2));
+}
+
+TEST(view, a_disabled_section_takes_its_children_with_it) {
+  // `disabled` INHERITS: one prop on a section switches off the form inside it,
+  // which is the case it exists for. The label goes with it — the only state a
+  // node that is not focusable at all can be in.
+  Document document = loaded(R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"Container","id":"section","disabled":true,"layout":{"direction":"column"},
+      "children":[{"type":"Text","id":"label","text":"Ajustes"},
+                  {"type":"Button","id":"inside","layout":{"width":40,"height":20}}]}}})",
+                                200, 200);
+  const View *view = document.view();
+  CHECK(view->root().disabled);
+  CHECK(view->root().children[0].disabled);
+  CHECK(view->root().children[1].disabled);
+  CHECK(view->focus() == nullptr);
+}
+
+TEST(view, a_focus_whose_node_leaves_the_layout_falls_back_to_the_autofocus) {
+  Document document = loaded(TABS_VIEW, 200, 200);
+  View *view = document.view();
+  // Nothing declares `autofocus` here, so a focus with nowhere to be is nothing
+  // at all — never a node the player cannot see.
+  CHECK(view->focus() == nullptr);
+  CHECK(view->move_focus(0, 1));
+  CHECK(view->focus() != nullptr);
+}
+
+TEST(view, a_malformed_tab_group_says_so_once_and_pairs_what_it_can) {
+  // A structural complaint is a property of the DOCUMENT, so it is reported with
+  // the load's own diagnostics rather than on every tap that reads the group.
+  Document document = loaded(R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"Container","id":"tabs","group":"exclusive-select","layout":{"direction":"column"},
+      "children":[
+        {"type":"Container","id":"bar","layout":{"direction":"row"},
+         "children":[{"type":"Button","id":"t0","layout":{"width":40,"height":20}},
+                     {"type":"Button","id":"t1","layout":{"width":40,"height":20}}]},
+        {"type":"Container","id":"only-panel","layout":{"width":80,"height":30}}]}}})",
+                                200, 200);
+  const View *view = document.view();
+  CHECK_EQ(view->warnings().size(), 1u);
+  // Two buttons and one panel: the pair that exists still works.
+  CHECK(view->root().children[0].children[0].selected);
+  CHECK(in_layout(view->root().children[1]));
 }
