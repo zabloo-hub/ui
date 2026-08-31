@@ -85,15 +85,23 @@ Batch &GeometryBuilder::solid() {
   return batches_.front();
 }
 
-Batch &GeometryBuilder::textured(const void *texture) {
+Batch &GeometryBuilder::textured(const void *texture, TextureKind kind) {
+  // Batch 0 belongs to the solids whether or not any were painted — see `reset`.
+  if (batches_.empty()) batches_.emplace_back();
   // Batches survive `reset` with their capacity and their texture, so a scene
   // that paints the same sizes every frame reuses the very same buffers.
   for (Batch &batch : batches_) {
     if (batch.texture == texture) return batch;
   }
-  batches_.emplace_back();
-  batches_.back().texture = texture;
-  return batches_.back();
+  // Images go before the atlases, so the vector stays [solids, images…, texts…]
+  // whatever order the tree paints in. Splicing moves a handful of Batches —
+  // vectors, so a move each — and only on a texture's first frame.
+  const size_t at = kind == TextureKind::Image ? 1 + images_ : batches_.size();
+  if (kind == TextureKind::Image) images_++;
+  Batch &batch = *batches_.emplace(batches_.begin() + static_cast<ptrdiff_t>(at));
+  batch.texture = texture;
+  batch.kind = kind;
+  return batch;
 }
 
 uint32_t GeometryBuilder::vertex_count() const {
@@ -161,9 +169,79 @@ void GeometryBuilder::rounded_rect_border(const Rect &rect, double radius, doubl
   }
 }
 
+std::optional<ImageQuad> fit_image(const Rect &rect, double width, double height, ImageFit fit) {
+  if (!(rect.width > 0.0) || !(rect.height > 0.0) || !(width > 0.0) || !(height > 0.0)) {
+    return std::nullopt;
+  }
+  const Rect full{0.0, 0.0, 1.0, 1.0};
+  if (fit == ImageFit::Stretch) return ImageQuad{rect, full};
+  if (fit == ImageFit::Cover) {
+    const double scale = std::max(rect.width / width, rect.height / height);
+    // The visible slice of the source, in source px → UV fractions, centred.
+    const double u = std::min(1.0, rect.width / scale / width);
+    const double v = std::min(1.0, rect.height / scale / height);
+    return ImageQuad{rect, Rect{(1.0 - u) / 2.0, (1.0 - v) / 2.0, u, v}};
+  }
+  // `contain`: the largest box with the source's aspect ratio, centred.
+  const double scale = std::min(rect.width / width, rect.height / height);
+  const double fitted_width = width * scale;
+  const double fitted_height = height * scale;
+  return ImageQuad{Rect{rect.x + (rect.width - fitted_width) / 2.0,
+                        rect.y + (rect.height - fitted_height) / 2.0, fitted_width, fitted_height},
+                   full};
+}
+
+void GeometryBuilder::image(const Rect &rect, const ImageAsset &asset, ImageFit fit, Color color,
+                            double radius) {
+  const std::optional<ImageQuad> quad = fit_image(rect, asset.width, asset.height, fit);
+  if (!quad.has_value()) return;
+
+  const Rect &box = quad->rect;
+  const Rect &uv = quad->uv;
+  Batch &batch = textured(&asset, TextureKind::Image);
+  const uint32_t base = batch.vertex_count();
+  const double r = std::min({radius, box.width * 0.5, box.height * 0.5});
+
+  if (r <= 0.01) {
+    const float u1 = static_cast<float>(uv.x + uv.width);
+    const float v1 = static_cast<float>(uv.y + uv.height);
+    const float u0 = static_cast<float>(uv.x);
+    const float v0 = static_cast<float>(uv.y);
+    // v grows downward, like the atlas: a texture uploads its rows top-first.
+    push_vertex(batch, box.x, box.y, u0, v0, color);
+    push_vertex(batch, box.x + box.width, box.y, u1, v0, color);
+    push_vertex(batch, box.x + box.width, box.y + box.height, u1, v1, color);
+    push_vertex(batch, box.x, box.y + box.height, u0, v1, color);
+    push_triangle(batch, base, base + 1, base + 2);
+    push_triangle(batch, base, base + 2, base + 3);
+    return;
+  }
+
+  // Rounded: the same fan a background is, sampling the texture at each vertex's
+  // relative position inside the painted box.
+  const auto u_at = [&](double x) {
+    return static_cast<float>(uv.x + ((x - box.x) / box.width) * uv.width);
+  };
+  const auto v_at = [&](double y) {
+    return static_cast<float>(uv.y + ((y - box.y) / box.height) * uv.height);
+  };
+  const double cx = box.x + box.width / 2.0;
+  const double cy = box.y + box.height / 2.0;
+  double xs[PERIMETER_POINTS];
+  double ys[PERIMETER_POINTS];
+  push_vertex(batch, cx, cy, u_at(cx), v_at(cy), color);
+  fill_perimeter(box, r, xs, ys);
+  for (uint32_t i = 0; i < PERIMETER_POINTS; i++) {
+    push_vertex(batch, xs[i], ys[i], u_at(xs[i]), v_at(ys[i]), color);
+  }
+  for (uint32_t i = 0; i < PERIMETER_POINTS; i++) {
+    push_triangle(batch, base, base + 1 + i, base + 1 + ((i + 1) % PERIMETER_POINTS));
+  }
+}
+
 void GeometryBuilder::text(double origin_x, double origin_y, std::string_view content,
                            GlyphAtlas &atlas, Color color) {
-  Batch &batch = textured(&atlas);
+  Batch &batch = textured(&atlas, TextureKind::Glyphs);
   const double baseline = origin_y + atlas.ascent();
   // One cursor per run, not per glyph: the pen and the previous code point are
   // all the loop carries forward.

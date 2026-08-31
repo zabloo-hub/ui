@@ -23,6 +23,7 @@
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 
 #include "view.h"
@@ -126,6 +127,27 @@ class ZablooView : public Control {
   /** Keyed by the core's atlas pointer, which is what a batch names. */
   std::unordered_map<const void *, AtlasTexture> atlases_;
 
+  /** One texture per manifest image, plus whether its bytes refused to decode. */
+  struct AssetTexture {
+    Ref<ImageTexture> texture;
+    /**
+     * A decode that failed is remembered, never retried: the bytes will not get
+     * better, and a codec running once a frame over a corrupt PNG is a frame
+     * budget spent on producing the same error.
+     */
+    bool failed = false;
+  };
+  /**
+   * Keyed by CONTENT HASH, not by the core's asset pointer.
+   *
+   * That is what makes a hot-update cheap: `load_envelope` builds a whole new
+   * document, so every core-side address changes, but an image whose bytes did
+   * not change keeps the texture already decoded for it. The same
+   * content-addressed property the platform's CDN and the dev loop's transport
+   * are built on (2026-08-11).
+   */
+  std::unordered_map<std::string, AssetTexture> images_;
+
   /** Re-runs the core's layout against the current control size and redraws. */
   void relayout();
   /**
@@ -146,6 +168,20 @@ class ZablooView : public Control {
    * in a settled state.
    */
   void flush_events();
+  /**
+   * The same sweep for the manifest images: decodes the ones newly in play, and
+   * drops the textures of hashes the current envelope no longer references —
+   * which is what makes a reload release what it stopped using, with no eviction
+   * callback anywhere in the core.
+   *
+   * Decoding is where the engine earns its keep: the core carries the bytes and
+   * refuses to own a codec (zero dependencies), and Godot already has one.
+   */
+  void sync_images();
+  /** One asset's bytes through Godot's own codec, chosen by the manifest's MIME. */
+  AssetTexture decode(const zabloo::ImageAsset &asset);
+  /** Emits everything the last input produced as `action` signals. */
+  void flush_actions();
   void report_diagnostics() const;
 };
 

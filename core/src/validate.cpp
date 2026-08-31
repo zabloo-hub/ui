@@ -107,8 +107,10 @@ bool is_base64(JsonRef value) {
   for (size_t i = 0; i < text.size(); i++) {
     const char c = text[i];
     if (c == '=') {
-      padding++;
-      if (padding > 2 || i + padding < text.size()) return false;
+      // At most two, and only at the tail — which the guard below already
+      // enforces, since anything that is not a `=` after one has been seen ends
+      // the string. The reference spells the same rule as `={0,2}$`.
+      if (++padding > 2) return false;
       continue;
     }
     if (padding > 0) return false;

@@ -43,7 +43,8 @@ only if `assets/fonts/` ever changes, and commit what it writes.
 | `glyphs.{h,cpp}` | The atlas we own — packing, growth, the kerning cache — and the LRU of one per point size |
 | `text.{h,cpp}` | The normative wrap: break points, hard breaks, `maxLines`, ellipsis, alignment |
 | `utf8.{h,cpp}` | Strings walked by code point, which is the unit everything above indexes |
-| `tessellator.{h,cpp}` | Implicit paint: rounded rects and inset borders, into batches |
+| `assets.{h,cpp}` | The manifest resolved: `asset:<id>` → an image, cached by content hash. Carries bytes and sizes, and decodes no pixels — that is the adapter's engine's job |
+| `tessellator.{h,cpp}` | Implicit paint: rounded rects, inset borders and image quads, into batches |
 | `view.{h,cpp}` | The runtime — resolve, lay out, paint, hit-test — and `Document`, the stable handle |
 | `color.{h,cpp}` | `#rrggbb[aa]` and the multiplicative opacity fade |
 | `snapshot.{h,cpp}` | The `ViewSnapshot`: one frame's metrics as the bytes a golden file holds |

@@ -23,8 +23,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-
 #include "data.h"
+#include "assets.h"
 #include "glyphs.h"
 #include "groups.h"
 #include "layout.h"
@@ -138,6 +138,13 @@ class View {
    * atlas it belongs to.
    */
   const FontLibrary &fonts() const { return fonts_; }
+  /**
+   * The manifest images this view has resolved, for the adapter to reconcile its
+   * textures against — the same sweep `fonts()` is there for, and non-const
+   * because reporting a decoded size back is the one thing that flows the other
+   * way (`ImageLibrary::adopt_size`).
+   */
+  ImageLibrary &images() { return images_; }
   /** The node holding focus, or null. Moving it is G7's (ZAB-140). */
   const LayoutNode *focus() const { return focus_; }
   /** The node under the pointer, and the one it is holding down. Either may be null. */
@@ -167,6 +174,8 @@ class View {
    * is G15's (ZAB-148). Every metric this hands back is in logical px either way.
    */
   FontLibrary fonts_;
+  /** Resolved lazily, on the first measure that asks for a `src`. */
+  ImageLibrary images_;
   std::vector<ActionEvent> actions_;
   std::vector<DataChange> data_changes_;
   std::vector<Diagnostic> warnings_;

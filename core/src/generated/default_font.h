@@ -8,8 +8,12 @@
 // because a font that arrives asynchronously would mean a first frame measured
 // against something else.
 //
-// From G5 (ZAB-138) an envelope may carry its own TTF as an asset; this stays as
-// the fallback, and as what the golden corpus measures against.
+// The asset manifest is generic by MIME and would carry a `font/ttf` without a
+// format change (2026-08-11, ZAB-10), but NOTHING loads one: `zabloo export`
+// does not accept `.ttf` and the web renderer embeds this same font too. A
+// custom font is a capability for both targets at once or for neither — one that
+// only Godot had would answer the same envelope with different metrics, which is
+// the whole thing the shared rasterizer exists to prevent.
 
 #pragma once
 

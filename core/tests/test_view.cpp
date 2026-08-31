@@ -1,6 +1,8 @@
+#include <cstddef>
 #include <string>
 #include <vector>
 
+#include "assets.h"
 #include "testing.h"
 #include "view.h"
 
@@ -517,6 +519,37 @@ const LayoutNode &nav(const View &view, size_t index) {
   return view.root().children[0].children[index];
 }
 
+// --- images ---------------------------------------------------------------
+
+namespace {
+
+/**
+ * Two images over one set of bytes, one sized by the manifest and one not, plus
+ * a ref that resolves to nothing. The bytes are not a real PNG: the core decodes
+ * nothing, so nothing here depends on them being one.
+ */
+const char *IMAGE_VIEW = R"({"v":1,"tokens":{"color.tint":"#f87171"},"assets":{
+  "icons/coin.png":{"hash":"aaa","mime":"image/png","size":3,"width":32,"height":16,"data":"AAEC"},
+  "icons/gold.png":{"hash":"aaa","mime":"image/png","size":3,"width":32,"height":16,"data":"AAEC"},
+  "icons/blank.png":{"hash":"bbb","mime":"image/png","size":3,"data":"TQ=="}},
+  "views":{"gallery":{"type":"Container","layout":{"direction":"column"},"children":[
+    {"type":"Image","id":"intrinsic","src":"asset:icons/coin.png"},
+    {"type":"Image","id":"twin","src":"asset:icons/gold.png"},
+    {"type":"Image","id":"sizeless","src":"asset:icons/blank.png"},
+    {"type":"Image","id":"gone","src":"asset:icons/missing.png",
+     "style":{"background":"#1e293b"}},
+    {"type":"Image","id":"tinted","src":"asset:icons/coin.png","fit":"cover",
+     "layout":{"width":40,"height":40},"style":{"color":"{color.tint}"}}]}}})";
+
+const LayoutNode *find(const LayoutNode &node, const char *id) {
+  if (node.ir->id == id) return &node;
+  for (const LayoutNode &child : node.children) {
+    const LayoutNode *found = find(child, id);
+    if (found != nullptr) return found;
+  }
+  return nullptr;
+}
+
 }  // namespace
 
 TEST(view, the_arrows_walk_the_focus_by_the_rects_on_screen) {
@@ -602,4 +635,85 @@ TEST(view, a_malformed_tab_group_says_so_once_and_pairs_what_it_can) {
   // Two buttons and one panel: the pair that exists still works.
   CHECK(view->root().children[0].children[0].selected);
   CHECK(in_layout(view->root().children[1]));
+}
+
+TEST(view, an_image_measures_the_manifests_pixels_with_nothing_decoded) {
+  Document document = loaded(IMAGE_VIEW, 200, 200);
+  const LayoutNode &root = document.view()->root();
+  const LayoutNode *intrinsic = find(root, "intrinsic");
+  CHECK(intrinsic != nullptr);
+  CHECK_EQ(intrinsic->rect.width, 32.0);
+  CHECK_EQ(intrinsic->rect.height, 16.0);
+}
+
+TEST(view, an_image_whose_manifest_carries_no_size_reserves_nothing_yet) {
+  // Not a bug: layout has nothing to reserve the box with until the adapter
+  // reports what it decoded, through `ImageLibrary::adopt_size`.
+  Document document = loaded(IMAGE_VIEW, 200, 200);
+  const LayoutNode *sizeless = find(document.view()->root(), "sizeless");
+  CHECK(sizeless != nullptr);
+  CHECK_EQ(sizeless->rect.width, 0.0);
+  CHECK_EQ(sizeless->rect.height, 0.0);
+}
+
+TEST(view, a_size_reported_by_the_adapter_lays_the_image_out_on_the_next_frame) {
+  Document document = loaded(IMAGE_VIEW, 200, 200);
+  View *view = document.view();
+  ImageLibrary &images = view->images();
+  ImageAsset *blank = nullptr;
+  for (const auto &asset : images.all()) {
+    if (asset->hash == "bbb") blank = asset.get();
+  }
+  CHECK(blank != nullptr);
+  CHECK(images.adopt_size(*blank, 20, 10));
+
+  view->layout_frame();
+  const LayoutNode *sizeless = find(view->root(), "sizeless");
+  CHECK_EQ(sizeless->rect.width, 20.0);
+  CHECK_EQ(sizeless->rect.height, 10.0);
+}
+
+TEST(view, a_dangling_ref_costs_the_texture_and_not_the_node) {
+  // The node keeps its box and paints its own background — which is the
+  // placeholder, authored rather than a `loading` state (ZAB-13).
+  Document document = loaded(IMAGE_VIEW, 200, 200);
+  const LayoutNode *gone = find(document.view()->root(), "gone");
+  CHECK(gone != nullptr);
+  CHECK(gone->resolved.background.has_value());
+  // Warned once at load, with the node's path on it — never per frame.
+  int warnings = 0;
+  for (const Diagnostic &diagnostic : document.diagnostics()) {
+    if (diagnostic.code == DiagnosticCode::UnknownAsset) warnings++;
+  }
+  CHECK_EQ(warnings, 1);
+}
+
+TEST(view, two_ids_over_the_same_bytes_paint_in_one_batch) {
+  Document document = loaded(IMAGE_VIEW, 200, 200);
+  const GeometryBuilder &geometry = document.view()->paint();
+  // Solids, then ONE batch for the shared hash — `intrinsic`, `twin` and
+  // `tinted` all name it — and none for the ref that does not resolve.
+  int image_batches = 0;
+  for (const Batch &batch : geometry.batches()) {
+    if (batch.kind == TextureKind::Image && !batch.empty()) image_batches++;
+  }
+  CHECK_EQ(image_batches, 1);
+}
+
+TEST(view, an_undeclared_color_leaves_the_pixels_alone_and_a_declared_one_tints_them) {
+  Document document = loaded(IMAGE_VIEW, 200, 200);
+  const GeometryBuilder &geometry = document.view()->paint();
+  const Batch *image = nullptr;
+  for (const Batch &batch : geometry.batches()) {
+    if (batch.kind == TextureKind::Image) image = &batch;
+  }
+  CHECK(image != nullptr);
+  // `intrinsic` paints first and has no `color`: white, i.e. the image as it is.
+  CHECK_EQ(image->colors[0], 1.0f);
+  CHECK_EQ(image->colors[1], 1.0f);
+  CHECK_EQ(image->colors[2], 1.0f);
+  // `tinted` is the last of the three, and carries {color.tint} = #f87171.
+  const size_t last = image->colors.size() - 4;
+  CHECK_NEAR(image->colors[last], 248.0 / 255.0, 1e-6);
+  CHECK_NEAR(image->colors[last + 1], 113.0 / 255.0, 1e-6);
 }

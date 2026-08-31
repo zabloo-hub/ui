@@ -337,6 +337,85 @@ void ZablooView::sync_atlases() {
 }
 
 /**
+ * The manifest images as Godot textures, decoded here because the core will not
+ * own a codec and this engine already ships three.
+ *
+ * Keyed by content hash: a hot-update rebuilds every core-side address, so an
+ * image whose bytes did not change would otherwise be decoded again on every
+ * reload. What is left over after the sweep is what the new envelope stopped
+ * referencing, and dropping the reference here is what frees it.
+ */
+void ZablooView::sync_images() {
+  zabloo::View *view = document_.view();
+  if (view == nullptr) return;
+  zabloo::ImageLibrary &images = view->images();
+  if (images.all().empty() && images_.empty()) return;
+
+  bool resized = false;
+  std::unordered_map<std::string, AssetTexture> live;
+  live.reserve(images.all().size());
+  for (const std::unique_ptr<zabloo::ImageAsset> &asset : images.all()) {
+    const auto found = images_.find(asset->hash);
+    AssetTexture entry = found != images_.end() ? found->second : AssetTexture{};
+    if (entry.texture.is_null() && !entry.failed) entry = decode(*asset);
+    // What the manifest did not say and the decode knows: the one thing that
+    // flows back into the core, and only ever to fill a gap.
+    if (entry.texture.is_valid() &&
+        images.adopt_size(*asset, entry.texture->get_width(), entry.texture->get_height())) {
+      resized = true;
+    }
+    live.emplace(asset->hash, entry);
+  }
+  images_.swap(live);
+  // A box that was zero wide until this frame changes what the whole tree
+  // measures, so the geometry about to be drawn has to be laid out again first.
+  if (resized) {
+    view->layout_frame();
+    queue_redraw();
+  }
+}
+
+/**
+ * Bytes → a texture, by MIME. Godot decodes into an `Image` with straight alpha,
+ * which is what the canvas blends and what the tint multiplies into.
+ */
+ZablooView::AssetTexture ZablooView::decode(const zabloo::ImageAsset &asset) {
+  AssetTexture entry;
+  const std::vector<uint8_t> bytes = zabloo::decode_asset_data(*asset.entry);
+  if (bytes.empty()) {
+    entry.failed = true;
+    UtilityFunctions::push_warning("[zabloo] asset ", String::utf8(asset.hash.c_str()),
+                                   " carries no bytes to decode");
+    return entry;
+  }
+  PackedByteArray buffer;
+  buffer.resize(static_cast<int64_t>(bytes.size()));
+  memcpy(buffer.ptrw(), bytes.data(), bytes.size());
+
+  Ref<Image> image;
+  image.instantiate();
+  const String mime = String::utf8(asset.mime.c_str());
+  Error status = ERR_FILE_UNRECOGNIZED;
+  if (mime == "image/png") {
+    status = image->load_png_from_buffer(buffer);
+  } else if (mime == "image/jpeg") {
+    status = image->load_jpg_from_buffer(buffer);
+  } else if (mime == "image/webp") {
+    status = image->load_webp_from_buffer(buffer);
+  }
+  if (status != OK) {
+    // Remembered as failed, so the node paints its authored background from here
+    // on and this warning is said once rather than sixty times a second.
+    entry.failed = true;
+    UtilityFunctions::push_warning("[zabloo] could not decode asset ",
+                                   String::utf8(asset.hash.c_str()), " (", mime, ")");
+    return entry;
+  }
+  entry.texture = ImageTexture::create_from_image(image);
+  return entry;
+}
+
+/**
  * Upload: one `canvas_item_add_triangle_array` per batch, which is one draw call
  * per batch — the solids of the whole screen, and then one per glyph atlas in
  * play. Solids carry no texture, exactly as the reference renderer draws them.
@@ -346,6 +425,7 @@ void ZablooView::_draw() {
   if (view == nullptr) return;
 
   sync_atlases();
+  sync_images();
   RenderingServer *server = RenderingServer::get_singleton();
   const RID canvas = get_canvas_item();
   for (const zabloo::Batch &batch : view->paint().batches()) {
@@ -370,14 +450,23 @@ void ZablooView::_draw() {
                            batch.colors[i * 4 + 3]);
     }
     // Bones and weights are the two arguments in the way of the texture, which
-    // is the one that matters here: a batch that names an atlas samples it, and
-    // a solid one draws with no texture at all.
+    // is the one that matters here: a batch that names an atlas or an image
+    // samples it, and a solid one draws with no texture at all.
     RID texture;
-    if (batch.texture != nullptr) {
+    if (batch.kind == zabloo::TextureKind::Glyphs) {
       const auto found = atlases_.find(batch.texture);
       if (found != atlases_.end() && found->second.texture.is_valid()) {
         texture = found->second.texture->get_rid();
       }
+    } else if (batch.kind == zabloo::TextureKind::Image) {
+      const auto *asset = static_cast<const zabloo::ImageAsset *>(batch.texture);
+      const auto found = images_.find(asset->hash);
+      // Nothing decoded: skipping the batch leaves the node showing the
+      // background it painted underneath, which is the authored placeholder.
+      // Drawing it would hand Godot its default white texture instead — a solid
+      // tinted rectangle where a picture was meant to be.
+      if (found == images_.end() || found->second.texture.is_null()) continue;
+      texture = found->second.texture->get_rid();
     }
     server->canvas_item_add_triangle_array(canvas, indices_, points_, colors_, uvs_,
                                            PackedInt32Array(), PackedFloat32Array(), texture);

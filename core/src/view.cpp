@@ -25,17 +25,24 @@ constexpr double MAX_FONT_SIZE = 512.0;
 // --- leaves ---------------------------------------------------------------
 
 /**
- * Sizing for the childless types. `Image` waits for the manifest in G5
- * (ZAB-138); a `TextInput` is one line tall and has no intrinsic width, which is
- * G11's (ZAB-144).
+ * Sizing for the childless types. A `TextInput` is one line tall and has no
+ * intrinsic width, which is G11's (ZAB-144).
  */
 class View::Leaves : public LeafMeasurer {
  public:
   explicit Leaves(View &view) : view_(view) {}
 
   Size measure_leaf(LayoutNode &node, std::optional<double> available) override {
-    if (node.ir->type != NodeType::Text) return Size{};
-    return view_.measure_text(node, available);
+    if (node.ir->type == NodeType::Text) return view_.measure_text(node, available);
+    if (node.ir->type == NodeType::Image) {
+      // Intrinsic size straight from the manifest — nothing is decoded, so the
+      // image occupies its space from the very first frame. A ref that does not
+      // resolve measures nothing, and the node is left painting its own
+      // background: the placeholder is authored, not a state (ZAB-13).
+      const ImageAsset *asset = view_.images_.get(node.ir->src);
+      return asset == nullptr ? Size{} : Size{asset->width, asset->height};
+    }
+    return Size{};
   }
 
  private:
@@ -133,7 +140,7 @@ void View::place_text(LayoutNode &node) {
 // --- view -----------------------------------------------------------------
 
 View::View(const Envelope &envelope, std::string_view view_id, DataStore &data)
-    : envelope_(&envelope), data_(&data), fonts_(1.0, default_font()) {
+    : envelope_(&envelope), data_(&data), fonts_(1.0, default_font()), images_(envelope) {
   const ViewDef *found = envelope.view(view_id);
   id_ = std::string(view_id);
   ir_root_ = found != nullptr ? &found->root : nullptr;
@@ -788,8 +795,8 @@ void View::paint_node(LayoutNode &node, double opacity) {
                                   fade(*node.resolved.border_color, own));
   }
   // Glyphs paint in the node's own `color` — the same "color of the content"
-  // that will tint an `Image` in G5 (ZAB-138) — with the inherited opacity
-  // already folded in, exactly as the fill above.
+  // that tints an `Image` below — with the inherited opacity already folded in,
+  // exactly as the fill above.
   if (node.ir->type == NodeType::Text && node.has_text_block) {
     GlyphAtlas &atlas = fonts_.get(font_size(style_of(node)));
     // An undeclared `color` paints in the default text color rather than not at
@@ -799,6 +806,15 @@ void View::paint_node(LayoutNode &node, double opacity) {
     for (size_t i = 0; i < node.text_block.lines.size() && i < node.text_lines.size(); i++) {
       geometry_.text(node.text_lines[i].x, node.text_lines[i].y, node.text_block.lines[i].text,
                      atlas, color);
+    }
+  }
+  if (node.ir->type == NodeType::Image) {
+    const ImageAsset *asset = images_.get(node.ir->src);
+    // Over the background the node just painted, which is what shows through
+    // while the adapter has no texture for it yet.
+    if (asset != nullptr) {
+      geometry_.image(node.rect, *asset, node.ir->fit,
+                      fade(node.resolved.color.value_or(UNTINTED), own), node.resolved.radius);
     }
   }
   for (LayoutNode &child : node.children) paint_node(child, own);
