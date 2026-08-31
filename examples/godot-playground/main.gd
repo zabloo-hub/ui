@@ -2,10 +2,11 @@ extends Control
 
 ## Stands in for the game.
 ##
-## Everything a real integration does is here and it is three lines long: point
-## the view at an exported envelope, listen for named actions, push data back.
-## That is the whole game↔UI coupling surface of v1 — named actions out, data in
-## — and it is the same surface on every engine.
+## Everything a real integration does is here, and it is the whole game↔UI
+## coupling surface of v1: named actions out, data in, plus the by-id operations
+## that ARE the player's gesture. The same surface on every engine — only the
+## spelling follows Godot's conventions (snake_case, and the callbacks are
+## signals).
 
 ## The envelope `examples/hello-button` exports. Read from OUTSIDE the project on
 ## purpose: copying it in would leave the playground rendering a stale build of
@@ -15,6 +16,8 @@ const ENVELOPE := "../hello-button/dist/zabloo.ir.json"
 @onready var _view: ZablooView = $Zabloo
 @onready var _log: Label = $Log
 
+var _gold := 1200
+
 
 func _ready() -> void:
 	var here := ProjectSettings.globalize_path("res://")
@@ -23,14 +26,34 @@ func _ready() -> void:
 		_log.text = "could not load %s\n%s" % [path, "\n".join(_view.get_diagnostics())]
 		return
 	_view.action.connect(_on_action)
-	# The data channel. The bound `Text` nodes start reading it in G7 (ZAB-140);
-	# until then this proves the cache survives a reload, which is what makes a
-	# hot-update keep the state the game already pushed.
-	_view.set_data("player.gold", 1200)
+	# The return leg of the data channel: a control writing its own value tells
+	# the game through this, whether the player moved it or `set_checked` did.
+	_view.data_changed.connect(_on_data_changed)
+	# The game's state, pushed whenever it has it. Bound props read it: the gold
+	# label shows it, and `shop.thanked` decides whether its row is in the layout
+	# at all.
+	_view.set_data("player.gold", _gold)
 	_view.set_data("player.hp", 0.7)
-	_log.text = "loaded %s — press Buy" % path.get_file()
+	_view.set_data("shop.thanked", false)
+	_log.text = "loaded %s — arrows navigate, Enter presses" % path.get_file()
 
 
 func _on_action(name: String, context: Dictionary) -> void:
 	print("[zabloo] action: ", name, context)
-	_log.text = "action: %s" % name
+	match name:
+		"buy":
+			# Buying costs gold and earns a thank-you: two data writes, and the
+			# UI re-lays itself out around both.
+			_gold -= 100
+			_view.set_data("player.gold", _gold)
+			_view.set_data("shop.thanked", true)
+			_log.text = "bought — gold is now %d" % _gold
+		"quit":
+			_log.text = "quit"
+		_:
+			_log.text = "action: %s" % name
+
+
+func _on_data_changed(path: String, value: Variant) -> void:
+	print("[zabloo] data_changed: ", path, " = ", value)
+	_log.text = "%s = %s" % [path, value]

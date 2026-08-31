@@ -3,6 +3,7 @@
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
@@ -13,10 +14,85 @@
 
 #include <cstring>
 
+#include "input_owner.h"
+
 using namespace godot;
+
+namespace {
+
+/**
+ * A `Variant` as the data channel carries it — arrays and dictionaries
+ * included, because a bound path addresses INTO what the game pushed.
+ *
+ * A dictionary key is read as a string whatever it was: paths are dotted
+ * strings, so a key that is not one could never be addressed anyway.
+ */
+zabloo::DataValue to_data_value(const Variant &value) {
+  switch (value.get_type()) {
+    case Variant::NIL:
+      return zabloo::DataValue();
+    case Variant::BOOL:
+      return zabloo::DataValue::of_bool(value);
+    case Variant::INT:
+    case Variant::FLOAT:
+      return zabloo::DataValue::of_number(value);
+    case Variant::ARRAY: {
+      const Array items = value;
+      zabloo::DataValue out = zabloo::DataValue::array();
+      for (int64_t i = 0; i < items.size(); i++) out.push(to_data_value(items[i]));
+      return out;
+    }
+    case Variant::DICTIONARY: {
+      const Dictionary members = value;
+      const Array keys = members.keys();
+      zabloo::DataValue out = zabloo::DataValue::object();
+      for (int64_t i = 0; i < keys.size(); i++) {
+        out.insert(String(keys[i]).utf8().get_data(), to_data_value(members[keys[i]]));
+      }
+      return out;
+    }
+    default:
+      // Everything else — a Vector2, a Color, a node path — is stringified, the
+      // way the reference stringifies whatever it is handed.
+      return zabloo::DataValue::of_text(String(value).utf8().get_data());
+  }
+}
+
+/** A value coming BACK from a control, for the `data_changed` signal. */
+Variant to_variant(const zabloo::DataValue &value) {
+  switch (value.kind) {
+    case zabloo::DataValue::Kind::Bool: return value.boolean;
+    case zabloo::DataValue::Kind::Number: return value.number;
+    case zabloo::DataValue::Kind::Text: return String::utf8(value.text.c_str());
+    case zabloo::DataValue::Kind::Array: {
+      Array out;
+      for (const zabloo::DataValue &item : value.items) out.push_back(to_variant(item));
+      return out;
+    }
+    case zabloo::DataValue::Kind::Object: {
+      Dictionary out;
+      for (size_t i = 0; i < value.keys.size() && i < value.items.size(); i++) {
+        out[String::utf8(value.keys[i].c_str())] = to_variant(value.items[i]);
+      }
+      return out;
+    }
+    case zabloo::DataValue::Kind::Null: break;
+  }
+  return Variant();
+}
+
+std::string_view utf8_of(const CharString &text) {
+  return std::string_view(text.get_data(), text.length());
+}
+
+}  // namespace
 
 ZablooView::ZablooView() {
   set_mouse_filter(Control::MOUSE_FILTER_STOP);
+  // Asked for explicitly: Godot only routes unhandled input to a node that has
+  // opted in, and the auto-detection that does it for a GDScript override does
+  // not read a GDExtension's virtuals.
+  set_process_unhandled_key_input(true);
 }
 
 void ZablooView::_bind_methods() {
@@ -26,6 +102,11 @@ void ZablooView::_bind_methods() {
   ClassDB::bind_method(D_METHOD("get_diagnostics"), &ZablooView::get_diagnostics);
   ClassDB::bind_method(D_METHOD("is_loaded"), &ZablooView::is_loaded);
   ClassDB::bind_method(D_METHOD("set_data", "path", "value"), &ZablooView::set_data);
+  ClassDB::bind_method(D_METHOD("set_open", "id", "open"), &ZablooView::set_open);
+  ClassDB::bind_method(D_METHOD("set_selected_tab", "id", "index"),
+                       &ZablooView::set_selected_tab);
+  ClassDB::bind_method(D_METHOD("set_checked", "id", "checked"), &ZablooView::set_checked);
+  ClassDB::bind_method(D_METHOD("reload", "json"), &ZablooView::reload);
 
   ClassDB::bind_method(D_METHOD("set_envelope_path", "path"), &ZablooView::set_envelope_path);
   ClassDB::bind_method(D_METHOD("get_envelope_path"), &ZablooView::get_envelope_path);
@@ -35,12 +116,24 @@ void ZablooView::_bind_methods() {
                "set_envelope_path", "get_envelope_path");
   ADD_PROPERTY(PropertyInfo(Variant::STRING, "view_id"), "set_view_id", "get_view_id");
 
-  // A named action leaving the UI, exposed the way the engine expects rather
-  // than the way the IR spells it — the whole point of a per-engine adapter.
+  // The callbacks, exposed the way the engine expects rather than the way the IR
+  // spells it — the whole point of a per-engine adapter. All three are ordinary
+  // signals, so GDScript, C# and C++ consume them the same way.
+  //
   // `context` is empty until G12 (ZAB-145) gives an action fired inside a
   // `Repeat` item the path, key and index of the item it came from.
   ADD_SIGNAL(MethodInfo("action", PropertyInfo(Variant::STRING, "name"),
                         PropertyInfo(Variant::DICTIONARY, "context")));
+  // A control wrote its own value into a bound path — the return leg of the data
+  // channel (2026-08-11, ZAB-23). The game hears the same thing whether the
+  // player moved the control or `set_checked` did.
+  ADD_SIGNAL(MethodInfo("data_changed", PropertyInfo(Variant::STRING, "path"),
+                        PropertyInfo(Variant::NIL, "value", PROPERTY_HINT_NONE, "",
+                                     PROPERTY_USAGE_NIL_IS_VARIANT)));
+  // What the loading contract found, on an import and on a hot-update alike.
+  ADD_SIGNAL(MethodInfo("diagnostic", PropertyInfo(Variant::STRING, "code"),
+                        PropertyInfo(Variant::STRING, "message"),
+                        PropertyInfo(Variant::BOOL, "fatal")));
 }
 
 void ZablooView::_ready() {
@@ -49,6 +142,10 @@ void ZablooView::_ready() {
 
 void ZablooView::_notification(int what) {
   if (what == NOTIFICATION_RESIZED) relayout();
+  // Entering the tree is what makes a view eligible for the keyboard; leaving it
+  // hands ownership back to whichever view was there first.
+  else if (what == NOTIFICATION_ENTER_TREE) register_input_view(this);
+  else if (what == NOTIFICATION_EXIT_TREE) unregister_input_view(this);
 }
 
 // --- loading --------------------------------------------------------------
@@ -85,15 +182,25 @@ bool ZablooView::show_view(const String &id) {
  * would bury the one line that matters (2026-08-12).
  */
 void ZablooView::report_diagnostics() const {
-  for (const zabloo::Diagnostic &diagnostic : document_.diagnostics()) {
+  const auto report = [this](const zabloo::Diagnostic &diagnostic) {
+    const bool fatal = diagnostic.level == zabloo::DiagnosticLevel::Fatal;
     const String line = String("[zabloo] ") + zabloo::diagnostic_code_name(diagnostic.code) + ": " +
                         String::utf8(diagnostic.message.c_str());
-    if (diagnostic.level == zabloo::DiagnosticLevel::Fatal) {
+    if (fatal) {
       UtilityFunctions::push_error(line);
     } else {
       UtilityFunctions::push_warning(line);
     }
-  }
+    const_cast<ZablooView *>(this)->emit_signal(
+        "diagnostic", String(zabloo::diagnostic_code_name(diagnostic.code)),
+        String::utf8(diagnostic.message.c_str()), fatal);
+  };
+  for (const zabloo::Diagnostic &diagnostic : document_.diagnostics()) report(diagnostic);
+  // What building the view's RUNTIME found — a malformed tab group, so far. It
+  // belongs with the load's own: both are properties of the payload.
+  const zabloo::View *view = document_.view();
+  if (view == nullptr) return;
+  for (const zabloo::Diagnostic &diagnostic : view->warnings()) report(diagnostic);
 }
 
 PackedStringArray ZablooView::get_diagnostics() const {
@@ -107,26 +214,58 @@ PackedStringArray ZablooView::get_diagnostics() const {
 bool ZablooView::is_loaded() const { return document_.loaded(); }
 
 void ZablooView::set_data(const String &path, const Variant &value) {
-  zabloo::DataValue data;
-  switch (value.get_type()) {
-    case Variant::BOOL:
-      data.kind = zabloo::DataValue::Kind::Bool;
-      data.boolean = value;
-      break;
-    case Variant::INT:
-    case Variant::FLOAT:
-      data.kind = zabloo::DataValue::Kind::Number;
-      data.number = value;
-      break;
-    default:
-      data.kind = zabloo::DataValue::Kind::Text;
-      data.text = String(value).utf8().get_data();
-      break;
-  }
   const CharString utf8 = path.utf8();
-  document_.set_data(std::string_view(utf8.get_data(), utf8.length()), data);
+  document_.set_data(utf8_of(utf8), to_data_value(value));
+  // A push before the view exists is not a special case: the store is the
+  // document's, so whatever loads next simply reads it.
+  if (document_.view() == nullptr) return;
+  flush_events();
   relayout();
 }
+
+bool ZablooView::set_open(const String &id, bool open) {
+  zabloo::View *view = document_.view();
+  const CharString utf8 = id.utf8();
+  if (view == nullptr || !view->set_open(utf8_of(utf8), open)) {
+    UtilityFunctions::push_warning("[zabloo] set_open: no Collapse with id \"", id, "\"");
+    return false;
+  }
+  flush_events();
+  relayout();
+  return true;
+}
+
+bool ZablooView::set_selected_tab(const String &id, int index) {
+  zabloo::View *view = document_.view();
+  const CharString utf8 = id.utf8();
+  if (view == nullptr || !view->set_selected_tab(utf8_of(utf8), index)) {
+    UtilityFunctions::push_warning("[zabloo] set_selected_tab: no exclusive-select group with id \"",
+                                   id, "\"");
+    return false;
+  }
+  flush_events();
+  relayout();
+  return true;
+}
+
+bool ZablooView::set_checked(const String &id, bool checked) {
+  zabloo::View *view = document_.view();
+  const CharString utf8 = id.utf8();
+  if (view == nullptr || !view->set_checked(utf8_of(utf8), checked)) {
+    UtilityFunctions::push_warning("[zabloo] set_checked: no Toggle with id \"", id, "\"");
+    return false;
+  }
+  flush_events();
+  relayout();
+  return true;
+}
+
+/**
+ * A hot-update. The same call as an import and as a dev push (2026-08-01), and
+ * the same guarantee: a payload the core refuses leaves what is on screen
+ * exactly where it was.
+ */
+bool ZablooView::reload(const String &json) { return load_envelope(json); }
 
 void ZablooView::set_envelope_path(const String &path) {
   envelope_path_ = path;
@@ -252,14 +391,19 @@ void ZablooView::_gui_input(const Ref<InputEvent> &event) {
   if (view == nullptr) return;
 
   // `_gui_input` hands positions already local to this Control, and the core
-  // lays out from (0, 0), so there is no transform to undo. That is the entire
-  // input half of the adapter for G2; the keyboard and the pad are G7 and G13.
+  // lays out from (0, 0), so there is no transform to undo. The pad is G13
+  // (ZAB-146).
   bool changed = false;
   const Ref<InputEventMouseButton> button = event;
   if (button.is_valid() && button->get_button_index() == MOUSE_BUTTON_LEFT) {
     const Vector2 at = button->get_position();
-    changed = button->is_pressed() ? view->pointer_down(at.x, at.y)
-                                   : view->pointer_up(at.x, at.y);
+    if (button->is_pressed()) {
+      // Touching a view is using it: among several, this one now takes the keys.
+      claim_input(this);
+      changed = view->pointer_down(at.x, at.y);
+    } else {
+      changed = view->pointer_up(at.x, at.y);
+    }
     accept_event();
   } else {
     const Ref<InputEventMouseMotion> motion = event;
@@ -269,18 +413,71 @@ void ZablooView::_gui_input(const Ref<InputEvent> &event) {
     }
   }
 
-  flush_actions();
+  flush_events();
   // Only when something actually moved: a redraw per mouse motion over an inert
   // panel is a frame nobody asked for.
   if (changed) relayout();
 }
 
-void ZablooView::flush_actions() {
+/**
+ * The keyboard: four directions, a press and a release, and nothing else.
+ *
+ * Navigation is spatial (2026-08-04) — the core walks the live layout rects — so
+ * there is no tab order here to keep, and what has the focus INSIDE the view is
+ * the core's business while what has it in the SCENE is Godot's.
+ *
+ * That split is why this is `_unhandled_key_input` and why the view deliberately
+ * takes no Godot focus of its own (`focus_mode` stays `NONE`). Unhandled is
+ * exactly "no focused Control claimed this key", which is the faithful
+ * translation of the web's rule that the keys are the renderer's only while the
+ * page's focus is on the view or on nothing (ZAB-109): a game's own focused
+ * Button still gets the Enter the engine owes it. Taking the focus here would do
+ * the opposite — Godot's focus navigation would eat the very arrows this reads.
+ *
+ * Exactly one view acts on it. Unhandled input reaches every node in the tree,
+ * so two views in a scene would each move their own focus on the same arrow
+ * (`input_owner.h`).
+ */
+void ZablooView::_unhandled_key_input(const Ref<InputEvent> &event) {
+  zabloo::View *view = document_.view();
+  const Ref<InputEventKey> key = event;
+  if (view == nullptr || key.is_null() || !owns_input(this)) return;
+  // Auto-repeat is the OS repeating the key, which is what a player holding an
+  // arrow expects; a repeated Enter is not a second press of the same button.
+  const bool repeat = key->is_echo();
+
+  bool changed = false;
+  switch (key->get_keycode()) {
+    case KEY_LEFT: changed = key->is_pressed() && view->move_focus(-1, 0); break;
+    case KEY_RIGHT: changed = key->is_pressed() && view->move_focus(1, 0); break;
+    case KEY_UP: changed = key->is_pressed() && view->move_focus(0, -1); break;
+    case KEY_DOWN: changed = key->is_pressed() && view->move_focus(0, 1); break;
+    case KEY_ENTER:
+    case KEY_KP_ENTER:
+    case KEY_SPACE:
+      if (repeat && key->is_pressed()) return;  // held, not pressed again
+      changed = view->press_focused(key->is_pressed());
+      break;
+    default:
+      return;  // not ours: leave it for the scene
+  }
+  // Accepted whether or not anything moved: an arrow that found no candidate is
+  // still an arrow this view answered, and letting it through would move Godot's
+  // own focus out of the game.
+  accept_event();
+  flush_events();
+  if (changed) relayout();
+}
+
+void ZablooView::flush_events() {
   zabloo::View *view = document_.view();
   if (view == nullptr) return;
   for (const zabloo::ActionEvent &action : view->drain_actions()) {
     Dictionary context;
     if (!action.item_path.empty()) context["path"] = String::utf8(action.item_path.c_str());
     emit_signal("action", String::utf8(action.name.c_str()), context);
+  }
+  for (const zabloo::DataChange &change : view->drain_data_changes()) {
+    emit_signal("data_changed", String::utf8(change.path.c_str()), to_variant(change.value));
   }
 }

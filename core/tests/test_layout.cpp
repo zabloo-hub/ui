@@ -163,13 +163,17 @@ TEST(layout, a_grid_is_a_row_that_wraps) {
 }
 
 TEST(layout, a_hidden_node_leaves_the_layout_and_takes_its_gap_with_it) {
-  // `visible` is the single hiding mechanism, with display:none semantics.
+  // `visible` is the single hiding mechanism, with display:none semantics — and
+  // a STATICALLY hidden subtree is not built at all: nothing can ever turn it
+  // back on, so it has no runtime worth keeping. What survives is the gap it
+  // took with it.
   const Fixture fixture(R"({"type":"Container","layout":{"direction":"row","gap":10},
       "children":[{"type":"Container","layout":{"width":20,"height":20}},
                   {"type":"Container","visible":false,"layout":{"width":20,"height":20}},
                   {"type":"Container","layout":{"width":20,"height":20}}]})",
                         200, 100);
-  CHECK_NEAR(fixture.child(2).rect.x, 30.0, EPSILON);
+  CHECK_EQ(fixture.root().children.size(), 2u);
+  CHECK_NEAR(fixture.child(1).rect.x, 30.0, EPSILON);
   CHECK_NEAR(fixture.root().measured.x, 50.0, EPSILON);
 }
 

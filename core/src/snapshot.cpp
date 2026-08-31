@@ -243,11 +243,10 @@ std::string ref_of(const Refs &refs, const LayoutNode *node) {
  * disabled`). Listing them in that order means a diff of two snapshots compares
  * the same positions.
  *
- * The value states — `empty` (TextInput), `selected` (an `"exclusive-select"`
- * group), `checked` (Toggle) and `open` (Collapse) — join as their types land in
- * G10 (ZAB-143) and G11 (ZAB-144); the runtime has nothing to report about them
- * yet, and reporting a `false` it never computed would be a different lie from
- * the honest silence of a field that does not exist.
+ * `empty` is the one still missing: it belongs to a TextInput holding no text,
+ * and the runtime that holds a field's text arrives with G11 (ZAB-144).
+ * Reporting a `false` nobody computed would be a different lie from the honest
+ * silence of a field that does not exist.
  */
 struct StateEntry {
   const char *name;
@@ -255,6 +254,12 @@ struct StateEntry {
 };
 
 const StateEntry STATES[] = {
+    {"selected", [](const LayoutNode &node) { return node.selected; }},
+    {"checked", [](const LayoutNode &node) { return node.checked; }},
+    // `open` is a Collapse's, and only a Collapse's: every other node is born
+    // open and nothing ever closes it.
+    {"open",
+     [](const LayoutNode &node) { return node.ir->type == NodeType::Collapse && node.open; }},
     {"hover", [](const LayoutNode &node) { return node.hovered; }},
     {"focused", [](const LayoutNode &node) { return node.focused; }},
     {"pressed", [](const LayoutNode &node) { return node.pressed; }},
@@ -408,11 +413,19 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs) {
     writer.end_object();
   }
 
-  // `clip` and `scroll` (G6, ZAB-139), `value` and `field` (G11, ZAB-144) and
-  // `window` (G12, ZAB-145) belong here, in that order. Each is written by the
-  // ticket that gives the runtime something to say; until then the field is
-  // absent, which is what "this node has none" already means everywhere else in
-  // this document.
+  // `clip` and `scroll` (G6, ZAB-139) belong here, before `value`.
+
+  // The one number a control's behavior owns. A Toggle's is its cross-fade
+  // progress; a Slider's and a ProgressBar's arrive with G10 (ZAB-143).
+  if (node.ir->type == NodeType::Toggle) {
+    writer.key("value");
+    writer.number_value(node.checked_progress);
+  }
+
+  // `field` (G11, ZAB-144) and `window` (G12, ZAB-145) belong here, in that
+  // order. Each is written by the ticket that gives the runtime something to
+  // say; until then the field is absent, which is what "this node has none"
+  // already means everywhere else in this document.
 
   if (!node.children.empty()) {
     writer.key("children");

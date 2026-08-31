@@ -18,12 +18,15 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <unordered_map>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "data.h"
 #include "glyphs.h"
+#include "groups.h"
 #include "layout.h"
 #include "tessellator.h"
 #include "validate.h"
@@ -41,9 +44,28 @@ struct ActionEvent {
   std::string item_path;
 };
 
+/**
+ * A control writing its own value back through a bound path — the return leg of
+ * the data channel (2026-08-11, ZAB-23).
+ *
+ * It is a queue and not a callback for the same reason actions are: the adapter
+ * drains it after handing the core an input, so a signal never fires from inside
+ * a layout pass. The game hears these on `data_changed`, exactly as it would
+ * hear a real gesture.
+ */
+struct DataChange {
+  std::string path;
+  DataValue value;
+};
+
 class View {
  public:
-  View(const Envelope &envelope, std::string_view view_id);
+  /**
+   * The store is the DOCUMENT's, not the view's: data the game pushed outlives
+   * the envelope it was pushed for, so a hot-update comes back up filled in
+   * (2026-08-03). A view reads it and writes into it; it never owns it.
+   */
+  View(const Envelope &envelope, std::string_view view_id, DataStore &data);
   // The tree holds parent pointers into its own children vectors, so a View that
   // moved would leave every one of them naming where its parent used to be.
   View(const View &) = delete;
@@ -67,8 +89,43 @@ class View {
   /** The pointer left the surface: whatever it held is released, nothing fires. */
   bool pointer_exit();
 
+  // --- keyboard and directional navigation (2026-08-04) ---
+
+  /**
+   * Moves the focus along a unit axis. False when nothing moved — no candidate
+   * lies that way, or there is nothing focusable at all.
+   */
+  bool move_focus(double dx, double dy);
+  /**
+   * Press/release the focused node: Enter and Space on a keyboard, A on a pad.
+   * Releasing is what activates, and only on the node that was pressed.
+   */
+  bool press_focused(bool down);
+
+  // --- the host channel, by id (`docs/format/host-channel.md`) ---
+  // Each answers whether it found the control. A `false` means no node of that
+  // type carries that id and NOTHING was applied — a game looping over ids must
+  // not die because one screen was hot-updated out from under it.
+  //
+  // They are the player's gesture, hooks included: `set_checked` fires the
+  // toggle's `onChange` and, inside a group, the group's.
+
+  bool set_open(std::string_view id, bool open);
+  bool set_selected_tab(std::string_view id, int index);
+  bool set_checked(std::string_view id, bool checked);
+
   /** Named actions produced since the last drain, in the order they fired. */
   std::vector<ActionEvent> drain_actions();
+  /** Values controls wrote back since the last drain, in the order they landed. */
+  std::vector<DataChange> drain_data_changes();
+
+  /**
+   * A path was written: every bound node reading it re-derives its state.
+   *
+   * Called by the document, which owns the store — so a `SetData` before this
+   * view existed is not a special case, it is simply data the build pass reads.
+   */
+  void data_written(std::string_view path);
 
   const LayoutNode &root() const { return root_; }
   /**
@@ -89,9 +146,16 @@ class View {
   const std::string &id() const { return id_; }
   /** The viewport the last `set_size` gave, at the origin. */
   const Rect &viewport() const { return viewport_; }
+  /**
+   * What building this view's runtime found — a malformed `"exclusive-select"`
+   * group, so far. Reported once per load next to the envelope's own: it is a
+   * property of the document, not of the gesture that reads it.
+   */
+  const std::vector<Diagnostic> &warnings() const { return warnings_; }
 
  private:
   const Envelope *envelope_ = nullptr;
+  DataStore *data_ = nullptr;
   std::string id_;
   const Node *ir_root_ = nullptr;
   LayoutNode root_;
@@ -104,6 +168,18 @@ class View {
    */
   FontLibrary fonts_;
   std::vector<ActionEvent> actions_;
+  std::vector<DataChange> data_changes_;
+  std::vector<Diagnostic> warnings_;
+  /** Nodes whose STATE is driven by a binding — what a write has to revisit. */
+  std::vector<LayoutNode *> bound_;
+  /** Ids the host channel addresses. The last node realized under an id wins. */
+  std::unordered_map<std::string, LayoutNode *> by_id_;
+  /**
+   * Where a `"<alias>.$index"` read lands, since a position is a number the data
+   * does not contain and so has nowhere in the store to be. Consumed by the
+   * caller before anything else can read it.
+   */
+  DataValue index_value_;
   /** Bumped per frame; what stamps the per-node style cache. */
   int64_t frame_ = 0;
   LayoutNode *pressed_ = nullptr;
@@ -122,7 +198,51 @@ class View {
   double font_size(const Style &style) const;
   TextLayoutOptions text_options(const Style &style, double font_line_height,
                                  std::optional<double> max_width) const;
-  LayoutNode *first_autofocus(LayoutNode &node);
+  /** Initial state and bindings, once, over the freshly built tree. */
+  void prepare(LayoutNode &node);
+  /** Derives from data everything this node's state reads. */
+  void apply_bindings(LayoutNode &node);
+  /** The values whose BINDING drives this node's state — Text is read at measure. */
+  bool watches(const LayoutNode &node, std::string_view written) const;
+  /** The value behind a bound prop for this node, or null for no value. */
+  const DataValue *read_bind(const LayoutNode &node, const std::string &bind);
+  /** The absolute path a binding WRITES to — an index is a position, not a slot. */
+  bool write_path(const LayoutNode &node, const std::string &bind, std::string &out) const;
+  void write_data(const std::string &path, DataValue value);
+  /** What a `Text` paints this frame: its literal, or what its binding reads. */
+  std::string text_of(const LayoutNode &node);
+
+  // --- Collapse, groups and the Toggle's value ---
+  void apply_open(LayoutNode &node);
+  bool set_collapse_open(LayoutNode &node, bool open);
+  void enforce_group(LayoutNode &opened);
+  TabsGroup tabs_of(const LayoutNode &group) const;
+  void apply_selection(LayoutNode &group);
+  bool set_selected(LayoutNode &group, int index);
+  /** The group and the index this button occupies in it, if it is a tab. */
+  LayoutNode *tab_group_of(LayoutNode &button, int &index);
+  LayoutNode *exclusive_group_of(LayoutNode &node) const;
+  void group_options(LayoutNode &group, LayoutNode &node, std::vector<LayoutNode *> &out) const;
+  void apply_group_value(LayoutNode &group);
+  void set_toggle_checked(LayoutNode &node, bool checked);
+  /** One path for a tap, Enter and the pad: what a control does when activated. */
+  void activate(LayoutNode &node);
+  /** What a release does, whether the press came from a finger or from a key. */
+  void release(LayoutNode &node);
+  /** The Toggle's indicator cross-fade, applied after its children resolve. */
+  void crossfade_slots(LayoutNode &node);
+  /** A node addressed by the host channel, or null when the type does not match. */
+  LayoutNode *find_by_id(std::string_view id, NodeType type);
+
+  // --- focus ---
+  void set_focus(LayoutNode *node);
+  /** Keeps a still-valid focus, otherwise falls back to the scope's `autofocus`. */
+  void sync_focus();
+  /** Drops hover and press from a node that has left the layout under them. */
+  void prune_hover();
+  /** Releases what a node that has just become disabled was holding. */
+  void prune_disabled();
+
   void resolve(LayoutNode &node);
   void paint_node(LayoutNode &node, double opacity);
   const Style &style_of(LayoutNode &node);
@@ -134,21 +254,9 @@ class View {
 
   LayoutNode *hit(LayoutNode &node, double x, double y);
   LayoutNode *pressable_at(double x, double y);
+  LayoutNode *hoverable_at(double x, double y);
+  LayoutNode *collapse_header_at(double x, double y);
   void fire(const LayoutNode &node, const std::string &action);
-};
-
-/**
- * A value the game pushed down the data channel. Bindings read it from G7
- * (ZAB-140); until then the document simply keeps it, which is the half of the
- * contract that has to survive a reload either way.
- */
-struct DataValue {
-  enum class Kind : uint8_t { Bool, Number, Text };
-
-  Kind kind = Kind::Bool;
-  bool boolean = false;
-  double number = 0.0;
-  std::string text;
 };
 
 class Document {
@@ -178,9 +286,9 @@ class Document {
    * it fed: pushed data survives a content swap, which is production hot-update
    * behavior and not a dev convenience (2026-08-03).
    */
-  void set_data(std::string_view path, const DataValue &value);
+  void set_data(std::string_view path, DataValue value);
   const DataValue *data(std::string_view path) const;
-  const std::vector<std::pair<std::string, DataValue>> &data() const { return data_; }
+  DataStore &store() { return *data_; }
 
  private:
   /**
@@ -192,7 +300,16 @@ class Document {
   bool loaded_ = false;
   std::vector<Diagnostic> diagnostics_;
   std::unique_ptr<View> view_;
-  std::vector<std::pair<std::string, DataValue>> data_;
+  /**
+   * Cached ON THE DOCUMENT so it outlives the view it feeds: pushed data
+   * survives a content swap, which is production hot-update behavior and not a
+   * dev convenience (2026-08-03).
+   *
+   * Behind a pointer for the same reason the envelope is: the view holds a
+   * reference to it, and a `Document` that moved would otherwise leave that
+   * reference naming where its store USED to be.
+   */
+  std::unique_ptr<DataStore> data_ = std::make_unique<DataStore>();
 };
 
 }  // namespace zabloo

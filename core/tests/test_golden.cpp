@@ -91,15 +91,6 @@ std::string unsupported(JsonRef spec) {
     missing.emplace_back("a clock to advance (G8, ZAB-141)");
   }
   if (spec.get("pad").exists()) missing.emplace_back("a gamepad to replay (G13, ZAB-146)");
-  const JsonRef data = spec.get("data");
-  for (uint32_t i = 0; i < data.size(); i++) {
-    const JsonRef value = data.at(i);
-    if (value.is_array() || value.is_object()) {
-      missing.emplace_back("a data value the host channel cannot carry yet: \"" +
-                           std::string(data.key_at(i)) + "\" (G12, ZAB-145)");
-      break;
-    }
-  }
 
   if (missing.empty()) return {};
   std::string out = "this runner has no ";
@@ -110,23 +101,30 @@ std::string unsupported(JsonRef spec) {
   return out;
 }
 
-bool to_data_value(JsonRef value, DataValue &out) {
-  if (value.is_bool()) {
-    out.kind = DataValue::Kind::Bool;
-    out.boolean = value.as_bool();
-    return true;
+/**
+ * A corpus `data` entry as the channel carries it.
+ *
+ * Arrays and objects included: a path is an ADDRESS into what the game pushed
+ * (`shop.items.1.name` is one push and two segments of walking), so a channel
+ * that only carried scalars could not express the corpus at all.
+ */
+DataValue to_data_value(JsonRef value) {
+  if (value.is_bool()) return DataValue::of_bool(value.as_bool());
+  if (value.is_number()) return DataValue::of_number(value.as_number());
+  if (value.is_string()) return DataValue::of_text(std::string(value.as_string()));
+  if (value.is_array()) {
+    DataValue out = DataValue::array();
+    for (uint32_t i = 0; i < value.size(); i++) out.push(to_data_value(value.at(i)));
+    return out;
   }
-  if (value.is_number()) {
-    out.kind = DataValue::Kind::Number;
-    out.number = value.as_number();
-    return true;
+  if (value.is_object()) {
+    DataValue out = DataValue::object();
+    for (uint32_t i = 0; i < value.size(); i++) {
+      out.insert(std::string(value.key_at(i)), to_data_value(value.at(i)));
+    }
+    return out;
   }
-  if (value.is_string()) {
-    out.kind = DataValue::Kind::Text;
-    out.text = std::string(value.as_string());
-    return true;
-  }
-  return false;
+  return DataValue();
 }
 
 /**
@@ -163,8 +161,7 @@ std::string replay(JsonRef spec, std::string &failure) {
 
   const JsonRef data = spec.get("data");
   for (uint32_t i = 0; i < data.size(); i++) {
-    DataValue value;
-    if (to_data_value(data.at(i), value)) document.set_data(data.key_at(i), value);
+    document.set_data(data.key_at(i), to_data_value(data.at(i)));
   }
 
   // Two frames, and the second is part of the contract rather than a rig detail:

@@ -40,6 +40,14 @@ class ZablooView : public Control {
   void _draw() override;
   void _notification(int what);
   void _gui_input(const Ref<InputEvent> &event) override;
+  /**
+   * The keyboard, taken here rather than in `_gui_input` for a reason worth
+   * writing down: `_gui_input` only fires for the Control the mouse is over, and
+   * navigating a menu with the arrows must not need the mouse to be hovering it.
+   * Unhandled input reaches the whole tree instead, which is why exactly one
+   * view may act on it — see `input_owner.h`.
+   */
+  void _unhandled_key_input(const Ref<InputEvent> &event) override;
 
   /**
    * The one loading path (2026-08-01): a file imported by hand, a dev push and a
@@ -59,12 +67,35 @@ class ZablooView : public Control {
   /** True once an envelope has loaded — a refused one does not count. */
   bool is_loaded() const;
 
+  // --- the host channel (`docs/format/host-channel.md`) ---
+  // The operations, their arguments and their effects are the contract; only the
+  // spelling follows the engine — snake_case here, and the callbacks are signals.
+
   /**
    * The game→UI data channel. Cached on the document, so it survives a content
    * swap: pushed data outlives the envelope it was pushed for (2026-08-03).
-   * Bound props start reading it in G7 (ZAB-140).
+   *
+   * Arrays and dictionaries are carried whole: a bound path is an ADDRESS into
+   * what was pushed, so `set_data("shop.items", [...])` is what makes
+   * `{"bind": "shop.items.1.name"}` resolve.
    */
   void set_data(const String &path, const Variant &value);
+
+  // Each of these answers whether it FOUND the control. A `false` means no node
+  // of that type carries that id and nothing was applied — a game looping over
+  // ids must not die because one screen was hot-updated out from under it.
+  //
+  // They are the player's gesture, hooks included: `set_checked` fires the
+  // toggle's `onChange` and, inside a group, the group's.
+
+  /** Opens or closes a `Collapse`. */
+  bool set_open(const String &id, bool open);
+  /** Selects a tab of an `"exclusive-select"` group, by the GROUP's id. */
+  bool set_selected_tab(const String &id, int index);
+  /** Sets a `Toggle`, or picks an option of an `"exclusive-check"` group. */
+  bool set_checked(const String &id, bool checked);
+  /** Re-loads the current content. The same path a hot-update takes. */
+  bool reload(const String &json);
 
   void set_envelope_path(const String &path);
   String get_envelope_path() const;
@@ -105,8 +136,16 @@ class ZablooView : public Control {
    * and one mechanism answers both "did it grow?" and "is it gone?".
    */
   void sync_atlases();
-  /** Emits everything the last input produced as `action` signals. */
-  void flush_actions();
+  /**
+   * Emits what the last input produced: the named actions, and the values the
+   * controls wrote back through their bindings.
+   *
+   * Drained after the fact rather than emitted from inside the core, so a signal
+   * handler never runs in the middle of a layout pass — and so a game that
+   * re-enters the view from one (a `set_data` in response to an action) finds it
+   * in a settled state.
+   */
+  void flush_events();
   void report_diagnostics() const;
 };
 

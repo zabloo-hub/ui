@@ -23,7 +23,9 @@
 #include <string>
 #include <vector>
 
+#include "bindings.h"
 #include "color.h"
+#include "data.h"
 #include "envelope.h"
 #include "states.h"
 #include "text.h"
@@ -119,6 +121,32 @@ struct LayoutNode {
   bool pressed = false;
   bool hovered = false;
   bool focused = false;
+  /** A Collapse's open/closed state. The IR's `open` is only the INITIAL one. */
+  bool open = true;
+  /** The chosen tab of an `"exclusive-select"` group. */
+  int selected_index = 0;
+  /** This button IS the chosen tab of its group. */
+  bool selected = false;
+  /** A Toggle's own value; inside an `"exclusive-check"` group, the group's. */
+  bool checked = false;
+  /**
+   * The crossfade between the two indicator slots (0 = unchecked, 1 = checked).
+   * Only ever 0 or 1 until G8 (ZAB-141) tweens it, which is the pre-F7 look: one
+   * indicator, fully opaque.
+   */
+  double checked_progress = 0.0;
+  /**
+   * The selected value of an `"exclusive-check"` group. Options derive their
+   * `checked` from it and never store one of their own — the selection is ONE
+   * value, which is the semantics of a radio (2026-08-11, ZAB-23).
+   */
+  DataValue group_value;
+  /**
+   * The item scopes this node was instantiated under, or null outside every
+   * template — shared and never written to, so the common case costs a pointer.
+   * G12 (ZAB-145) is what opens one.
+   */
+  const std::vector<ItemScope> *scopes = nullptr;
   /** The static or bound `visible`, and the section flag a Collapse/Tabs owns. */
   bool visible_flag = true;
   bool section_shown = true;

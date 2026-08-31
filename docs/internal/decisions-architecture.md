@@ -3301,3 +3301,87 @@ percibe; SDF (`stbtt_GetGlyphSDF`), evolución natural sin cambiar de rasterizad
 y la escala de dispositivo, que el atlas ya acepta como parámetro pero nadie
 conecta todavía —el corpus mide a 1 y un HiDPI real es el adaptador contándole al
 core su escala, que es de G15 (ZAB-148).
+
+## 2026-08-31 — Estados, foco espacial y bindings r/w en el core; el teclado de Godot es lo que NADIE ha manejado (ZAB-140, F11 G7)
+
+**Decisión:** el runtime de estado entra en el core — el `DataStore`, los helpers
+normativos de bindings, el merge de estados, la navegación espacial, `Collapse` y los
+tres `group` — y el adaptador de Godot estrena la mitad del canal de host que ya tiene
+sujeto. Con ello **`bindings`, `collapse-tabs` y `unknown-type` salen de la skip-list**
+comparando byte a byte, y el corpus queda en 11 casos pendientes.
+
+**El dato del canal deja de ser un escalar.** `DataValue` pasa a llevar lo que lleva
+JSON, arrays y objetos incluidos, porque desde ZAB-29 un path **no es una clave sino una
+dirección**: `shop.items.1.name` es un `set_data` de `"shop.items"` y dos segmentos de
+recorrido. Un canal de solo escalares no podía ni expresar el corpus. En Godot eso son
+`Array` y `Dictionary` recorridos recursivamente; el `DataStore` conserva el índice
+prefijo→keys de ZAB-73 y la regla de que **una escritura tira lo que hubiera debajo**.
+
+**Nada convierte números con la librería estándar.** `number_to_text` implementa el
+`String(number)` de ECMA-262 —el decimal más corto que vuelve a leerse como el mismo
+double— a mano, y `text_to_number` la gramática numérica, por el motivo que este repo ya
+tiene escrito dos veces (`json.cpp`, `snapshot.cpp`): `printf`/`strtod` leen el separador
+decimal del **locale**, así que un juego en español pintaría `0,5` donde el corpus grabó
+`0.5`, en silencio, y toda métrica aguas abajo de un `Text` bindeado dejaría de comparar.
+
+**El `autofocus` se asienta en el primer frame, no al construir la vista.** Es estado
+inicial como el `open` de un `Collapse`, pero **si el nodo que nombra puede tomar el foco
+depende del `disabled` heredado**, y eso solo lo resuelve la pasada de resolve. El orden
+por frame queda como el de la referencia: `sync_focus` → `resolve` → `prune_disabled` →
+measure/arrange. Cuesta un frame de flags viejos y es invisible —`disabled` mergea el
+último, así que su override ya está pintando sobre el anillo de foco ese mismo frame—, y
+es lo que hace que `examples/disabled` enfoque el botón vivo y no el apagado.
+
+**Un `visible: false` estático no se construye.** Nada puede volver a encenderlo, así que
+no tiene runtime que guardar; y el snapshot de la referencia **no lo lista**, mientras que
+un `visible` bindeado sí aparece con `out: "visible"`. Sin esa poda, `bindings` no compara.
+
+**El press y el hover no son el mismo conjunto.** `hover` es el conjunto focusable
+(ZAB-36), pero lo que **toma la pulsación** son solo `Button` y `Toggle`: un header de
+`Collapse` conmuta en el release sin llegar a vestir `pressed`, y `Slider`/`TextInput`
+corren gestos propios. De ahí sale una consecuencia que conviene tener escrita porque
+parece un bug y es el contrato: **un header autorado COMO `Button` dispara su acción y no
+abre la sección** — el control gana, y el toggle de `<details>` es lo que hace un header
+que no toma pulsación propia.
+
+**El teclado en Godot: `_unhandled_key_input`, y la vista NO toma el foco del motor.** La
+traducción fiel de la regla web (`focusYieldsKeys`, ZAB-109: las teclas son del renderer
+solo mientras el foco de la página está en la vista o en nada) es exactamente
+"**unhandled**": si un `Control` enfocado del juego reclamó la tecla, nunca llega. Y hay
+que decidirlo al revés de lo que parece: con `focus_mode = ALL` **la navegación de foco
+propia de Godot se come las flechas antes** de que la vista las vea —observado, no
+supuesto—, así que la vista se queda en `FOCUS_NONE` y lo que tiene el foco *dentro* es
+del core mientras lo que lo tiene *en la escena* es del motor. Un `set_process_unhandled_key_input(true)`
+explícito es necesario: la autodetección que hace Godot con un override de GDScript no lee
+las virtuales de una GDExtension.
+
+**Un solo dueño del teclado por proceso** (`sdk/godot/src/input_owner.{h,cpp}`, port de
+`input/ownership.ts`): el input sin manejar recorre TODO el árbol, así que dos
+`ZablooView` en una escena moverían cada uno su foco con la misma flecha. Dueño = la
+primera vista que entra al árbol, y tocar una se lo lleva. Vive en el adaptador y no en el
+core a propósito: es enrutado de input de un **proceso**, justo lo que un `ViewSnapshot`
+no puede describir y por tanto lo que el corpus no puede arbitrar.
+
+**Lo que este ticket NO trae, y por qué:** `set_value`, `set_text` y `set_scroll` **no**
+se exponen todavía. Sus sujetos (`Slider`, `TextInput`, `ScrollView`) no tienen runtime
+hasta G10/G11/G6, y una operación que devolviera `false` para un control que **sí existe**
+convertiría el valor de retorno en una mentira — es lo único que el contrato dice que ese
+`bool` no puede significar. `reveal_delta` (el auto-scroll del foco, ZAB-47) queda portado
+y testeado pero **sin cablear**: no hay offsets de scroll que mover hasta G6.
+
+**`disabled` suelta también la pulsación de teclado.** La referencia solo lo hace para el
+gesto del puntero, y una tecla mantenida sobre un control que el juego apaga se queda
+pegada en `pressed` porque el release ya no encuentra el nodo. Aquí se suelta, que es lo
+que la decisión de ZAB-63 dice ("suelta lo que tuviera cogido: foco, hover, press"); ningún
+caso del corpus lo puede observar, porque no hay guion de teclas.
+
+**Verificado en un proceso Godot real** (4.6.2, playground con el envelope de
+`examples/hello-button`): carga sin diagnósticos, las ops por id responden `true`/`false`
+con su aviso, las flechas navegan y Enter activa (`action: buy`, luego `action: quit`), un
+`reload` a otro envelope conserva el camino de carga, `set_checked` sobre un `Toggle`
+bindeado emite `data_changed("settings.sound", true)`, y en captura: `set_data` mueve el
+oro de 1200 a 1100 y revela la fila bindeada empujando el resto de la pantalla.
+
+**Spec:** `docs/format/host-channel.md` (sección *Godot spelling*). Los módulos nuevos del
+core son `data`, `bindings`, `focus` y `groups`, todos con tests sin motor — la referencia
+literal que G10, G11 y G12 van a seguir usando.
