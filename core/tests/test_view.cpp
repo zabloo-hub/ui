@@ -717,3 +717,5 @@ TEST(view, an_undeclared_color_leaves_the_pixels_alone_and_a_declared_one_tints_
   CHECK_NEAR(image->colors[last], 248.0 / 255.0, 1e-6);
   CHECK_NEAR(image->colors[last + 1], 113.0 / 255.0, 1e-6);
 }
+
+}  // namespace
