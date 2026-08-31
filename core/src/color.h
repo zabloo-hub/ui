@@ -24,6 +24,13 @@ struct Color {
 inline constexpr Color MISSING_COLOR{1.0f, 0.0f, 1.0f, 1.0f};
 /** Text with no `color` of its own. */
 inline constexpr Color DEFAULT_TEXT_COLOR{1.0f, 1.0f, 1.0f, 1.0f};
+/**
+ * No tint: an `Image` with no `color` shows its own pixels (ZAB-13). White,
+ * because the tint is a plain multiply of texture × vertex colour — the same
+ * multiply that gives a glyph its colour, which is why one property means "the
+ * colour of this node's content" for both.
+ */
+inline constexpr Color UNTINTED{1.0f, 1.0f, 1.0f, 1.0f};
 
 /** `#rrggbb` or `#rrggbbaa`. False for anything else — the caller keeps its fallback. */
 bool parse_color_literal(std::string_view text, Color &out);

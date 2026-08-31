@@ -3385,3 +3385,87 @@ oro de 1200 a 1100 y revela la fila bindeada empujando el resto de la pantalla.
 **Spec:** `docs/format/host-channel.md` (sección *Godot spelling*). Los módulos nuevos del
 core son `data`, `bindings`, `focus` y `groups`, todos con tests sin motor — la referencia
 literal que G10, G11 y G12 van a seguir usando.
+## 2026-08-31 — Assets e `Image` en el core: el codec es del motor, la textura va por hash y el orden de pintado es el de la referencia (ZAB-138, F11 G5)
+
+**Decisión:** el pipeline de assets entra en el core **sin decodificador**. El core
+resuelve `asset:<id>` contra el manifest, cachea por **hash de contenido** y emite el
+quad con sus UVs; los píxeles los produce el motor del adaptador
+(`Image.load_png_from_buffer` en Godot), que es lo único de todo esto que un motor
+ya sabe hacer. Con ello `assets-image` sale de la skip-list comparando **byte a byte**.
+
+**Por qué el core no decodifica** — es lo que va contra el instinto, porque vendorear
+`stb_image.h` habría sido un `#include` como el de `stb_truetype.h` de G4:
+
+1. **La regla de cero dependencias no es la razón principal; la asimetría con el texto
+   sí.** El rasterizado se hizo core-owned (2026-08-11) porque las **métricas** de la
+   fuente entran en el layout, así que dos implementaciones que difieran mueven los
+   rects y el corpus deja de comparar. Un PNG no tiene esa propiedad: de una imagen el
+   layout solo lee `width`/`height`, **y esos vienen en el manifest** — el export los
+   sacó de la cabecera en tiempo de autoría (2026-08-11, ZAB-10). Los píxeles no entran
+   en ninguna métrica y el corpus no compara ni uno.
+2. **Nadie carece de codec.** Godot trae tres, Unreal los suyos, el navegador
+   `createImageBitmap`. El caso que justificó traer stb —"el camino de fuentes de cada
+   motor es un puente a medida"— aquí no existe: cargar un PNG es una llamada.
+3. **La frontera de ZAB-134 se respeta igual**: el core produce el `ViewSnapshot`
+   completo de `assets-image` sin motor, porque medir una imagen nunca necesitó
+   decodificarla.
+
+**La textura se cachea por HASH, y el core no tiene callback de evicción.** El
+adaptador barre `view->images().all()` en cada `_draw`, exactamente como ya barría
+`fonts().all()` (G4): lo que sobra tras el barrido es lo que el envelope nuevo dejó de
+referenciar, y soltar la `Ref` ahí es lo que lo libera. Que la clave sea el hash y no
+el puntero del core es lo que hace barato un hot-update: `load_envelope` reconstruye el
+documento entero, así que **todas** las direcciones cambian, y sin embargo una imagen
+cuyos bytes no cambiaron conserva su textura. Es la misma propiedad content-addressed
+sobre la que ya se apoyan el CDN futuro y el transporte del dev loop (2026-08-11,
+ZAB-12 y ZAB-14). Dos ids con los mismos bytes son **un** asset, así que comparten
+draw call sin que el tesselador se entere.
+
+**El `Batch` gana un `TextureKind`, y con él el orden de pintado se vuelve normativo.**
+Sin discriminador, el `const void *` de un batch no se puede castear de vuelta: un
+atlas es LA8 que el core posee, una imagen son bytes que el motor tiene que decodificar.
+Y al añadirlo se destapó que el orden de batches del core era **el de primer pintado**,
+mientras que la referencia emite siempre `sólidos → imágenes → texto`: una imagen
+declarada después de una etiqueta dibujaría **encima** de ella en Godot y debajo en web.
+El orden de pintado es visible, así que el core pasa a mantener el vector como
+`[sólidos, imágenes…, atlas…]`, insertando en la frontera. Solo ocurre la primera vez
+que se ve una textura, así que ningún frame lo paga.
+
+**Back-channel `adopt_size`, deliberadamente estrecho.** La referencia mide el bitmap
+que acaba de decodificar cuando el manifest no trae dimensiones; el core no puede, así
+que un asset sin dims mediría 0 para siempre — una divergencia de **layout** que el
+corpus no puede cazar (ninguno de sus casos tiene un asset sin dimensiones). El
+adaptador devuelve lo que decodificó y el core relayoutea, **solo si el manifest dejó el
+hueco**: el manifest siempre gana, porque es lo que el layout ya reservó. Es lo único
+que fluye del adaptador hacia el core, y el motivo de que `View::images()` no sea const.
+
+**Un decode que falla se recuerda, y su batch se salta.** Reintentarlo es gastar el
+presupuesto de un frame en volver a producir el mismo error, y dibujarlo sin textura
+sería peor que no dibujarlo: Godot ataría su blanco de 1×1 y el nodo saldría como un
+rectángulo sólido teñido donde debía haber una foto. Saltando el batch queda a la vista
+el `background` que el nodo ya pintó debajo — que es el placeholder, autorado y no un
+estado (ZAB-13).
+
+**Bug del validador encontrado por el camino, y arreglado:** `is_base64` rechazaba el
+padding de **dos** caracteres (`"TQ=="`), porque su comprobación de posición
+(`i + padding < text.size()`) es falsa para el segundo `=` — y era además redundante,
+ya que el guard de "un carácter que no es `=` después de un `=`" ya obliga a que el
+padding esté al final. Consecuencia: **todo asset cuya longitud en bytes es 1 mod 3 se
+descartaba entero**, en silencio y perdiendo su textura, mientras el mismo envelope
+cargaba perfectamente en web (cuya regla es `={0,2}$`). El corpus no podía verlo: sus
+dos PNGs dan de casualidad longitudes sin padding doble. La regresión vive en
+`test_validate.cpp`, con los tres casos que fijan la regla.
+
+**Alcance que se queda fuera, con su motivo:** el atlas de imágenes (varias en un draw
+call) y los mipmaps, que ZAB-12 ya difirió y que ni la escala ni el contenido piden;
+`nine-slice`, que es paint nuevo y no un `fit`; y la recarga **al guardar**, que es el
+dev loop de G14 (ZAB-147) — hoy el playground la hace a mano con `R`, que pasa por el
+mismo `load_file` que un push de plataforma y sirve justo para ver la retención de
+texturas por hash a través de un reload.
+
+**Dónde vive:** `core/src/assets.{h,cpp}` (el manifest resuelto y `decode_asset_data`,
+port de `decodeAssetData`), `core/src/tessellator.{h,cpp}` (`TextureKind`, `fit_image`
+y `GeometryBuilder::image`), `core/src/view.cpp` (medida intrínseca y paint),
+`sdk/godot/src/zabloo_view.cpp` (`sync_images` y el decode por MIME). Tests:
+`core/tests/test_assets.cpp`, más los de imagen en `test_tessellator.cpp` y
+`test_view.cpp`. Corpus: `assets-image` fuera de `core/tests/golden-skip.json`.

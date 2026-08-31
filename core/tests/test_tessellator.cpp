@@ -1,6 +1,8 @@
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
+#include "assets.h"
 #include "glyphs.h"
 #include "tessellator.h"
 #include "testing.h"
@@ -137,4 +139,194 @@ TEST(tessellator, whitespace_advances_the_pen_and_paints_nothing) {
   // The second glyph sits a space to the right of the first, so the pen moved
   // through the whitespace even though nothing was emitted for it.
   CHECK(text.positions[8] > text.positions[0] + atlas.advance('a'));
+}
+
+// --- images ---------------------------------------------------------------
+
+namespace {
+
+/** A 2:1 source, so `contain` has to letterbox it and `cover` has to crop. */
+ImageAsset source(double width = 64, double height = 32) {
+  ImageAsset asset;
+  asset.hash = "aaa";
+  asset.mime = "image/png";
+  asset.width = width;
+  asset.height = height;
+  return asset;
+}
+
+/** True when no vertex of a batch lies outside `rect` — the standing invariant. */
+bool inside(const Batch &batch, const Rect &rect) {
+  const double slack = 1e-6;
+  for (uint32_t i = 0; i < batch.vertex_count(); i++) {
+    const double x = batch.positions[i * 2];
+    const double y = batch.positions[i * 2 + 1];
+    if (x < rect.x - slack || x > rect.x + rect.width + slack) return false;
+    if (y < rect.y - slack || y > rect.y + rect.height + slack) return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+TEST(tessellator, contain_letterboxes_the_box_and_samples_the_whole_texture) {
+  const Rect box{0, 0, 120, 120};
+  const std::optional<ImageQuad> quad = fit_image(box, 64, 32, ImageFit::Contain);
+  CHECK(quad.has_value());
+  // 2:1 into a square: full width, half the height, centred vertically.
+  CHECK_NEAR(quad->rect.width, 120.0, 1e-9);
+  CHECK_NEAR(quad->rect.height, 60.0, 1e-9);
+  CHECK_NEAR(quad->rect.y, 30.0, 1e-9);
+  CHECK_NEAR(quad->uv.width, 1.0, 1e-9);
+  CHECK_NEAR(quad->uv.height, 1.0, 1e-9);
+}
+
+TEST(tessellator, cover_fills_the_rect_and_crops_through_the_uvs) {
+  const Rect box{0, 0, 120, 120};
+  const std::optional<ImageQuad> quad = fit_image(box, 64, 32, ImageFit::Cover);
+  CHECK(quad.has_value());
+  // The geometry is the rect itself — nothing overflows, which is what keeps
+  // hit-testing on layout rects honest (2026-08-06).
+  CHECK_NEAR(quad->rect.width, 120.0, 1e-9);
+  CHECK_NEAR(quad->rect.height, 120.0, 1e-9);
+  // Half the source's width is visible, centred; its height is all of it.
+  CHECK_NEAR(quad->uv.width, 0.5, 1e-9);
+  CHECK_NEAR(quad->uv.x, 0.25, 1e-9);
+  CHECK_NEAR(quad->uv.height, 1.0, 1e-9);
+  CHECK_NEAR(quad->uv.y, 0.0, 1e-9);
+}
+
+TEST(tessellator, stretch_takes_the_whole_box_and_the_whole_texture) {
+  const std::optional<ImageQuad> quad = fit_image(Rect{5, 7, 120, 120}, 64, 32, ImageFit::Stretch);
+  CHECK(quad.has_value());
+  CHECK_NEAR(quad->rect.x, 5.0, 1e-9);
+  CHECK_NEAR(quad->rect.height, 120.0, 1e-9);
+  CHECK_NEAR(quad->uv.width, 1.0, 1e-9);
+}
+
+TEST(tessellator, no_fit_paints_outside_the_rect_it_was_given) {
+  const Rect box{10, 20, 90, 40};
+  for (const ImageFit fit : {ImageFit::Contain, ImageFit::Cover, ImageFit::Stretch}) {
+    for (const double aspect : {0.25, 1.0, 4.0}) {
+      const std::optional<ImageQuad> quad = fit_image(box, 100 * aspect, 100, fit);
+      CHECK(quad.has_value());
+      CHECK(quad->rect.x >= box.x - 1e-9);
+      CHECK(quad->rect.y >= box.y - 1e-9);
+      CHECK(quad->rect.x + quad->rect.width <= box.x + box.width + 1e-9);
+      CHECK(quad->rect.y + quad->rect.height <= box.y + box.height + 1e-9);
+    }
+  }
+}
+
+TEST(tessellator, a_side_with_no_usable_size_has_no_quad_at_all) {
+  // A collapsed rect, and a manifest that carried no dimensions with nothing
+  // decoded yet: neither can be fitted, and both mean "paint nothing".
+  CHECK(!fit_image(Rect{0, 0, 0, 40}, 64, 32, ImageFit::Contain).has_value());
+  CHECK(!fit_image(Rect{0, 0, 90, 40}, 0, 0, ImageFit::Contain).has_value());
+  CHECK(!fit_image(Rect{0, 0, 90, 40}, 64, 0, ImageFit::Cover).has_value());
+
+  GeometryBuilder builder;
+  builder.reset();
+  builder.image(Rect{0, 0, 90, 40}, source(0, 0), ImageFit::Contain, RED, 0);
+  CHECK_EQ(builder.batches().size(), 1u);
+  CHECK(builder.batches()[0].empty());
+}
+
+TEST(tessellator, a_square_cornered_image_is_a_quad_with_its_uv_window_on_it) {
+  const ImageAsset asset = source();
+  GeometryBuilder builder;
+  builder.reset();
+  builder.image(Rect{0, 0, 120, 120}, asset, ImageFit::Cover, RED, 0);
+
+  CHECK_EQ(builder.batches().size(), 2u);
+  const Batch &image = builder.batches()[1];
+  CHECK(image.texture == &asset);
+  CHECK(image.kind == TextureKind::Image);
+  CHECK_EQ(image.vertex_count(), 4u);
+  CHECK_EQ(image.indices.size(), 6u);
+  // The crop of `cover`, on the vertices: u runs 0.25 → 0.75, v runs 0 → 1.
+  CHECK_NEAR(image.uvs[0], 0.25, 1e-6);
+  CHECK_NEAR(image.uvs[1], 0.0, 1e-6);
+  CHECK_NEAR(image.uvs[4], 0.75, 1e-6);
+  CHECK_NEAR(image.uvs[5], 1.0, 1e-6);
+  // The tint rides on every vertex, exactly as a glyph's colour does.
+  CHECK_EQ(image.colors.size(), 16u);
+  CHECK_EQ(image.colors[0], 1.0f);
+  CHECK_EQ(image.colors[1], 0.0f);
+}
+
+TEST(tessellator, a_rounded_image_is_the_same_fan_a_background_is) {
+  const ImageAsset asset = source();
+  GeometryBuilder builder;
+  builder.reset();
+  builder.image(Rect{0, 0, 120, 60}, asset, ImageFit::Stretch, RED, 12);
+
+  const Batch &image = builder.batches()[1];
+  CHECK_EQ(image.vertex_count(), PERIMETER + 1);
+  CHECK_EQ(image.indices.size(), PERIMETER * 3);
+  // Every UV stays inside the window it samples, and every vertex inside the box.
+  for (size_t i = 0; i < image.uvs.size(); i++) {
+    CHECK(image.uvs[i] >= -1e-6f);
+    CHECK(image.uvs[i] <= 1.0f + 1e-6f);
+  }
+  CHECK(inside(image, Rect{0, 0, 120, 60}));
+}
+
+TEST(tessellator, a_radius_clamps_to_the_painted_box_and_not_to_the_rect) {
+  // With `contain` the painted box is smaller than the rect, so a radius clamped
+  // against the rect would leave visible square corners on the letterboxed image.
+  const ImageAsset asset = source();
+  const Rect rect{0, 0, 120, 120};
+  GeometryBuilder builder;
+  builder.reset();
+  builder.image(rect, asset, ImageFit::Contain, RED, 1000);
+
+  const Batch &image = builder.batches()[1];
+  // The box is 120×60; half its shorter side is 30, so the fan's leftmost point
+  // sits at the vertical centre of the BOX (y = 60), not of the rect.
+  CHECK(inside(image, Rect{0, 30, 120, 60}));
+  double lowest_x = 1e9;
+  double y_at_lowest = 0;
+  for (uint32_t i = 0; i < image.vertex_count(); i++) {
+    if (image.positions[i * 2] < lowest_x) {
+      lowest_x = image.positions[i * 2];
+      y_at_lowest = image.positions[i * 2 + 1];
+    }
+  }
+  CHECK_NEAR(lowest_x, 0.0, 1e-6);
+  CHECK_NEAR(y_at_lowest, 60.0, 1e-6);
+}
+
+TEST(tessellator, the_batches_come_out_solids_then_images_then_text) {
+  // Painter's order is the reference's, not the tree's: an image declared after
+  // a label still draws under it. A target that ordered these by first paint
+  // would answer the same envelope with a different picture.
+  const ImageAsset asset = source();
+  GlyphAtlas atlas(16.0, 1.0, default_font());
+  GeometryBuilder builder;
+  builder.reset();
+  builder.text(4.0, 4.0, "Hi", atlas, RED);
+  builder.image(Rect{0, 0, 60, 30}, asset, ImageFit::Cover, RED, 0);
+  builder.rounded_rect(Rect{0, 0, 100, 30}, 0, RED);
+
+  CHECK_EQ(builder.batches().size(), 3u);
+  CHECK(builder.batches()[0].kind == TextureKind::None);
+  CHECK(builder.batches()[1].kind == TextureKind::Image);
+  CHECK(builder.batches()[2].kind == TextureKind::Glyphs);
+}
+
+TEST(tessellator, one_asset_is_one_batch_however_many_nodes_name_it) {
+  // The hash-keyed cache hands both nodes the same asset, so this is what "two
+  // ids with the same bytes share a draw call" looks like downstream.
+  const ImageAsset asset = source();
+  const ImageAsset other = source(16, 16);
+  GeometryBuilder builder;
+  builder.reset();
+  builder.image(Rect{0, 0, 60, 30}, asset, ImageFit::Cover, RED, 0);
+  builder.image(Rect{0, 40, 60, 30}, asset, ImageFit::Cover, RED, 0);
+  CHECK_EQ(builder.batches().size(), 2u);
+  CHECK_EQ(builder.batches()[1].vertex_count(), 8u);
+
+  builder.image(Rect{0, 80, 20, 20}, other, ImageFit::Contain, RED, 0);
+  CHECK_EQ(builder.batches().size(), 3u);
 }

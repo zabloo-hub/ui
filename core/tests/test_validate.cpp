@@ -149,6 +149,29 @@ TEST(validate, the_repaired_tree_is_what_the_reference_repairs_it_to) {
   CHECK_EQ(report.envelope.assets.size(), 1u);
 }
 
+TEST(validate, base64_padding_is_a_tail_of_at_most_two_and_two_is_allowed) {
+  // A payload whose length is 1 mod 3 ends in `==`, so this rejected roughly a
+  // third of every asset that could exist — its node silently lost its texture
+  // while the very same envelope loaded fine on the web, whose rule is `={0,2}$`.
+  // The corpus could not see it: both its PNGs happen to need no padding.
+  const char *two = R"({"v":1,"tokens":{},"assets":{
+    "a.png":{"hash":"aaa","mime":"image/png","size":1,"data":"TQ=="}},
+    "views":{"a":{"type":"Container"}}})";
+  const EnvelopeReport kept = read_envelope(two);
+  CHECK(kept.ok);
+  CHECK_EQ(kept.envelope.assets.size(), 1u);
+
+  // Three is not padding, and a `=` anywhere but the tail is not either.
+  const char *three = R"({"v":1,"tokens":{},"assets":{
+    "a.png":{"hash":"aaa","mime":"image/png","size":1,"data":"T==="}},
+    "views":{"a":{"type":"Container"}}})";
+  CHECK_EQ(read_envelope(three).envelope.assets.size(), 0u);
+  const char *inner = R"({"v":1,"tokens":{},"assets":{
+    "a.png":{"hash":"aaa","mime":"image/png","size":1,"data":"A=AA"}},
+    "views":{"a":{"type":"Container"}}})";
+  CHECK_EQ(read_envelope(inner).envelope.assets.size(), 0u);
+}
+
 TEST(validate, an_empty_text_is_content_but_an_absent_one_is_not) {
   // ZAB-65: `""` is a label with nothing to say today — a Select with no value,
   // a bound path the game has not filled. What sinks the node is the field

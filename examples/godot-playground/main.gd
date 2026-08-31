@@ -8,10 +8,13 @@ extends Control
 ## spelling follows Godot's conventions (snake_case, and the callbacks are
 ## signals).
 
-## The envelope `examples/hello-button` exports. Read from OUTSIDE the project on
+## The envelope `examples/showcase` exports. Read from OUTSIDE the project on
 ## purpose: copying it in would leave the playground rendering a stale build of
 ## the example it exists to show.
-const ENVELOPE := "../hello-button/dist/zabloo.ir.json"
+const ENVELOPE := "../showcase/dist/zabloo.ir.json"
+## The view that exercises what G5 landed: intrinsic size, the three fit modes,
+## the tint and the rounded corners of `Image`.
+const VIEW := "media"
 
 @onready var _view: ZablooView = $Zabloo
 @onready var _log: Label = $Log
@@ -20,6 +23,11 @@ var _gold := 1200
 
 
 func _ready() -> void:
+	_view.action.connect(_on_action)
+	_load()
+
+
+func _load() -> void:
 	var here := ProjectSettings.globalize_path("res://")
 	var path := here.path_join(ENVELOPE).simplify_path()
 	if not _view.load_file(path):
@@ -36,6 +44,28 @@ func _ready() -> void:
 	_view.set_data("player.hp", 0.7)
 	_view.set_data("shop.thanked", false)
 	_log.text = "loaded %s — arrows navigate, Enter presses" % path.get_file()
+
+
+## Reload and view switching, by hand.
+##
+## `_load` is the production hot-update path (`load_file` → `load_envelope` →
+## the core's one loader), so pressing R after re-exporting the example is the
+## same swap a platform push performs — which is what makes it worth having
+## here: it is how you watch an image survive a reload by its content hash, and
+## a removed one release its texture. Doing it ON SAVE is `zabloo dev --godot`,
+## which is G14 (ZAB-147).
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not (event is InputEventKey and event.is_pressed() and not event.is_echo()):
+		return
+	if event.keycode == KEY_R:
+		_load()
+		return
+	var views := ["controls", "layout", "lists", "media", "motion", "navigation",
+		"overlays", "theming", "typography"]
+	var index: int = event.keycode - KEY_1
+	if index >= 0 and index < views.size():
+		_view.show_view(views[index])
+		_log.text = "view: %s" % views[index]
 
 
 func _on_action(name: String, context: Dictionary) -> void:

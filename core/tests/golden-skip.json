@@ -15,6 +15,9 @@
   "cases": {
     "disabled": "Three things this case records still have no runtime: the scrollable extent of the ScrollView inside the disabled section — G6 (ZAB-139) —, the fill and thumb of the Slider — G10 (ZAB-143) — and the TextInput's field block — G11 (ZAB-144). The disabled flag itself, inherited from the data over a Collapse, a ScrollView and three controls, already compares.",
     "assets-image": "The asset manifest and an Image's intrinsic size — G5 (ZAB-138).",
+    "unknown-type": "A Toggle's checked state and its value — G10 (ZAB-143). The degradation rule this case is a record of is already implemented, and so are the text metrics of the labels around it: what is left of its diff is the one control inside the disabled group.",
+    "bindings": "Bound text, bound visibility and a bound Toggle — G7 (ZAB-140).",
+    "collapse-tabs": "display:none through a Collapse and an exclusive-select group — G7 (ZAB-140).",
     "scroll-clip": "Scrollable extents and clipped subtrees — G6 (ZAB-139).",
     "transitions": "Tweened values measured at rest, which needs both the clock and the transition engine — G8 (ZAB-141).",
     "overlays": "The overlay layer in (z, document order), with a modal taking the focus with it — G9 (ZAB-142).",
