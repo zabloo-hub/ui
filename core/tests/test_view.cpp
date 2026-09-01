@@ -719,3 +719,228 @@ TEST(view, an_undeclared_color_leaves_the_pixels_alone_and_a_declared_one_tints_
 }
 
 }  // namespace
+
+// --- motion (G8, ZAB-141) -------------------------------------------------
+//
+// The engine's arithmetic is proved in `test_transition.cpp`; what these check is
+// that a real frame drives it — the clock reaching it, the values landing on the
+// node, the layout pass seeing them, and the state being dropped when a subtree
+// leaves the layout under a motion.
+
+namespace {
+
+/**
+ * Two hoverable buttons that tween, a bound bar, and a Collapse that animates
+ * inside a panel the data can hide.
+ *
+ * The Collapse's header carries its height in a CHILD rather than declaring one:
+ * the closed box is measured from the header's NATURAL size — what its content
+ * asks for, before any declared height replaces it — which is what the reference
+ * reads too.
+ */
+const char *MOTION_VIEW = R"({"v":1,"tokens":{"motion.slow":100},"views":{"motion":{
+  "type":"Container","layout":{"direction":"column"},
+  "children":[
+    {"type":"Button","id":"fade","onClick":"noop","autofocus":true,
+     "transition":{"duration":"{motion.slow}","easing":"linear"},
+     "layout":{"width":100,"height":40},
+     "style":{"background":"#000000","opacity":1},
+     "states":{"hover":{"style":{"background":"#ffffff","opacity":0.5}},
+               "focused":{"style":{"borderWidth":2,"borderColor":"#ffffff"}}}},
+    {"type":"Button","id":"other","onClick":"noop","layout":{"width":100,"height":40}},
+    {"type":"ProgressBar","id":"bar","value":{"bind":"job.progress"},
+     "transition":{"duration":"{motion.slow}","easing":"linear"},
+     "layout":{"direction":"row","width":200,"height":10},
+     "children":[{"type":"Container","id":"bar-fill","style":{"background":"#ffffff"}}]},
+    {"type":"Container","id":"panel","visible":{"bind":"ui.shown"},
+     "layout":{"direction":"column"},
+     "children":[
+       {"type":"Collapse","id":"section","open":false,
+        "transition":{"duration":"{motion.slow}","easing":"linear"},
+        "layout":{"direction":"column","width":200},
+        "children":[
+          {"type":"Container","id":"head","layout":{"direction":"column"},
+           "children":[{"type":"Container","layout":{"width":200,"height":20}}]},
+          {"type":"Container","id":"body","layout":{"width":200,"height":80}}]}]}]}}})";
+
+/** One frame at `now`, so a test reads like the clock it is describing. */
+void frame_at(View &view, double now) {
+  view.set_now(now);
+  view.layout_frame();
+}
+
+/** The `section`, once `ui.shown` has let its panel into the layout. */
+const LayoutNode &section_of(const View &view) { return view.root().children[3].children[0]; }
+
+}  // namespace
+
+TEST(view, a_state_change_tweens_the_resolved_values_and_asks_for_frames_while_it_does) {
+  Document document = loaded(MOTION_VIEW, 400, 300);
+  View *view = document.view();
+  const LayoutNode &button = view->root().children[0];
+  // Settled at rest: a mount snaps, so nothing is moving before anything moves.
+  CHECK(!view->animating());
+  CHECK_EQ(button.resolved.opacity, 1.0);
+
+  // The pointer arrives: the frame the state flips still paints the OLD value.
+  view->pointer_move(50, 20);
+  frame_at(*view, 0);
+  CHECK(view->animating());
+  CHECK_EQ(button.resolved.opacity, 1.0);
+
+  frame_at(*view, 50);
+  CHECK_NEAR(button.resolved.opacity, 0.75, 1e-9);
+  CHECK(button.resolved.background.has_value());
+  CHECK_NEAR(button.resolved.background->r, 0.5, 1e-6);
+  CHECK(view->animating());
+
+  frame_at(*view, 100);
+  CHECK_NEAR(button.resolved.opacity, 0.5, 1e-9);
+  // Landed: the adapter stops being asked for frames, which is the whole point of
+  // frames on demand — motion costs them for exactly as long as it lasts.
+  CHECK(!view->animating());
+}
+
+TEST(view, a_node_with_no_transition_snaps_which_is_the_pre_f7_behavior) {
+  Document document = loaded(BUTTON_VIEW);
+  View *view = document.view();
+  const LayoutNode &button = view->root().children[0];
+  const Color idle = *button.resolved.background;
+
+  view->pointer_move(40, 25);
+  frame_at(*view, 0);
+  CHECK(!(*button.resolved.background == idle));
+  CHECK(!view->animating());
+}
+
+TEST(view, a_border_on_its_way_out_holds_its_colour_instead_of_flashing_magenta) {
+  // The bug ZAB-36 found in the reference: `borderWidth` tweens 2 → 0 while an
+  // undeclared `borderColor` would drop to the missing-colour magenta halfway out.
+  Document document = loaded(MOTION_VIEW, 400, 300);
+  View *view = document.view();
+  const LayoutNode &button = view->root().children[0];
+  CHECK(view->focus() == &button);  // autofocus, so the ring is already on
+  CHECK_NEAR(button.resolved.border_width, 2.0, 1e-9);
+
+  CHECK(view->move_focus(0, 1));  // down to the other button: the ring starts out
+  frame_at(*view, 0);
+  frame_at(*view, 50);
+  CHECK_NEAR(button.resolved.border_width, 1.0, 1e-9);
+  CHECK(button.resolved.border_color.has_value());
+  const Color white{1.0f, 1.0f, 1.0f, 1.0f};
+  CHECK(*button.resolved.border_color == white);
+}
+
+TEST(view, a_progress_bar_tweens_its_value_and_the_arrange_derives_the_fill_from_it) {
+  Document document = loaded(MOTION_VIEW, 400, 300);
+  View *view = document.view();
+  const LayoutNode &bar = view->root().children[2];
+  // No data yet: a binding pointing at nothing is an EMPTY bar, never a full one.
+  CHECK_EQ(bar.progress, 0.0);
+  CHECK_EQ(bar.children[0].rect.width, 0.0);
+
+  document.set_data("job.progress", DataValue::of_number(0.5));
+  frame_at(*view, 0);
+  CHECK_EQ(bar.progress, 0.0);  // the frame it moves still shows the old value
+  CHECK(view->animating());
+
+  frame_at(*view, 50);
+  CHECK_NEAR(bar.progress, 0.25, 1e-9);
+  // The VALUE is what tweened; the rect is derived from it by the same arrange
+  // pass as always (2026-08-11 §4), so there is still one layout pass per frame.
+  CHECK_NEAR(bar.children[0].rect.width, 50.0, 1e-9);
+
+  frame_at(*view, 100);
+  CHECK_NEAR(bar.progress, 0.5, 1e-9);
+  CHECK_NEAR(bar.children[0].rect.width, 100.0, 1e-9);
+  CHECK(!view->animating());
+}
+
+TEST(view, a_collapse_animates_its_own_height_and_keeps_its_content_in_layout_meanwhile) {
+  Document document = loaded(MOTION_VIEW, 400, 300);
+  View *view = document.view();
+  document.set_data("ui.shown", DataValue::of_bool(true));
+  frame_at(*view, 0);
+  const LayoutNode &section = section_of(*view);
+  CHECK_EQ(section.rect.height, 20.0);  // closed: the header's box
+
+  CHECK(view->set_open("section", true));
+  // The pending frame, and the one price of interpolating declared inputs: the
+  // content enters layout so THIS measure can learn the open height, and the box
+  // holds shut meanwhile instead of popping open (`collapse.h`). It is only ever
+  // paid on the FIRST opening — closing already knows both ends.
+  frame_at(*view, 0);
+  CHECK(section.children[1].section_shown);
+  CHECK_EQ(section.rect.height, 20.0);
+  CHECK(section.forced_clip);
+  CHECK(view->animating());
+
+  // Now the height is known, so this is the frame the tween starts — and the frame
+  // a tween starts still paints the old value.
+  frame_at(*view, 0);
+  CHECK_EQ(section.rect.height, 20.0);
+
+  frame_at(*view, 50);
+  CHECK_NEAR(section.rect.height, 60.0, 1e-9);  // halfway between 20 and 100
+  CHECK(section.forced_clip);
+
+  frame_at(*view, 100);
+  CHECK_NEAR(section.rect.height, 100.0, 1e-9);
+  // Settled: the override goes away and the box is whatever the content asks for.
+  CHECK(!section.forced_clip);
+  CHECK(!view->animating());
+}
+
+TEST(view, a_closing_collapse_drops_its_content_only_once_the_box_has_shut) {
+  Document document = loaded(MOTION_VIEW, 400, 300);
+  View *view = document.view();
+  document.set_data("ui.shown", DataValue::of_bool(true));
+  frame_at(*view, 0);
+  const LayoutNode &section = section_of(*view);
+  CHECK(view->set_open("section", true));
+  frame_at(*view, 0);  // pending
+  frame_at(*view, 0);  // the open tween starts
+  frame_at(*view, 100);
+  CHECK_NEAR(section.rect.height, 100.0, 1e-9);
+
+  // Closing pays no pending frame: the content is already in layout, so both ends
+  // are known and the tween starts on the very next one.
+  CHECK(view->set_open("section", false));
+  frame_at(*view, 100);
+  frame_at(*view, 150);
+  // Mid-close the content is STILL in layout — it is what the shrinking box clips.
+  CHECK(section.children[1].section_shown);
+  CHECK_NEAR(section.rect.height, 60.0, 1e-9);
+
+  frame_at(*view, 200);
+  CHECK(!section.children[1].section_shown);
+  CHECK_EQ(section.rect.height, 20.0);
+}
+
+TEST(view, a_subtree_that_leaves_the_layout_lands_on_its_logical_state) {
+  Document document = loaded(MOTION_VIEW, 400, 300);
+  View *view = document.view();
+  document.set_data("ui.shown", DataValue::of_bool(true));
+  frame_at(*view, 0);
+  const LayoutNode &section = section_of(*view);
+
+  CHECK(view->set_open("section", true));
+  frame_at(*view, 0);  // pending
+  frame_at(*view, 0);  // the open tween starts
+  frame_at(*view, 100);
+  // The body declares no transition of its own, so it never allocates the state.
+  CHECK(section.children[1].anim == nullptr);
+
+  CHECK(view->set_open("section", false));
+  frame_at(*view, 100);
+  CHECK(section.collapse_animating);
+
+  // Hidden mid-close: a Collapse taken out of layout lands on its logical state
+  // rather than staying halfway through a motion nobody saw.
+  document.set_data("ui.shown", DataValue::of_bool(false));
+  frame_at(*view, 120);
+  CHECK(!section.collapse_animating);
+  CHECK(!section.forced_clip);
+  CHECK(!section.children[1].section_shown);
+  CHECK(!view->animating());
+}
