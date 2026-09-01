@@ -4,6 +4,7 @@
 
 #include "assets.h"
 #include "glyphs.h"
+#include "clip.h"
 #include "tessellator.h"
 #include "testing.h"
 #include "ttf.h"
@@ -16,7 +17,7 @@ constexpr Color RED{1.0f, 0.0f, 0.0f, 1.0f};
 /** 4 corner arcs × (6 segments + 1) points — the web's parametrization. */
 constexpr uint32_t PERIMETER = 28;
 
-const Batch &only(const GeometryBuilder &builder) { return builder.batches().front(); }
+const Batch &only(const GeometryBuilder &builder) { return *builder.batches().front(); }
 
 }  // namespace
 
@@ -108,11 +109,11 @@ TEST(tessellator, a_run_of_text_is_a_batch_of_its_own_naming_its_atlas) {
   builder.text(4.0, 4.0, "Hi", atlas, RED);
 
   CHECK_EQ(builder.batches().size(), 2u);
-  CHECK(builder.batches()[0].texture == nullptr);
-  CHECK(builder.batches()[1].texture == &atlas);
+  CHECK(builder.batches()[0]->texture == nullptr);
+  CHECK(builder.batches()[1]->texture == &atlas);
   // Two glyphs, two quads. A space would add none, since it has no ink.
-  CHECK_EQ(builder.batches()[1].vertex_count(), 8u);
-  CHECK_EQ(builder.batches()[1].indices.size(), 12u);
+  CHECK_EQ(builder.batches()[1]->vertex_count(), 8u);
+  CHECK_EQ(builder.batches()[1]->indices.size(), 12u);
 }
 
 TEST(tessellator, the_solids_keep_batch_zero_even_when_text_paints_first) {
@@ -125,8 +126,8 @@ TEST(tessellator, the_solids_keep_batch_zero_even_when_text_paints_first) {
   builder.text(4.0, 4.0, "Hi", atlas, RED);
   builder.rounded_rect(Rect{0, 0, 100, 30}, 0, RED);
 
-  CHECK(builder.batches()[0].texture == nullptr);
-  CHECK_EQ(builder.batches()[0].vertex_count(), 4u);
+  CHECK(builder.batches()[0]->texture == nullptr);
+  CHECK_EQ(builder.batches()[0]->vertex_count(), 4u);
 }
 
 TEST(tessellator, whitespace_advances_the_pen_and_paints_nothing) {
@@ -134,7 +135,7 @@ TEST(tessellator, whitespace_advances_the_pen_and_paints_nothing) {
   GeometryBuilder builder;
   builder.reset();
   builder.text(0.0, 0.0, "a a", atlas, RED);
-  const Batch &text = builder.batches()[1];
+  const Batch &text = *builder.batches()[1];
   CHECK_EQ(text.vertex_count(), 8u);
   // The second glyph sits a space to the right of the first, so the pen moved
   // through the whitespace even though nothing was emitted for it.
@@ -229,7 +230,7 @@ TEST(tessellator, a_side_with_no_usable_size_has_no_quad_at_all) {
   builder.reset();
   builder.image(Rect{0, 0, 90, 40}, source(0, 0), ImageFit::Contain, RED, 0);
   CHECK_EQ(builder.batches().size(), 1u);
-  CHECK(builder.batches()[0].empty());
+  CHECK(builder.batches()[0]->empty());
 }
 
 TEST(tessellator, a_square_cornered_image_is_a_quad_with_its_uv_window_on_it) {
@@ -239,7 +240,7 @@ TEST(tessellator, a_square_cornered_image_is_a_quad_with_its_uv_window_on_it) {
   builder.image(Rect{0, 0, 120, 120}, asset, ImageFit::Cover, RED, 0);
 
   CHECK_EQ(builder.batches().size(), 2u);
-  const Batch &image = builder.batches()[1];
+  const Batch &image = *builder.batches()[1];
   CHECK(image.texture == &asset);
   CHECK(image.kind == TextureKind::Image);
   CHECK_EQ(image.vertex_count(), 4u);
@@ -261,7 +262,7 @@ TEST(tessellator, a_rounded_image_is_the_same_fan_a_background_is) {
   builder.reset();
   builder.image(Rect{0, 0, 120, 60}, asset, ImageFit::Stretch, RED, 12);
 
-  const Batch &image = builder.batches()[1];
+  const Batch &image = *builder.batches()[1];
   CHECK_EQ(image.vertex_count(), PERIMETER + 1);
   CHECK_EQ(image.indices.size(), PERIMETER * 3);
   // Every UV stays inside the window it samples, and every vertex inside the box.
@@ -281,7 +282,7 @@ TEST(tessellator, a_radius_clamps_to_the_painted_box_and_not_to_the_rect) {
   builder.reset();
   builder.image(rect, asset, ImageFit::Contain, RED, 1000);
 
-  const Batch &image = builder.batches()[1];
+  const Batch &image = *builder.batches()[1];
   // The box is 120×60; half its shorter side is 30, so the fan's leftmost point
   // sits at the vertical centre of the BOX (y = 60), not of the rect.
   CHECK(inside(image, Rect{0, 30, 120, 60}));
@@ -310,9 +311,9 @@ TEST(tessellator, the_batches_come_out_solids_then_images_then_text) {
   builder.rounded_rect(Rect{0, 0, 100, 30}, 0, RED);
 
   CHECK_EQ(builder.batches().size(), 3u);
-  CHECK(builder.batches()[0].kind == TextureKind::None);
-  CHECK(builder.batches()[1].kind == TextureKind::Image);
-  CHECK(builder.batches()[2].kind == TextureKind::Glyphs);
+  CHECK(builder.batches()[0]->kind == TextureKind::None);
+  CHECK(builder.batches()[1]->kind == TextureKind::Image);
+  CHECK(builder.batches()[2]->kind == TextureKind::Glyphs);
 }
 
 TEST(tessellator, one_asset_is_one_batch_however_many_nodes_name_it) {
@@ -325,8 +326,80 @@ TEST(tessellator, one_asset_is_one_batch_however_many_nodes_name_it) {
   builder.image(Rect{0, 0, 60, 30}, asset, ImageFit::Cover, RED, 0);
   builder.image(Rect{0, 40, 60, 30}, asset, ImageFit::Cover, RED, 0);
   CHECK_EQ(builder.batches().size(), 2u);
-  CHECK_EQ(builder.batches()[1].vertex_count(), 8u);
+  CHECK_EQ(builder.batches()[1]->vertex_count(), 8u);
 
   builder.image(Rect{0, 80, 20, 20}, other, ImageFit::Contain, RED, 0);
   CHECK_EQ(builder.batches().size(), 3u);
+}
+
+// --- clip groups ----------------------------------------------------------
+
+TEST(tessellator, entering_a_region_opens_a_group_and_staying_in_it_does_not) {
+  ClipArena arena;
+  const Clip *inside = arena.intern(Clip{0, 0, 100, 100, 0});
+  GeometryBuilder builder;
+  builder.reset();
+
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);  // group 0, unclipped
+  builder.set_clip(inside);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);  // group 1
+  builder.set_clip(inside);                          // the same region: still 1
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+  builder.set_clip(nullptr);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);  // group 2
+
+  const std::vector<const Batch *> &batches = builder.batches();
+  CHECK_EQ(batches.size(), 3u);
+  CHECK(batches[0]->clip == nullptr);
+  CHECK(batches[1]->clip == inside);
+  CHECK(batches[2]->clip == nullptr);
+  CHECK_EQ(batches[0]->group, 0u);
+  CHECK_EQ(batches[1]->group, 1u);
+  CHECK_EQ(batches[2]->group, 2u);
+  // Two rects went into the middle group, and one into each of the others.
+  CHECK_EQ(batches[0]->vertex_count(), 4u);
+  CHECK_EQ(batches[1]->vertex_count(), 8u);
+  CHECK_EQ(batches[2]->vertex_count(), 4u);
+}
+
+TEST(tessellator, a_paint_root_opens_a_group_even_over_the_very_same_region) {
+  // The one thing `set_clip` cannot express, and the reason a batch carries its
+  // group ordinal at all: two roots may share a region — both unclipped, here —
+  // and still have to be drawn one after the other.
+  GeometryBuilder builder;
+  builder.reset();
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+  builder.start_root(nullptr);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+
+  const std::vector<const Batch *> &batches = builder.batches();
+  CHECK_EQ(batches.size(), 2u);
+  CHECK(batches[0]->clip == batches[1]->clip);
+  CHECK_EQ(batches[0]->group, 0u);
+  CHECK_EQ(batches[1]->group, 1u);
+}
+
+TEST(tessellator, a_group_keeps_solids_before_images_before_text) {
+  // The order G5 fixed, now per group rather than per frame: an image declared
+  // after a label still draws under it, inside whichever region they share.
+  const ImageAsset asset = source();
+  ClipArena arena;
+  const Clip *inside = arena.intern(Clip{0, 0, 100, 100, 0});
+  GeometryBuilder builder;
+  builder.reset();
+  builder.set_clip(inside);
+  builder.image(Rect{0, 0, 40, 40}, asset, ImageFit::Stretch, RED, 0);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+
+  // Three, because the frame opens unclipped and that group keeps its (empty)
+  // solids batch — which is exactly why the caller skips `empty()` ones.
+  const std::vector<const Batch *> &batches = builder.batches();
+  CHECK_EQ(batches.size(), 3u);
+  CHECK(batches[0]->empty());
+  CHECK(batches[1]->kind == TextureKind::None);
+  CHECK(batches[2]->kind == TextureKind::Image);
+  // Both belong to the region that was entered, not to the frame's opening group.
+  CHECK(batches[1]->clip == inside);
+  CHECK(batches[2]->clip == inside);
+  CHECK_EQ(batches[1]->group, batches[2]->group);
 }

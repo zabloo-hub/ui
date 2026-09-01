@@ -13,8 +13,7 @@
     "criterion claims it."
   ],
   "cases": {
-    "disabled": "Three things this case records still have no runtime: the scrollable extent of the ScrollView inside the disabled section — G6 (ZAB-139) —, the fill and thumb of the Slider — G10 (ZAB-143) — and the TextInput's field block — G11 (ZAB-144). The disabled flag itself, inherited from the data over a Collapse, a ScrollView and three controls, already compares.",
-    "scroll-clip": "Scrollable extents and clipped subtrees — G6 (ZAB-139).",
+    "disabled": "The fill and thumb of the Slider — G10 (ZAB-143) — and the TextInput's field block — G11 (ZAB-144). Everything else this case records already compares: the disabled flag inherited from the data over a Collapse, a ScrollView and three controls, and the scrollable extent of that ScrollView.",
     "overlays": "The overlay layer in (z, document order), with a modal taking the focus with it — G9 (ZAB-142).",
     "anchors": "Anchored placement with its flip and its slide — G9 (ZAB-142).",
     "controls": "Both Slider axes, with their quantization — G10 (ZAB-143). Everything else this case records already compares: the Toggle's slots, the bound ProgressBar and the Spinner's wave landed with the transition engine of G8 (ZAB-141).",

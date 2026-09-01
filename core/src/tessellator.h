@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "assets.h"
+#include "clip.h"
 #include "color.h"
 #include "envelope.h"
 #include "glyphs.h"
@@ -51,6 +52,23 @@ struct Batch {
    */
   const void *texture = nullptr;
   TextureKind kind = TextureKind::None;
+  /**
+   * The region this run is cut to, or null for none — the adapter's scissor box
+   * and, where the radius is not zero, the corners its shader has to discard.
+   *
+   * It is a pointer and not a value because identity is what groups the geometry
+   * (see `ClipArena`): every batch of one group names the very same region.
+   */
+  const Clip *clip = nullptr;
+  /**
+   * Which clip group this run belongs to, counting from zero this frame.
+   *
+   * The adapter needs it to know where one group ends and the next begins, and
+   * the region alone cannot say: `start_root` opens a group unconditionally, so
+   * two adjacent groups may well share a region (both unclipped, typically) and
+   * still have to be drawn one after the other.
+   */
+  uint32_t group = 0;
   /** `x, y` per vertex, in view space. */
   std::vector<float> positions;
   std::vector<float> uvs;
@@ -69,7 +87,35 @@ struct Batch {
  */
 class GeometryBuilder {
  public:
+  /**
+   * A builder is born with its first group open, so painting into a fresh one
+   * needs no ceremony — the frame loop calls `reset()` anyway, and that is the
+   * same thing.
+   */
+  GeometryBuilder() { reset(); }
+
   void reset();
+
+  /**
+   * Enters a clipping region (null = unclipped). Consecutive calls with the same
+   * region keep filling the current group; anything else opens a new one, which
+   * is what keeps painter's order ACROSS regions: a group draws as a whole, so
+   * re-entering an earlier one would sneak geometry under what is already on top
+   * of it.
+   */
+  void set_clip(const Clip *clip);
+
+  /**
+   * Opens a group unconditionally — what a PAINT ROOT needs, and the one thing
+   * `set_clip` cannot express: two roots may share a region (both unclipped,
+   * typically) and still have to be ordered one after the other.
+   *
+   * Without it an overlay entry would keep filling the tree's group, and since a
+   * group draws its solids before its text, the tree's glyphs would come out ON
+   * TOP of the panel floating over them (2026-08-12, ZAB-25). The layer that
+   * needs it arrives with G9 (ZAB-142).
+   */
+  void start_root(const Clip *clip = nullptr);
 
   /**
    * A filled rounded rect: a fan around the centroid over a perimeter of four
@@ -114,30 +160,63 @@ class GeometryBuilder {
             Color color);
 
   /**
-   * Solids first, then one batch per IMAGE, then one per glyph atlas — each
-   * group in the order it was first painted with.
+   * Every batch of the frame, in draw order: the clip groups in the order they
+   * were entered, and inside each one the solids, then one batch per IMAGE, then
+   * one per glyph atlas. Some are `empty()` — a group that painted no text still
+   * owns its solids batch — and the caller skips those, as it always has.
    *
-   * The order is the reference's, and it is not the order things happen to be
-   * painted in: an image declared after a label still draws under it. Painter's
-   * order is visible, so a target that emitted these three groups in a different
-   * sequence would be answering the same envelope with a different picture.
+   * Neither order is the order things happen to be painted in. Within a group an
+   * image declared after a label still draws under it; across groups the earlier
+   * region always draws first, which is why a group is never re-entered. Both
+   * are the reference's, and painter's order is visible — a target that emitted
+   * them in a different sequence would answer the same envelope with a different
+   * picture.
+   *
+   * Grouping by region costs the old invariant that every solid on screen shared
+   * one batch: a region is engine state, so geometry cut differently cannot share
+   * a draw call.
    */
-  const std::vector<Batch> &batches() const { return batches_; }
+  const std::vector<const Batch *> &batches() const;
   /** Vertices across every batch — what the perf budgets of G15 will read. */
   uint32_t vertex_count() const;
 
  private:
-  std::vector<Batch> batches_;
-  /** How many image batches sit after the solids — where a new one is spliced in. */
-  uint32_t images_ = 0;
+  /** Everything painted under one region, in one contiguous run of the pass. */
+  struct ClipGroup {
+    const Clip *clip = nullptr;
+  /**
+   * Which clip group this run belongs to, counting from zero this frame.
+   *
+   * The adapter needs it to know where one group ends and the next begins, and
+   * the region alone cannot say: `start_root` opens a group unconditionally, so
+   * two adjacent groups may well share a region (both unclipped, typically) and
+   * still have to be drawn one after the other.
+   */
+  uint32_t group = 0;
+    /** Batch 0 is the solids'. Then the images, then the glyph atlases. */
+    std::vector<Batch> batches;
+    /** How many image batches sit after the solids — where a new one splices in. */
+    uint32_t images = 0;
+  };
 
+  std::vector<ClipGroup> groups_;
+  /** Groups claimed this frame; the rest are last frame's, kept for their buffers. */
+  size_t used_ = 0;
+  /** The open group: the only one that ever grows. */
+  size_t current_ = 0;
+  /** Rebuilt by `batches()`, which keeps its capacity across frames. */
+  mutable std::vector<const Batch *> order_;
+
+  /** Claims the next slot, reusing the batches (and textures) it already holds. */
+  void open_group(const Clip *clip);
   Batch &solid();
   /**
-   * The batch for one texture, opened after the solids the first time it paints
-   * and kept across frames with its buffers. A new image batch is INSERTED at
-   * the boundary rather than appended, which is what keeps the three groups in
-   * order however the tree happens to be walked; it only ever happens on a
-   * texture's first sight, so no frame pays for it twice.
+   * The batch for one texture WITHIN the open group, opened after that group's
+   * solids the first time it paints and kept across frames with its buffers. A
+   * new image batch is INSERTED at the boundary rather than appended, which is
+   * what keeps the three kinds in order however the tree happens to be walked;
+   * it only ever happens on a texture's first sight in that group, so no frame
+   * pays for it twice.
    */
   Batch &textured(const void *texture, TextureKind kind);
 };

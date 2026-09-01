@@ -25,6 +25,7 @@
 #include <vector>
 #include "data.h"
 #include "assets.h"
+#include "clip.h"
 #include "glyphs.h"
 #include "groups.h"
 #include "layout.h"
@@ -103,11 +104,25 @@ class View {
   // --- pointer input ---
   // The three answer "did anything change?", so the adapter only redraws when
   // something did.
-  bool pointer_move(double x, double y);
-  bool pointer_down(double x, double y);
-  bool pointer_up(double x, double y);
+  // `mouse` is what separates a cursor from a finger: hover is a mouse state, so
+  // a touch that taps and leaves must not leave a control lit up behind it.
+  bool pointer_move(double x, double y, bool mouse = true);
+  bool pointer_down(double x, double y, bool mouse = true);
+  bool pointer_up(double x, double y, bool mouse = true);
+  /**
+   * A wheel notch or a trackpad pan, in view-space pixels: it scrolls the
+   * nearest `ScrollView` under the point, and nothing at all when there is none.
+   */
+  bool pointer_wheel(double x, double y, double dx, double dy);
   /** The pointer left the surface: whatever it held is released, nothing fires. */
   bool pointer_exit();
+  /**
+   * The gesture ended without concluding — a touch the system took away, a
+   * window that lost the pointer. Every hold is dropped and NOTHING fires: no
+   * action, no `Collapse` toggling, no backdrop dismissed. The same rule a press
+   * released outside its control already follows (ZAB-70).
+   */
+  bool pointer_cancel();
 
   // --- keyboard and directional navigation (2026-08-04) ---
 
@@ -133,6 +148,12 @@ class View {
   bool set_open(std::string_view id, bool open);
   bool set_selected_tab(std::string_view id, int index);
   bool set_checked(std::string_view id, bool checked);
+  /**
+   * Scrolls a `ScrollView`. Host API and not IR: the offset has no prop to
+   * author (2026-08-11, ZAB-9), and whatever lands here is clamped to the bounds
+   * the last relayout computed.
+   */
+  bool set_scroll(std::string_view id, double x, double y);
 
   /** Named actions produced since the last drain, in the order they fired. */
   std::vector<ActionEvent> drain_actions();
@@ -223,6 +244,25 @@ class View {
   LayoutNode *pressed_ = nullptr;
   LayoutNode *hovered_ = nullptr;
   LayoutNode *focus_ = nullptr;
+  /**
+   * The regions of the frame currently painted. The batches point INTO this, so
+   * it may only be reset by the paint pass itself; the input path gets its own
+   * (below) rather than stomping the addresses the adapter is about to read.
+   */
+  ClipArena paint_clips_;
+  ClipArena hit_clips_;
+
+  /** A drag on a `ScrollView`, before the tap-or-drag threshold resolves it. */
+  struct ScrollDrag {
+    LayoutNode *node = nullptr;
+    double start_x = 0.0;
+    double start_y = 0.0;
+    double last_x = 0.0;
+    double last_y = 0.0;
+    /** Once true the gesture is a scroll, and the release is no longer a tap. */
+    bool moved = false;
+  };
+  ScrollDrag drag_;
 
   class Leaves;
   friend class Leaves;
@@ -301,7 +341,9 @@ class View {
   void forget_anim(LayoutNode &node);
   /** One node's, for the same reason: the next step snaps, like a mount. */
   void forget_tweens(LayoutNode &node);
-  void paint_node(LayoutNode &node, double opacity);
+  void paint_node(LayoutNode &node, double opacity, const Clip *clip);
+  /** The `ScrollView`'s own overlay indicator, inside the viewport and over it. */
+  void paint_scrollbar(LayoutNode &node, double opacity, const Clip *clip);
   const Style &style_of(LayoutNode &node);
 
   double dim(const Dim &value, double fallback) const;
@@ -309,7 +351,19 @@ class View {
   Color color(const ColorValue &value, Color fallback) const;
   std::optional<Color> optional_color(const ColorValue &value, Color fallback) const;
 
-  LayoutNode *hit(LayoutNode &node, double x, double y);
+  LayoutNode *hit(double x, double y);
+  /** Is this node's own rect reachable at that point, given its ancestors' clips? */
+  bool reachable_at(LayoutNode &node, double x, double y);
+  /** The nearest `ScrollView` above a node, stopping at an `Overlay`. */
+  LayoutNode *scroller_of(LayoutNode &node) const;
+  /** The one path a scroll offset moves through — wheel, drag and `set_scroll`. */
+  bool set_scroll_offset(LayoutNode &node, double x, double y);
+  /**
+   * Brings the focus into view, bubbling outward so nested scrollers converge in
+   * one pass. Navigation only: a pointer press focuses what the player is already
+   * looking at (2026-08-12, ZAB-47).
+   */
+  bool reveal_focused(LayoutNode &node);
   LayoutNode *pressable_at(double x, double y);
   LayoutNode *hoverable_at(double x, double y);
   LayoutNode *collapse_header_at(double x, double y);

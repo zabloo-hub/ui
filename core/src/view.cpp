@@ -13,6 +13,8 @@
 #include "collapse.h"
 #include "easing.h"
 #include "focus.h"
+#include "hit.h"
+#include "scroll.h"
 #include "spinner.h"
 #include "text.h"
 
@@ -903,8 +905,10 @@ bool View::move_focus(double dx, double dy) {
   }
   if (best == nullptr) return false;
   set_focus(best);
-  // Dragging the scroll along with the focus (`reveal_delta`, focus.h) waits for
-  // G6 (ZAB-139): there are no scroll offsets to move yet.
+  // The focus drags the scroll with it (2026-08-12, ZAB-47), which is the
+  // deferred half of the ScrollView's spec. Only NAVIGATION does: a pointer press
+  // focuses what the player is already looking at.
+  reveal_focused(*best);
   return true;
 }
 
@@ -950,6 +954,13 @@ bool View::set_selected_tab(std::string_view id, int index) {
   return true;
 }
 
+bool View::set_scroll(std::string_view id, double x, double y) {
+  LayoutNode *node = find_by_id(id, NodeType::ScrollView);
+  if (node == nullptr) return false;
+  set_scroll_offset(*node, x, y);
+  return true;
+}
+
 bool View::set_checked(std::string_view id, bool checked) {
   LayoutNode *node = find_by_id(id, NodeType::Toggle);
   if (node == nullptr) return false;
@@ -968,8 +979,11 @@ std::vector<DataChange> View::drain_data_changes() {
 // --- paint ----------------------------------------------------------------
 
 const GeometryBuilder &View::paint() {
+  // The regions of the previous frame die here, together with the batches that
+  // named them: nothing may hold a `Clip *` across a paint.
+  paint_clips_.reset();
   geometry_.reset();
-  if (ir_root_ != nullptr) paint_node(root_, 1.0);
+  if (ir_root_ != nullptr) paint_node(root_, 1.0, nullptr);
   return geometry_;
 }
 
@@ -979,9 +993,11 @@ const GeometryBuilder &View::paint() {
  * (2026-08-06), so a parent at 0.5 over a child at 0.5 paints at 0.25 without
  * anything rendering to a texture.
  */
-void View::paint_node(LayoutNode &node, double opacity) {
+void View::paint_node(LayoutNode &node, double opacity, const Clip *clip) {
   if (!in_layout(node)) return;
   const double own = opacity * node.resolved.opacity;
+  // Everything below is cut to the region this node's own rect is subject to.
+  geometry_.set_clip(clip);
   if (node.resolved.background.has_value()) {
     geometry_.rounded_rect(node.rect, node.resolved.radius, fade(*node.resolved.background, own));
   }
@@ -1014,28 +1030,75 @@ void View::paint_node(LayoutNode &node, double opacity) {
                       fade(node.resolved.color.value_or(UNTINTED), own), node.resolved.radius);
     }
   }
-  for (LayoutNode &child : node.children) paint_node(child, own);
+  const Clip *inner = child_clip(node, clip, paint_clips_);
+  // Clipped away entirely: the subtree — and the scrollbar — paint nothing.
+  if (is_empty_clip(inner)) return;
+  for (LayoutNode &child : node.children) paint_node(child, own, inner);
+  if (node.ir->type == NodeType::ScrollView) paint_scrollbar(node, own, inner);
+}
+
+/**
+ * The overlay position indicator, drawn inside the viewport and over the content
+ * it indicates — which is why it comes after the children and re-enters the
+ * region they were cut to.
+ *
+ * It is painted by the SDK and not authored: `scrollbar` is a boolean, and
+ * styling it is the deferred, compatible extension the spec names (boolean →
+ * object, 2026-08-11, ZAB-9).
+ */
+void View::paint_scrollbar(LayoutNode &node, double opacity, const Clip *clip) {
+  if (!node.ir->scrollbar) return;
+  const Rect &rect = node.rect;
+  const ScrollbarThumb vertical = scrollbar_thumb(rect.height - SCROLLBAR_MARGIN * 2, rect.height,
+                                                  node.scroll_max.y, node.scroll_offset.y,
+                                                  SCROLLBAR_MIN_LENGTH);
+  const ScrollbarThumb horizontal = scrollbar_thumb(rect.width - SCROLLBAR_MARGIN * 2, rect.width,
+                                                    node.scroll_max.x, node.scroll_offset.x,
+                                                    SCROLLBAR_MIN_LENGTH);
+  if (!vertical.visible && !horizontal.visible) return;
+
+  geometry_.set_clip(clip);
+  const Color color = fade(SCROLLBAR_COLOR, opacity);
+  if (vertical.visible) {
+    geometry_.rounded_rect(Rect{rect.x + rect.width - SCROLLBAR_MARGIN - SCROLLBAR_THICKNESS,
+                                rect.y + SCROLLBAR_MARGIN + vertical.start, SCROLLBAR_THICKNESS,
+                                vertical.length},
+                           SCROLLBAR_THICKNESS * 0.5, color);
+  }
+  if (horizontal.visible) {
+    geometry_.rounded_rect(Rect{rect.x + SCROLLBAR_MARGIN + horizontal.start,
+                                rect.y + rect.height - SCROLLBAR_MARGIN - SCROLLBAR_THICKNESS,
+                                horizontal.length, SCROLLBAR_THICKNESS},
+                           SCROLLBAR_THICKNESS * 0.5, color);
+  }
 }
 
 // --- input ----------------------------------------------------------------
 
 /**
- * The deepest, topmost node whose OWN rect contains the point.
+ * The node under the point, under the regions this frame cut. The walk itself is
+ * `hit.h`'s; this is only where the tree and the arena come from.
  *
- * The walk descends unconditionally and returns a node on its own rect rather
- * than pruning on the parent's: before ZAB-7 an overflowing child painted but
- * could not be pressed, which is the same paint/input mismatch as clipping only
- * the paint, in the other direction. From G6 (ZAB-139) a `clip` is what cuts the
- * descent — and it is the only thing that does.
+ * The input arena is its own on purpose: the batches of the last paint still name
+ * regions in `paint_clips_`, and a hit test between two frames must not hand
+ * those addresses back to be overwritten.
  */
-LayoutNode *View::hit(LayoutNode &node, double x, double y) {
-  if (!in_layout(node)) return nullptr;
-  // Later siblings paint over earlier ones, so they are asked first.
-  for (size_t i = node.children.size(); i > 0; i--) {
-    LayoutNode *found = hit(node.children[i - 1], x, y);
-    if (found != nullptr) return found;
-  }
-  return node.rect.contains(x, y) ? &node : nullptr;
+LayoutNode *View::hit(double x, double y) {
+  if (ir_root_ == nullptr) return nullptr;
+  hit_clips_.reset();
+  return hit_test(root_, x, y, hit_clips_);
+}
+
+/**
+ * Is this node's own rect reachable at that point? Asked on release, where the
+ * tree walk would answer a different question — which node is under the pointer
+ * NOW, possibly a child of the pressed one. Scrolling a button out from under a
+ * finger cancels its tap, and this is what notices.
+ */
+bool View::reachable_at(LayoutNode &node, double x, double y) {
+  if (!node.rect.contains(x, y)) return false;
+  hit_clips_.reset();
+  return clip_contains(effective_clip(node, hit_clips_), x, y);
 }
 
 /**
@@ -1048,7 +1111,7 @@ LayoutNode *View::hit(LayoutNode &node, double x, double y) {
  * pressed by pressing the button.
  */
 LayoutNode *View::pressable_at(double x, double y) {
-  LayoutNode *node = ir_root_ != nullptr ? hit(root_, x, y) : nullptr;
+  LayoutNode *node = hit(x, y);
   for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
     if (candidate->disabled) continue;
     if (candidate->ir->type == NodeType::Button || candidate->ir->type == NodeType::Toggle) {
@@ -1064,7 +1127,7 @@ LayoutNode *View::pressable_at(double x, double y) {
  * and a pad see the same dead control.
  */
 LayoutNode *View::hoverable_at(double x, double y) {
-  LayoutNode *node = ir_root_ != nullptr ? hit(root_, x, y) : nullptr;
+  LayoutNode *node = hit(x, y);
   for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
     if (is_focusable(*candidate)) return candidate;
   }
@@ -1073,67 +1136,196 @@ LayoutNode *View::hoverable_at(double x, double y) {
 
 /** The Collapse header at this point, if the press did not land on a control. */
 LayoutNode *View::collapse_header_at(double x, double y) {
-  LayoutNode *node = ir_root_ != nullptr ? hit(root_, x, y) : nullptr;
+  LayoutNode *node = hit(x, y);
   for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
     if (is_collapse_header(*candidate) && !candidate->disabled) return candidate;
   }
   return nullptr;
 }
 
-bool View::pointer_move(double x, double y) {
-  LayoutNode *target = hoverable_at(x, y);
-  if (target == hovered_) return false;
-  if (hovered_ != nullptr) hovered_->hovered = false;
-  hovered_ = target;
-  if (hovered_ != nullptr) hovered_->hovered = true;
-  return true;
-}
+/**
+ * Below this much pointer travel a gesture is still a tap: past it, it is a
+ * scroll, and the release no longer activates anything.
+ */
+constexpr double DRAG_THRESHOLD = 4.0;
 
-bool View::pointer_down(double x, double y) {
-  const bool moved = pointer_move(x, y);
-  LayoutNode *target = pressable_at(x, y);
-  if (target == nullptr) return moved;
-  if (pressed_ != nullptr) pressed_->pressed = false;
-  pressed_ = target;
-  pressed_->pressed = true;
-  // The pointer and directional navigation share ONE focus (2026-08-04).
-  set_focus(target);
-  return true;
-}
-
-bool View::pointer_up(double x, double y) {
-  LayoutNode *released = pressed_;
-  if (released == nullptr) {
-    // Nothing was pressed, so this may be a tap on a Collapse header: it toggles
-    // on the release and never wears `pressed`, which is why it is not a
-    // pressable in the first place (the `<details>`/`<summary>` model).
-    LayoutNode *header = collapse_header_at(x, y);
-    const bool toggled = header != nullptr && header->parent != nullptr &&
-                         set_collapse_open(*header->parent, !header->parent->open);
-    return pointer_move(x, y) || toggled;
+bool View::pointer_move(double x, double y, bool mouse) {
+  bool changed = false;
+  // Hover is a MOUSE state: a finger that taps and leaves would otherwise keep a
+  // control lit up with nothing over it.
+  if (mouse) {
+    LayoutNode *target = hoverable_at(x, y);
+    if (target != hovered_) {
+      if (hovered_ != nullptr) hovered_->hovered = false;
+      hovered_ = target;
+      if (hovered_ != nullptr) hovered_->hovered = true;
+      changed = true;
+    }
   }
-  released->pressed = false;
-  pressed_ = nullptr;
-  // A press that leaves the control it started on fires nothing — the same rule
-  // a cancelled gesture follows (ZAB-70): it ends, it does not conclude.
-  if (pressable_at(x, y) == released) release(*released);
-  pointer_move(x, y);
-  return true;
+  if (drag_.node == nullptr) return changed;
+
+  // Held back until the threshold clears it, so a plain tap still reaches the
+  // Collapse-toggle handling in `pointer_up`.
+  if (!drag_.moved) {
+    const double dx = x - drag_.start_x;
+    const double dy = y - drag_.start_y;
+    if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return changed;
+    drag_.moved = true;
+  }
+  const double dx = x - drag_.last_x;
+  const double dy = y - drag_.last_y;
+  drag_.last_x = x;
+  drag_.last_y = y;
+  return set_scroll_offset(*drag_.node, drag_.node->scroll_offset.x - dx,
+                           drag_.node->scroll_offset.y - dy) ||
+         changed;
+}
+
+bool View::pointer_down(double x, double y, bool mouse) {
+  // A new press ends whatever was still in flight, so the hover refresh below
+  // cannot advance the previous gesture's drag by the jump between the two.
+  drag_ = ScrollDrag{};
+  const bool moved = pointer_move(x, y, mouse);
+  // G10 (ZAB-143) and G11 (ZAB-144) take the pointer BEFORE this, for the same
+  // reason: a Slider's drag and a field's selection both live inside scrollable
+  // screens, and neither may become a scroll of the list they sit in.
+  LayoutNode *target = pressable_at(x, y);
+  if (target != nullptr) {
+    if (pressed_ != nullptr) pressed_->pressed = false;
+    pressed_ = target;
+    pressed_->pressed = true;
+    // The pointer and directional navigation share ONE focus (2026-08-04).
+    set_focus(target);
+    return true;
+  }
+  // Nothing took the press, so it may be the beginning of a scroll. A disabled
+  // control refuses the press above, and refusing means it falls THROUGH: a dead
+  // button inside a scroller does not swallow the drag that moves the list.
+  LayoutNode *node = hit(x, y);
+  LayoutNode *scroller = node != nullptr ? scroller_of(*node) : nullptr;
+  // `scroller_of` starts at the parent, so a press on the scroller itself — its
+  // padding, its background — has to be caught here too.
+  if (scroller == nullptr && node != nullptr && node->ir->type == NodeType::ScrollView) {
+    scroller = node;
+  }
+  if (scroller != nullptr) {
+    drag_ = ScrollDrag{scroller, x, y, x, y, false};
+  }
+  return moved;
+}
+
+bool View::pointer_up(double x, double y, bool mouse) {
+  LayoutNode *released = pressed_;
+  if (released != nullptr) {
+    released->pressed = false;
+    pressed_ = nullptr;
+    drag_ = ScrollDrag{};
+    // A press that leaves the control it started on fires nothing — the same rule
+    // a cancelled gesture follows (ZAB-70): it ends, it does not conclude. And
+    // "leaves" counts a control scrolled out from under the finger, which is why
+    // the region is checked and not just the rect.
+    if (reachable_at(*released, x, y)) release(*released);
+    pointer_move(x, y, mouse);
+    return true;
+  }
+
+  const bool dragged = drag_.moved;
+  drag_ = ScrollDrag{};
+  if (dragged) {
+    // A scroll gesture, not a tap: the content moved, and nothing concludes.
+    pointer_move(x, y, mouse);
+    return true;
+  }
+
+  // Nothing was pressed and nothing was dragged, so this may be a tap on a
+  // Collapse header: it toggles on the release and never wears `pressed`, which
+  // is why it is not a pressable in the first place (the `<details>`/`<summary>`
+  // model).
+  LayoutNode *header = collapse_header_at(x, y);
+  const bool toggled = header != nullptr && header->parent != nullptr &&
+                       set_collapse_open(*header->parent, !header->parent->open);
+  return pointer_move(x, y, mouse) || toggled;
+}
+
+bool View::pointer_wheel(double x, double y, double dx, double dy) {
+  LayoutNode *node = hit(x, y);
+  if (node == nullptr) return false;
+  LayoutNode *scroller = node->ir->type == NodeType::ScrollView ? node : scroller_of(*node);
+  if (scroller == nullptr) return false;
+  // Axis for axis, as the reference maps a browser's deltas: a scroller that does
+  // not enable an axis has a zero bound there, so the clamp drops it.
+  return set_scroll_offset(*scroller, scroller->scroll_offset.x + dx,
+                           scroller->scroll_offset.y + dy);
 }
 
 bool View::pointer_exit() {
-  bool changed = false;
-  if (pressed_ != nullptr) {
-    pressed_->pressed = false;
-    pressed_ = nullptr;
-    changed = true;
-  }
+  bool changed = pointer_cancel();
   if (hovered_ != nullptr) {
     hovered_->hovered = false;
     hovered_ = nullptr;
     changed = true;
   }
   return changed;
+}
+
+bool View::pointer_cancel() {
+  bool changed = false;
+  if (pressed_ != nullptr) {
+    pressed_->pressed = false;
+    pressed_ = nullptr;
+    changed = true;
+  }
+  // G10 (ZAB-143) adds the one exception here: a Slider SETTLES on a cancel. Its
+  // value is already on screen and was written into its bound path on every move,
+  // so refusing `onCommit` would leave the game without the "apply the expensive
+  // thing" event for a value the player really did leave there.
+  changed = drag_.node != nullptr || changed;
+  drag_ = ScrollDrag{};
+  return changed;
+}
+
+// --- scrolling ------------------------------------------------------------
+
+LayoutNode *View::scroller_of(LayoutNode &node) const {
+  for (LayoutNode *current = node.parent; current != nullptr; current = current->parent) {
+    // A layer entry is the top of its own input scope: a modal declared inside a
+    // scroller must not scroll the screen behind it.
+    if (current->ir->type == NodeType::Overlay) return nullptr;
+    if (current->ir->type == NodeType::ScrollView) return current;
+  }
+  return nullptr;
+}
+
+bool View::set_scroll_offset(LayoutNode &node, double x, double y) {
+  const Size next{clamp_scroll(x, 0.0, node.scroll_max.x),
+                  clamp_scroll(y, 0.0, node.scroll_max.y)};
+  if (next.x == node.scroll_offset.x && next.y == node.scroll_offset.y) return false;
+  node.scroll_offset = next;
+  return true;
+}
+
+bool View::reveal_focused(LayoutNode &node) {
+  bool moved = false;
+  // Outward through the nested scrollers, each one revealing the one inside it —
+  // the way a browser's `scrollIntoView` bubbles. That converges in one pass
+  // instead of measuring an inner rect the inner scroll has just moved.
+  LayoutNode *target = &node;
+  for (LayoutNode *scroller = scroller_of(node); scroller != nullptr;
+       scroller = scroller_of(*scroller)) {
+    const double padding = scroller->resolved.padding;
+    const Rect box{scroller->rect.x + padding, scroller->rect.y + padding,
+                   std::max(0.0, scroller->rect.width - padding * 2),
+                   std::max(0.0, scroller->rect.height - padding * 2)};
+    moved = set_scroll_offset(
+                *scroller,
+                scroller->scroll_offset.x +
+                    reveal_delta(target->rect.x, target->rect.width, box.x, box.width),
+                scroller->scroll_offset.y +
+                    reveal_delta(target->rect.y, target->rect.height, box.y, box.height)) ||
+            moved;
+    target = scroller;
+  }
+  return moved;
 }
 
 void View::fire(const LayoutNode &node, const std::string &action) {

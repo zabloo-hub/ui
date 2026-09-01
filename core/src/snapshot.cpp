@@ -1,5 +1,7 @@
 #include "snapshot.h"
 
+#include "hit.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -316,13 +318,14 @@ void write_rect(Writer &writer, const Rect &rect) {
 }
 
 /**
- * A node and its subtree.
+ * A node and its subtree, under `inherited` — the region its own rect is cut to.
  *
  * An out-of-layout node stops the walk: its rect, its style and its children are
  * whatever the last frame that DID lay it out left behind, and recording stale
  * numbers would be a lie about a node that is not on screen.
  */
-void write_node(Writer &writer, const LayoutNode &node, const Refs &refs) {
+void write_node(Writer &writer, const LayoutNode &node, const Refs &refs, const Clip *inherited,
+                ClipArena &arena) {
   writer.begin_object();
   writer.key("type");
   writer.string(node.ir->type_name);
@@ -413,7 +416,40 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs) {
     writer.end_object();
   }
 
-  // `clip` and `scroll` (G6, ZAB-139) belong here, before `value`.
+  // An `Overlay` is a paint root laid out against the view rect, so the regions of
+  // wherever it was DECLARED never apply to it — the same boundary `effective_clip`
+  // and the paint pass draw. The region restarts here. G9 (ZAB-142) is what puts
+  // one in the layer; until then nothing reaches this branch.
+  const Clip *cut = node.ir->type == NodeType::Overlay ? nullptr : inherited;
+  if (cut != nullptr) {
+    writer.key("clip");
+    writer.begin_object();
+    writer.key("x");
+    writer.number_value(cut->x);
+    writer.key("y");
+    writer.number_value(cut->y);
+    writer.key("width");
+    writer.number_value(cut->width);
+    writer.key("height");
+    writer.number_value(cut->height);
+    writer.key("radius");
+    writer.number_value(cut->radius);
+    writer.end_object();
+  }
+
+  if (node.ir->type == NodeType::ScrollView) {
+    writer.key("scroll");
+    writer.begin_object();
+    writer.key("x");
+    writer.number_value(node.scroll_offset.x);
+    writer.key("y");
+    writer.number_value(node.scroll_offset.y);
+    writer.key("maxX");
+    writer.number_value(node.scroll_max.x);
+    writer.key("maxY");
+    writer.number_value(node.scroll_max.y);
+    writer.end_object();
+  }
 
   // The one number a control's behavior owns. A Toggle's is its cross-fade
   // progress and a ProgressBar's is its tweened fraction; a Slider's arrives with
@@ -432,11 +468,13 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs) {
   // already means everywhere else in this document.
 
   if (!node.children.empty()) {
+    // The region a child inherits, computed exactly as paint and hit-testing do.
+    const Clip *inner = child_clip(node, cut, arena);
     writer.key("children");
     writer.begin_array();
     for (const LayoutNode &child : node.children) {
       writer.element();
-      write_node(writer, child, refs);
+      write_node(writer, child, refs, inner, arena);
     }
     writer.end_array();
   }
@@ -487,8 +525,13 @@ std::string snapshot_view(const View &view) {
   writer.end_array();
 
   writer.key("tree");
+  // The snapshot resolves its own regions rather than reading the paint pass's:
+  // it describes the frame that was LAID OUT, and asking for one must not be able
+  // to disturb what the adapter is about to draw. Both walks run the same rule,
+  // so the numbers are the same numbers.
+  ClipArena arena;
   if (root.ir != nullptr) {
-    write_node(writer, root, refs);
+    write_node(writer, root, refs, nullptr, arena);
   } else {
     writer.null_value();
   }

@@ -18,6 +18,8 @@
 #include <godot_cpp/classes/control.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/input_event.hpp>
+#include <godot_cpp/classes/shader.hpp>
+#include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
@@ -25,6 +27,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "view.h"
 
@@ -100,6 +103,8 @@ class ZablooView : public Control {
   bool set_selected_tab(const String &id, int index);
   /** Sets a `Toggle`, or picks an option of an `"exclusive-check"` group. */
   bool set_checked(const String &id, bool checked);
+  /** Scrolls a `ScrollView`, clamped to the bounds of the last relayout. */
+  bool set_scroll(const String &id, double x, double y);
   /** Re-loads the current content. The same path a hot-update takes. */
   bool reload(const String &json);
 
@@ -152,6 +157,37 @@ class ZablooView : public Control {
    * are built on (2026-08-11).
    */
   std::unordered_map<std::string, AssetTexture> images_;
+
+  /**
+   * One canvas item per clip group of the frame, parented to this Control's own
+   * and reused across frames.
+   *
+   * A child item is what buys an exact scissor without a `Control` per node:
+   * `canvas_item_set_clip` + `canvas_item_set_custom_rect` is the very mechanism
+   * `Control.clip_contents` uses, reached directly. The rects the core computes
+   * are already in this Control's local space, and a child item with no
+   * transform of its own shares it, so nothing has to be converted.
+   */
+  struct ClipItem {
+    RID item;
+    /** Only a ROUNDED region needs one: the scissor alone cuts a square. */
+    Ref<ShaderMaterial> material;
+  };
+  std::vector<ClipItem> clip_items_;
+  /**
+   * The rounded half of clipping, shared by every rounded group: the scissor has
+   * already cut everything outside the rect, so all that is left is discarding
+   * the four corners as a signed distance faded over one device pixel. Verbatim
+   * the reference's (ZAB-7) — stencil was the obvious alternative and costs a
+   * buffer, mask geometry and a push/pop state machine per nesting level, and
+   * still leaves the cut aliased.
+   */
+  Ref<Shader> clip_shader_;
+
+  /** Claims the item for one group, clearing it and arming its region. */
+  RID clip_item(size_t index, const zabloo::Clip *clip, int draw_index);
+  /** Hands every canvas item back to the server. */
+  void free_clip_items();
 
   /** Re-runs the core's layout against the current control size and redraws. */
   void relayout();

@@ -4,6 +4,8 @@
 
 #include "assets.h"
 #include "testing.h"
+#include "hit.h"
+#include "clip.h"
 #include "view.h"
 
 using namespace zabloo;
@@ -129,7 +131,7 @@ TEST(view, painting_multiplies_opacity_down_the_subtree) {
       "children":[{"type":"Container","style":{"background":"#ffffff","opacity":0.5},
                    "layout":{"width":50,"height":50}}]}}})");
   View *view = document.view();
-  const Batch &batch = view->paint().batches().front();
+  const Batch &batch = *view->paint().batches().front();
   CHECK_EQ(batch.vertex_count(), 8u);
   CHECK_NEAR(batch.colors[3], 0.5, 0.001);
   CHECK_NEAR(batch.colors[19], 0.25, 0.001);
@@ -147,11 +149,11 @@ TEST(view, a_label_with_no_style_still_paints_its_glyphs) {
   CHECK(label.has_text_block);
   CHECK(label.text_block.width > 0.0);
 
-  const std::vector<Batch> &batches = view->paint().batches();
+  const std::vector<const Batch *> &batches = view->paint().batches();
   CHECK_EQ(batches.size(), 2u);
   // Two glyphs, and the alpha they carry is the subtree's.
-  CHECK_EQ(batches[1].vertex_count(), 8u);
-  if (batches[1].colors.size() >= 4) CHECK_NEAR(batches[1].colors[3], 0.5, 0.001);
+  CHECK_EQ(batches[1]->vertex_count(), 8u);
+  if (batches[1]->colors.size() >= 4) CHECK_NEAR(batches[1]->colors[3], 0.5, 0.001);
 }
 
 TEST(view, a_wrapped_label_reports_the_lines_it_was_measured_with) {
@@ -694,8 +696,8 @@ TEST(view, two_ids_over_the_same_bytes_paint_in_one_batch) {
   // Solids, then ONE batch for the shared hash — `intrinsic`, `twin` and
   // `tinted` all name it — and none for the ref that does not resolve.
   int image_batches = 0;
-  for (const Batch &batch : geometry.batches()) {
-    if (batch.kind == TextureKind::Image && !batch.empty()) image_batches++;
+  for (const Batch *batch : geometry.batches()) {
+    if (batch->kind == TextureKind::Image && !batch->empty()) image_batches++;
   }
   CHECK_EQ(image_batches, 1);
 }
@@ -704,8 +706,8 @@ TEST(view, an_undeclared_color_leaves_the_pixels_alone_and_a_declared_one_tints_
   Document document = loaded(IMAGE_VIEW, 200, 200);
   const GeometryBuilder &geometry = document.view()->paint();
   const Batch *image = nullptr;
-  for (const Batch &batch : geometry.batches()) {
-    if (batch.kind == TextureKind::Image) image = &batch;
+  for (const Batch *batch : geometry.batches()) {
+    if (batch->kind == TextureKind::Image) image = batch;
   }
   CHECK(image != nullptr);
   // `intrinsic` paints first and has no `color`: white, i.e. the image as it is.
@@ -943,4 +945,218 @@ TEST(view, a_subtree_that_leaves_the_layout_lands_on_its_logical_state) {
   CHECK(!section.forced_clip);
   CHECK(!section.children[1].section_shown);
   CHECK(!view->animating());
+}
+
+// --- scrolling and the gestures that drive it -----------------------------
+
+namespace {
+
+/** A 200×200 viewport over four 100-tall rows: 400 px of content, 200 of reach. */
+const char *SCROLL_VIEW = R"({"v":1,"views":{"list":{
+  "type":"ScrollView","id":"list","axis":"vertical",
+  "layout":{"direction":"column","width":200,"height":200},
+  "children":[
+    {"type":"Button","id":"row-0","layout":{"width":200,"height":100},
+     "autofocus":true,"onClick":"pick-0"},
+    {"type":"Container","id":"row-1","layout":{"width":200,"height":100}},
+    {"type":"Container","id":"row-2","layout":{"width":200,"height":100}},
+    {"type":"Button","id":"row-3","layout":{"width":200,"height":100},"onClick":"pick-3"}]}}})";
+
+double offset_y(const View &view) { return view.root().scroll_offset.y; }
+
+}  // namespace
+
+TEST(view, the_reach_is_the_content_past_the_viewport_and_the_offset_lives_inside_it) {
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+  CHECK_NEAR(view->root().scroll_max.y, 200.0, 0.001);
+  // A vertical scroller has no horizontal reach, whatever its content does.
+  CHECK_NEAR(view->root().scroll_max.x, 0.0, 0.001);
+
+  CHECK(view->set_scroll("list", 0, 120));
+  CHECK_NEAR(offset_y(*view), 120.0, 0.001);
+  // Clamped at both ends: the host channel cannot put the content anywhere the
+  // player could not have.
+  CHECK(view->set_scroll("list", 0, 9999));
+  CHECK_NEAR(offset_y(*view), 200.0, 0.001);
+  CHECK(view->set_scroll("list", 0, -50));
+  CHECK_NEAR(offset_y(*view), 0.0, 0.001);
+  // No such scroller: nothing applied, and the game hears so rather than dying.
+  CHECK(!view->set_scroll("nope", 0, 50));
+}
+
+TEST(view, a_viewport_that_grows_past_its_content_pulls_the_offset_back_with_it) {
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+  view->set_scroll("list", 0, 200);
+  CHECK_NEAR(offset_y(*view), 200.0, 0.001);
+
+  // The whole 400 px of content now fits, so there is nowhere left to scroll to.
+  view->set_size(200, 400);
+  view->layout_frame();
+  CHECK_NEAR(view->root().scroll_max.y, 0.0, 0.001);
+  CHECK_NEAR(offset_y(*view), 0.0, 0.001);
+}
+
+TEST(view, a_wheel_notch_moves_the_scroller_under_the_pointer_and_nothing_else) {
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+
+  CHECK(view->pointer_wheel(100, 100, 0, 60));
+  CHECK_NEAR(offset_y(*view), 60.0, 0.001);
+  // The axis a vertical scroller does not enable has a zero bound, so the clamp
+  // simply drops it — the same 1:1 mapping the reference gives a browser's deltas.
+  CHECK(!view->pointer_wheel(100, 100, 40, 0));
+  CHECK_NEAR(view->root().scroll_offset.x, 0.0, 0.001);
+  // Already at the end: nothing moves, and the caller hears that nothing did.
+  view->set_scroll("list", 0, 200);
+  CHECK(!view->pointer_wheel(100, 100, 0, 60));
+  // Off the tree entirely.
+  CHECK(!view->pointer_wheel(-40, -40, 0, 60));
+}
+
+TEST(view, a_drag_scrolls_only_once_it_beats_the_threshold_and_then_taps_nothing) {
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+
+  // Row 1 is no control, so the press falls through and takes hold of the scroll.
+  view->pointer_down(100, 150);
+  CHECK_NEAR(offset_y(*view), 0.0, 0.001);
+  // Under the threshold this is still a tap: nothing has moved yet.
+  CHECK(!view->pointer_move(100, 148));
+  CHECK_NEAR(offset_y(*view), 0.0, 0.001);
+  // Past it, the content follows the finger — upwards, so the offset grows.
+  view->pointer_move(100, 120);
+  CHECK_NEAR(offset_y(*view), 30.0, 0.001);
+  view->layout_frame();
+
+  view->pointer_up(100, 120);
+  // A scroll gesture concludes nothing: no action left the view.
+  CHECK(view->drain_actions().empty());
+}
+
+TEST(view, a_press_on_a_row_control_beats_the_drag_and_still_fires_its_action) {
+  // The exit criterion of this ticket in one case: a scrollable list whose rows
+  // are still buttons.
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+
+  view->pointer_down(100, 50);
+  CHECK(view->root().children[0].pressed);
+  // A little travel with a control held is not a scroll: the drag never started.
+  view->pointer_move(100, 40);
+  CHECK_NEAR(offset_y(*view), 0.0, 0.001);
+
+  view->pointer_up(100, 40);
+  const std::vector<ActionEvent> actions = view->drain_actions();
+  CHECK_EQ(actions.size(), 1u);
+  if (!actions.empty()) CHECK_EQ(actions[0].name, std::string("pick-0"));
+}
+
+TEST(view, a_control_scrolled_out_from_under_the_finger_loses_its_tap) {
+  // Released over the same coordinates, but the button is no longer there — and
+  // "no longer there" includes cut away by the region, not just moved off it.
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+
+  view->pointer_down(100, 50);
+  CHECK(view->root().children[0].pressed);
+  view->set_scroll("list", 0, 200);
+  view->layout_frame();
+
+  view->pointer_up(100, 50);
+  CHECK(view->drain_actions().empty());
+  CHECK(!view->root().children[0].pressed);
+}
+
+TEST(view, a_cancelled_gesture_ends_without_concluding_anything) {
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+
+  view->pointer_down(100, 50);
+  CHECK(view->root().children[0].pressed);
+  CHECK(view->pointer_cancel());
+  CHECK(!view->root().children[0].pressed);
+  CHECK(view->drain_actions().empty());
+  // And a release afterwards has nothing left to conclude either.
+  view->pointer_up(100, 50);
+  CHECK(view->drain_actions().empty());
+
+  // A drag in flight goes the same way, and the offset it already moved stays:
+  // the content really is where the player left it.
+  view->pointer_down(100, 150);
+  view->pointer_move(100, 100);
+  CHECK_NEAR(offset_y(*view), 50.0, 0.001);
+  CHECK(view->pointer_cancel());
+  view->pointer_move(100, 40);
+  CHECK_NEAR(offset_y(*view), 50.0, 0.001);
+}
+
+TEST(view, the_focus_drags_the_scroll_with_it_but_only_when_it_is_navigation) {
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+  CHECK(view->focus() != nullptr);
+
+  // Row 3 sits at 300..400 with a 200 px viewport: the smallest move that brings
+  // its far edge in is 200 — which is also the whole reach.
+  CHECK(view->move_focus(0, 1));
+  CHECK_NEAR(offset_y(*view), 200.0, 0.001);
+  view->layout_frame();
+
+  // A pointer press does not: the player is already looking at what they touched.
+  view->set_scroll("list", 0, 0);
+  view->layout_frame();
+  view->pointer_down(100, 50);
+  view->pointer_up(100, 50);
+  view->drain_actions();
+  CHECK_NEAR(offset_y(*view), 0.0, 0.001);
+}
+
+TEST(view, a_collapse_mid_motion_really_cuts_the_content_it_is_closing_over) {
+  // The seam between G8 and G6: the motion sets `forced_clip` and the clip rules
+  // read it, so a box animating smaller than its own content cuts it — without
+  // the author ever asking for a clip, and without either half knowing about the
+  // other beyond that one flag.
+  Document document = loaded(MOTION_VIEW, 400, 300);
+  View *view = document.view();
+  document.set_data("ui.shown", DataValue::of_bool(true));
+  const LayoutNode &section = section_of(*view);
+
+  CHECK(!clips_children(section));  // at rest it clips nothing
+  CHECK(view->set_open("section", true));
+  frame_at(*view, 0);  // pending
+  frame_at(*view, 0);  // the tween starts
+  frame_at(*view, 50);
+
+  CHECK(section.collapse_animating);
+  CHECK(clips_children(section));
+  ClipArena arena;
+  const Clip *region = child_clip(section, nullptr, arena);
+  CHECK(region != nullptr);
+  if (region != nullptr) {
+    // The region is the box as it stands THIS frame — mid-tween, so shorter than
+    // the content it holds, which is the whole point of forcing the clip.
+    CHECK_NEAR(region->height, section.rect.height, 0.001);
+    CHECK(region->height < section.natural.y);
+  }
+
+  frame_at(*view, 200);  // settled open
+  CHECK(!section.collapse_animating);
+  CHECK(!clips_children(section));
+}
+
+TEST(view, a_new_press_ends_whatever_gesture_was_still_in_flight) {
+  // Nothing should be able to make a press advance the PREVIOUS drag by the jump
+  // between where that one was left and where this one lands.
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+
+  view->pointer_down(100, 150);
+  view->pointer_move(100, 100);
+  CHECK_NEAR(offset_y(*view), 50.0, 0.001);
+  view->layout_frame();
+
+  // No release: the next press arrives with the old gesture still on the books.
+  view->pointer_down(100, 190);
+  CHECK_NEAR(offset_y(*view), 50.0, 0.001);
 }

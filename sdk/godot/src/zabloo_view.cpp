@@ -6,6 +6,9 @@
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
+#include <godot_cpp/classes/input_event_pan_gesture.hpp>
+#include <godot_cpp/classes/input_event_screen_drag.hpp>
+#include <godot_cpp/classes/input_event_screen_touch.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
 #include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/core/class_db.hpp>
@@ -20,6 +23,47 @@
 using namespace godot;
 
 namespace {
+
+/**
+ * How far one wheel notch scrolls.
+ *
+ * The one number in this file that the reference cannot hand over: a browser
+ * reports a wheel in PIXELS (`deltaY`) and the core takes those pixels straight,
+ * while Godot reports a discrete `WHEEL_UP`/`WHEEL_DOWN` with a factor. Something
+ * has to turn one into the other, and the corpus cannot arbitrate it — no case
+ * records a wheel. The axes stay 1:1 with the reference either way: a scroller
+ * that does not enable an axis has a zero bound there, so the clamp drops it.
+ */
+constexpr double WHEEL_NOTCH_PX = 50.0;
+
+/**
+ * The rounded half of clipping, in the engine's own shading language.
+ *
+ * `VERTEX` in a canvas_item `vertex()` is the item's LOCAL position, which is
+ * this Control's space, which is the space the core's rects are in — so the
+ * region needs no conversion to be compared against a fragment. Everything
+ * outside the rect is already gone (the scissor), so this only discards corners.
+ */
+const char *CLIP_SHADER = R"(shader_type canvas_item;
+
+uniform vec4 clip_rect = vec4(0.0);
+uniform float clip_radius = 0.0;
+
+varying vec2 local_position;
+
+void vertex() {
+  local_position = VERTEX;
+}
+
+void fragment() {
+  // COLOR arrives already sampled — the vertex colour times TEXTURE — so the only
+  // thing left to do is take the corners out of its alpha.
+  vec2 half_size = clip_rect.zw * 0.5;
+  vec2 q = abs(local_position - (clip_rect.xy + half_size)) - (half_size - vec2(clip_radius));
+  float d = min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - clip_radius;
+  float aa = max(fwidth(d), 0.0001);
+  COLOR.a *= 1.0 - smoothstep(-aa * 0.5, aa * 0.5, d);
+})";
 
 /**
  * A `Variant` as the data channel carries it — arrays and dictionaries
@@ -107,6 +151,7 @@ void ZablooView::_bind_methods() {
   ClassDB::bind_method(D_METHOD("set_selected_tab", "id", "index"),
                        &ZablooView::set_selected_tab);
   ClassDB::bind_method(D_METHOD("set_checked", "id", "checked"), &ZablooView::set_checked);
+  ClassDB::bind_method(D_METHOD("set_scroll", "id", "x", "y"), &ZablooView::set_scroll);
   ClassDB::bind_method(D_METHOD("reload", "json"), &ZablooView::reload);
 
   ClassDB::bind_method(D_METHOD("set_envelope_path", "path"), &ZablooView::set_envelope_path);
@@ -143,6 +188,9 @@ void ZablooView::_ready() {
 
 void ZablooView::_notification(int what) {
   if (what == NOTIFICATION_RESIZED) relayout();
+  // The canvas items are the server's, not the scene tree's: nothing frees them
+  // when this node goes, so it has to.
+  else if (what == NOTIFICATION_PREDELETE) free_clip_items();
   // Entering the tree is what makes a view eligible for the keyboard; leaving it
   // hands ownership back to whichever view was there first.
   else if (what == NOTIFICATION_ENTER_TREE) register_input_view(this);
@@ -245,6 +293,19 @@ bool ZablooView::set_selected_tab(const String &id, int index) {
     return false;
   }
   flush_events();
+  relayout();
+  return true;
+}
+
+bool ZablooView::set_scroll(const String &id, double x, double y) {
+  zabloo::View *view = document_.view();
+  const CharString utf8 = id.utf8();
+  if (view == nullptr || !view->set_scroll(utf8_of(utf8), x, y)) {
+    UtilityFunctions::push_warning("[zabloo] set_scroll: no ScrollView with id \"", id, "\"");
+    return false;
+  }
+  // No hooks to drain — a scroller emits nothing (2026-08-11, ZAB-9) — but the
+  // content did move, so the frame has to be laid out again.
   relayout();
   return true;
 }
@@ -451,50 +512,148 @@ ZablooView::AssetTexture ZablooView::decode(const zabloo::ImageAsset &asset) {
 }
 
 /**
+ * Claims the canvas item one clip group draws into, arming its region.
+ *
+ * The items are pooled and cleared rather than recreated: a frame that paints
+ * the same regions asks the server for nothing new. `draw_index` is what keeps
+ * painter's order across them — the groups come out of the core in the order
+ * they were entered, and that is the order they have to draw in.
+ */
+RID ZablooView::clip_item(size_t index, const zabloo::Clip *clip, int draw_index) {
+  RenderingServer *server = RenderingServer::get_singleton();
+  if (index >= clip_items_.size()) {
+    ClipItem entry;
+    entry.item = server->canvas_item_create();
+    server->canvas_item_set_parent(entry.item, get_canvas_item());
+    clip_items_.push_back(entry);
+  }
+  ClipItem &entry = clip_items_[index];
+  server->canvas_item_clear(entry.item);
+  server->canvas_item_set_draw_index(entry.item, draw_index);
+
+  const bool rounded = clip != nullptr && clip->radius > 0.0;
+  if (clip != nullptr) {
+    // A region an intersection collapsed has a non-positive extent. It is not a
+    // special case — nothing is visible through it either way — but Godot should
+    // be handed an empty rect rather than a backwards one.
+    const Rect2 rect(static_cast<real_t>(clip->x), static_cast<real_t>(clip->y),
+                     static_cast<real_t>(clip->width > 0.0 ? clip->width : 0.0),
+                     static_cast<real_t>(clip->height > 0.0 ? clip->height : 0.0));
+    server->canvas_item_set_custom_rect(entry.item, true, rect);
+    server->canvas_item_set_clip(entry.item, true);
+  } else {
+    server->canvas_item_set_clip(entry.item, false);
+    server->canvas_item_set_custom_rect(entry.item, false, Rect2());
+  }
+
+  // A square region is the scissor and nothing else, so it carries no material —
+  // and dropping the one it may have had last frame is what stops a rounded group
+  // from leaving its corners cut into whatever reuses its slot.
+  if (!rounded) {
+    if (entry.material.is_valid()) {
+      entry.material.unref();
+      server->canvas_item_set_material(entry.item, RID());
+    }
+    return entry.item;
+  }
+
+  if (clip_shader_.is_null()) {
+    clip_shader_.instantiate();
+    clip_shader_->set_code(String(CLIP_SHADER));
+  }
+  if (entry.material.is_null()) {
+    entry.material.instantiate();
+    entry.material->set_shader(clip_shader_);
+    server->canvas_item_set_material(entry.item, entry.material->get_rid());
+  }
+  entry.material->set_shader_parameter(
+      "clip_rect", Vector4(static_cast<real_t>(clip->x), static_cast<real_t>(clip->y),
+                           static_cast<real_t>(clip->width), static_cast<real_t>(clip->height)));
+  entry.material->set_shader_parameter("clip_radius", clip->radius);
+  return entry.item;
+}
+
+void ZablooView::free_clip_items() {
+  // At shutdown the server may already be gone; the RIDs go with it either way.
+  RenderingServer *server = RenderingServer::get_singleton();
+  if (server != nullptr) {
+    for (ClipItem &entry : clip_items_) {
+      if (entry.item.is_valid()) server->free_rid(entry.item);
+    }
+  }
+  clip_items_.clear();
+}
+
+/**
  * Upload: one `canvas_item_add_triangle_array` per batch, which is one draw call
- * per batch — the solids of the whole screen, and then one per glyph atlas in
- * play. Solids carry no texture, exactly as the reference renderer draws them.
+ * per batch — the solids of each clip group, and then one per texture in play.
+ * Solids carry no texture, exactly as the reference renderer draws them.
+ *
+ * Nothing goes into this Control's own canvas item: every batch draws into the
+ * child item of its region, so a group is clipped as a whole and the groups draw
+ * in the order the core entered them.
  */
 void ZablooView::_draw() {
+  RenderingServer *server = RenderingServer::get_singleton();
   zabloo::View *view = document_.view();
-  if (view == nullptr) return;
+  if (view == nullptr) {
+    // Emptied and not freed: the engine clears this Control's own canvas item
+    // before `_draw`, but the children are ours, so last frame's triangles would
+    // otherwise stay on screen with nothing behind them.
+    for (ClipItem &entry : clip_items_) server->canvas_item_clear(entry.item);
+    return;
+  }
 
   sync_atlases();
   sync_images();
-  RenderingServer *server = RenderingServer::get_singleton();
-  const RID canvas = get_canvas_item();
-  for (const zabloo::Batch &batch : view->paint().batches()) {
-    if (batch.empty()) continue;
-    const int64_t vertices = static_cast<int64_t>(batch.vertex_count());
-    indices_.resize(static_cast<int64_t>(batch.indices.size()));
+
+  // One canvas item per group that actually painted something. The count is not
+  // the core's group ordinal — a group whose batches all came out empty claims no
+  // item — but the ORDER is, which is the part that has to survive.
+  size_t items = 0;
+  uint32_t open_group = 0;
+  RID canvas;
+  bool opened = false;
+  for (const zabloo::Batch *batch : view->paint().batches()) {
+    if (batch->empty()) continue;
+    // Batches of one group are contiguous, and the ordinal is what separates them:
+    // two adjacent groups may share a region and still have to draw in order.
+    if (!opened || batch->group != open_group) {
+      open_group = batch->group;
+      canvas = clip_item(items, batch->clip, static_cast<int>(items));
+      items++;
+      opened = true;
+    }
+    const int64_t vertices = static_cast<int64_t>(batch->vertex_count());
+    indices_.resize(static_cast<int64_t>(batch->indices.size()));
     points_.resize(vertices);
     colors_.resize(vertices);
     uvs_.resize(vertices);
 
     int32_t *index_out = indices_.ptrw();
-    for (size_t i = 0; i < batch.indices.size(); i++) {
-      index_out[i] = static_cast<int32_t>(batch.indices[i]);
+    for (size_t i = 0; i < batch->indices.size(); i++) {
+      index_out[i] = static_cast<int32_t>(batch->indices[i]);
     }
     Vector2 *point_out = points_.ptrw();
     Vector2 *uv_out = uvs_.ptrw();
     Color *color_out = colors_.ptrw();
     for (int64_t i = 0; i < vertices; i++) {
-      point_out[i] = Vector2(batch.positions[i * 2], batch.positions[i * 2 + 1]);
-      uv_out[i] = Vector2(batch.uvs[i * 2], batch.uvs[i * 2 + 1]);
-      color_out[i] = Color(batch.colors[i * 4], batch.colors[i * 4 + 1], batch.colors[i * 4 + 2],
-                           batch.colors[i * 4 + 3]);
+      point_out[i] = Vector2(batch->positions[i * 2], batch->positions[i * 2 + 1]);
+      uv_out[i] = Vector2(batch->uvs[i * 2], batch->uvs[i * 2 + 1]);
+      color_out[i] = Color(batch->colors[i * 4], batch->colors[i * 4 + 1],
+                           batch->colors[i * 4 + 2], batch->colors[i * 4 + 3]);
     }
     // Bones and weights are the two arguments in the way of the texture, which
     // is the one that matters here: a batch that names an atlas or an image
     // samples it, and a solid one draws with no texture at all.
     RID texture;
-    if (batch.kind == zabloo::TextureKind::Glyphs) {
-      const auto found = atlases_.find(batch.texture);
+    if (batch->kind == zabloo::TextureKind::Glyphs) {
+      const auto found = atlases_.find(batch->texture);
       if (found != atlases_.end() && found->second.texture.is_valid()) {
         texture = found->second.texture->get_rid();
       }
-    } else if (batch.kind == zabloo::TextureKind::Image) {
-      const auto *asset = static_cast<const zabloo::ImageAsset *>(batch.texture);
+    } else if (batch->kind == zabloo::TextureKind::Image) {
+      const auto *asset = static_cast<const zabloo::ImageAsset *>(batch->texture);
       const auto found = images_.find(asset->hash);
       // Nothing decoded: skipping the batch leaves the node showing the
       // background it painted underneath, which is the authored placeholder.
@@ -506,6 +665,12 @@ void ZablooView::_draw() {
     server->canvas_item_add_triangle_array(canvas, indices_, points_, colors_, uvs_,
                                            PackedInt32Array(), PackedFloat32Array(), texture);
   }
+
+  // Slots the frame did not need are emptied rather than freed: a scroller that
+  // is momentarily not clipping anything will want them back next frame.
+  for (size_t i = items; i < clip_items_.size(); i++) {
+    server->canvas_item_clear(clip_items_[i].item);
+  }
 }
 
 // --- input ----------------------------------------------------------------
@@ -514,29 +679,73 @@ void ZablooView::_gui_input(const Ref<InputEvent> &event) {
   zabloo::View *view = document_.view();
   if (view == nullptr) return;
 
-  // `_gui_input` hands positions already local to this Control, and the core
-  // lays out from (0, 0), so there is no transform to undo. The pad is G13
-  // (ZAB-146).
+  // `_gui_input` hands positions already local to this Control, and the core lays
+  // out from (0, 0), so there is no transform to undo. The pad is G13 (ZAB-146).
   bool changed = false;
+  bool handled = true;
   const Ref<InputEventMouseButton> button = event;
-  if (button.is_valid() && button->get_button_index() == MOUSE_BUTTON_LEFT) {
+  const Ref<InputEventMouseMotion> motion = event;
+  const Ref<InputEventScreenTouch> touch = event;
+  const Ref<InputEventScreenDrag> screen_drag = event;
+  const Ref<InputEventPanGesture> pan = event;
+
+  if (button.is_valid()) {
     const Vector2 at = button->get_position();
-    if (button->is_pressed()) {
-      // Touching a view is using it: among several, this one now takes the keys.
-      claim_input(this);
-      changed = view->pointer_down(at.x, at.y);
+    const MouseButton index = button->get_button_index();
+    if (index == MOUSE_BUTTON_LEFT) {
+      if (button->is_pressed()) {
+        // Touching a view is using it: among several, this one now takes the keys.
+        claim_input(this);
+        changed = view->pointer_down(at.x, at.y);
+      } else {
+        changed = view->pointer_up(at.x, at.y);
+      }
+    } else if (button->is_pressed() &&
+               (index == MOUSE_BUTTON_WHEEL_UP || index == MOUSE_BUTTON_WHEEL_DOWN ||
+                index == MOUSE_BUTTON_WHEEL_LEFT || index == MOUSE_BUTTON_WHEEL_RIGHT)) {
+      // A notch arrives as a press and then a release; only the press scrolls, or
+      // every notch would count twice.
+      const double step = WHEEL_NOTCH_PX * static_cast<double>(button->get_factor());
+      const double dx = index == MOUSE_BUTTON_WHEEL_RIGHT  ? step
+                        : index == MOUSE_BUTTON_WHEEL_LEFT ? -step
+                                                           : 0.0;
+      const double dy = index == MOUSE_BUTTON_WHEEL_DOWN ? step
+                        : index == MOUSE_BUTTON_WHEEL_UP ? -step
+                                                         : 0.0;
+      changed = view->pointer_wheel(at.x, at.y, dx, dy);
     } else {
-      changed = view->pointer_up(at.x, at.y);
+      handled = false;
     }
-    accept_event();
+  } else if (motion.is_valid()) {
+    const Vector2 at = motion->get_position();
+    changed = view->pointer_move(at.x, at.y);
+    // A mouse that is only passing over inert content has not been "used": letting
+    // the motion through keeps whatever is under this view able to see it.
+    handled = changed;
+  } else if (touch.is_valid()) {
+    const Vector2 at = touch->get_position();
+    if (touch->is_pressed()) {
+      claim_input(this);
+      // A finger is not a cursor: it lights nothing up on the way past, and it is
+      // not sitting anywhere once it lifts.
+      changed = view->pointer_down(at.x, at.y, false);
+    } else {
+      changed = view->pointer_up(at.x, at.y, false);
+    }
+  } else if (screen_drag.is_valid()) {
+    const Vector2 at = screen_drag->get_position();
+    changed = view->pointer_move(at.x, at.y, false);
+  } else if (pan.is_valid()) {
+    // A trackpad reports a pan rather than notches, and in the same units Godot's
+    // own ScrollContainer reads them in — so it takes the same step.
+    const Vector2 delta = pan->get_delta();
+    changed = view->pointer_wheel(pan->get_position().x, pan->get_position().y,
+                                  delta.x * WHEEL_NOTCH_PX, delta.y * WHEEL_NOTCH_PX);
   } else {
-    const Ref<InputEventMouseMotion> motion = event;
-    if (motion.is_valid()) {
-      const Vector2 at = motion->get_position();
-      changed = view->pointer_move(at.x, at.y);
-    }
+    handled = false;
   }
 
+  if (handled) accept_event();
   flush_events();
   // Only when something actually moved: a redraw per mouse motion over an inert
   // panel is a frame nobody asked for.
