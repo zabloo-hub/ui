@@ -16,9 +16,30 @@ scons install
 # 3. Open this folder in Godot 4.4 or newer and press Play.
 ```
 
-It loads `examples/showcase`'s exported envelope from outside the project, so
-what you see is always the current build of that example. **R** reloads it and
-**1–9** switch view; it opens on `media`, which is the one G5 (images) is about.
+It loads an example's exported envelope from outside the project, so what you see
+is always the current build of that example. Which one is whatever the capability
+that landed last needs to be seen doing its job — `ENVELOPE` and `VIEW` at the top
+of `main.gd` are the two lines to move. Today they point at `examples/showcase`'s
+`motion` view, which is what G8 is about, and there **1–9** switch view.
+
+**R** reloads, which is the hot-update path (below).
+
+### Checking G6 by hand
+
+Point `ENVELOPE` at `../inventory-demo/dist/zabloo.ir.json` and `VIEW` at
+`inventory`: it is the screen with real overflow — a horizontal strip of buttons,
+a vertical catalogue and a `Collapse` inside it.
+
+- **Wheel** over the catalogue scrolls it, and stops dead at both ends.
+- **Drag** it with the mouse held down; drag the category strip sideways too,
+  grabbing a GAP between two buttons — a press on a button takes the pointer
+  itself, which is the hole ZAB-9 left open on purpose. The wheel does not move a
+  horizontal-only scroller either, which is the same kind of deliberate (the axes
+  stay 1:1 with the reference, decision 2026-09-01).
+- **Click a category button** and its action reaches the log: a press takes the
+  pointer before any drag can, so a list of buttons is still a list of buttons.
+- **Rounded corners** — the catalogue's content is cut by the panel's radius, not
+  by its bounding box.
 
 ## Watching a hot-update keep its textures
 
@@ -27,7 +48,8 @@ swap a platform push performs — so it is how you check the two halves of the
 asset cache by hand:
 
 ```sh
-# Replace examples/showcase/src/assets/banner.png with a different picture,
+# Point ENVELOPE at ../showcase, replace src/assets/banner.png with another
+# picture,
 cd ../showcase && pnpm build     # then re-export,
                                  # then press R in the running playground.
 ```
@@ -40,16 +62,17 @@ that ON SAVE is the dev loop, `zabloo dev --godot`, which is G14 (ZAB-147).
 ## What renders today, and what does not
 
 G2 is the chassis — the loader, the layout pass, the tessellator and the pointer —
-G4 added the text engine, so labels measure, wrap and paint their glyphs, and G5
-added images. The rest of the catalog arrives capability by capability, and until
-it does those nodes degrade rather than disappear — the same forward-tolerance a
-game gets from an SDK older than its content:
+G4 added the text engine, so labels measure, wrap and paint their glyphs, G5 added
+images, G6 clipping and scrolling, G7 states, spatial focus and the data channel,
+and G8 the transition engine. The rest of the catalog arrives capability by
+capability, and until it does those nodes degrade rather than disappear — the same
+forward-tolerance a game gets from an SDK older than its content:
 
 | Not yet | Lands in |
 |---|---|
-| Clipping and scrolling | G6 (ZAB-139) |
-| Focus navigation, bindings reading the data channel | G7 (ZAB-140) |
-| Transitions | G8 (ZAB-141) |
 | Overlays | G9 (ZAB-142) |
-| Toggle, Slider, ProgressBar, Spinner behavior | G10 (ZAB-143) |
+| The Slider's value-driven slots | G10 (ZAB-143) |
+| TextInput | G11 (ZAB-144) |
+| Data-driven lists (`Repeat`) | G12 (ZAB-145) |
+| Gamepad | G13 (ZAB-146) |
 | Live reload from `zabloo dev --godot` | G14 (ZAB-147) |

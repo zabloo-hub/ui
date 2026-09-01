@@ -39,16 +39,17 @@ operations, and **signals** for the callbacks.
 | `SetOpen` | `set_open(id: String, open: bool) -> bool` | Data changed | `data_changed(path: String, value: Variant)` |
 | `SetSelectedTab` | `set_selected_tab(id: String, index: int) -> bool` | Diagnostic | `diagnostic(code: String, message: String, fatal: bool)` |
 | `SetChecked` | `set_checked(id: String, checked: bool) -> bool` | | |
+| `SetScroll` | `set_scroll(id: String, x: float, y: float) -> bool` | | |
 | `Reload` | `reload(json: String) -> bool` | | |
 
 A `Variant` carries what the channel carries: a bool, a number, a string, and — because a
 bound path addresses **into** what was pushed — an `Array` or a `Dictionary` too.
 `set_data("shop.items", [...])` is what makes `{"bind": "shop.items.1.name"}` resolve.
 
-`SetValue`, `SetText` and `SetScroll` are not on the Godot node yet: their subjects
-(`Slider`, `TextInput`, `ScrollView`) have no runtime there until ZAB-143, ZAB-144 and
-ZAB-139. Binding them now would mean answering `false` for a control that exists, which is
-the one thing the return value is not allowed to mean.
+`SetValue` and `SetText` are not on the Godot node yet: their subjects (`Slider`,
+`TextInput`) have no runtime there until ZAB-143 and ZAB-144. Binding them now would mean
+answering `false` for a control that exists, which is the one thing the return value is not
+allowed to mean.
 
 ### Addressing by id
 

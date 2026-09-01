@@ -60,6 +60,15 @@ struct Batch {
    * (see `ClipArena`): every batch of one group names the very same region.
    */
   const Clip *clip = nullptr;
+  /**
+   * Which clip group this run belongs to, counting from zero this frame.
+   *
+   * The adapter needs it to know where one group ends and the next begins, and
+   * the region alone cannot say: `start_root` opens a group unconditionally, so
+   * two adjacent groups may well share a region (both unclipped, typically) and
+   * still have to be drawn one after the other.
+   */
+  uint32_t group = 0;
   /** `x, y` per vertex, in view space. */
   std::vector<float> positions;
   std::vector<float> uvs;
@@ -175,6 +184,15 @@ class GeometryBuilder {
   /** Everything painted under one region, in one contiguous run of the pass. */
   struct ClipGroup {
     const Clip *clip = nullptr;
+  /**
+   * Which clip group this run belongs to, counting from zero this frame.
+   *
+   * The adapter needs it to know where one group ends and the next begins, and
+   * the region alone cannot say: `start_root` opens a group unconditionally, so
+   * two adjacent groups may well share a region (both unclipped, typically) and
+   * still have to be drawn one after the other.
+   */
+  uint32_t group = 0;
     /** Batch 0 is the solids'. Then the images, then the glyph atlases. */
     std::vector<Batch> batches;
     /** How many image batches sit after the solids — where a new one splices in. */

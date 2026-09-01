@@ -4,6 +4,7 @@
 
 #include "assets.h"
 #include "glyphs.h"
+#include "clip.h"
 #include "tessellator.h"
 #include "testing.h"
 #include "ttf.h"
@@ -329,4 +330,76 @@ TEST(tessellator, one_asset_is_one_batch_however_many_nodes_name_it) {
 
   builder.image(Rect{0, 80, 20, 20}, other, ImageFit::Contain, RED, 0);
   CHECK_EQ(builder.batches().size(), 3u);
+}
+
+// --- clip groups ----------------------------------------------------------
+
+TEST(tessellator, entering_a_region_opens_a_group_and_staying_in_it_does_not) {
+  ClipArena arena;
+  const Clip *inside = arena.intern(Clip{0, 0, 100, 100, 0});
+  GeometryBuilder builder;
+  builder.reset();
+
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);  // group 0, unclipped
+  builder.set_clip(inside);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);  // group 1
+  builder.set_clip(inside);                          // the same region: still 1
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+  builder.set_clip(nullptr);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);  // group 2
+
+  const std::vector<const Batch *> &batches = builder.batches();
+  CHECK_EQ(batches.size(), 3u);
+  CHECK(batches[0]->clip == nullptr);
+  CHECK(batches[1]->clip == inside);
+  CHECK(batches[2]->clip == nullptr);
+  CHECK_EQ(batches[0]->group, 0u);
+  CHECK_EQ(batches[1]->group, 1u);
+  CHECK_EQ(batches[2]->group, 2u);
+  // Two rects went into the middle group, and one into each of the others.
+  CHECK_EQ(batches[0]->vertex_count(), 4u);
+  CHECK_EQ(batches[1]->vertex_count(), 8u);
+  CHECK_EQ(batches[2]->vertex_count(), 4u);
+}
+
+TEST(tessellator, a_paint_root_opens_a_group_even_over_the_very_same_region) {
+  // The one thing `set_clip` cannot express, and the reason a batch carries its
+  // group ordinal at all: two roots may share a region — both unclipped, here —
+  // and still have to be drawn one after the other.
+  GeometryBuilder builder;
+  builder.reset();
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+  builder.start_root(nullptr);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+
+  const std::vector<const Batch *> &batches = builder.batches();
+  CHECK_EQ(batches.size(), 2u);
+  CHECK(batches[0]->clip == batches[1]->clip);
+  CHECK_EQ(batches[0]->group, 0u);
+  CHECK_EQ(batches[1]->group, 1u);
+}
+
+TEST(tessellator, a_group_keeps_solids_before_images_before_text) {
+  // The order G5 fixed, now per group rather than per frame: an image declared
+  // after a label still draws under it, inside whichever region they share.
+  const ImageAsset asset = source();
+  ClipArena arena;
+  const Clip *inside = arena.intern(Clip{0, 0, 100, 100, 0});
+  GeometryBuilder builder;
+  builder.reset();
+  builder.set_clip(inside);
+  builder.image(Rect{0, 0, 40, 40}, asset, ImageFit::Stretch, RED, 0);
+  builder.rounded_rect(Rect{0, 0, 10, 10}, 0, RED);
+
+  // Three, because the frame opens unclipped and that group keeps its (empty)
+  // solids batch — which is exactly why the caller skips `empty()` ones.
+  const std::vector<const Batch *> &batches = builder.batches();
+  CHECK_EQ(batches.size(), 3u);
+  CHECK(batches[0]->empty());
+  CHECK(batches[1]->kind == TextureKind::None);
+  CHECK(batches[2]->kind == TextureKind::Image);
+  // Both belong to the region that was entered, not to the frame's opening group.
+  CHECK(batches[1]->clip == inside);
+  CHECK(batches[2]->clip == inside);
+  CHECK_EQ(batches[1]->group, batches[2]->group);
 }

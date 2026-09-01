@@ -94,7 +94,10 @@ void GeometryBuilder::open_group(const Clip *clip) {
   // the atlas batch first and hand `solid()` — which is `front()` — geometry
   // sampling the glyphs.
   if (group.batches.empty()) group.batches.emplace_back();
-  for (Batch &batch : group.batches) batch.clip = clip;
+  for (Batch &batch : group.batches) {
+    batch.clip = clip;
+    batch.group = static_cast<uint32_t>(current_);
+  }
 }
 
 void GeometryBuilder::set_clip(const Clip *clip) {
@@ -120,6 +123,7 @@ Batch &GeometryBuilder::textured(const void *texture, TextureKind kind) {
   batch.texture = texture;
   batch.kind = kind;
   batch.clip = group.clip;
+  batch.group = static_cast<uint32_t>(current_);
   return batch;
 }
 

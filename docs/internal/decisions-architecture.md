@@ -3540,3 +3540,111 @@ en vez de la unión de las **eliminaciones**, así que cuatro casos (`assets-ima
 `bindings`, `collapse-tabs`, `unknown-type`) pasaban estando saltados. Lo cazó el guardia
 que ZAB-136 puso justo para esto — un caso saltado que empieza a pasar hace fallar la
 suite pidiendo que lo quiten.
+
+## 2026-09-01 — Clip y scroll en el core: la región es una identidad, y en Godot un canvas item hijo (ZAB-139, F11 G6)
+
+**Decisión:** el recorte, el `ScrollView` y la capa de puntero entran en el core como
+port literal de `clip.ts`, `hit.ts`, `scroll.ts` e `input/pointer.ts`, y el adaptador de
+Godot estrena el recorte real. Con ello **`scroll-clip` sale de la skip-list comparando
+byte a byte** y `disabled` estrecha su motivo a lo que le queda: `Slider` (G10) y
+`TextInput` (G11).
+
+**Lo único de `clip.ts` que NO se porta es `scissorBox`**, y merece decirse porque marca
+la frontera: traduce una región a píxeles de dispositivo con el origen abajo a la
+izquierda, que es de GL y no del contrato. Godot toma la región tal cual. Todo lo demás
+del fichero —la intersección, el radio del clip redondeado más interno, el test del
+punto contra la esquina— es contrato, y el corpus lo compara nodo a nodo.
+
+**La identidad de una región es contrato de pintado, no pulcritud.** El tessellator
+agrupa la geometría por región y decide «¿la misma?» comparando **punteros**, igual que
+la referencia compara identidad de objeto. Dos scrollers hermanos que coincidan en rect
+siguen siendo dos regiones, y por tanto dos grupos que se pintan uno tras otro;
+fusionarlos por valor —lo que habría salido de comparar `{x,y,w,h,radius}`— reordenaría
+en silencio qué dibuja encima de qué, que es exactamente el fallo que G5 arregló al
+poner el orden de batches por delante del orden de pintado. De ahí el `ClipArena`: da
+dirección estable a cada región y reusa sus huecos entre frames.
+
+**Agrupar por región cuesta un invariante, a sabiendas.** Hasta aquí todos los sólidos
+de la pantalla compartían un batch; ahora una región es **estado del motor**, así que
+geometría recortada distinto no puede compartir draw call. Dentro de cada grupo se
+conserva el orden `sólidos → imágenes → texto` de G5, y entre grupos manda el orden de
+entrada — por eso un grupo **nunca se re-entra**: volver a uno anterior colaría geometría
+por debajo de lo ya pintado encima. `start_root()` entra ya aunque nadie lo llame hasta
+G9: es lo único que `set_clip` no puede expresar, porque dos raíces de pintado pueden
+compartir región y aun así tener que ordenarse una detrás de otra. Y precisamente por eso
+el `Batch` lleva **ordinal de grupo** además de región: un adaptador que separase los
+grupos comparando la región fusionaría en silencio dos raíces sin recortar, que es
+exactamente el caso para el que `start_root` existe.
+
+**En Godot, un canvas item hijo por grupo — no `Control.clip_contents`, no stencil.** El
+ticket pedía evaluar cuál da un scissor exacto sin un `Control` por nodo, y la respuesta
+es llegar directamente al mecanismo que `clip_contents` usa por dentro:
+`canvas_item_set_clip` + `canvas_item_set_custom_rect` sobre items hijos creados con
+`canvas_item_create` y colgados del item del propio `Control`. Los rects del core ya están
+en el espacio local de ese Control y un item hijo sin transform propio lo comparte, así
+que no hay nada que convertir; `canvas_item_set_draw_index` conserva el orden de los
+grupos. Los items se **poolean y se vacían** cada frame en vez de recrearse, y se liberan
+en `NOTIFICATION_PREDELETE`: son del servidor, no del árbol de escena, así que nadie más
+los recoge.
+
+**Las esquinas, por SDF en el fragment shader** — la misma elección que ZAB-7 tomó en web,
+y por los mismos motivos: el stencil pide buffer, geometría de máscara y una máquina de
+estados con ref por nivel de anidamiento, y aun así deja el corte aliaseado. El shader son
+ocho líneas y su borde antialiasea como el resto. `VERTEX` en el `vertex()` de un
+canvas_item es la posición **local** del item, que es el espacio de los rects del core, así
+que la región se compara contra el fragmento sin convertir nada. Un `ShaderMaterial`
+pooleado por grupo **redondeado** (los cuadrados no llevan material: el scissor ya los
+corta entero), en vez de uniforms de instancia sobre un material compartido — que también
+existe en 4.4, pero ata el recorte a una capacidad que no se puede comprobar sin arrancar
+el motor.
+
+**La constante de rueda es la única cifra que la referencia no puede entregar.** Un
+navegador reporta la rueda en **píxeles** (`deltaY`) y el core se los come tal cual;
+Godot reporta un `WHEEL_UP`/`WHEEL_DOWN` discreto con un factor. Algo tiene que traducir,
+el corpus no puede arbitrarlo —ningún caso graba una rueda— y se fija en **50 px por
+muesca × `factor`**, con el `InputEventPanGesture` del trackpad leyendo su delta en las
+mismas unidades que la propia `ScrollContainer` de Godot. Lo que **no** se toca son los
+ejes: siguen 1:1 con la referencia (`deltaY → y`, `deltaX → x`), así que un scroller solo
+horizontal sigue sin moverse con la rueda de un ratón normal. Es el hueco (a) que ZAB-9
+dejó anotado, y arreglarlo en un target y no en el otro convertiría una molestia conocida
+en una divergencia; el hueco (b) —que un drag empezado sobre un `Button` no scrollee—
+queda igual, y por lo mismo.
+
+**El release pasa a preguntar `reachable_at`, no `pressable_at(x, y) == released`.** Es lo
+que hace la referencia, y la diferencia no es cosmética: `reachable_at` mira el rect
+**propio** del nodo pulsado más las regiones de sus ancestros, así que cancela el tap de
+un botón que el scroll se llevó de debajo del dedo — y no solo el de uno del que el dedo
+se fue. Sin eso, el clip recortaría el input al bajar por el árbol pero no al comprobar la
+pulsación que ya estaba en vuelo.
+
+**Dos cosas pequeñas que el port destapa y quedan fijadas:** `pointer_move`/`down`/`up`
+ganan un `mouse` con default `true`, porque **el hover es estado de ratón** y un dedo que
+toca y se va no puede dejar un control encendido (en Godot, `InputEventScreenTouch` y
+`ScreenDrag` entran con `false`); y `pointer_cancel()` termina un gesto **sin
+concluirlo** —ninguna acción, ningún `Collapse`, ningún backdrop—, con la excepción del
+`Slider`, que asienta, anotada para G10 en el sitio donde tendrá que implementarse.
+
+**`reveal_delta` deja de estar sin cablear:** la navegación arrastra el scroll con el foco
+(2026-08-12, ZAB-47), cerrando el diferido que ZAB-9 había dejado apuntado a la fase de
+gamepad. Solo la navegación lo llama — una pulsación enfoca lo que el jugador ya está
+mirando.
+
+**Un fallo preexistente que el port destapa, anotado y NO cambiado:** el scrollbar se
+pinta después de los hijos y **vuelve a entrar en su misma región**, así que su
+`set_clip` es un no-op y su geometría cae en el batch de sólidos de ese grupo — que se
+dibuja *antes* del texto del grupo. Resultado: en una lista de filas con etiquetas, el
+texto puede pasar por encima de la barra. Es exactamente lo que hace la referencia, no lo
+graba ningún caso del corpus (un snapshot no lleva geometría), y arreglarlo es un
+`start_root()` para la barra en los dos targets. Se deja igual a propósito: durante el
+port, el comportamiento del renderer web no se reinterpreta — si es un fallo, se arregla
+**allí** y se vuelve a grabar, en su propio ticket, en vez de dejar que los dos targets
+deriven.
+
+**Dónde vive:** `core/src/clip.{h,cpp}` (la región y su arena), `core/src/hit.{h,cpp}` (el
+recorrido, `clips_children`, `child_clip`, `effective_clip`), `core/src/scroll.{h,cpp}` (el
+alcance, el thumb y las constantes del scrollbar), `core/src/layout.cpp` (el alcance y el
+reclampado en el arrange), `core/src/tessellator.{h,cpp}` (los grupos), `core/src/view.cpp`
+(pintado, gestos, `set_scroll`, auto-scroll del foco) y `core/src/snapshot.cpp` (`clip` y
+`scroll`). En Godot, `sdk/godot/src/zabloo_view.{h,cpp}`. Docs:
+`docs/format/host-channel.md` (el `set_scroll` de la tabla de Godot). Corpus: `scroll-clip`
+fuera de `core/tests/golden-skip.json`.

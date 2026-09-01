@@ -1182,6 +1182,9 @@ bool View::pointer_move(double x, double y, bool mouse) {
 }
 
 bool View::pointer_down(double x, double y, bool mouse) {
+  // A new press ends whatever was still in flight, so the hover refresh below
+  // cannot advance the previous gesture's drag by the jump between the two.
+  drag_ = ScrollDrag{};
   const bool moved = pointer_move(x, y, mouse);
   // G10 (ZAB-143) and G11 (ZAB-144) take the pointer BEFORE this, for the same
   // reason: a Slider's drag and a field's selection both live inside scrollable
@@ -1228,8 +1231,11 @@ bool View::pointer_up(double x, double y, bool mouse) {
 
   const bool dragged = drag_.moved;
   drag_ = ScrollDrag{};
-  // A scroll gesture, not a tap: nothing concludes.
-  if (dragged) return pointer_move(x, y, mouse) || true;
+  if (dragged) {
+    // A scroll gesture, not a tap: the content moved, and nothing concludes.
+    pointer_move(x, y, mouse);
+    return true;
+  }
 
   // Nothing was pressed and nothing was dragged, so this may be a tap on a
   // Collapse header: it toggles on the release and never wears `pressed`, which

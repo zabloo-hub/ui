@@ -1144,3 +1144,19 @@ TEST(view, a_collapse_mid_motion_really_cuts_the_content_it_is_closing_over) {
   CHECK(!section.collapse_animating);
   CHECK(!clips_children(section));
 }
+
+TEST(view, a_new_press_ends_whatever_gesture_was_still_in_flight) {
+  // Nothing should be able to make a press advance the PREVIOUS drag by the jump
+  // between where that one was left and where this one lands.
+  Document document = loaded(SCROLL_VIEW, 200, 200);
+  View *view = document.view();
+
+  view->pointer_down(100, 150);
+  view->pointer_move(100, 100);
+  CHECK_NEAR(offset_y(*view), 50.0, 0.001);
+  view->layout_frame();
+
+  // No release: the next press arrives with the old gesture still on the books.
+  view->pointer_down(100, 190);
+  CHECK_NEAR(offset_y(*view), 50.0, 0.001);
+}
