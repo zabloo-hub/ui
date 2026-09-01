@@ -39,6 +39,9 @@ only if `assets/fonts/` ever changes, and commit what it writes.
 | `validate.{h,cpp}` | The loader's policy (ZAB-37): repair, never throw, refuse only on a major mismatch |
 | `states.{h,cpp}` | The normative state merge order |
 | `layout.{h,cpp}` | The v1 Yoga subset, `wrap` included. Pure geometry over resolved inputs |
+| `clip.{h,cpp}` | The region a subtree is cut to, and the arena that gives each one a stable identity |
+| `hit.{h,cpp}` | Who is under the pointer, under the regions this frame cut — the one place that keeps paint and input agreeing |
+| `scroll.{h,cpp}` | How far the content reaches, and where the overlay indicator sits on it |
 | `ttf.{h,cpp}` | The rasterizer: stb_truetype over the shipped TTF, with the unit contract every target shares |
 | `glyphs.{h,cpp}` | The atlas we own — packing, growth, the kerning cache — and the LRU of one per point size |
 | `text.{h,cpp}` | The normative wrap: break points, hard breaks, `maxLines`, ellipsis, alignment |

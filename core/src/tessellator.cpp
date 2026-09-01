@@ -67,46 +67,75 @@ double round_half_up(double value) { return std::floor(value + 0.5); }
 }  // namespace
 
 void GeometryBuilder::reset() {
+  // Groups and their batches survive the frame with their capacities, their
+  // textures and their positions, so a scene that paints the same regions with
+  // the same sizes reuses the very same buffers. Only the contents go.
+  for (ClipGroup &group : groups_) {
+    for (Batch &batch : group.batches) {
+      batch.positions.clear();
+      batch.uvs.clear();
+      batch.colors.clear();
+      batch.indices.clear();
+    }
+  }
+  used_ = 0;
+  // The frame opens unclipped, so a paint that never mentions a region behaves
+  // exactly as it did before regions existed.
+  open_group(nullptr);
+}
+
+void GeometryBuilder::open_group(const Clip *clip) {
+  if (used_ == groups_.size()) groups_.emplace_back();
+  current_ = used_++;
+  ClipGroup &group = groups_[current_];
+  group.clip = clip;
   // Batch 0 is the solids', always. It is claimed here rather than by the first
-  // `solid()` because a frame whose first paint is a `Text` would otherwise open
+  // `solid()` because a group whose first paint is a `Text` would otherwise open
   // the atlas batch first and hand `solid()` — which is `front()` — geometry
   // sampling the glyphs.
-  if (batches_.empty()) batches_.emplace_back();
-  for (Batch &batch : batches_) {
-    batch.positions.clear();
-    batch.uvs.clear();
-    batch.colors.clear();
-    batch.indices.clear();
-  }
+  if (group.batches.empty()) group.batches.emplace_back();
+  for (Batch &batch : group.batches) batch.clip = clip;
 }
 
-Batch &GeometryBuilder::solid() {
-  if (batches_.empty()) batches_.emplace_back();
-  return batches_.front();
+void GeometryBuilder::set_clip(const Clip *clip) {
+  if (clip == groups_[current_].clip) return;
+  open_group(clip);
 }
+
+void GeometryBuilder::start_root(const Clip *clip) { open_group(clip); }
+
+Batch &GeometryBuilder::solid() { return groups_[current_].batches.front(); }
 
 Batch &GeometryBuilder::textured(const void *texture, TextureKind kind) {
-  // Batch 0 belongs to the solids whether or not any were painted — see `reset`.
-  if (batches_.empty()) batches_.emplace_back();
-  // Batches survive `reset` with their capacity and their texture, so a scene
-  // that paints the same sizes every frame reuses the very same buffers.
-  for (Batch &batch : batches_) {
+  ClipGroup &group = groups_[current_];
+  for (Batch &batch : group.batches) {
     if (batch.texture == texture) return batch;
   }
-  // Images go before the atlases, so the vector stays [solids, images…, texts…]
+  // Images go before the atlases, so a group stays [solids, images…, texts…]
   // whatever order the tree paints in. Splicing moves a handful of Batches —
-  // vectors, so a move each — and only on a texture's first frame.
-  const size_t at = kind == TextureKind::Image ? 1 + images_ : batches_.size();
-  if (kind == TextureKind::Image) images_++;
-  Batch &batch = *batches_.emplace(batches_.begin() + static_cast<ptrdiff_t>(at));
+  // vectors, so a move each — and only on a texture's first frame in this group.
+  const size_t at = kind == TextureKind::Image ? 1 + group.images : group.batches.size();
+  if (kind == TextureKind::Image) group.images++;
+  Batch &batch = *group.batches.emplace(group.batches.begin() + static_cast<ptrdiff_t>(at));
   batch.texture = texture;
   batch.kind = kind;
+  batch.clip = group.clip;
   return batch;
+}
+
+const std::vector<const Batch *> &GeometryBuilder::batches() const {
+  // Rebuilt rather than cached: it is a list of pointers over a vector that keeps
+  // its capacity, so it costs nothing worth a dirty flag to get wrong.
+  order_.clear();
+  for (size_t i = 0; i < used_; i++) {
+    for (const Batch &batch : groups_[i].batches) order_.push_back(&batch);
+  }
+  return order_;
 }
 
 uint32_t GeometryBuilder::vertex_count() const {
   uint32_t total = 0;
-  for (const Batch &batch : batches_) total += batch.vertex_count();
+  for (const Batch *batch : batches()) total += batch->vertex_count();
   return total;
 }
 

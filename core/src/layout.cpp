@@ -1,5 +1,7 @@
 #include "layout.h"
 
+#include "scroll.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -210,11 +212,19 @@ Size measure(LayoutNode &node, LeafMeasurer &leaf, std::optional<double> availab
 
 void arrange(LayoutNode &node, const Rect &rect) {
   node.rect = rect;
-  // G6 (ZAB-139) adds the ScrollView's extents and offset here and G10 (ZAB-143)
-  // the Slider's value-driven slots. Until they land, both arrange their children
-  // through the ordinary flex path below.
+  // G10 (ZAB-143) adds the Slider's value-driven slots here. Until they land it
+  // arranges its children through the ordinary flex path below.
   fill_flow_items(node);
-  if (node.items.empty()) return;
+  if (node.items.empty()) {
+    // Nothing in flow, nothing to scroll to. The extent has to fall back to zero
+    // HERE, or a scroller whose children all went `visible: false` would keep the
+    // reach the last populated frame computed and scroll into nothing.
+    if (node.ir->type == NodeType::ScrollView) {
+      node.scroll_max = Size{};
+      node.scroll_offset = Size{};
+    }
+    return;
+  }
 
   const Layout &layout = node.ir->layout;
   const bool row = is_row(node);
@@ -251,6 +261,20 @@ void arrange(LayoutNode &node, const Rect &rect) {
     node.item_crosses.push_back(cross);
   }
   break_lines(node, content_main, gap);
+
+  // The scrollable reach, recomputed from the boxes this pass just sized, and the
+  // offset re-clamped against it: content that shrank can never leave the view
+  // scrolled past its own end (2026-08-11, ZAB-5).
+  const bool scroller = node.ir->type == NodeType::ScrollView;
+  if (scroller) {
+    // `flow_size` answers in main/cross, whatever the direction is — the same
+    // pair `resolve_scroll_max` maps back onto physical x and y.
+    const Size flow = flow_size(node, gap);
+    node.scroll_max = resolve_scroll_max(layout.direction, node.ir->scroll_axis,
+                                         flow.x - content_main, flow.y - content_cross);
+    node.scroll_offset = Size{clamp_scroll(node.scroll_offset.x, 0.0, node.scroll_max.x),
+                              clamp_scroll(node.scroll_offset.y, 0.0, node.scroll_max.y)};
+  }
 
   const bool wrapping = wraps_lines(node);
   // Where the next line starts on the cross axis — the one value that genuinely
@@ -311,8 +335,12 @@ void arrange(LayoutNode &node, const Rect &rect) {
                                                   total_grow)
                   : node.item_mains[i];
 
-      const Rect child_rect = row ? Rect{pen_main, cross_pos, main_size, cross_size}
-                                  : Rect{cross_pos, pen_main, cross_size, main_size};
+      Rect child_rect = row ? Rect{pen_main, cross_pos, main_size, cross_size}
+                            : Rect{cross_pos, pen_main, cross_size, main_size};
+      if (scroller) {
+        child_rect.x -= node.scroll_offset.x;
+        child_rect.y -= node.scroll_offset.y;
+      }
       // Every member of the item gets the SAME rect: that is what a shared box is.
       const FlowItem &item = node.items[i];
       for (uint32_t member = 0; member < item.count; member++) {

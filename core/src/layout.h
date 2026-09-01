@@ -125,6 +125,14 @@ struct LayoutNode {
   bool focused = false;
   /** A Collapse's open/closed state. The IR's `open` is only the INITIAL one. */
   bool open = true;
+  /**
+   * A `ScrollView`'s runtime offset, and what it is clamped to. Neither is ever
+   * authored — the offset has no prop (2026-08-11, ZAB-9) — and both are
+   * recomputed by the arrange pass, so a relayout can never leave the content
+   * scrolled past its own end.
+   */
+  Size scroll_offset;
+  Size scroll_max;
   /** The chosen tab of an `"exclusive-select"` group. */
   int selected_index = 0;
   /** This button IS the chosen tab of its group. */
