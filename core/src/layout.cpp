@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "progress.h"
+
 namespace zabloo {
 namespace {
 
@@ -208,9 +210,9 @@ Size measure(LayoutNode &node, LeafMeasurer &leaf, std::optional<double> availab
 
 void arrange(LayoutNode &node, const Rect &rect) {
   node.rect = rect;
-  // G6 (ZAB-139) adds the ScrollView's extents and offset here, G10 (ZAB-143) the
-  // Slider's value-driven slots and the ProgressBar's fraction. Until they land,
-  // all three arrange their children through the ordinary flex path below.
+  // G6 (ZAB-139) adds the ScrollView's extents and offset here and G10 (ZAB-143)
+  // the Slider's value-driven slots. Until they land, both arrange their children
+  // through the ordinary flex path below.
   fill_flow_items(node);
   if (node.items.empty()) return;
 
@@ -220,6 +222,17 @@ void arrange(LayoutNode &node, const Rect &rect) {
   const double gap = node.resolved.gap;
   const Rect content{rect.x + padding, rect.y + padding, std::max(0.0, rect.width - padding * 2),
                      std::max(0.0, rect.height - padding * 2)};
+
+  // The ProgressBar owns its child's main size (the fraction), so it never goes
+  // through the flex distribution: the fill's own width/height/grow are ignored on
+  // that axis by construction, and `justify` still anchors the bar (2026-08-11,
+  // ZAB-35). Children past the fill are out of layout already.
+  if (node.ir->type == NodeType::ProgressBar) {
+    LayoutNode &fill = node.children[node.items[0].first];
+    arrange(fill, fill_rect(content, row, node.progress, layout.justify));
+    return;
+  }
+
   const double content_main = row ? content.width : content.height;
   const double content_cross = row ? content.height : content.width;
 

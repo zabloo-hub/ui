@@ -231,7 +231,12 @@ struct Style {
 struct Transition {
   bool present = false;
   Dim duration;
-  Easing easing = Easing::Linear;
+  /**
+   * `ease-out` when the node declares none — the normative default
+   * (`docs/format/motion.md`), and not linear. An easing the reader does not know
+   * is a different case and falls back to linear, which `read_transition` does.
+   */
+  Easing easing = Easing::EaseOut;
 };
 
 /** Where an overlay sits and what lights it up — one field, one relation. */

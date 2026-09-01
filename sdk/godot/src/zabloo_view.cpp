@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
@@ -288,8 +289,43 @@ void ZablooView::relayout() {
   if (view == nullptr) return;
   const Vector2 size = get_size();
   view->set_size(size.x, size.y);
+  view->set_now(clock_ms());
   view->layout_frame();
   queue_redraw();
+  // Frames on demand: every mutation ends up here, so this is the one place that
+  // has to notice a motion has begun. `_process` keeps them coming and stops the
+  // moment nothing is moving — an idle UI costs no frames at all, which is what a
+  // game gives up its budget for.
+  set_process(view->animating());
+}
+
+/**
+ * One frame of motion.
+ *
+ * `delta` is deliberately unread: the core is driven by an ABSOLUTE clock, not by
+ * accumulated deltas, so a dropped frame lands a tween exactly where the wall clock
+ * says instead of wherever the sum of the deltas drifted to. That is also what lets
+ * the golden harness state an instant and get the frame recorded at it.
+ */
+void ZablooView::_process(double) {
+  zabloo::View *view = document_.view();
+  if (view == nullptr) {
+    set_process(false);
+    return;
+  }
+  view->set_now(clock_ms());
+  view->layout_frame();
+  queue_redraw();
+  if (!view->animating()) set_process(false);
+}
+
+/**
+ * The engine's monotonic clock in milliseconds, taken from the ticks rather than
+ * from a time of day: it never jumps backwards, and nothing here has to care what
+ * the origin is — a tween only ever reads differences.
+ */
+double ZablooView::clock_ms() const {
+  return static_cast<double>(Time::get_singleton()->get_ticks_usec()) / 1000.0;
 }
 
 /**
@@ -369,10 +405,9 @@ void ZablooView::sync_images() {
   images_.swap(live);
   // A box that was zero wide until this frame changes what the whole tree
   // measures, so the geometry about to be drawn has to be laid out again first.
-  if (resized) {
-    view->layout_frame();
-    queue_redraw();
-  }
+  // Through `relayout`, so a motion that this second pass starts — a bar whose
+  // fill finally has a track to sit in — arms the frame loop like any other.
+  if (resized) relayout();
 }
 
 /**

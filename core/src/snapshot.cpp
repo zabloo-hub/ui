@@ -416,10 +416,14 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs) {
   // `clip` and `scroll` (G6, ZAB-139) belong here, before `value`.
 
   // The one number a control's behavior owns. A Toggle's is its cross-fade
-  // progress; a Slider's and a ProgressBar's arrive with G10 (ZAB-143).
+  // progress and a ProgressBar's is its tweened fraction; a Slider's arrives with
+  // G10 (ZAB-143).
   if (node.ir->type == NodeType::Toggle) {
     writer.key("value");
     writer.number_value(node.checked_progress);
+  } else if (node.ir->type == NodeType::ProgressBar) {
+    writer.key("value");
+    writer.number_value(node.progress);
   }
 
   // `field` (G11, ZAB-144) and `window` (G12, ZAB-145) belong here, in that

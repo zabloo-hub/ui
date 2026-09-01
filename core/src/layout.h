@@ -19,6 +19,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -29,6 +30,7 @@
 #include "envelope.h"
 #include "states.h"
 #include "text.h"
+#include "transition.h"
 
 namespace zabloo {
 
@@ -161,6 +163,39 @@ struct LayoutNode {
    */
   int64_t style_frame = -1;
   Style style_cache;
+
+  // --- motion (2026-08-11, ZAB-33) ---
+  /**
+   * The tweens in flight, or null for a node that cannot animate — which is most
+   * of a UI. Allocated by the resolve pass the first time a node needs one, so the
+   * common node pays a pointer and nothing more (`transition.h`).
+   */
+  std::unique_ptr<NodeAnim> anim;
+  /**
+   * A `ProgressBar`'s fraction this frame. The VALUE is what tweens, never the
+   * fill's rect: the arrange derives one from the other, so there is still one
+   * layout pass per frame and the rect never feeds back into its own input.
+   */
+  double progress = 0.0;
+  /**
+   * A `Collapse` whose own height is mid-tween, and the one frame it spends
+   * learning what its open height is (`collapse.h`). While either is set the node
+   * overrides its measured height and clips.
+   */
+  bool collapse_animating = false;
+  bool collapse_pending = false;
+  /**
+   * Clipped for the duration of a motion, whatever the author asked for: a box
+   * animating smaller than its own content has to cut it. Written here and
+   * consumed by the clip pass of G6 (ZAB-139).
+   */
+  bool forced_clip = false;
+  /**
+   * When this node's loop started (a `Spinner`'s wave). Absent means it has not
+   * begun; leaving layout clears it, so coming back starts the wave over rather
+   * than resuming a cycle nobody saw.
+   */
+  std::optional<double> loop_started_at;
 
   // --- per-pass scratch, cleared and refilled rather than reallocated ---
   std::vector<FlowItem> items;

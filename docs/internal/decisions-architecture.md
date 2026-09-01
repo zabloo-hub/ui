@@ -3469,3 +3469,74 @@ y `GeometryBuilder::image`), `core/src/view.cpp` (medida intrínseca y paint),
 `sdk/godot/src/zabloo_view.cpp` (`sync_images` y el decode por MIME). Tests:
 `core/tests/test_assets.cpp`, más los de imagen en `test_tessellator.cpp` y
 `test_view.cpp`. Corpus: `assets-image` fuera de `core/tests/golden-skip.json`.
+
+## 2026-09-01 — El motor de transiciones en el core: reloj inyectado, tracks en array y frames bajo demanda (ZAB-141, F11 G8)
+
+**Decisión:** el motor de interpolación de F7 entra en el core como port literal de
+`transition.ts`, `collapse.ts`, `spinner.ts` y `progress.ts`, y el adaptador de Godot
+estrena **frames bajo demanda**. Con ello **`transitions` sale de la skip-list**
+comparando byte a byte, y el corpus queda en 9 casos pendientes.
+
+**El reloj se inyecta, y esa es la mitad interesante.** `View::set_now(ms)` en vez de
+preguntarle la hora al motor: el core nunca sabe qué hora es, así que el harness golden
+puede plantarlo en un instante concreto y grabar el frame de ahí. En Godot el reloj son
+los ticks monótonos y el `delta` de `_process` **se ignora a propósito** — un frame
+perdido aterriza el tween donde dice el reloj de pared, no donde llegó la suma de deltas.
+
+**Los tracks son un array indexado por `TrackKey`, no dos `Map`.** El juego de claves es
+cerrado y diminuto (10 props animables + 5 de comportamiento), así que un array es más
+pequeño y sin hashing por frame, que es lo que mantiene cierto aquí el "un frame
+estacionario no aloca" de ZAB-55. Y el bloque entero es **lazy**: un nodo sin
+`transition` usable se pasa con `NodeAnim` nulo y todos sus valores saltan, que es el
+comportamiento pre-F7 a la letra — así que la UI corriente, que es casi toda, paga un
+puntero y nada más.
+
+**El `ProgressBar` entero aterriza aquí, no en G10.** Los comentarios de `snapshot.cpp` y
+`layout.cpp` lo atribuían a G10 (ZAB-143), pero las métricas de `transitions` graban su
+`value` y su fill a 200×0.25 = 50 px: el criterio de salida de G8 no se puede cumplir sin
+ellos, y la zona del ticket ya nombraba `core/progress*`. G10 se queda con el `Slider`,
+que es lo único que `controls` sigue esperando — los slots del `Toggle`, la barra
+bindeada y la onda del `Spinner` ya comparan.
+
+**Dos divergencias del port encontradas y corregidas**, ninguna visible en el corpus
+porque ningún caso grabado las alcanza:
+
+1. **El `easing` por defecto era `linear` y la spec dice `ease-out`**
+   (`docs/format/motion.md`). Es la forma de casi toda transición que un autor escribe
+   sin decirlo, así que el mismo envelope habría corrido con otra curva en cada target.
+   Un easing DESCONOCIDO sigue cayendo a lineal, que es otro caso: una curva ilegible
+   tiene que moverse igual, y la recta es la única forma que no necesita acuerdo.
+2. **El color de los batches se mezcla en `double` y se guarda en `float`.** La
+   referencia tiene un solo tipo numérico; hacer el lerp en `float` redondea distinto.
+
+**Lo que el corpus NO prueba, dicho en voz alta.** El caso `transitions` corre el reloj
+hasta el final de la duración más larga, así que graba **dónde se asienta** el
+movimiento; y como su `data` se siembra ANTES del montaje y no tiene guion de puntero,
+**no arranca ni un solo tween** — un montaje salta. Es decir: fija que el motor no
+perturba un frame estático, y la aritmética de las curvas la fijan los tests unitarios
+portados (`test_transition.cpp`), que es donde se vería que dos targets discrepan en
+t=25 ms. Regrabar el caso a media transición pedía superficie nueva en el corpus (hoy
+solo hay `advanceMs` y `pad`, ninguno capaz de mover un valor DESPUÉS del montaje) y
+tocar `golden/`, que comparten varios tickets en vuelo; queda como mejora futura del
+corpus, no como deuda del motor.
+
+**El `forced_clip` se marca y no se consume.** El `Collapse` anima su propia altura y
+tiene que recortar mientras dura; el recorte es de G6 (ZAB-139), en vuelo en paralelo,
+así que aquí se escribe la bandera y allí se lee. Mientras tanto el contenido rebosa la
+caja durante la apertura — verificado y aceptado, no un fallo del motor.
+
+**Verificado en un proceso Godot real** (4.6.2, escena desechable, capturas a 960×600):
+la barra desliza hasta su valor bindeado, el `Collapse` anima su altura con lo de abajo
+desplazándose, la onda del `Spinner` avanza entre frames, y el **anillo de foco adelgaza
+6 → 4 → 3 → 0 px manteniéndose blanco puro (1,1,1,1) todo el camino** — nunca magenta,
+que es el bug de contrato que ZAB-36 encontró en la referencia. Y `is_processing()` cae a
+`false` al asentarse: una UI quieta no cuesta frames. Un `Spinner` con `period: 0` (el
+tema "reduce motion") congela la onda y **tampoco pide frames**, en vez de desaparecer.
+
+**Un arreglo de fuera de zona, porque no había forma de estar verde sin él:** el merge de
+las PR #103 y #104 dejó `main` en rojo. G5 y G7 habían quitado sus propias líneas de
+`golden-skip.json` cada uno en su rama, y la fusión conservó la unión de las **entradas**
+en vez de la unión de las **eliminaciones**, así que cuatro casos (`assets-image`,
+`bindings`, `collapse-tabs`, `unknown-type`) pasaban estando saltados. Lo cazó el guardia
+que ZAB-136 puso justo para esto — un caso saltado que empieza a pasar hace fallar la
+suite pidiendo que lo quiten.

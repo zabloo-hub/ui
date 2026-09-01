@@ -39,6 +39,11 @@ class ZablooView : public Control {
 
   void _ready() override;
   void _draw() override;
+  /**
+   * A frame of motion. Enabled only while the core says something is moving, so a
+   * still UI is not laid out sixty times a second for nothing.
+   */
+  void _process(double delta) override;
   void _notification(int what);
   void _gui_input(const Ref<InputEvent> &event) override;
   /**
@@ -150,6 +155,8 @@ class ZablooView : public Control {
 
   /** Re-runs the core's layout against the current control size and redraws. */
   void relayout();
+  /** The engine's monotonic clock in milliseconds — the one the core is given. */
+  double clock_ms() const;
   /**
    * Brings the atlas textures up to date with the core's live atlases: uploads
    * the ones that gained glyphs, and forgets the ones the LRU dropped.

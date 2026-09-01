@@ -3,13 +3,17 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "collapse.h"
+#include "easing.h"
 #include "focus.h"
+#include "spinner.h"
 #include "text.h"
 
 namespace zabloo {
@@ -198,6 +202,9 @@ void View::set_size(double width, double height) {
 void View::layout_frame() {
   if (ir_root_ == nullptr) return;
   frame_++;
+  // Recomputed from scratch every frame: a tween that landed last frame must not
+  // keep the adapter asking for more (`animating`).
+  animating_ = false;
   // Before the resolve pass, deliberately: a focus assigned here reaches THIS
   // frame's style merge, so `states.focused` never lands a frame late. It reads
   // the PREVIOUS frame's `disabled` flags, and `prune_disabled` below is what
@@ -208,7 +215,7 @@ void View::layout_frame() {
   // A control that left the layout under the pointer (a tab panel switching, a
   // Collapse closing) must not keep wearing the hover state on its way back.
   prune_hover();
-  resolve(root_);
+  resolve(root_, now_);
   prune_disabled();
   Leaves leaves(*this);
   measure(root_, leaves, viewport_.width);
@@ -234,8 +241,42 @@ const Style &View::style_of(LayoutNode &node) {
   return node.style_cache;
 }
 
-void View::resolve(LayoutNode &node) {
-  if (!in_layout(node)) return;
+/**
+ * A node's `transition`, its `Dim` duration resolved to milliseconds.
+ *
+ * Read from the base node only: no cascade, and no per-state transition — both are
+ * compatible future extensions, not v1 surface.
+ */
+std::optional<ResolvedTransition> View::transition_of(const LayoutNode &node) const {
+  const Transition &declared = node.ir->transition;
+  if (!declared.present) return std::nullopt;
+  ResolvedTransition out;
+  out.duration = dim(declared.duration, 0.0);
+  out.easing = declared.easing;
+  return out;
+}
+
+/**
+ * The tween state of a node that is about to need one, allocated on first use.
+ *
+ * Most of a UI never animates, so most nodes never pay for this: a node with no
+ * usable `transition` is stepped with a null `NodeAnim` and every value of it
+ * snaps, which is the pre-F7 behavior to the letter.
+ */
+NodeAnim *View::anim_of(LayoutNode &node, const ResolvedTransition *transition) {
+  if (node.anim == nullptr && (transition == nullptr || !transition->usable())) return nullptr;
+  if (node.anim == nullptr) node.anim = std::make_unique<NodeAnim>();
+  return node.anim.get();
+}
+
+void View::resolve(LayoutNode &node, double now) {
+  if (!in_layout(node)) {
+    // Out of layout: nothing to paint, and no honest previous value for the day it
+    // comes back — dropping the state makes that return snap, like a mount.
+    forget_anim(node);
+    return;
+  }
+  node.forced_clip = false;
   // Effective `disabled` BEFORE the style resolves, since it is a state the merge
   // has to see this very frame (ZAB-63). It inherits from the parent — one prop
   // on a section answers for every control in it — and an `Overlay` restarts the
@@ -245,29 +286,44 @@ void View::resolve(LayoutNode &node) {
                                          node.parent != nullptr && node.parent->disabled);
   const Style &style = style_of(node);
   const Layout &layout = node.ir->layout;
-  ResolvedValues &out = node.resolved;
+  // One scratch for the whole tree, refilled per node: `step_node` consumes it
+  // synchronously and never keeps it, so an animating frame allocates no targets
+  // object per node (ZAB-55). Every field is assigned, absent ones included — a
+  // leftover from the previous node would otherwise read as a declared value.
+  ResolvedValues &targets = targets_;
 
-  out.background = optional_color(style.background, MISSING_COLOR);
+  targets.background = optional_color(style.background, MISSING_COLOR);
   // An undeclared border color HOLDS the last one instead of dropping it: the
   // border it paints is on its way out through `borderWidth`, and a focus ring
   // that lost its color halfway would flash the missing-color magenta (ZAB-36).
   const std::optional<Color> border = optional_color(style.border_color, MISSING_COLOR);
-  if (border.has_value()) out.border_color = border;
-  out.color = optional_color(style.color, DEFAULT_TEXT_COLOR);
-  out.opacity = std::min(1.0, std::max(0.0, style.opacity.value_or(1.0)));
-  out.radius = dim(style.radius, 0.0);
-  out.border_width = dim(style.border_width, 0.0);
-  out.gap = dim(layout.gap, 0.0);
-  out.padding = dim(layout.padding, 0.0);
-  out.width = optional_dim(layout.width);
-  out.height = optional_dim(layout.height);
+  targets.border_color = border.has_value() ? border : node.resolved.border_color;
+  targets.color = optional_color(style.color, DEFAULT_TEXT_COLOR);
+  targets.opacity = std::min(1.0, std::max(0.0, style.opacity.value_or(1.0)));
+  targets.radius = dim(style.radius, 0.0);
+  targets.border_width = dim(style.border_width, 0.0);
+  targets.gap = dim(layout.gap, 0.0);
+  targets.padding = dim(layout.padding, 0.0);
+  targets.width = optional_dim(layout.width);
+  targets.height = optional_dim(layout.height);
 
-  // G8 (ZAB-141) steps these through the transition engine before they land in
-  // `resolved`. The instant path here is what a node with no `transition` does
-  // there too, so nothing above this line changes when it arrives.
-  for (LayoutNode &child : node.children) resolve(child);
-  // After the children: this modulates a value they have already resolved.
-  if (node.ir->type == NodeType::Toggle) crossfade_slots(node);
+  const std::optional<ResolvedTransition> transition = transition_of(node);
+  const ResolvedTransition *tween = transition.has_value() ? &*transition : nullptr;
+  NodeAnim *anim = anim_of(node, tween);
+  // The node's own `resolved` is the out-param: the step rewrites it in place,
+  // after the previous frame's values above were already read out of it.
+  if (step_node(anim, targets, tween, now, node.resolved)) animating_ = true;
+
+  // Behaviors that tween a value of their own, with endpoints they compute
+  // (decision 2026-08-11 §5) — before the children, since a Collapse decides here
+  // whether its content is in layout at all this frame.
+  if (node.ir->type == NodeType::ProgressBar) resolve_progress(node, anim, tween, now);
+  else if (node.ir->type == NodeType::Collapse) resolve_collapse(node, anim, tween, now);
+
+  for (LayoutNode &child : node.children) resolve(child, now);
+  // After the children: these modulate values they have already resolved.
+  if (node.ir->type == NodeType::Spinner) spin(node, now);
+  else if (node.ir->type == NodeType::Toggle) crossfade_slots(node, anim, tween, now);
 }
 
 /**
@@ -275,16 +331,133 @@ void View::resolve(LayoutNode &node) {
  * `children[1]` on top of `children[0]`), so which one you see is opacity — a
  * cross-fade rather than one subtree replacing another (2026-08-11, ZAB-36).
  *
- * The progress is the checked flag itself until G8 (ZAB-141) tweens it, which is
- * the pre-F7 look exactly: one indicator, fully opaque. It MULTIPLIES the slot's
- * own resolved opacity, the way inherited opacity does (2026-08-06).
+ * With no transition the progress is 0 or 1 and the swap is instant, exactly as it
+ * was before F7. It MULTIPLIES each slot's own resolved opacity, the way inherited
+ * opacity does (2026-08-06).
  */
-void View::crossfade_slots(LayoutNode &node) {
-  node.checked_progress = node.checked ? 1.0 : 0.0;
+void View::crossfade_slots(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,
+                           double now) {
+  const SteppedValue stepped =
+      step_value(anim, TrackKey::Checked, node.checked ? 1.0 : 0.0, transition, now);
+  node.checked_progress = stepped.value;
+  if (stepped.animating) animating_ = true;
   for (size_t i = 0; i < node.children.size() && i < 2; i++) {
     LayoutNode &slot = node.children[i];
     if (!in_layout(slot)) continue;
     slot.resolved.opacity *= slot_opacity(i, node.checked_progress);
+  }
+}
+
+/**
+ * The ProgressBar's fraction: read (or bound), clamped, and tweened on the VALUE
+ * with the node's own `transition` — a behavior driving the interpolation engine
+ * with endpoints it computes (decision 2026-08-11 §5). The arrange then derives the
+ * fill's rect from this number, so there is still one layout pass per frame and the
+ * rect never feeds back into its own input.
+ */
+void View::resolve_progress(LayoutNode &node, NodeAnim *anim,
+                            const ResolvedTransition *transition, double now) {
+  const SteppedValue stepped =
+      step_value(anim, TrackKey::Progress, progress_target(node), transition, now);
+  node.progress = stepped.value;
+  if (stepped.animating) animating_ = true;
+}
+
+/** What the bar is heading to: its bound or literal `value`, read normatively. */
+double View::progress_target(LayoutNode &node) {
+  // Anything that is not a finite number — no data, a string, an absent value — is
+  // an EMPTY bar, never a full one, which is what `clamp_progress` says about a
+  // binding pointing at nothing.
+  const Bindable<Scalar> &value = node.ir->value;
+  if (value.kind == Bindable<Scalar>::Kind::Bind) {
+    const DataValue *data = read_bind(node, value.bind);
+    if (data == nullptr || data->kind != DataValue::Kind::Number) return 0.0;
+    return clamp_progress(data->number);
+  }
+  if (value.value.kind != Scalar::Kind::Number) return 0.0;
+  return clamp_progress(value.value.number);
+}
+
+/**
+ * The Collapse's open/close: the behavior tweens the node's OWN height between the
+ * header's box and the height measured with the content in (`collapse.h`), clipping
+ * while it runs. The content stays in layout for exactly that long, so a closed
+ * Collapse still costs nothing once the tween ends.
+ */
+void View::resolve_collapse(LayoutNode &node, NodeAnim *anim,
+                            const ResolvedTransition *transition, double now) {
+  if (!node.collapse_animating) return;
+  const double closed =
+      closed_height(node.children.empty() ? 0.0 : node.children[0].natural.y, node.resolved.padding);
+  // While pending, THIS frame's measure is what learns the open height: aim at the
+  // closed box so the content that just entered layout does not flash.
+  const double target =
+      node.collapse_pending ? closed : collapse_target(node.open, node.natural.y, closed);
+  const SteppedValue stepped = step_value(anim, TrackKey::Collapse, target, transition, now);
+
+  if (node.collapse_pending || stepped.animating) {
+    node.collapse_pending = false;
+    node.resolved.height = stepped.value;
+    node.forced_clip = true;
+    animating_ = true;
+    return;
+  }
+  // Settled: the override goes away and the box is whatever the content asks for —
+  // a closed one drops its content out of layout, as it always did.
+  node.collapse_animating = false;
+  apply_open(node);
+}
+
+/**
+ * The Spinner's loop: one phase per frame, spread over the beads, multiplied onto
+ * the opacity they just resolved (multiplicative like every other opacity in the
+ * system — 2026-08-06). It is core-owned behavior keyed by node identity, exactly
+ * like the scroll offset: nothing about it is in the IR beyond the node's own knobs.
+ */
+void View::spin(LayoutNode &node, double now) {
+  size_t beads = 0;
+  for (const LayoutNode &child : node.children) {
+    if (in_flow(child)) beads++;
+  }
+  if (beads == 0) return;
+  const double period = dim(node.ir->period, SPINNER_DEFAULT_PERIOD);
+  // A period of 0 is how a "reduce motion" theme stops the loop: the wave freezes
+  // at its first frame instead of the spinner disappearing.
+  const bool running = period > 0.0 && std::isfinite(period);
+  if (!node.loop_started_at.has_value()) node.loop_started_at = now;
+  const double phase = running ? loop_phase(*node.loop_started_at, now, period) : 0.0;
+  const double min = node.ir->min.value_or(SPINNER_DEFAULT_MIN);
+  size_t i = 0;
+  for (LayoutNode &bead : node.children) {
+    if (!in_flow(bead)) continue;
+    bead.resolved.opacity *= bead_opacity(i, beads, phase, min, node.ir->spinner_easing);
+    i++;
+  }
+  if (running) animating_ = true;
+}
+
+/** A whole subtree's motion, forgotten — what leaving the layout costs. */
+void View::forget_anim(LayoutNode &node) {
+  forget_tweens(node);
+  for (LayoutNode &child : node.children) forget_anim(child);
+}
+
+/**
+ * One node's motion, forgotten: the next step snaps, like a mount. Shared by the
+ * two things that ask for exactly that — a subtree leaving layout, and (from G12
+ * on) an item instance reused for another element (`resettle`, ZAB-66).
+ */
+void View::forget_tweens(LayoutNode &node) {
+  if (node.anim != nullptr) clear_node_anim(*node.anim);
+  // A spinner that comes back starts its wave over, like a mount.
+  node.loop_started_at.reset();
+  if (node.collapse_animating) {
+    // A Collapse taken out of layout mid-tween lands on its logical state: it comes
+    // back open or closed, never halfway through a motion nobody saw.
+    node.collapse_animating = false;
+    node.collapse_pending = false;
+    node.forced_clip = false;
+    apply_open(node);
   }
 }
 
@@ -431,8 +604,13 @@ void View::write_data(const std::string &path, DataValue value) {
 // --- Collapse and groups --------------------------------------------------
 
 /** `children[0]` is the header and the rest is the content (`<details>` model). */
+/**
+ * The content is in layout while the Collapse is open — and for as long as the
+ * height tween runs, which is what a closing Collapse animates over.
+ */
 void View::apply_open(LayoutNode &node) {
-  for (size_t i = 1; i < node.children.size(); i++) node.children[i].section_shown = node.open;
+  const bool shown = node.open || node.collapse_animating;
+  for (size_t i = 1; i < node.children.size(); i++) node.children[i].section_shown = shown;
 }
 
 /**
@@ -442,9 +620,26 @@ void View::apply_open(LayoutNode &node) {
 bool View::set_collapse_open(LayoutNode &node, bool open) {
   if (node.open == open) return false;
   node.open = open;
-  apply_open(node);
+  start_collapse(node);
   if (open) enforce_group(node);
   return true;
+}
+
+/**
+ * Puts a Collapse's new `open` state into effect: the height tween if the node
+ * declares a usable transition and does not declare its own height (a declared box
+ * belongs to the author — the behavior does not fight it), the plain show/hide
+ * otherwise, which is the pre-F7 behavior exactly.
+ */
+void View::start_collapse(LayoutNode &node) {
+  const std::optional<ResolvedTransition> transition = transition_of(node);
+  if (transition.has_value() && transition->usable() && !node.ir->layout.height.present()) {
+    // The content enters layout now so the next measure can size it; while it was
+    // out there is no honest open height, hence the one pending frame.
+    node.collapse_pending = !node.collapse_animating && node.open;
+    node.collapse_animating = true;
+  }
+  apply_open(node);
 }
 
 /** `"exclusive-open"`: opening one section closes its siblings. */
@@ -454,7 +649,9 @@ void View::enforce_group(LayoutNode &opened) {
   for (LayoutNode &sibling : opened.parent->children) {
     if (&sibling == &opened || sibling.ir->type != NodeType::Collapse || !sibling.open) continue;
     sibling.open = false;
-    apply_open(sibling);
+    // Through the same path as a tap: in an accordion the one that closes animates
+    // shut while the one that opens animates open.
+    start_collapse(sibling);
   }
 }
 

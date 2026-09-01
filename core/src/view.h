@@ -29,6 +29,7 @@
 #include "groups.h"
 #include "layout.h"
 #include "tessellator.h"
+#include "transition.h"
 #include "validate.h"
 
 namespace zabloo {
@@ -74,8 +75,27 @@ class View {
   /** The viewport the tree is laid out against, in view space units. */
   void set_size(double width, double height);
 
+  /**
+   * The clock every tween reads, in milliseconds.
+   *
+   * Injected rather than taken from the engine, and that is the point: the core
+   * never asks what time it is, so the golden harness can advance it in exact
+   * steps and record a frame at a stated instant. Two `layout_frame`s at the same
+   * `now` are two frames at the same moment — which is how a mount settles the
+   * structure the data drives before any motion begins.
+   */
+  void set_now(double milliseconds) { now_ = milliseconds; }
+  double now() const { return now_; }
+
   /** Resolve → measure → arrange. Everything geometric happens here. */
   void layout_frame();
+
+  /**
+   * Whether the last frame left anything moving — a tween in flight, a Spinner's
+   * loop. It is what the adapter watches to ask for the next frame and, when it
+   * goes false, to stop: motion costs frames for exactly as long as it lasts.
+   */
+  bool animating() const { return animating_; }
 
   /** Tessellates the arranged tree. Call after `layout_frame`. */
   const GeometryBuilder &paint();
@@ -191,6 +211,15 @@ class View {
   DataValue index_value_;
   /** Bumped per frame; what stamps the per-node style cache. */
   int64_t frame_ = 0;
+  /** The injected clock, and whether the last frame left anything moving. */
+  double now_ = 0.0;
+  bool animating_ = false;
+  /**
+   * One targets scratch for the whole tree, refilled per node by the resolve pass:
+   * `step_node` reads it synchronously and never keeps it, so an animating frame
+   * allocates nothing per node (ZAB-55).
+   */
+  ResolvedValues targets_;
   LayoutNode *pressed_ = nullptr;
   LayoutNode *hovered_ = nullptr;
   LayoutNode *focus_ = nullptr;
@@ -224,6 +253,8 @@ class View {
   // --- Collapse, groups and the Toggle's value ---
   void apply_open(LayoutNode &node);
   bool set_collapse_open(LayoutNode &node, bool open);
+  /** Puts a new `open` into effect: the height tween, or the plain show/hide. */
+  void start_collapse(LayoutNode &node);
   void enforce_group(LayoutNode &opened);
   TabsGroup tabs_of(const LayoutNode &group) const;
   void apply_selection(LayoutNode &group);
@@ -239,7 +270,8 @@ class View {
   /** What a release does, whether the press came from a finger or from a key. */
   void release(LayoutNode &node);
   /** The Toggle's indicator cross-fade, applied after its children resolve. */
-  void crossfade_slots(LayoutNode &node);
+  void crossfade_slots(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,
+                       double now);
   /** A node addressed by the host channel, or null when the type does not match. */
   LayoutNode *find_by_id(std::string_view id, NodeType type);
 
@@ -252,7 +284,23 @@ class View {
   /** Releases what a node that has just become disabled was holding. */
   void prune_disabled();
 
-  void resolve(LayoutNode &node);
+  void resolve(LayoutNode &node, double now);
+  /** The node's declared `transition`, its duration resolved to milliseconds. */
+  std::optional<ResolvedTransition> transition_of(const LayoutNode &node) const;
+  /** Its tween state, allocated on first use — null for a node that cannot animate. */
+  NodeAnim *anim_of(LayoutNode &node, const ResolvedTransition *transition);
+  void resolve_progress(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,
+                        double now);
+  /** The bar's bound or literal `value`, read normatively (`clamp_progress`). */
+  double progress_target(LayoutNode &node);
+  void resolve_collapse(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,
+                        double now);
+  /** The Spinner's wave over its beads, sampled from the loop's phase. */
+  void spin(LayoutNode &node, double now);
+  /** A whole subtree's motion, forgotten — what leaving the layout costs. */
+  void forget_anim(LayoutNode &node);
+  /** One node's, for the same reason: the next step snaps, like a mount. */
+  void forget_tweens(LayoutNode &node);
   void paint_node(LayoutNode &node, double opacity);
   const Style &style_of(LayoutNode &node);
 

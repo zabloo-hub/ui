@@ -87,9 +87,6 @@ bool is_refusal(JsonRef spec) { return spec.get("refuses").exists(); }
  */
 std::string unsupported(JsonRef spec) {
   std::vector<std::string> missing;
-  if (spec.get("advanceMs").as_number(0.0) > 0.0) {
-    missing.emplace_back("a clock to advance (G8, ZAB-141)");
-  }
   if (spec.get("pad").exists()) missing.emplace_back("a gamepad to replay (G13, ZAB-146)");
 
   if (missing.empty()) return {};
@@ -168,6 +165,16 @@ std::string replay(JsonRef spec, std::string &failure) {
   // it is the settling frame `golden/README.md` requires after the data.
   view->layout_frame();
   view->layout_frame();
+
+  // Then the clock, in one jump, exactly as the reference harness runs it: the
+  // record is of the frame at that instant, not of the frames on the way there.
+  // Both settling frames happen at time 0, which is what makes them a mount — and
+  // a mount snaps, so nothing has started moving before the clock does.
+  const double advance = spec.get("advanceMs").as_number(0.0);
+  if (advance > 0.0) {
+    view->set_now(advance);
+    view->layout_frame();
+  }
   return snapshot_view(*view);
 }
 

@@ -242,7 +242,22 @@ TEST(validate, unknown_members_of_a_closed_set_load_and_take_the_default) {
   CHECK_EQ(static_cast<int>(root.layout.justify), static_cast<int>(Justify::Start));
   CHECK_EQ(static_cast<int>(*root.style.text_align), static_cast<int>(TextAlign::Start));
   CHECK(root.transition.present);
+  // An easing nobody knows falls back to LINEAR, which is a different case from the
+  // one below: an unreadable curve still has to move, and the straight line is the
+  // only shape that needs no agreement between readers.
   CHECK_EQ(static_cast<int>(root.transition.easing), static_cast<int>(Easing::Linear));
+}
+
+TEST(validate, a_transition_that_declares_no_easing_gets_the_normative_default) {
+  // `ease-out`, not linear (`docs/format/motion.md`). It is the shape of nearly
+  // every transition an author writes without saying so, and a target that read it
+  // as linear would run the same envelope on a different curve.
+  const EnvelopeReport report = read_envelope(R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"Container","transition":{"duration":200}}}})");
+  CHECK(report.ok);
+  const Node &root = report.envelope.views[0].root;
+  CHECK(root.transition.present);
+  CHECK_EQ(static_cast<int>(root.transition.easing), static_cast<int>(Easing::EaseOut));
 }
 
 TEST(validate, unknown_props_pass_in_silence) {

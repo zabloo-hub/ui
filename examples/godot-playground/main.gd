@@ -12,14 +12,17 @@ extends Control
 ## purpose: copying it in would leave the playground rendering a stale build of
 ## the example it exists to show.
 const ENVELOPE := "../showcase/dist/zabloo.ir.json"
-## The view that exercises what G5 landed: intrinsic size, the three fit modes,
-## the tint and the rounded corners of `Image`.
-const VIEW := "media"
+## The view that exercises what G8 landed: the four curves side by side, a bar
+## that tweens its VALUE, the Spinner's wave, a Collapse animating its own height
+## and buttons whose states cross-fade.
+const VIEW := "motion"
 
 @onready var _view: ZablooView = $Zabloo
 @onready var _log: Label = $Log
 
 var _gold := 1200
+var _progress := 0.1
+var _collapsed := false
 
 
 func _ready() -> void:
@@ -33,6 +36,9 @@ func _load() -> void:
 	if not _view.load_file(path):
 		_log.text = "could not load %s\n%s" % [path, "\n".join(_view.get_diagnostics())]
 		return
+	# Said out loud, because the envelope is multi-view and loading it only shows
+	# the first one: without this the constant above would be a comment.
+	_view.show_view(VIEW)
 	_view.action.connect(_on_action)
 	# The return leg of the data channel: a control writing its own value tells
 	# the game through this, whether the player moved it or `set_checked` did.
@@ -43,7 +49,9 @@ func _load() -> void:
 	_view.set_data("player.gold", _gold)
 	_view.set_data("player.hp", 0.7)
 	_view.set_data("shop.thanked", false)
-	_log.text = "loaded %s — arrows navigate, Enter presses" % path.get_file()
+	_view.set_data("demo.progress", 0.1)
+	_view.set_data("inbox.unread", 3)
+	_log.text = "loaded %s — arrows navigate, Enter presses, SPACE races the bars" % path.get_file()
 
 
 ## Reload and view switching, by hand.
@@ -59,6 +67,22 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		return
 	if event.keycode == KEY_R:
 		_load()
+		return
+	# The motion view's two hosts of a tween. SPACE races the four curves against
+	# each other from one `set_data`, which is the whole "no trigger list" rule in
+	# one keypress: nothing here mentions animation, the value simply moved. C
+	# drives the Collapse through the host channel instead of through a tap, so
+	# the same height tween runs whoever asked for it.
+	if event.keycode == KEY_SPACE:
+		_progress = 0.9 if _progress < 0.5 else 0.1
+		_view.set_data("demo.progress", _progress)
+		_view.set_data("player.hp", _progress)
+		_log.text = "demo.progress = %.1f" % _progress
+		return
+	if event.keycode == KEY_C:
+		_collapsed = not _collapsed
+		_view.set_open("animated-collapse", _collapsed)
+		_log.text = "collapse %s" % ("open" if _collapsed else "closed")
 		return
 	var views := ["controls", "layout", "lists", "media", "motion", "navigation",
 		"overlays", "theming", "typography"]
