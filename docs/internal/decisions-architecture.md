@@ -4170,3 +4170,97 @@ snapshot no tiene guion de botones.
 `core/tests/test_gamepad.cpp` y `core/tests/test_pad.cpp`. Docs:
 `docs/format/host-channel.md` (§ *The gamepad, and remapping it*), `docs/format/input.md` y
 `golden/README.md`. Corpus: `gamepad-nav` fuera de `core/tests/golden-skip.json`.
+
+## 2026-09-03 — Forward-compat: un SDK viejo no tiene un flag, tiene menos vocabulario (ZAB-149, F11 G16)
+
+**Decisión:** la promesa forward-tolerant deja de ser una tabla de reglas y pasa a tener
+**evidencia sobre pantallas reales**: `docs/format/degradation.md` (la matriz observada,
+capacidad × qué ve el jugador) y `core/tests/test_forward_compat.cpp` (17 casos que la
+mantienen cierta, en el job `core-tests` de cada PR).
+
+**Cómo se sintetiza el SDK viejo, que es la decisión de fondo.** El enunciado pedía "feature
+flags del core". No se hace así: **un lector antiguo no lleva un interruptor que apaga una
+capacidad, lleva un vocabulario más pequeño**. Así que cada corte es *una reescritura del
+payload* — un identificador escrito de una forma que este build no ha oído nunca:
+
+```
+un tipo    "type": "Overlay"      ->  "type": "Overlay@next"
+una prop   "transition": { … }    ->  "transition@next": { … }
+un valor   "easing": "ease-out"   ->  "easing": "ease-out@next"
+```
+
+Renombrar y no borrar es lo que lo hace fiel: el payload conserva su forma, sigue siendo JSON
+válido, y recorre **exactamente** los caminos que recorrería un SDK viejo de verdad —
+`node_type_from` devolviendo `Unknown`, una clave que nadie lee ignorada en silencio,
+`enum_from` cayendo al default. Un flag en el loader habría probado una **segunda** vía hacia
+esos mismos estados y habría metido superficie de producción que solo usan los tests. Los
+sujetos salen del corpus: las 13 capacidades y las props aditivas están ejercitadas por algún
+envelope de `golden/`, así que ninguna fila es un fixture escrito para darse la razón.
+
+**El guardia, que es lo que impide que esto se pudra.** Un corte es una sustitución de texto
+sobre un envelope del corpus, así que un id renombrado o un fixture reformateado haría que no
+encajara con **nada** — y una capacidad que nunca se retiró degrada perfectamente. El modo de
+fallo de un test que no hace nada es el silencio, así que hay un caso aparte que comprueba que
+cada corte cambia de verdad el payload que dice cambiar. Misma forma que el guardia de la
+skip-list de ZAB-136, y por la misma razón.
+
+**Lo que la matriz destapa, y que la spec decía a medias.** De los 13 tipos, **cuatro pierden
+contenido**, y ninguno por accidente:
+
+* `Text`, `Image` y `TextInput` son los nodos cuyo **contenido es una prop**, así que un
+  fallback que preserva *hijos* no tiene nada que preservar. El `Text` degradado pierde sus 9
+  claves de texto enteras; el `TextInput` se queda en caja vacía.
+* El `Image` **se parte en dos**, y el matiz importa: donde el autor dio tamaño al nodo
+  conserva su caja y pinta su `background` — que es justo el placeholder que ZAB-13 mandó
+  autorar en vez de inventar un estado `loading` —, y donde el tamaño venía del manifest
+  **colapsa a 0 × 0**.
+* El `Repeat` degrada a **su template Y su estado vacío a la vez**, no a uno de los dos:
+  `children[1..]` es el slot del array vacío y un `Container` no tiene por qué elegir entre
+  sus hijos. `versioning.md` decía "una copia estática de su template", que era la mitad.
+
+Eso es la regla del 2026-08-13 en su lectura más afilada: **una hoja nueva que lleve contenido
+tiene que ganarse un dibujo razonable con su propia caja**, porque nada más se lo va a dibujar.
+
+**Tres observaciones más que no estaban escritas en ninguna parte:**
+
+1. **Un `Button` degradado no es alcanzable.** La focusabilidad deriva de la identidad
+   (2026-08-04), así que un menú entero de botones desconocidos se queda **sin nada
+   enfocado** — ni siquiera el `autofocus`, que nombra un nodo pero no lo vuelve focusable.
+   Es la degradación honesta y no un descuido: una caja que tomara el foco sin disparar nada
+   sería un control que *parece* operable, que es exactamente lo que la regla aditiva prohíbe.
+2. **Un `Toggle` degradado ensancha.** Sus dos slots indicadores comparten caja y hacen
+   crossfade (ZAB-36); sin el tipo no hay motivo para superponerlos, así que pasan a ser
+   hermanos flex uno al lado del otro — medido: `switch-on` y `switch-off` en x=8 los dos con
+   el off a opacidad 0, contra x=8 y x=52 ambos opacos, y el control de 93,82 a 137,82 px.
+3. **Sin `ScrollView` no hay virtualización**, porque la ventana se mide contra un viewport:
+   la misma lista pasa de 24 a 42 nodos realizados. Cuesta trabajo, no corrección — no se
+   pierde nada, simplemente hay más.
+
+**La frontera se dice, no se rodea.** Un `ViewSnapshot` graba **un frame**, y cuatro
+capacidades no dejan rastro en uno: `transition` (el movimiento, no el destino), `autoCloseMs`
+(el toast yéndose), `onChange` (una llamada al juego no es una métrica) e `ImageFit`
+(`contain` y `cover` difieren en UVs, y las UVs no son rects). Sus frames degradados son
+**byte-idénticos** al completo. Eso queda como un caso propio del fichero de tests —que además
+comprueba que el payload sí cambió, o la invisibilidad se demostraría gratis— en vez de
+taparse con una aserción falsa. Es también por lo que las imágenes golden siguen siendo un
+paso manual aparte.
+
+**El titular, que es lo que un lector de la matriz más quiere:** `settings.json` es el
+catálogo entero de F5 compuesto en una pantalla, y con **nueve de los trece tipos
+desconocidos a la vez** sigue cargando, sigue haciendo layout y sigue enseñando todos los ids
+que su autor escribió.
+
+**Lo que NO se toca, y por qué.** `future-major` (rechazo) y `unknown-type` (fallback) ya
+están fijados byte a byte en `test_golden.cpp`; aquí se **revisan y se citan**, no se vuelven
+a afirmar — afirmar el mismo hecho dos veces con dos mensajes distintos es cómo se pierde de
+vista cuál es el que manda (ZAB-136). Y el core **descarta** las props desconocidas por
+diseño (2026-08-24, IR tipada), así que la mitad "sobrevive a un round-trip" de la regla es de
+`@zabloo/format` y se prueba allí; la página lo dice en vez de fingir cobertura.
+
+**De paso:** `core/tests/corpus.h` extrae lo que las dos suites del corpus comparten —los
+ficheros, la lista de casos y qué significa un dato del corpus—, porque dos copias de "qué
+significa un dato" son dos respuestas a una pregunta esperando a discrepar.
+
+**Dónde vive:** `docs/format/degradation.md` (la matriz, enlazada desde `versioning.md`,
+`loading.md` y el índice), `core/tests/test_forward_compat.cpp` (los 17 casos) y
+`core/tests/corpus.h`/`.cpp` (el helper compartido).
