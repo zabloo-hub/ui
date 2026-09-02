@@ -60,6 +60,39 @@ struct DataChange {
   DataValue value;
 };
 
+/**
+ * A keyboard key, as far as a text field is concerned.
+ *
+ * An INTENTION and not a platform event, for the reason ZAB-47 found in the web:
+ * the pad's d-pad has to enter and leave a field by exactly the same rule as the
+ * arrows, so both sides resolve to this and there is one cascade rather than two.
+ * Everything that is not here is `Other` — a field claims only the keys it can
+ * use, and lets the rest through to navigation.
+ */
+enum class EditKey : uint8_t {
+  Other,
+  Left,
+  Right,
+  Home,
+  End,
+  Backspace,
+  Delete,
+  Submit,
+  Tab,
+  Space,
+  /** Ctrl/Cmd+A. Only meaningful with `shortcut` set. */
+  SelectAll,
+};
+
+struct KeyIntent {
+  EditKey key = EditKey::Other;
+  bool shift = false;
+  /** Ctrl on most platforms, Cmd on macOS: the adapter decides which it is. */
+  bool shortcut = false;
+  /** The OS repeating a held key — a held Enter is not a second submission. */
+  bool repeat = false;
+};
+
 class View {
  public:
   /**
@@ -127,6 +160,36 @@ class View {
   // --- keyboard and directional navigation (2026-08-04) ---
 
   /**
+   * The keys a focused `TextInput` claims, and whether it consumed this one.
+   *
+   * `false` lets the adapter's ordinary handling run, which is what makes ↑/↓ —
+   * and a ←/→ that finds the caret already against an end — navigate away
+   * instead of trapping the player inside the field (ZAB-26). Deliberately
+   * different from the Slider, which never lets go of its own axis: a short
+   * range makes stepping out cheap, a long text does not.
+   *
+   * Typing never arrives here: characters, composition and paste come through
+   * `insert_text` and `set_composition`. This owns only the caret, deletion and
+   * submission.
+   */
+  bool edit_key(const KeyIntent &intent);
+  /**
+   * Text into the focused field — a keystroke's character, a paste, anything the
+   * platform turned into text. Honors `maxLength` and the single-line rule, and
+   * writes the result back through the bound path.
+   */
+  bool insert_text(std::string_view text);
+  /**
+   * An IME composition. The field SHOWS what is being composed and the game is
+   * not told — half a syllable is not a value — until `end_composition` settles
+   * it once. Each update REPLACES the previous one.
+   */
+  bool set_composition(std::string_view text);
+  bool end_composition();
+  /** What a copy or a cut would take: the focused field's selection, or empty. */
+  std::string field_selection_text();
+
+  /**
    * Moves the focus along a unit axis. False when nothing moved — no candidate
    * lies that way, or there is nothing focusable at all.
    */
@@ -148,6 +211,12 @@ class View {
   bool set_open(std::string_view id, bool open);
   bool set_selected_tab(std::string_view id, int index);
   bool set_checked(std::string_view id, bool checked);
+  /**
+   * Writes a `TextInput`'s text, as if it had been typed — the caret lands at the
+   * end. `maxLength` does NOT apply: it bounds what the player types, never what
+   * the data is allowed to hold (2026-08-11, ZAB-26).
+   */
+  bool set_text(std::string_view id, std::string_view text);
   /**
    * Scrolls a `ScrollView`. Host API and not IR: the offset has no prop to
    * author (2026-08-11, ZAB-9), and whatever lands here is clamped to the bounds
@@ -222,6 +291,12 @@ class View {
   std::vector<Diagnostic> warnings_;
   /** Nodes whose STATE is driven by a binding — what a write has to revisit. */
   std::vector<LayoutNode *> bound_;
+  /**
+   * Every `TextInput` of the tree. The caret pass runs after every arrange, and a
+   * tree of a thousand rows has no business being walked to find the two fields
+   * in it (ZAB-73).
+   */
+  std::vector<LayoutNode *> fields_;
   /** Ids the host channel addresses. The last node realized under an id wins. */
   std::unordered_map<std::string, LayoutNode *> by_id_;
   /**
@@ -263,6 +338,8 @@ class View {
     bool moved = false;
   };
   ScrollDrag drag_;
+  /** The field whose selection the pointer is dragging out, if any. */
+  LayoutNode *text_drag_ = nullptr;
 
   class Leaves;
   friend class Leaves;
@@ -278,8 +355,12 @@ class View {
                                  std::optional<double> max_width) const;
   /** Initial state and bindings, once, over the freshly built tree. */
   void prepare(LayoutNode &node);
-  /** Derives from data everything this node's state reads. */
-  void apply_bindings(LayoutNode &node);
+  /**
+   * Derives from data everything this node's state reads. `settle` puts a field's
+   * caret at the end of its new value (a build) rather than clamping the one the
+   * player left there (a write from the game).
+   */
+  void apply_bindings(LayoutNode &node, bool settle);
   /** The values whose BINDING drives this node's state — Text is read at measure. */
   bool watches(const LayoutNode &node, std::string_view written) const;
   /** The value behind a bound prop for this node, or null for no value. */
@@ -314,6 +395,26 @@ class View {
                        double now);
   /** A node addressed by the host channel, or null when the type does not match. */
   LayoutNode *find_by_id(std::string_view id, NodeType type);
+
+  // --- TextInput (ZAB-26) ---
+  /** The node's rect minus its own padding: where a field's content lives. */
+  Rect content_box(const LayoutNode &node) const;
+  /** Keeps every field's caret inside its box. Runs after the arrange. */
+  void sync_text_scroll();
+  /** The one place a field's buffer is written — buffer and split, together. */
+  void set_field_text(LayoutNode &node, const std::string &text);
+  /** The one state-mutation path for the text: type, paste, delete, `set_text`. */
+  void apply_edit(LayoutNode &node, const Edit &edit, bool silent = false, bool commit = false);
+  /** An edit settled: the bound path is written and `onChange` fires. */
+  void text_edited(LayoutNode &node);
+  void set_field_selection(LayoutNode &node, const Selection &selection);
+  /** The caret index a view-space x picks, in the field's own content. */
+  size_t text_index_at(LayoutNode &node, double x);
+  /** The focused field, or null — the subject of every text entry point. */
+  LayoutNode *focused_field();
+  /** Drops a composition's bookkeeping without touching what it already showed. */
+  void end_composition_state(LayoutNode &node);
+  void paint_field(LayoutNode &node, double opacity, const Clip *clip);
 
   // --- focus ---
   void set_focus(LayoutNode *node);
@@ -365,6 +466,8 @@ class View {
    */
   bool reveal_focused(LayoutNode &node);
   LayoutNode *pressable_at(double x, double y);
+  /** The field a press lands in, which then owns the pointer for the gesture. */
+  LayoutNode *field_at(double x, double y);
   LayoutNode *hoverable_at(double x, double y);
   LayoutNode *collapse_header_at(double x, double y);
   void fire(const LayoutNode &node, const std::string &action);

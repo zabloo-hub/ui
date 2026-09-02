@@ -30,6 +30,7 @@
 #include "envelope.h"
 #include "states.h"
 #include "text.h"
+#include "textinput.h"
 #include "transition.h"
 
 namespace zabloo {
@@ -69,6 +70,45 @@ struct ResolvedValues {
   double padding = 0.0;
   std::optional<double> width;
   std::optional<double> height;
+};
+
+/**
+ * The runtime of one `TextInput` (ZAB-26): its buffer, its caret and the
+ * horizontal scroll of its own content.
+ *
+ * None of it is authored. `value` seeds the buffer and the game can write it
+ * again, but where the caret is, what is selected and how far the content has
+ * slid are the field's, exactly as the offset is the `ScrollView`'s — which is
+ * also why none of them is in the IR.
+ */
+struct FieldState {
+  /** What the field holds right now, in UTF-8 — what the snapshot records. */
+  std::string text;
+  /**
+   * `text` decoded, split once per edit.
+   *
+   * The caret, the highlight and the field's own scroll each want the same
+   * split several times a frame, and decoding the buffer for every one of them
+   * was six or eight vectors a frame for a string nobody had touched (ZAB-73).
+   * It is a function of the buffer, so it dies with it.
+   */
+  std::vector<char32_t> chars;
+  Selection selection;
+  double scroll = 0.0;
+  /** When the last edit landed: the blink is a closed form of the time since. */
+  double caret_since = 0.0;
+
+  /**
+   * An IME composition in flight, and what the field held before it started.
+   *
+   * The web renderer gets this for free — a hidden `<textarea>` holds the whole
+   * value and hands it back complete on every update. Here the platform reports
+   * only the composing string, so each update has to replace the previous one:
+   * the base is what makes that a replacement rather than an append.
+   */
+  bool composing = false;
+  std::string composing_base;
+  Selection composing_selection;
 };
 
 /** One or two children sharing a box — see `flow_items`. */
@@ -145,6 +185,12 @@ struct LayoutNode {
    * indicator, fully opaque.
    */
   double checked_progress = 0.0;
+  /**
+   * A `TextInput`'s buffer, caret and scroll, or null for every other node —
+   * allocated on the first pass that sees one, like `anim`, so the common node
+   * pays a pointer and nothing more.
+   */
+  std::unique_ptr<FieldState> field;
   /**
    * The selected value of an `"exclusive-check"` group. Options derive their
    * `checked` from it and never store one of their own — the selection is ONE
