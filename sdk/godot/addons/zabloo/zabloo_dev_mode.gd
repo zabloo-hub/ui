@@ -65,7 +65,7 @@ func _ready() -> void:
 	# binding wider would put the running game on the network it is developed on.
 	var error := _server.listen(port, "127.0.0.1")
 	if error != OK:
-		push_warning("[zabloo] dev mode: port %d is taken — another instance running? (%s)" % [
+		printerr("[zabloo] dev mode: port %d is taken — another instance running? (%s)" % [
 			port, error_string(error)])
 		_server = null
 		return
@@ -179,7 +179,7 @@ func _serve(stream: StreamPeerTCP, buffer: PackedByteArray) -> void:
 	var envelope: Variant = JSON.parse_string(body)
 	if typeof(envelope) != TYPE_DICTIONARY:
 		_respond(stream, 400, '{"error":"not a JSON envelope"}')
-		push_warning("[zabloo] dev mode: the push was not a JSON object — ignored")
+		printerr("[zabloo] dev mode: the push was not a JSON object — ignored")
 		return
 	var assets_base := _header(lines, "x-zabloo-assets")
 	# Answered before applying, not after: the reply says the push was TAKEN and
@@ -246,7 +246,7 @@ func _rehydrate(envelope: Dictionary, assets_base: String) -> int:
 			continue
 		if not _blobs.has(hash_value):
 			if assets_base.is_empty():
-				push_warning("[zabloo] dev mode: asset %s has no bytes and the push named no source" % hash_value)
+				printerr("[zabloo] dev mode: asset %s has no bytes and the push named no source" % hash_value)
 				continue
 			var bytes: String = await _fetch(assets_base + hash_value)
 			if bytes.is_empty():
@@ -271,11 +271,11 @@ func _fetch(url: String) -> String:
 		return ""
 	var error := _http.request(url)
 	if error != OK:
-		push_warning("[zabloo] dev mode: could not ask for %s (%s)" % [url, error_string(error)])
+		printerr("[zabloo] dev mode: could not ask for %s (%s)" % [url, error_string(error)])
 		return ""
 	var result: Array = await _http.request_completed
 	if result[0] != HTTPRequest.RESULT_SUCCESS or result[1] != 200:
-		push_warning("[zabloo] dev mode: %s answered %d" % [url, result[1]])
+		printerr("[zabloo] dev mode: %s answered %d" % [url, result[1]])
 		return ""
 	return (result[3] as PackedByteArray).get_string_from_utf8()
 

@@ -200,8 +200,9 @@ cd ../showcase && pnpm dev:godot   # then press Play here
   **once** and then goes quiet; press Play again and the next save says `— back`.
   A game that is not running is the normal state of an afternoon spent in the
   browser.
-- **Run a second copy of the playground.** It finds the port taken and says so
-  instead of silently listening to nothing.
+- **Start it with 5079 already taken** by something else. It says
+  `port 5079 is taken — another instance running?` instead of silently listening
+  to nothing.
 
 Note what is NOT here: nothing in `main.gd` mentions the dev loop. Enabling the
 addon is the whole installation.
