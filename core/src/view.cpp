@@ -18,6 +18,7 @@
 #include "scroll.h"
 #include "spinner.h"
 #include "text.h"
+#include "utf8.h"
 
 namespace zabloo {
 namespace {
@@ -31,16 +32,22 @@ constexpr double MAX_FONT_SIZE = 512.0;
 
 // --- leaves ---------------------------------------------------------------
 
-/**
- * Sizing for the childless types. A `TextInput` is one line tall and has no
- * intrinsic width, which is G11's (ZAB-144).
- */
+/** Sizing for the childless types. */
 class View::Leaves : public LeafMeasurer {
  public:
   explicit Leaves(View &view) : view_(view) {}
 
   Size measure_leaf(LayoutNode &node, std::optional<double> available) override {
     if (node.ir->type == NodeType::Text) return view_.measure_text(node, available);
+    if (node.ir->type == NodeType::TextInput) {
+      // ONE line tall, and no intrinsic width: a field must not grow and shrink
+      // with what is being typed into it, so its width comes from its own
+      // `layout` (`@zabloo/react`'s `<TextInput>` fills one in) and the content
+      // scrolls inside that box.
+      const Style &style = view_.style_of(node);
+      GlyphAtlas &atlas = view_.fonts_.get(view_.font_size(style));
+      return Size{0.0, std::max(0.0, view_.dim(style.line_height, atlas.font_line_height()))};
+    }
     if (node.ir->type == NodeType::Image) {
       // Intrinsic size straight from the manifest — nothing is decoded, so the
       // image occupies its space from the very first frame. A ref that does not
@@ -197,12 +204,22 @@ void View::prepare(LayoutNode &node) {
     node.selected_index = clamp_selected(ir.selected, tabs.buttons.size());
     apply_selection(node);
   }
+  if (ir.type == NodeType::TextInput) {
+    node.field = std::make_unique<FieldState>();
+    // Kept in a registry rather than looked up by walking: the caret pass runs
+    // after every arrange and a tree of a thousand rows has no business being
+    // searched for the two fields in it (ZAB-73).
+    fields_.push_back(&node);
+  }
   if (ir.visible.is_bound() || ir.disabled.is_bound() || ir.checked.is_bound() ||
-      ((ir.type == NodeType::Slider || ir.group == GroupBehavior::ExclusiveCheck) &&
+      ((ir.type == NodeType::Slider || ir.type == NodeType::TextInput ||
+        ir.group == GroupBehavior::ExclusiveCheck) &&
        ir.value.is_bound())) {
     bound_.push_back(&node);
   }
-  apply_bindings(node);
+  // Settled: this is the node's initial value, so a field's caret belongs at the
+  // end of it — where a player who had just typed it would have left it.
+  apply_bindings(node, true);
   // Starting ON this data means there is nothing to animate from, so the slider
   // paints its value at once instead of gliding in from zero. That is a mount —
   // and G12 (ZAB-145) reuses it for an instance recycled onto another item.
@@ -244,7 +261,6 @@ void View::layout_frame() {
   measure(root_, leaves, viewport_.width);
   arrange(root_, viewport_);
   place_text(root_);
-
   // Then the layer, in `(z, document order)`, each entry measured and arranged
   // against the view rect. What paints is the live layer plus whatever is still
   // fading out, in that same order — a closing modal keeps its place under the
@@ -267,10 +283,46 @@ void View::layout_frame() {
   // so a layer entry has to be placed AFTER its own arrange — the tree pass above
   // stopped at it.
   for (LayoutNode *overlay : paint_layer_) place_text(*overlay);
+  // Last, once every box is final — the tree's AND the layer's: a field inside a
+  // modal has to keep its caret in view too, and its rect only exists after the
+  // loop above.
+  sync_text_scroll();
   // A timeout counting down — or one that just fired, whose dismiss the next
   // frame has still to act on — is something that will change with no further
   // input, which is exactly what `animating` promises the adapter.
   if (overlay_layer_.wants_frame()) animating_ = true;
+}
+
+/**
+ * The content box of a node: its rect, minus its own padding.
+ *
+ * A field's text, caret and highlight all live in it, and so does the pointer
+ * coordinate that picks a caret position — one helper, so the four cannot drift.
+ */
+Rect View::content_box(const LayoutNode &node) const {
+  const double padding = node.resolved.padding;
+  return Rect{node.rect.x + padding, node.rect.y + padding,
+              std::max(0.0, node.rect.width - padding * 2.0),
+              std::max(0.0, node.rect.height - padding * 2.0)};
+}
+
+/**
+ * Keeps every field's caret inside its box — the field's own horizontal scroll,
+ * the counterpart of the `ScrollView`'s offset and, like it, never authored.
+ *
+ * It runs after the arrange, where the rect is final, and it is idempotent: a
+ * frame that moved nothing recomputes the same offset.
+ */
+void View::sync_text_scroll() {
+  for (LayoutNode *node : fields_) {
+    if (!in_layout(*node)) continue;
+    FieldState &field = *node->field;
+    const Style &style = style_of(*node);
+    GlyphAtlas &atlas = fonts_.get(font_size(style));
+    field.scroll = scroll_for(field.scroll, caret_x(field.chars, field.selection.focus, atlas),
+                              content_box(*node).width,
+                              caret_x(field.chars, field.chars.size(), atlas), CARET.width);
+  }
 }
 
 const Style &View::style_of(LayoutNode &node) {
@@ -285,6 +337,9 @@ const Style &View::style_of(LayoutNode &node) {
   states.focused = node.focused;
   states.selected = node.selected;
   states.checked = node.checked;
+  // The placeholder is a STATE, not a colour of its own (ZAB-26): a field
+  // holding nothing wears `empty`, and that is what dresses what it shows.
+  states.empty = node.field != nullptr && node.field->text.empty();
   states.disabled = node.disabled;
   node.style_cache = effective_style(*node.ir, states);
   node.style_frame = frame_;
@@ -603,8 +658,13 @@ bool View::write_path(const LayoutNode &node, const std::string &bind, std::stri
  * The single place those states are computed, so building a node and a `SetData`
  * landing on it settle it the same way — which is what G12 (ZAB-145) will lean on
  * when an item instance is recycled onto another element.
+ *
+ * `settle` separates the two callers for the one state that has a position in it:
+ * a field being BUILT puts its caret at the end of the value it was given, while
+ * a field the game has just written into keeps the caret the player left there
+ * and only clamps it into the new text. Nothing else here has anywhere to be.
  */
-void View::apply_bindings(LayoutNode &node) {
+void View::apply_bindings(LayoutNode &node, bool settle) {
   const Node &ir = *node.ir;
   // A bound `visible` with no data starts HIDDEN: data-driven visibility means
   // "visible when the data says so" (2026-08-03).
@@ -640,8 +700,35 @@ void View::apply_bindings(LayoutNode &node) {
                                       : range.min);
     node.slider_value = quantize(initial, range);
   }
-  // A TextInput's bound value lands here too, in G11 (ZAB-144): the prop exists,
-  // the runtime that holds it does not yet.
+  if (ir.type == NodeType::TextInput && node.field != nullptr) {
+    // Unbound, `value` is the initial text; bound, the store decides — and an
+    // empty store leaves the field empty, showing its placeholder. The game's own
+    // string is shown AS IT IS: `maxLength` bounds what the player can type, never
+    // what the data is allowed to hold (decision 2026-08-11, ZAB-26).
+    const Scalar literal = ir.value.literal(Scalar{});
+    const std::string text =
+        ir.value.is_bound() ? format_value(read_bind(node, ir.value.bind))
+        : literal.kind == Scalar::Kind::Text ? literal.text
+        : literal.kind == Scalar::Kind::Number ? number_to_text(literal.number)
+                                               : std::string();
+    set_field_text(node, text);
+    node.field->selection = settle ? caret_at(node.field->chars.size())
+                                   : clamp_selection(node.field->selection,
+                                                     node.field->chars.size());
+  }
+}
+
+/**
+ * The one place a field's buffer is written, whoever wrote it — the initial
+ * value, a `SetData`, a keystroke, a paste, `set_text`.
+ *
+ * It keeps the decoded split in step with the buffer, which is the invariant the
+ * whole caret rests on: every index in the frame counts entries of `chars`.
+ */
+void View::set_field_text(LayoutNode &node, const std::string &text) {
+  FieldState &field = *node.field;
+  field.text = text;
+  field.chars = utf8_decode(text);
 }
 
 bool View::watches(const LayoutNode &node, std::string_view written) const {
@@ -654,6 +741,7 @@ bool View::watches(const LayoutNode &node, std::string_view written) const {
   if (ir.disabled.is_bound() && touches(ir.disabled.bind)) return true;
   if (ir.type == NodeType::Toggle && ir.checked.is_bound() && touches(ir.checked.bind)) return true;
   if (ir.type == NodeType::Slider && ir.value.is_bound() && touches(ir.value.bind)) return true;
+  if (ir.type == NodeType::TextInput && ir.value.is_bound() && touches(ir.value.bind)) return true;
   if (ir.group == GroupBehavior::ExclusiveCheck && ir.value.is_bound() && touches(ir.value.bind)) {
     return true;
   }
@@ -671,7 +759,9 @@ bool View::watches(const LayoutNode &node, std::string_view written) const {
  */
 void View::data_written(std::string_view path) {
   for (LayoutNode *node : bound_) {
-    if (watches(*node, path)) apply_bindings(*node);
+    // Not settled: the player's caret stays where they left it and is only
+    // clamped into the new text — a write from the game is not a gesture.
+    if (watches(*node, path)) apply_bindings(*node, false);
   }
 }
 
@@ -984,9 +1074,16 @@ void View::release(LayoutNode &node) {
 
 void View::set_focus(LayoutNode *node) {
   if (focus_ == node) return;
-  if (focus_ != nullptr) focus_->focused = false;
+  if (focus_ != nullptr) {
+    focus_->focused = false;
+    // Whatever the IME was building belongs to the field that had the keyboard.
+    end_composition_state(*focus_);
+  }
   focus_ = node;
-  if (focus_ != nullptr) focus_->focused = true;
+  if (focus_ == nullptr) return;
+  focus_->focused = true;
+  // A field that gets the focus starts with a SOLID caret, not mid-blink.
+  if (focus_->field != nullptr) focus_->field->caret_since = now_;
 }
 
 LayoutNode &View::scope() { return focus_scope(root_, layer_); }
@@ -1101,6 +1198,10 @@ void View::prune_disabled() {
   // interaction that section owned.
   if (slider_drag_.node != nullptr && slider_drag_.node->disabled) end_slider_drag(false);
   if (slider_keys_.node != nullptr && slider_keys_.node->disabled) slider_keys_ = SliderGesture{};
+  // A field switched off mid-selection lets the pointer go too. Nothing concludes
+  // there either, and for a simpler reason than the Slider's: the buffer never
+  // moved, so there was never a value to settle or to throw away.
+  if (text_drag_ != nullptr && text_drag_->disabled) text_drag_ = nullptr;
 }
 
 bool View::move_focus(double dx, double dy) {
@@ -1298,6 +1399,14 @@ void View::paint_node(LayoutNode &node, double opacity, const Clip *clip) {
                       fade(node.resolved.color.value_or(UNTINTED), own), node.resolved.radius);
     }
   }
+  if (node.ir->type == NodeType::TextInput && node.field != nullptr) {
+    // A field is a LEAF with content: no children to paint and no scrollbar to
+    // draw. Its clip group is left current on purpose — whatever paints next
+    // opens its own, and re-setting this one here would leave an empty group
+    // behind whenever the field is the last thing in its parent.
+    paint_field(node, own, clip);
+    return;
+  }
   const Clip *inner = child_clip(node, clip, paint_clips_);
   // Clipped away entirely: the subtree — and the scrollbar — paint nothing.
   if (is_empty_clip(inner)) return;
@@ -1342,6 +1451,253 @@ void View::paint_scrollbar(LayoutNode &node, double opacity, const Clip *clip) {
                                 horizontal.length, SCROLLBAR_THICKNESS},
                            SCROLLBAR_THICKNESS * 0.5, color);
   }
+}
+
+/**
+ * The field's own content: the selection highlight, the text or its placeholder,
+ * and the caret — all shifted by the field's horizontal scroll, so a long value
+ * runs UNDER the edge instead of over it.
+ *
+ * The three colours are the field's `style.color`, the same "colour of this
+ * node's content" that already paints its glyphs, so a state override reaches
+ * them for free and `Style` gains nothing (ZAB-26). The placeholder is not a
+ * colour either: it is what `states.empty` dresses.
+ */
+void View::paint_field(LayoutNode &node, double opacity, const Clip *clip) {
+  const FieldState &field = *node.field;
+  const Style &style = style_of(node);
+  GlyphAtlas &atlas = fonts_.get(font_size(style));
+  const Rect box = content_box(node);
+  // Everything below is cut to the content box: it is the field's OWN paint, so
+  // it clips whether or not the author asked the node to clip its children.
+  const Clip inner = intersect_clip(clip, box, 0.0);
+  if (is_empty_clip(&inner)) return;
+  geometry_.set_clip(paint_clips_.intern(inner));
+
+  const Color content = node.resolved.color.value_or(DEFAULT_TEXT_COLOR);
+  const bool showing_value = !field.text.empty();
+  const std::string &showing = showing_value ? field.text : node.ir->placeholder;
+  // One line, centred in the box — the same half-leading a `Text` places with.
+  const double line_height = std::max(0.0, dim(style.line_height, atlas.font_line_height()));
+  const double top = box.y + std::max(0.0, (box.height - line_height) / 2.0);
+  const double origin_x = box.x - field.scroll;
+
+  if (node.focused && has_selection(field.selection)) {
+    const Span ordered = span_of(field.selection, field.chars.size());
+    const double from = caret_x(field.chars, ordered.start, atlas);
+    const double to = caret_x(field.chars, ordered.end, atlas);
+    geometry_.rounded_rect(Rect{origin_x + from, top, to - from, line_height}, 0.0,
+                           fade(content, opacity * CARET.selection_alpha));
+  }
+  if (!showing.empty()) {
+    geometry_.text(origin_x, top + (line_height - atlas.font_line_height()) / 2.0, showing, atlas,
+                   fade(content, opacity));
+  }
+  // The caret hides while a range is selected (the highlight already says where
+  // the edit will land) and blinks from the last edit, so it is solid as you type.
+  if (node.focused && !has_selection(field.selection) &&
+      caret_visible(now_ - field.caret_since)) {
+    geometry_.rounded_rect(
+        Rect{origin_x + caret_x(field.chars, field.selection.focus, atlas), top, CARET.width,
+             line_height},
+        0.0, fade(content, opacity));
+  }
+}
+
+// --- TextInput (ZAB-26) ---------------------------------------------------
+// `textinput.h` owns the editing model — the caret math, `maxLength`, the
+// single-line rule. This owns the state that runs it: the buffer, where the
+// caret is, and the return leg of the data channel when an edit settles.
+
+/**
+ * The single state-mutation path for a field's text: typing, a paste, a
+ * deletion, an IME commit and `set_text` all come through here.
+ *
+ * `silent` is a composition in flight — the field shows it and the game is not
+ * told, because half a syllable is not a value — and `commit` is the end of one,
+ * where the settled text has to go out even though the silent frames already put
+ * it in the buffer.
+ */
+void View::apply_edit(LayoutNode &node, const Edit &edit, bool silent, bool commit) {
+  FieldState &field = *node.field;
+  const bool changed = edit.text != field.text;
+  set_field_text(node, edit.text);
+  field.selection = clamp_selection(edit.selection, field.chars.size());
+  // Every edit restarts the blink from ON: a caret that goes dark exactly as you
+  // type reads as a dropped keystroke.
+  field.caret_since = now_;
+  if ((changed || commit) && !silent) text_edited(node);
+}
+
+/**
+ * An edit settled: the new value goes into the bound path — the return leg of
+ * the data channel (2026-08-11, ZAB-23) — and the live `onChange` fires.
+ */
+void View::text_edited(LayoutNode &node) {
+  const Node &ir = *node.ir;
+  std::string path;
+  if (ir.value.is_bound() && write_path(node, ir.value.bind, path)) {
+    // The resolved path, never the declared one: a field inside an item writes
+    // into THAT item (ZAB-52 is exactly the bug of writing the unresolved one).
+    write_data(path, DataValue::of_text(node.field->text));
+  }
+  if (!ir.on_change.empty()) fire(node, ir.on_change);
+}
+
+/** Moves the caret (or the selection) without touching the text. */
+void View::set_field_selection(LayoutNode &node, const Selection &selection) {
+  FieldState &field = *node.field;
+  field.selection = clamp_selection(selection, field.chars.size());
+  field.caret_since = now_;
+}
+
+/** The caret index a point in view space selects, in the field's own content. */
+size_t View::text_index_at(LayoutNode &node, double x) {
+  const Rect box = content_box(node);
+  GlyphAtlas &atlas = fonts_.get(font_size(style_of(node)));
+  return index_at_x(node.field->chars, x - box.x + node.field->scroll, atlas);
+}
+
+/** The focused field, or null — the subject of every entry point below. */
+LayoutNode *View::focused_field() {
+  if (focus_ == nullptr || focus_->ir->type != NodeType::TextInput) return nullptr;
+  if (focus_->field == nullptr || !in_layout(*focus_) || focus_->disabled) return nullptr;
+  return focus_;
+}
+
+bool View::insert_text(std::string_view text) {
+  LayoutNode *node = focused_field();
+  if (node == nullptr || text.empty()) return false;
+  end_composition_state(*node);
+  apply_edit(*node, insert(node->field->chars, node->field->selection, text,
+                           node->ir->max_length.value_or(0.0)));
+  return true;
+}
+
+/**
+ * A composition update: the field SHOWS it and the game is not told.
+ *
+ * The web renderer gets this from a hidden `<textarea>` that holds the whole
+ * value; here the platform reports only the composing string, so every update
+ * replaces the previous one — which is what the saved base is for. `end` is the
+ * `compositionend` of the reference: the settled text goes out exactly once.
+ */
+bool View::set_composition(std::string_view text) {
+  LayoutNode *node = focused_field();
+  if (node == nullptr) return false;
+  FieldState &field = *node->field;
+  if (!field.composing) {
+    field.composing = true;
+    field.composing_base = field.text;
+    field.composing_selection = field.selection;
+  }
+  // Always from the base, so an update is a replacement and not an append.
+  const std::vector<char32_t> base = utf8_decode(field.composing_base);
+  apply_edit(*node, insert(base, field.composing_selection, text,
+                           node->ir->max_length.value_or(0.0)),
+             true);
+  return true;
+}
+
+bool View::end_composition() {
+  LayoutNode *node = focused_field();
+  if (node == nullptr || !node->field->composing) return false;
+  node->field->composing = false;
+  // Committed as it stands: the silent frames already put it in the buffer, so
+  // what is left is telling the game — once, with the settled text.
+  apply_edit(*node, Edit{node->field->text, node->field->selection}, false, true);
+  return true;
+}
+
+/**
+ * A composition abandoned by something that is not the IME — a keystroke, a
+ * pointer, a write from the game. The text stays as the field shows it; only the
+ * bookkeeping that would have made the next update a replacement is dropped.
+ */
+void View::end_composition_state(LayoutNode &node) {
+  if (node.field != nullptr) node.field->composing = false;
+}
+
+std::string View::field_selection_text() {
+  LayoutNode *node = focused_field();
+  if (node == nullptr) return std::string();
+  return selected_text(node->field->chars, node->field->selection);
+}
+
+bool View::edit_key(const KeyIntent &intent) {
+  LayoutNode *node = focused_field();
+  if (node == nullptr) return false;
+  FieldState &field = *node->field;
+  const size_t max = field.chars.size();
+  end_composition_state(*node);
+
+  if (intent.shortcut) {
+    switch (intent.key) {
+      case EditKey::SelectAll: set_field_selection(*node, select_all(max)); return true;
+      // Ctrl/Cmd+arrow is Home/End on every desktop that has the combination.
+      case EditKey::Left:
+      case EditKey::Right:
+        set_field_selection(
+            *node, move_to_edge(max, field.selection, intent.key == EditKey::Right, intent.shift)
+                       .selection);
+        return true;
+      // Copy, cut and paste are the platform's: the adapter reads the clipboard
+      // and comes back through `field_selection_text` and `insert_text`.
+      default: return false;
+    }
+  }
+
+  switch (intent.key) {
+    case EditKey::Left:
+    case EditKey::Right: {
+      const Move step =
+          move_caret(max, field.selection, intent.key == EditKey::Left ? -1 : 1, intent.shift);
+      // Nothing left to walk: let it fall through to spatial navigation instead
+      // of trapping the player in the field (decision 2026-08-11, ZAB-26).
+      if (step.at_boundary) return false;
+      set_field_selection(*node, step.selection);
+      return true;
+    }
+    case EditKey::Home:
+    case EditKey::End:
+      set_field_selection(
+          *node,
+          move_to_edge(max, field.selection, intent.key == EditKey::End, intent.shift).selection);
+      return true;
+    case EditKey::Backspace:
+    case EditKey::Delete:
+      apply_edit(*node,
+                 remove(field.chars, field.selection, intent.key == EditKey::Delete));
+      return true;
+    case EditKey::Submit:
+      // A held Enter is not a second submission.
+      if (!intent.repeat && !node->ir->on_submit.empty()) fire(*node, node->ir->on_submit);
+      return true;
+    case EditKey::Tab:
+      // Navigation here is spatial, so a Tab would only hand the keyboard to
+      // whatever the scene has next and leave the field looking focused.
+      return true;
+    case EditKey::Space:
+      // A space is TEXT: consumed so it presses nothing, and inserted by the
+      // character path like any other key.
+      return true;
+    default:
+      // Up and down always navigate: a single-line field has nowhere to send
+      // them, which is the deliberate difference from the Slider's own axis.
+      return false;
+  }
+}
+
+bool View::set_text(std::string_view id, std::string_view text) {
+  LayoutNode *node = find_by_id(id, NodeType::TextInput);
+  if (node == nullptr || node->field == nullptr) return false;
+  end_composition_state(*node);
+  // The whole field is replaced, so the caret goes to the end — where a player
+  // who had just typed it would have left it. `maxLength` is deliberately not
+  // applied: it bounds what the PLAYER types, never what the game may put there.
+  const std::string next(text);
+  apply_edit(*node, Edit{next, caret_at(utf8_decode(next).size())});
+  return true;
 }
 
 // --- input ----------------------------------------------------------------
@@ -1437,6 +1793,14 @@ bool View::pointer_move(double x, double y, bool mouse) {
     set_slider_value(*slider_drag_.node, value_at_point(*slider_drag_.node, x, y));
     return slider_drag_.node->slider_value != before || changed;
   }
+  if (text_drag_ != nullptr) {
+    // The anchor stays where the press landed and only the focus follows the
+    // pointer, so dragging backwards selects backwards.
+    set_field_selection(*text_drag_,
+                        Selection{text_drag_->field->selection.anchor,
+                                  text_index_at(*text_drag_, x)});
+    return true;
+  }
   if (drag_.node == nullptr) return changed;
 
   // Held back until the threshold clears it, so a plain tap still reaches the
@@ -1476,10 +1840,10 @@ bool View::pointer_down(double x, double y, bool mouse) {
     return true;
   }
   LayoutNode *node = resolved.kind == LayerHit::Kind::Node ? resolved.node : nullptr;
-  // A Slider takes the pointer before any button: the gesture starts on the press
-  // (the thumb jumps to the finger), and the control lives inside scrollable
-  // screens where the drag has to move the value and not the list. G11 (ZAB-144)
-  // puts the text field here too, for the same reason.
+  // A Slider and a TextInput take the pointer before any button, and for the same
+  // reason: the gesture starts on the press — the thumb jumps to the finger, the
+  // caret lands where it was clicked — and both live inside scrollable screens
+  // where the drag has to move the control and not the list.
   LayoutNode *slider =
       find_up(node, [](const LayoutNode &candidate) {
         return !candidate.disabled && candidate.ir->type == NodeType::Slider;
@@ -1490,6 +1854,16 @@ bool View::pointer_down(double x, double y, bool mouse) {
     // The pointer and directional navigation share ONE focus (2026-08-04).
     set_focus(slider);
     set_slider_value(*slider, value_at_point(*slider, x, y));
+    return true;
+  }
+  LayoutNode *field = find_up(node, [](const LayoutNode &candidate) {
+    return !candidate.disabled && candidate.ir->type == NodeType::TextInput &&
+           candidate.field != nullptr;
+  });
+  if (field != nullptr) {
+    text_drag_ = field;
+    set_focus(field);
+    set_field_selection(*field, caret_at(text_index_at(*field, x)));
     return true;
   }
   // What a press takes hold of next: a Button or a Toggle, and nothing else —
@@ -1526,6 +1900,13 @@ bool View::pointer_up(double x, double y, bool mouse) {
   // The Slider's release settles the gesture: `onCommit` is the "apply the
   // expensive thing" event, and it only fires if the number actually moved.
   if (end_slider_drag(true)) {
+    pointer_move(x, y, mouse);
+    return true;
+  }
+  if (text_drag_ != nullptr) {
+    // A selection concludes by simply existing: there is nothing to fire and no
+    // value to settle — the buffer never changed.
+    text_drag_ = nullptr;
     pointer_move(x, y, mouse);
     return true;
   }
@@ -1609,6 +1990,10 @@ bool View::pointer_cancel() {
   // expensive thing" event for a value the player really did leave there. Same
   // reading as a pad unplugged mid-nudge (2026-08-12, ZAB-47).
   changed = end_slider_drag(true) || changed;
+  // A selection drag is NOT that exception: the buffer never moved, so there is
+  // nothing it could have concluded either way.
+  changed = text_drag_ != nullptr || changed;
+  text_drag_ = nullptr;
   changed = drag_.node != nullptr || changed;
   drag_ = ScrollDrag{};
   // A backdrop press that never concluded: nothing is dismissed, exactly as a

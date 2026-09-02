@@ -171,3 +171,35 @@ TEST(snapshot, the_measured_size_shows_up_only_when_the_arrange_overrode_it) {
                  "\"ref\": \"1\",\n        \"rect\": {\n          \"x\": 70,\n          \"y\": 0,\n"
                  "          \"width\": 30,\n          \"height\": 20\n        }\n      }"));
 }
+
+TEST(snapshot, a_field_records_its_text_its_caret_and_its_own_scroll) {
+  const std::string text = snapshot_of(R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"TextInput","id":"name","value":"Sergi","layout":{"width":100}}}})");
+  // The ends are written in the GESTURE's order, not sorted: a selection dragged
+  // backwards is a different state from the same span dragged forwards, and it
+  // is the one shift+arrow shrinks.
+  CHECK(contains(text, "\"field\": {\n      \"text\": \"Sergi\",\n      \"anchor\": 5,\n"
+                       "      \"focus\": 5,\n      \"scroll\": 0\n    }"));
+}
+
+TEST(snapshot, only_a_field_holding_nothing_wears_the_empty_state) {
+  const char *TWO_FIELDS = R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"Container","children":[
+        {"type":"TextInput","id":"filled","value":"x","layout":{"width":80}},
+        {"type":"TextInput","id":"blank","placeholder":"…","layout":{"width":80}}]}}})";
+  const std::string text = snapshot_of(TWO_FIELDS);
+  // First in the normative merge order, so it is first in the list too — which is
+  // what keeps a diff of two snapshots comparing the same positions.
+  CHECK(contains(text, "\"ref\": \"blank\",\n"));
+  CHECK(contains(text, "\"states\": [\n          \"empty\"\n        ]"));
+  // Exactly one node says it: the placeholder is a state of the VALUE, so a field
+  // holding text is not in it.
+  CHECK_EQ(text.find("\"empty\""), text.rfind("\"empty\""));
+}
+
+TEST(snapshot, a_node_that_is_not_a_field_says_nothing_about_one) {
+  // Absent means "this node has none", which is the whole reason the block is
+  // written by the type that owns it rather than defaulted everywhere.
+  CHECK(!contains(snapshot_of(R"({"v":1,"tokens":{},"views":{"a":{"type":"Container"}}})"),
+                  "\"field\""));
+}

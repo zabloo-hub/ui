@@ -1418,3 +1418,267 @@ TEST(view, the_game_moves_the_slider_with_a_glide_and_the_finger_moves_it_at_onc
   CHECK_EQ(volume.slider_display, 0.0);
   CHECK(!view->animating());
 }
+
+// --- TextInput (ZAB-26, G11) ----------------------------------------------
+
+namespace {
+
+/**
+ * Two fields in a 300×200 view: one with a literal value and a `maxLength`, one
+ * empty with a placeholder and a bound value. Boxes are 200 wide with 8 of
+ * padding, so the content box is 184 and a long value has somewhere to scroll.
+ */
+const char *FIELD_VIEW = R"({"v":1,"views":{"form":{
+  "type":"Container","layout":{"direction":"column","padding":8,"gap":8},
+  "children":[
+    {"type":"TextInput","id":"name","value":"Sergi","placeholder":"Tu nombre",
+     "maxLength":8,"onChange":"name-changed","onSubmit":"name-accepted",
+     "layout":{"width":200,"padding":8},"style":{"color":"#e2e8f0"},
+     "autofocus":true},
+    {"type":"TextInput","id":"city","value":{"bind":"form.city"},
+     "placeholder":"Ciudad","layout":{"width":200,"padding":8},
+     "style":{"color":"#e2e8f0"},
+     "states":{"empty":{"style":{"color":"#64748b"}}}}]}}})";
+
+KeyIntent key(EditKey which, bool shift = false, bool shortcut = false) {
+  KeyIntent intent;
+  intent.key = which;
+  intent.shift = shift;
+  intent.shortcut = shortcut;
+  return intent;
+}
+
+}  // namespace
+
+TEST(view, a_field_measures_one_line_tall_and_takes_its_width_from_its_layout) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  const LayoutNode &name = view->root().children[0];
+  // A field must not grow with what is typed into it, so the intrinsic width is
+  // zero and the declared 200 is what stands.
+  CHECK_EQ(name.rect.width, 200.0);
+  // What it asked for is its own padding and NOTHING of its content: "Sergi" is
+  // five glyphs wide and contributes none of them.
+  CHECK_EQ(name.natural.x, 16.0);
+  // One line plus its own padding: the height never depends on the content
+  // either, which is what keeps a form from reflowing as it is filled in.
+  CHECK(name.rect.height > 16.0);
+  CHECK_EQ(name.rect.height, view->root().children[1].rect.height);
+}
+
+TEST(view, a_field_is_seeded_with_its_value_and_the_caret_lands_at_the_end) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  const FieldState &name = *view->root().children[0].field;
+  CHECK_EQ(name.text, std::string("Sergi"));
+  // Settled: this is the field's initial value, so the caret sits where someone
+  // who had just typed it would have left it.
+  CHECK_EQ(name.selection.anchor, size_t(5));
+  CHECK_EQ(name.selection.focus, size_t(5));
+}
+
+TEST(view, an_empty_field_wears_the_empty_state_and_loses_it_at_the_first_character) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  const LayoutNode &city = view->root().children[1];
+  // The placeholder is a STATE, not a colour of its own: `empty` is what dresses
+  // it, so an override reaches it through the ordinary merge (ZAB-26).
+  CHECK(city.resolved.color.has_value());
+  if (city.resolved.color.has_value()) CHECK(city.resolved.color->r < 0.5f);
+
+  CHECK(view->move_focus(0, 1));
+  CHECK(view->insert_text("B"));
+  view->layout_frame();
+  CHECK_EQ(city.field->text, std::string("B"));
+  // Holding text, the field is back to its own colour.
+  CHECK(city.resolved.color.has_value());
+  if (city.resolved.color.has_value()) CHECK(city.resolved.color->r > 0.5f);
+}
+
+TEST(view, typing_writes_the_bound_path_and_fires_the_live_hook) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  CHECK(view->move_focus(0, 1));
+  CHECK(view->insert_text("Bar"));
+
+  const std::vector<DataChange> changes = view->drain_data_changes();
+  CHECK_EQ(changes.size(), 1u);
+  if (!changes.empty()) {
+    CHECK_EQ(changes[0].path, std::string("form.city"));
+    CHECK_EQ(changes[0].value.text, std::string("Bar"));
+  }
+  // The field with no binding has nothing to write, but still says it changed.
+  CHECK(view->move_focus(0, -1));
+  CHECK(view->insert_text("!"));
+  CHECK(view->drain_data_changes().empty());
+  const std::vector<ActionEvent> actions = view->drain_actions();
+  CHECK_EQ(actions.size(), 1u);
+  if (!actions.empty()) CHECK_EQ(actions[0].name, std::string("name-changed"));
+}
+
+TEST(view, max_length_bounds_what_is_typed_and_never_what_the_game_pushes) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  // "Sergi" is 5 of the 8 allowed, so a six-character paste lands three.
+  CHECK(view->insert_text(" Zamora"));
+  CHECK_EQ(view->root().children[0].field->text, std::string("Sergi Za"));
+
+  // The game's own string is shown whole: the limit is on the PLAYER, not on
+  // what the data is allowed to hold (decision 2026-08-11, ZAB-26).
+  CHECK(view->set_text("name", "un nombre larguísimo de verdad"));
+  CHECK_EQ(view->root().children[0].field->text,
+           std::string("un nombre larguísimo de verdad"));
+}
+
+TEST(view, a_write_from_the_game_keeps_the_caret_and_a_build_settles_it) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  // Built with no data, so the bound field is empty and its caret is at 0.
+  CHECK_EQ(view->root().children[1].field->selection.focus, size_t(0));
+
+  document.set_data("form.city", DataValue::of_text("Barcelona"));
+  view->layout_frame();
+  const FieldState &city = *view->root().children[1].field;
+  CHECK_EQ(city.text, std::string("Barcelona"));
+  // NOT settled: a write from the game is not a gesture, so the caret the player
+  // left is kept and only clamped into the new text.
+  CHECK_EQ(city.selection.focus, size_t(0));
+
+  // Shorter data pulls a caret past the end back inside it.
+  CHECK(view->move_focus(0, 1));
+  view->edit_key(key(EditKey::End));
+  CHECK_EQ(view->root().children[1].field->selection.focus, size_t(9));
+  document.set_data("form.city", DataValue::of_text("Bar"));
+  view->layout_frame();
+  CHECK_EQ(view->root().children[1].field->selection.focus, size_t(3));
+}
+
+TEST(view, the_arrows_walk_the_caret_and_hand_the_key_back_at_the_ends) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+
+  CHECK(view->edit_key(key(EditKey::Left)));
+  CHECK_EQ(view->root().children[0].field->selection.focus, size_t(4));
+  // Shift drags the focus alone, so the same key also shrinks a selection.
+  CHECK(view->edit_key(key(EditKey::Left, true)));
+  CHECK_EQ(view->root().children[0].field->selection.anchor, size_t(4));
+  CHECK_EQ(view->root().children[0].field->selection.focus, size_t(3));
+
+  CHECK(view->edit_key(key(EditKey::Home)));
+  // Against the end with nothing selected, the field lets go: the key falls
+  // through to spatial navigation instead of trapping the player (ZAB-26).
+  CHECK(!view->edit_key(key(EditKey::Left)));
+  // Up and down never belong to a single-line field at all — the deliberate
+  // difference from the Slider, which never releases its own axis.
+  CHECK(!view->edit_key(key(EditKey::Other)));
+}
+
+TEST(view, backspace_and_delete_edit_the_buffer_and_enter_submits) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  view->drain_actions();
+
+  CHECK(view->edit_key(key(EditKey::Backspace)));
+  CHECK_EQ(view->root().children[0].field->text, std::string("Serg"));
+  CHECK(view->edit_key(key(EditKey::Home)));
+  CHECK(view->edit_key(key(EditKey::Delete)));
+  CHECK_EQ(view->root().children[0].field->text, std::string("erg"));
+
+  view->drain_actions();
+  CHECK(view->edit_key(key(EditKey::Submit)));
+  const std::vector<ActionEvent> actions = view->drain_actions();
+  CHECK_EQ(actions.size(), 1u);
+  if (!actions.empty()) CHECK_EQ(actions[0].name, std::string("name-accepted"));
+
+  // A held Enter is the OS repeating a key, not a second submission.
+  KeyIntent held = key(EditKey::Submit);
+  held.repeat = true;
+  CHECK(view->edit_key(held));
+  CHECK(view->drain_actions().empty());
+}
+
+TEST(view, select_all_replaces_the_whole_field_with_what_is_typed_next) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  // Copy, cut and paste are the platform's: an unclaimed shortcut falls through
+  // so the adapter can read the clipboard and come back through `insert_text`.
+  CHECK(!view->edit_key(key(EditKey::Other, false, true)));
+  CHECK(view->edit_key(key(EditKey::SelectAll, false, true)));
+  CHECK_EQ(view->root().children[0].field->selection.anchor, size_t(0));
+  CHECK_EQ(view->root().children[0].field->selection.focus, size_t(5));
+  CHECK_EQ(view->field_selection_text(), std::string("Sergi"));
+
+  CHECK(view->insert_text("Ana"));
+  CHECK_EQ(view->root().children[0].field->text, std::string("Ana"));
+}
+
+TEST(view, a_composition_is_shown_and_only_told_to_the_game_once_it_settles) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  CHECK(view->move_focus(0, 1));
+  view->drain_data_changes();
+
+  // Each update REPLACES the previous one — the platform reports the composing
+  // string, not the whole value, so appending would spell "kkoko".
+  CHECK(view->set_composition("k"));
+  CHECK(view->set_composition("ko"));
+  CHECK_EQ(view->root().children[1].field->text, std::string("ko"));
+  // The field shows it and the game hears nothing: half a syllable is not a value.
+  CHECK(view->drain_data_changes().empty());
+
+  CHECK(view->end_composition());
+  const std::vector<DataChange> changes = view->drain_data_changes();
+  CHECK_EQ(changes.size(), 1u);
+  if (!changes.empty()) CHECK_EQ(changes[0].value.text, std::string("ko"));
+}
+
+TEST(view, a_pointer_places_the_caret_and_a_drag_selects_backwards_too) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  const LayoutNode &name = view->root().children[0];
+  const double content_left = name.rect.x + 8;
+  const double middle = name.rect.y + name.rect.height / 2;
+
+  // A press inside a field takes the pointer and focuses it, whatever else it
+  // might have started — a screen of fields is scrollable, and a selection drag
+  // must not become a scroll of the list.
+  // Inside the box but past the end of the run: the caret snaps to the last seam.
+  CHECK(view->pointer_down(content_left + 150, middle));
+  CHECK(view->focus() == &name);
+  CHECK_EQ(name.field->selection.anchor, size_t(5));
+
+  CHECK(view->pointer_move(content_left, middle));
+  // The anchor stays where the press landed, so dragging back selects backwards.
+  CHECK_EQ(name.field->selection.anchor, size_t(5));
+  CHECK_EQ(name.field->selection.focus, size_t(0));
+  CHECK(view->pointer_up(content_left, middle));
+  CHECK_EQ(view->field_selection_text(), std::string("Sergi"));
+  // A selection concludes by existing: nothing fired, nothing settled.
+  CHECK(view->drain_actions().empty());
+  CHECK(view->drain_data_changes().empty());
+}
+
+TEST(view, content_longer_than_the_box_scrolls_to_keep_the_caret_in_view) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  CHECK(view->set_text("name", "un valor mucho más largo de lo que cabe en la caja"));
+  view->layout_frame();
+  // `set_text` leaves the caret at the end, so the run slid left under the edge.
+  const double scrolled = view->root().children[0].field->scroll;
+  CHECK(scrolled > 0.0);
+
+  // Home brings it back by the smallest move that shows the caret again, and the
+  // pass is idempotent: a frame that changed nothing recomputes the same offset.
+  view->edit_key(key(EditKey::Home));
+  view->layout_frame();
+  CHECK_EQ(view->root().children[0].field->scroll, 0.0);
+  view->layout_frame();
+  CHECK_EQ(view->root().children[0].field->scroll, 0.0);
+}
+
+TEST(view, an_id_that_names_no_field_is_answered_and_nothing_is_applied) {
+  Document document = loaded(FIELD_VIEW, 300, 200);
+  View *view = document.view();
+  CHECK(!view->set_text("nope", "x"));
+  CHECK(view->drain_data_changes().empty());
+}

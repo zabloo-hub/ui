@@ -40,16 +40,13 @@ operations, and **signals** for the callbacks.
 | `SetSelectedTab` | `set_selected_tab(id: String, index: int) -> bool` | Diagnostic | `diagnostic(code: String, message: String, fatal: bool)` |
 | `SetChecked` | `set_checked(id: String, checked: bool) -> bool` | | |
 | `SetValue` | `set_value(id: String, value: float) -> bool` | | |
+| `SetText` | `set_text(id: String, text: String) -> bool` | | |
 | `SetScroll` | `set_scroll(id: String, x: float, y: float) -> bool` | | |
 | `Reload` | `reload(json: String) -> bool` | | |
 
 A `Variant` carries what the channel carries: a bool, a number, a string, and — because a
 bound path addresses **into** what was pushed — an `Array` or a `Dictionary` too.
 `set_data("shop.items", [...])` is what makes `{"bind": "shop.items.1.name"}` resolve.
-
-`SetText` is not on the Godot node yet: its subject, the `TextInput`, has no runtime there
-until ZAB-144. Binding it now would mean answering `false` for a control that exists, which
-is the one thing the return value is not allowed to mean.
 
 The keyboard has one Godot-only wrinkle, and it belongs to the `Slider`. Arrow keys along a
 slider's axis adjust it and the release of that key is what fires `onCommit`, but the core

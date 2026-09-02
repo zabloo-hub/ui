@@ -245,10 +245,6 @@ std::string ref_of(const Refs &refs, const LayoutNode *node) {
  * disabled`). Listing them in that order means a diff of two snapshots compares
  * the same positions.
  *
- * `empty` is the one still missing: it belongs to a TextInput holding no text,
- * and the runtime that holds a field's text arrives with G11 (ZAB-144).
- * Reporting a `false` nobody computed would be a different lie from the honest
- * silence of a field that does not exist.
  */
 struct StateEntry {
   const char *name;
@@ -256,6 +252,9 @@ struct StateEntry {
 };
 
 const StateEntry STATES[] = {
+    // A `TextInput` holding no text — what dresses its placeholder (ZAB-26).
+    {"empty",
+     [](const LayoutNode &node) { return node.field != nullptr && node.field->text.empty(); }},
     {"selected", [](const LayoutNode &node) { return node.selected; }},
     {"checked", [](const LayoutNode &node) { return node.checked; }},
     // `open` is a Collapse's, and only a Collapse's: every other node is born
@@ -465,10 +464,28 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs, const 
     writer.number_value(node.slider_display);
   }
 
-  // `field` (G11, ZAB-144) and `window` (G12, ZAB-145) belong here, in that
-  // order. Each is written by the ticket that gives the runtime something to
-  // say; until then the field is absent, which is what "this node has none"
-  // already means everywhere else in this document.
+  // What a `TextInput` holds and where the caret is in it. `anchor` and `focus`
+  // are code point indices, and they are written in the gesture's order rather
+  // than sorted — a selection dragged backwards is a different state from the
+  // same span dragged forwards, and it is the one shift+arrow shrinks.
+  if (node.ir->type == NodeType::TextInput && node.field != nullptr) {
+    writer.key("field");
+    writer.begin_object();
+    writer.key("text");
+    writer.string(node.field->text);
+    writer.key("anchor");
+    writer.number_value(static_cast<double>(node.field->selection.anchor));
+    writer.key("focus");
+    writer.number_value(static_cast<double>(node.field->selection.focus));
+    writer.key("scroll");
+    writer.number_value(node.field->scroll);
+    writer.end_object();
+  }
+
+  // `window` (G12, ZAB-145) belongs here, after the field. It is written by the
+  // ticket that gives the runtime something to say; until then it is absent,
+  // which is what "this node has none" already means everywhere else in this
+  // document.
 
   if (!node.children.empty()) {
     // The region a child inherits, computed exactly as paint and hit-testing do.

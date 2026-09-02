@@ -1,5 +1,6 @@
 #include "zabloo_view.h"
 
+#include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/classes/image.hpp>
@@ -10,12 +11,17 @@
 #include <godot_cpp/classes/input_event_screen_drag.hpp>
 #include <godot_cpp/classes/input_event_screen_touch.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/scene_tree_timer.hpp>
 #include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/callable_method_pointer.hpp>
 #include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
+#include <cmath>
 #include <cstring>
 
 #include "input_owner.h"
@@ -152,6 +158,7 @@ void ZablooView::_bind_methods() {
                        &ZablooView::set_selected_tab);
   ClassDB::bind_method(D_METHOD("set_checked", "id", "checked"), &ZablooView::set_checked);
   ClassDB::bind_method(D_METHOD("set_value", "id", "value"), &ZablooView::set_value);
+  ClassDB::bind_method(D_METHOD("set_text", "id", "text"), &ZablooView::set_text);
   ClassDB::bind_method(D_METHOD("set_scroll", "id", "x", "y"), &ZablooView::set_scroll);
   ClassDB::bind_method(D_METHOD("reload", "json"), &ZablooView::reload);
 
@@ -195,7 +202,29 @@ void ZablooView::_notification(int what) {
   // Entering the tree is what makes a view eligible for the keyboard; leaving it
   // hands ownership back to whichever view was there first.
   else if (what == NOTIFICATION_ENTER_TREE) register_input_view(this);
-  else if (what == NOTIFICATION_EXIT_TREE) unregister_input_view(this);
+  else if (what == NOTIFICATION_EXIT_TREE) {
+    unregister_input_view(this);
+    // Leaving the tree takes the keyboard with it: an IME still armed for a view
+    // nobody can see would compose into nothing.
+    sync_ime(nullptr);
+  }
+  // The IME is building a word. It arrives as a string that REPLACES the last
+  // one, which is exactly what `set_composition` expects; an empty one is the
+  // composition being abandoned or settled, and `NOTIFICATION_OS_IME_UPDATE`
+  // does not distinguish the two — so the field keeps what it is showing and the
+  // game is told once, which is what `end_composition` does.
+  else if (what == NOTIFICATION_OS_IME_UPDATE) {
+    zabloo::View *view = document_.view();
+    DisplayServer *display = DisplayServer::get_singleton();
+    if (view == nullptr || display == nullptr) return;
+    const CharString composing = display->ime_get_text().utf8();
+    const bool changed =
+        composing.length() > 0
+            ? view->set_composition(std::string(composing.get_data(), size_t(composing.length())))
+            : view->end_composition();
+    flush_events();
+    if (changed) relayout();
+  }
 }
 
 // --- loading --------------------------------------------------------------
@@ -207,6 +236,7 @@ bool ZablooView::load_envelope(const String &json) {
     report_diagnostics();
     return false;
   }
+  caret_node_ = nullptr;  // see `show_view`
   if (!view_id_.is_empty()) show_view(view_id_);
   relayout();
   // After the first frame, not before it: some of what the view finds about the
@@ -228,6 +258,10 @@ bool ZablooView::show_view(const String &id) {
   const CharString utf8 = id.utf8();
   if (!document_.show(std::string_view(utf8.get_data(), utf8.length()))) return false;
   view_id_ = id;
+  // The tree this named is gone, so the blink chain's node is an address that
+  // means nothing. It is only ever COMPARED, never read — but a fresh tree could
+  // land a node on it, and then a focused field would silently never re-arm.
+  caret_node_ = nullptr;
   relayout();
   return true;
 }
@@ -297,6 +331,20 @@ bool ZablooView::set_selected_tab(const String &id, int index) {
   if (view == nullptr || !view->set_selected_tab(utf8_of(utf8), index)) {
     UtilityFunctions::push_warning("[zabloo] set_selected_tab: no exclusive-select group with id \"",
                                    id, "\"");
+    return false;
+  }
+  flush_events();
+  relayout();
+  return true;
+}
+
+bool ZablooView::set_text(const String &id, const String &text) {
+  const CharString utf8 = id.utf8();
+  const CharString value = text.utf8();
+  zabloo::View *view = document_.view();
+  if (view == nullptr ||
+      !view->set_text(utf8_of(utf8), std::string(value.get_data(), size_t(value.length())))) {
+    UtilityFunctions::push_warning("[zabloo] set_text: no TextInput with id \"", id, "\"");
     return false;
   }
   flush_events();
@@ -377,6 +425,28 @@ void ZablooView::relayout() {
   // moment nothing is moving — an idle UI costs no frames at all, which is what a
   // game gives up its budget for.
   set_process(view->animating());
+  // A blinking caret is NOT motion: it needs two frames per period, not sixty a
+  // second, so it gets a timer of its own rather than the process loop.
+  const zabloo::LayoutNode *focus = view->focus();
+  const bool editing = focus != nullptr && focus->ir->type == zabloo::NodeType::TextInput &&
+                       focus->field != nullptr;
+  sync_ime(editing ? focus : nullptr);
+  if (!editing) {
+    // Nothing to blink: the chain in flight is invalidated and not replaced.
+    caret_generation_++;
+    caret_node_ = nullptr;
+    return;
+  }
+  // Re-armed only when the PHASE moved — a different field, or an edit that reset
+  // the clock. `relayout` runs on every pointer move that changes anything, and
+  // re-arming from each of them would leave a trail of one-shot timers behind a
+  // drag; leaving the chain alone is what keeps a caret solid while typing
+  // without paying for it while merely moving the mouse.
+  if (focus != caret_node_ || focus->field->caret_since != caret_since_armed_) {
+    caret_node_ = focus;
+    caret_since_armed_ = focus->field->caret_since;
+    schedule_caret();
+  }
 }
 
 /**
@@ -629,6 +699,14 @@ void ZablooView::_draw() {
     return;
   }
 
+  // Tessellate FIRST, then upload. A `Text` puts its glyphs in the atlas at
+  // MEASURE time, so sweeping before this used to be enough; a `TextInput` is the
+  // first node whose glyphs are only known at paint time — nothing measures a
+  // placeholder — and sweeping first left them a frame behind, which on a screen
+  // that then sits still is a field whose text simply never appears. The web
+  // renderer has never had the bug because its GL layer uploads by version from
+  // inside the draw loop, i.e. after the tessellation either way.
+  const zabloo::GeometryBuilder &geometry = view->paint();
   sync_atlases();
   sync_images();
 
@@ -639,7 +717,7 @@ void ZablooView::_draw() {
   uint32_t open_group = 0;
   RID canvas;
   bool opened = false;
-  for (const zabloo::Batch *batch : view->paint().batches()) {
+  for (const zabloo::Batch *batch : geometry.batches()) {
     if (batch->empty()) continue;
     // Batches of one group are contiguous, and the ordinal is what separates them:
     // two adjacent groups may share a region and still have to draw in order.
@@ -800,9 +878,26 @@ void ZablooView::_unhandled_key_input(const Ref<InputEvent> &event) {
   zabloo::View *view = document_.view();
   const Ref<InputEventKey> key = event;
   if (view == nullptr || key.is_null() || !owns_input(this)) return;
-  // Auto-repeat is the OS repeating the key, which is what a player holding an
-  // arrow expects; a repeated Enter is not a second press of the same button.
-  const bool repeat = key->is_echo();
+  // A focused field speaks first, in three steps, each handing back what it
+  // cannot use — which is what makes ↑/↓, and a ←/→ that finds the caret already
+  // against an end, navigate out instead of trapping the player in the box
+  // (ZAB-26).
+  //
+  // The order inside those three is not obvious and matters: the clipboard, then
+  // the CHARACTER, and only then the caret keys. Text first because a space is
+  // text — the core consumes it so it presses nothing, exactly as the reference
+  // does, and there the hidden `<textarea>` is what inserts it; here nothing
+  // would. Nothing else is ambiguous: Backspace, Tab, Enter and Delete all carry
+  // a `unicode`, and every one of them is a control code the character step
+  // rejects, so they reach the caret step untouched.
+  const bool pressed = key->is_pressed();
+  if (pressed && (clipboard_key(key, view) || typed_text(key, view) ||
+                  view->edit_key(intent_of(key)))) {
+    accept_event();
+    flush_events();
+    relayout();
+    return;
+  }
 
   // A direction moves the focus — or, on a Slider, its own axis nudges the value
   // — and LETTING GO of it ends that gesture. The core is told about presses, so
@@ -822,7 +917,9 @@ void ZablooView::_unhandled_key_input(const Ref<InputEvent> &event) {
     case KEY_ENTER:
     case KEY_KP_ENTER:
     case KEY_SPACE:
-      if (repeat && key->is_pressed()) return;  // held, not pressed again
+      // Auto-repeat is the OS repeating the key, which is what a player holding
+      // an arrow expects; a held Enter is not a second press of the same button.
+      if (key->is_echo() && key->is_pressed()) return;
       changed = view->press_focused(key->is_pressed());
       break;
     case KEY_ESCAPE:
@@ -841,6 +938,186 @@ void ZablooView::_unhandled_key_input(const Ref<InputEvent> &event) {
   accept_event();
   flush_events();
   if (changed) relayout();
+}
+
+/**
+ * One `InputEventKey` as the core's intention.
+ *
+ * The core takes an intention and not an event for the reason ZAB-47 found in
+ * the web: the pad's d-pad has to enter and leave a field by exactly the same
+ * rule as the arrows, so both sides resolve to this and there is one cascade
+ * rather than two.
+ */
+zabloo::KeyIntent ZablooView::intent_of(const Ref<InputEventKey> &key) const {
+  zabloo::KeyIntent intent;
+  intent.shift = key->is_shift_pressed();
+  // Cmd on macOS, Ctrl everywhere else — `is_command_or_control_pressed` is the
+  // engine's own answer to that question, so this file does not have to guess.
+  intent.shortcut = key->is_command_or_control_pressed();
+  intent.repeat = key->is_echo();
+  switch (key->get_keycode()) {
+    case KEY_LEFT: intent.key = zabloo::EditKey::Left; break;
+    case KEY_RIGHT: intent.key = zabloo::EditKey::Right; break;
+    case KEY_HOME: intent.key = zabloo::EditKey::Home; break;
+    case KEY_END: intent.key = zabloo::EditKey::End; break;
+    case KEY_BACKSPACE: intent.key = zabloo::EditKey::Backspace; break;
+    case KEY_DELETE: intent.key = zabloo::EditKey::Delete; break;
+    case KEY_ENTER:
+    case KEY_KP_ENTER: intent.key = zabloo::EditKey::Submit; break;
+    case KEY_TAB: intent.key = zabloo::EditKey::Tab; break;
+    case KEY_SPACE: intent.key = zabloo::EditKey::Space; break;
+    case KEY_A: intent.key = zabloo::EditKey::SelectAll; break;
+    default: break;  // Other: a field claims only what it can use
+  }
+  return intent;
+}
+
+/**
+ * Copy, cut and paste — the platform's, which is why the core hands them back.
+ *
+ * It owns the selection and the insertion; the clipboard itself belongs to the
+ * display server, and reaching it is the whole of the adapter's job here.
+ */
+bool ZablooView::clipboard_key(const Ref<InputEventKey> &key, zabloo::View *view) {
+  if (!key->is_command_or_control_pressed()) return false;
+  DisplayServer *display = DisplayServer::get_singleton();
+  if (display == nullptr) return false;
+
+  switch (key->get_keycode()) {
+    case KEY_C:
+    case KEY_X: {
+      const std::string selected = view->field_selection_text();
+      if (selected.empty()) return false;
+      display->clipboard_set(String::utf8(selected.c_str()));
+      // A cut deletes through the ordinary edit path, so `maxLength`, the bound
+      // write and `onChange` all behave exactly as they do for a Backspace.
+      if (key->get_keycode() == KEY_X) {
+        zabloo::KeyIntent remove;
+        remove.key = zabloo::EditKey::Backspace;
+        view->edit_key(remove);
+      }
+      return true;
+    }
+    case KEY_V: {
+      const CharString pasted = display->clipboard_get().utf8();
+      // Through `insert_text` like anything else typed: that is what applies
+      // `maxLength` and folds a two-line paste onto the single line v1 has.
+      return view->insert_text(std::string(pasted.get_data(), size_t(pasted.length())));
+    }
+    default: return false;
+  }
+}
+
+/**
+ * The character a key produced, if it produced one.
+ *
+ * Control codes are excluded — Backspace, Tab and Enter all carry a `unicode`,
+ * and inserting it would type the key the cascade above has already handled —
+ * and so is anything held with the shortcut modifier, which is a command and not
+ * text. A plain Alt is NOT excluded: on many layouts it is how a character is
+ * reached at all.
+ */
+bool ZablooView::typed_text(const Ref<InputEventKey> &key, zabloo::View *view) {
+  const char32_t code = static_cast<char32_t>(key->get_unicode());
+  if (code < 0x20 || code == 0x7f) return false;
+  if (key->is_command_or_control_pressed()) return false;
+  const CharString text = String::chr(code).utf8();
+  return view->insert_text(std::string(text.get_data(), size_t(text.length())));
+}
+
+/**
+ * Follows the focus in and out of a text field: arms the IME where the caret is,
+ * and raises the on-screen keyboard on the platforms that have one.
+ *
+ * Called from `relayout`, which every mutation ends up in — so the field that
+ * has the keyboard is settled once per frame rather than from each of the half
+ * dozen paths that can move the focus.
+ */
+void ZablooView::sync_ime(const zabloo::LayoutNode *field) {
+  DisplayServer *display = DisplayServer::get_singleton();
+  if (display == nullptr) return;
+  Window *window = get_window();
+
+  if (field == nullptr) {
+    if (!ime_active_) return;
+    ime_active_ = false;
+    if (window != nullptr) window->set_ime_active(false);
+    if (display->has_feature(DisplayServer::FEATURE_VIRTUAL_KEYBOARD)) {
+      display->virtual_keyboard_hide();
+    }
+    return;
+  }
+
+  // Where the candidate list goes: just under the field, in WINDOW coordinates —
+  // which is what `set_ime_position` wants, so the window's own screen position
+  // must not be added in. The field's corner and not the caret's exact x: the
+  // caret's offset is behind the core's glyph metrics, and a list that sits under
+  // the box being typed into is what the player is looking at anyway.
+  const Vector2 corner = get_global_transform_with_canvas().xform(
+      Vector2(float(field->rect.x), float(field->rect.y + field->rect.height)));
+  if (window != nullptr) {
+    if (!ime_active_) window->set_ime_active(true);
+    window->set_ime_position(Vector2i(corner));
+  }
+  if (!ime_active_ && display->has_feature(DisplayServer::FEATURE_VIRTUAL_KEYBOARD)) {
+    // Only on the way IN: showing it every frame would fight the player dismissing
+    // it, and the text it is given is what a phone's autocomplete works from.
+    display->virtual_keyboard_show(String::utf8(field->field->text.c_str()));
+  }
+  ime_active_ = true;
+}
+
+/**
+ * The caret's blink, as two frames per period rather than sixty a second.
+ *
+ * `caret_visible` is a closed form of the time since the last edit, so neither
+ * the tree, nor its values, nor its boxes depend on it: the only frames a blink
+ * needs are the two per period on which the answer changes. So the flip is asked
+ * for with a TIMER — `_process` would be the wrong tool for "in half a second",
+ * and a tab in the background throttling it is the right outcome — and what it
+ * asks for is a REPAINT: the clock moves and the geometry is re-tessellated,
+ * with the whole pipeline before it skipped (ZAB-73).
+ */
+void ZablooView::schedule_caret() {
+  zabloo::View *view = document_.view();
+  SceneTree *tree = get_tree();
+  if (view == nullptr || tree == nullptr) return;
+  const zabloo::LayoutNode *focus = view->focus();
+  if (focus == nullptr || focus->ir->type != zabloo::NodeType::TextInput ||
+      focus->field == nullptr) {
+    return;
+  }
+  const double half = zabloo::CARET.blink_ms / 2.0;
+  const double since = view->now() - focus->field->caret_since;
+  // Time left in the current half-period, never zero: a timer of 0 would fire
+  // back inside this frame and spin.
+  double wait = half - std::fmod(since < 0.0 ? 0.0 : since, half);
+  if (!(wait > 1.0)) wait = half;
+  caret_generation_++;
+  const int64_t generation = caret_generation_;
+  Ref<SceneTreeTimer> timer = tree->create_timer(wait / 1000.0);
+  if (timer.is_null()) return;
+  timer->connect("timeout", callable_mp(this, &ZablooView::flip_caret).bind(generation),
+                 Object::CONNECT_ONE_SHOT);
+}
+
+/**
+ * One blink flip: the clock moves and the frame is re-drawn, with no layout pass
+ * at all.
+ *
+ * It is safe to skip the pipeline because EVERY mutation of this view ends in
+ * `relayout`, so a repaint can never be reading values a full frame should have
+ * refreshed. If the focus has left the field by the time the timer lands, the
+ * flip simply stops and the next `relayout` is what starts a new one.
+ */
+void ZablooView::flip_caret(int64_t generation) {
+  // A stale timer from a caret that has since moved or been re-armed.
+  if (generation != caret_generation_) return;
+  zabloo::View *view = document_.view();
+  if (view == nullptr) return;
+  view->set_now(clock_ms());
+  queue_redraw();
+  schedule_caret();
 }
 
 void ZablooView::flush_events() {

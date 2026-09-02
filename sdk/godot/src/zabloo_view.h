@@ -18,6 +18,7 @@
 #include <godot_cpp/classes/control.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/input_event.hpp>
+#include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/shader.hpp>
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
@@ -108,6 +109,12 @@ class ZablooView : public Control {
    * game pushes reaches `onChange` and `onCommit` exactly as a drag would.
    */
   bool set_value(const String &id, double value);
+  /**
+   * Writes a `TextInput`'s text, as if it had been typed — the caret lands at the
+   * end. `maxLength` does NOT apply: it bounds what the player can type, never
+   * what the data is allowed to hold (2026-08-11, ZAB-26).
+   */
+  bool set_text(const String &id, const String &text);
   /** Scrolls a `ScrollView`, clamped to the bounds of the last relayout. */
   bool set_scroll(const String &id, double x, double y);
   /** Re-loads the current content. The same path a hot-update takes. */
@@ -193,6 +200,34 @@ class ZablooView : public Control {
   RID clip_item(size_t index, const zabloo::Clip *clip, int draw_index);
   /** Hands every canvas item back to the server. */
   void free_clip_items();
+
+  /**
+   * True while the IME is armed for a focused field, so entering and leaving one
+   * is an edge and not a per-frame command to the display server.
+   */
+  bool ime_active_ = false;
+  /**
+   * Which blink timer is the live one. A caret that moves, or a focus that
+   * leaves, bumps it, and a timer that lands with a stale number does nothing —
+   * cheaper and more certain than trying to cancel a `SceneTreeTimer`.
+   */
+  int64_t caret_generation_ = 0;
+  /** The field the live blink chain belongs to, and the edit it started from. */
+  const zabloo::LayoutNode *caret_node_ = nullptr;
+  double caret_since_armed_ = 0.0;
+
+  // --- text entry (ZAB-26) ---
+  /** One `InputEventKey` as the intention the core's cascade reads. */
+  zabloo::KeyIntent intent_of(const Ref<InputEventKey> &key) const;
+  /** Copy, cut and paste: the selection is the core's, the clipboard is Godot's. */
+  bool clipboard_key(const Ref<InputEventKey> &key, zabloo::View *view);
+  /** The character a key produced, if it produced one worth inserting. */
+  bool typed_text(const Ref<InputEventKey> &key, zabloo::View *view);
+  /** Arms the IME and the on-screen keyboard for the focused field, or neither. */
+  void sync_ime(const zabloo::LayoutNode *field);
+  /** Asks for the next blink flip: a timer, and a repaint with no layout pass. */
+  void schedule_caret();
+  void flip_caret(int64_t generation);
 
   /** Re-runs the core's layout against the current control size and redraws. */
   void relayout();
