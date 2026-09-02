@@ -4,6 +4,7 @@
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/global_constants.hpp>
 #include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/input.hpp>
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/input_event_mouse_button.hpp>
 #include <godot_cpp/classes/input_event_mouse_motion.hpp>
@@ -140,6 +141,7 @@ std::string_view utf8_of(const CharString &text) {
 
 ZablooView::ZablooView() {
   set_mouse_filter(Control::MOUSE_FILTER_STOP);
+  init_pad();
   // Asked for explicitly: Godot only routes unhandled input to a node that has
   // opted in, and the auto-detection that does it for a GDScript override does
   // not read a GDExtension's virtuals.
@@ -161,6 +163,9 @@ void ZablooView::_bind_methods() {
   ClassDB::bind_method(D_METHOD("set_text", "id", "text"), &ZablooView::set_text);
   ClassDB::bind_method(D_METHOD("set_scroll", "id", "x", "y"), &ZablooView::set_scroll);
   ClassDB::bind_method(D_METHOD("reload", "json"), &ZablooView::reload);
+  ClassDB::bind_method(D_METHOD("set_pad_button", "slot", "button"), &ZablooView::set_pad_button);
+  ClassDB::bind_method(D_METHOD("set_pad_action", "slot", "action"), &ZablooView::set_pad_action);
+  ClassDB::bind_method(D_METHOD("set_pad_axis", "slot", "axis"), &ZablooView::set_pad_axis);
 
   ClassDB::bind_method(D_METHOD("set_envelope_path", "path"), &ZablooView::set_envelope_path);
   ClassDB::bind_method(D_METHOD("get_envelope_path"), &ZablooView::get_envelope_path);
@@ -201,9 +206,20 @@ void ZablooView::_notification(int what) {
   else if (what == NOTIFICATION_PREDELETE) free_clip_items();
   // Entering the tree is what makes a view eligible for the keyboard; leaving it
   // hands ownership back to whichever view was there first.
-  else if (what == NOTIFICATION_ENTER_TREE) register_input_view(this);
-  else if (what == NOTIFICATION_EXIT_TREE) {
+  else if (what == NOTIFICATION_ENTER_TREE) {
+    register_input_view(this);
+    // A pad is announced, and only then polled: the signal is what starts the
+    // loop, and asking now covers the one that was already plugged in.
+    Input::get_singleton()->connect("joy_connection_changed",
+                                    callable_mp(this, &ZablooView::on_joy_connection_changed));
+    sync_pad();
+  } else if (what == NOTIFICATION_EXIT_TREE) {
     unregister_input_view(this);
+    Input::get_singleton()->disconnect("joy_connection_changed",
+                                       callable_mp(this, &ZablooView::on_joy_connection_changed));
+    // Out of the tree there are no frames to poll in, so whatever the pad was
+    // holding ends here rather than staying held into whenever it comes back.
+    adopt_pad(-1);
     // Leaving the tree takes the keyboard with it: an IME still armed for a view
     // nobody can see would compose into nothing.
     sync_ime(nullptr);
@@ -424,10 +440,28 @@ void ZablooView::relayout() {
   // has to notice a motion has begun. `_process` keeps them coming and stops the
   // moment nothing is moving — an idle UI costs no frames at all, which is what a
   // game gives up its budget for.
-  set_process(view->animating());
+  sync_process();
+  sync_editing(*view);
+}
+
+/**
+ * Frames on demand, for the two reasons there are to want one.
+ *
+ * Motion has an end, so it turns itself off. A connected pad does not: the device
+ * is POLLED and never pushes, so the only way to learn that the player pressed
+ * something is to look, once a frame, for as long as it is plugged in. A view
+ * with no motion and no pad schedules nothing and costs what it always did.
+ */
+void ZablooView::sync_process() {
+  const zabloo::View *view = document_.view();
+  set_process(view != nullptr && (view->animating() || polls_pad()));
+}
+
+/** Arms the IME and the caret's blink for whatever holds the focus, or neither. */
+void ZablooView::sync_editing(zabloo::View &view) {
   // A blinking caret is NOT motion: it needs two frames per period, not sixty a
   // second, so it gets a timer of its own rather than the process loop.
-  const zabloo::LayoutNode *focus = view->focus();
+  const zabloo::LayoutNode *focus = view.focus();
   const bool editing = focus != nullptr && focus->ir->type == zabloo::NodeType::TextInput &&
                        focus->field != nullptr;
   sync_ime(editing ? focus : nullptr);
@@ -463,16 +497,29 @@ void ZablooView::_process(double) {
     set_process(false);
     return;
   }
-  view->set_now(clock_ms());
+  const double now = clock_ms();
+  view->set_now(now);
+  // Ownership can move without a word from the device — the player touched
+  // another view — and this is where the one that lost it notices. Only the
+  // ownership half is checked per frame; what is plugged in arrives as a signal.
+  if (polls_pad() && !owns_input(this)) adopt_pad(-1);
+  // The other reason this loop exists: a pad is a STATE, so the only way to read
+  // a held button is a frame (ZAB-47). It goes before the layout pass, so what
+  // the player just asked for is what this very frame draws.
+  const bool moved = poll_pad(*view, now);
   view->layout_frame();
   queue_redraw();
   // A frame of pure motion used to produce nothing a game could hear, so nothing
   // drained it. An `autoCloseMs` timeout does (G9): it fires from INSIDE the
   // layout pass, with its `onDismiss` and the `false` it writes into the bound
   // `visible`. Draining here is what makes those reach the game on the frame they
-  // happened, instead of waiting for whatever the player did next.
+  // happened, instead of waiting for whatever the player did next. The pad
+  // produces them too — an action, a value written back.
   flush_events();
-  if (!view->animating()) set_process(false);
+  // Only when the pad moved something: the focus may have walked into a text
+  // field, and a field with the focus is a field the IME has to be armed for.
+  if (moved) sync_editing(*view);
+  sync_process();
 }
 
 /**
@@ -797,8 +844,10 @@ void ZablooView::_gui_input(const Ref<InputEvent> &event) {
     const MouseButton index = button->get_button_index();
     if (index == MOUSE_BUTTON_LEFT) {
       if (button->is_pressed()) {
-        // Touching a view is using it: among several, this one now takes the keys.
+        // Touching a view is using it: among several, this one now takes the keys
+        // — and the pad with them, since one device cannot drive two focuses.
         claim_input(this);
+        sync_pad();
         changed = view->pointer_down(at.x, at.y);
       } else {
         changed = view->pointer_up(at.x, at.y);
@@ -829,6 +878,7 @@ void ZablooView::_gui_input(const Ref<InputEvent> &event) {
     const Vector2 at = touch->get_position();
     if (touch->is_pressed()) {
       claim_input(this);
+      sync_pad();
       // A finger is not a cursor: it lights nothing up on the way past, and it is
       // not sitting anywhere once it lifts.
       changed = view->pointer_down(at.x, at.y, false);
@@ -970,6 +1020,167 @@ zabloo::KeyIntent ZablooView::intent_of(const Ref<InputEventKey> &key) const {
     default: break;  // Other: a field claims only what it can use
   }
   return intent;
+}
+
+// --- the gamepad (2026-08-12, ZAB-47) -------------------------------------
+//
+// The pad is ONE MORE SOURCE of input, not a second input model: every rule that
+// turns a stick into a direction, a hold into a repeat and a button into an edge
+// lives in the core (`gamepad.h`, `pad.h`), and every intention it produces is
+// served by the handler the equivalent key already goes through. What is left
+// here is exactly what an engine has to answer: which device, which button, and
+// when to look.
+
+namespace {
+
+/** The slots the runtime asks for, in the order `pad_buttons_` holds them. */
+enum PadButtonSlot { SLOT_A, SLOT_B, SLOT_DPAD_UP, SLOT_DPAD_DOWN, SLOT_DPAD_LEFT,
+                     SLOT_DPAD_RIGHT, SLOT_BUTTON_COUNT };
+enum PadAxisSlot { SLOT_NAV_X, SLOT_NAV_Y, SLOT_SCROLL_X, SLOT_SCROLL_Y, SLOT_AXIS_COUNT };
+
+/**
+ * Where each button slot lands in the snapshot the core reads.
+ *
+ * Godot's `JoyButton` and the standard mapping the core speaks are NOT the same
+ * numbering — Godot puts the d-pad at 11–14 and the W3C mapping at 12–15 — so the
+ * translation happens here, on the way in. That is the adapter earning its keep:
+ * one vocabulary reaches the core, whatever device produced it.
+ */
+constexpr size_t PAD_SLOT_INDEX[SLOT_BUTTON_COUNT] = {
+    zabloo::PAD_BUTTON_A,   zabloo::PAD_BUTTON_B,    zabloo::PAD_DPAD_UP,
+    zabloo::PAD_DPAD_DOWN,  zabloo::PAD_DPAD_LEFT,   zabloo::PAD_DPAD_RIGHT};
+
+/** The `JoyButton` each slot is read from until a game says otherwise. */
+constexpr int PAD_SLOT_DEFAULT[SLOT_BUTTON_COUNT] = {
+    JOY_BUTTON_A,         JOY_BUTTON_B,         JOY_BUTTON_DPAD_UP,
+    JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT};
+
+const char *PAD_BUTTON_SLOT_NAMES[SLOT_BUTTON_COUNT] = {"a",         "b",         "dpad_up",
+                                                        "dpad_down", "dpad_left", "dpad_right"};
+const char *PAD_AXIS_SLOT_NAMES[SLOT_AXIS_COUNT] = {"nav_x", "nav_y", "scroll_x", "scroll_y"};
+
+/** The slot that name spells, or -1 — a typo is answered, not fatal. */
+int slot_named(const String &name, const char *const *names, int count) {
+  for (int i = 0; i < count; i++) {
+    if (name == String(names[i])) return i;
+  }
+  return -1;
+}
+
+}  // namespace
+
+/** The factory layout, and a snapshot sized once for every poll there will be. */
+void ZablooView::init_pad() {
+  // Shaped the way a standard-mapping pad reports itself, and then never resized:
+  // polling once a frame must not allocate.
+  pad_state_.buttons.assign(17, false);
+  pad_state_.axes.assign(4, 0.0);
+  for (int slot = 0; slot < SLOT_BUTTON_COUNT; slot++) {
+    pad_buttons_[slot].button = PAD_SLOT_DEFAULT[slot];
+  }
+  for (int slot = 0; slot < SLOT_AXIS_COUNT; slot++) pad_axes_[slot] = slot;
+}
+
+bool ZablooView::set_pad_button(const String &slot, int button) {
+  const int index = slot_named(slot, PAD_BUTTON_SLOT_NAMES, SLOT_BUTTON_COUNT);
+  if (index < 0) {
+    UtilityFunctions::push_warning("[zabloo] set_pad_button: no button slot \"", slot, "\"");
+    return false;
+  }
+  pad_buttons_[index].button = button;
+  // A slot reads from one source: naming a button is also how an action on it is
+  // taken back off.
+  pad_buttons_[index].action = StringName();
+  return true;
+}
+
+bool ZablooView::set_pad_action(const String &slot, const StringName &action) {
+  const int index = slot_named(slot, PAD_BUTTON_SLOT_NAMES, SLOT_BUTTON_COUNT);
+  if (index < 0) {
+    UtilityFunctions::push_warning("[zabloo] set_pad_action: no button slot \"", slot, "\"");
+    return false;
+  }
+  pad_buttons_[index].action = action;
+  return true;
+}
+
+bool ZablooView::set_pad_axis(const String &slot, int axis) {
+  const int index = slot_named(slot, PAD_AXIS_SLOT_NAMES, SLOT_AXIS_COUNT);
+  if (index < 0) {
+    UtilityFunctions::push_warning("[zabloo] set_pad_axis: no axis slot \"", slot, "\"");
+    return false;
+  }
+  pad_axes_[index] = axis;
+  return true;
+}
+
+/** Whether this view is reading a pad right now. */
+bool ZablooView::polls_pad() const { return pad_device_ >= 0; }
+
+/**
+ * Reconciles what this view reads with what is plugged in AND who owns the input.
+ *
+ * Exactly one view reads the pad, for the reason exactly one reads the keyboard:
+ * a device belongs to the PROCESS, so two views in a scene would each walk their
+ * own focus on one push of the stick (`input_owner.h`). Losing ownership is
+ * therefore the same event as losing the cable, and goes through the same door.
+ */
+void ZablooView::sync_pad() {
+  const TypedArray<int> joypads = Input::get_singleton()->get_connected_joypads();
+  const bool any = owns_input(this) && !joypads.is_empty();
+  adopt_pad(any ? static_cast<int>(joypads[0]) : -1);
+}
+
+void ZablooView::adopt_pad(int device) {
+  if (device == pad_device_) return;
+  const bool had = pad_device_ >= 0;
+  pad_device_ = device;
+  if (device >= 0) {
+    // The instant matters: the scroll stick moves px per SECOND, so the first
+    // poll has to measure its frame against something.
+    pad_.connect(clock_ms());
+    sync_process();
+    return;
+  }
+  if (!had) return;
+  // The pad is gone — unplugged, or handed to another view. A press in flight
+  // cancels and a Slider being nudged settles, both decided in `pad.h` and both
+  // producing something a game hears.
+  const bool changed = pad_.disconnect(document_.view());
+  flush_events();
+  if (changed) relayout();
+  else sync_process();
+}
+
+void ZablooView::on_joy_connection_changed(int, bool) { sync_pad(); }
+
+/**
+ * One poll: fill the snapshot from the device, and let the core's loop run its
+ * rules over it.
+ *
+ * The snapshot is a member and not a local so that reading a pad every frame
+ * allocates nothing — the same reason the geometry buffers outlive a frame.
+ */
+bool ZablooView::poll_pad(zabloo::View &view, double now) {
+  if (!polls_pad()) return false;
+  Input *input = Input::get_singleton();
+  for (int slot = 0; slot < SLOT_BUTTON_COUNT; slot++) {
+    const PadButtonSource &source = pad_buttons_[slot];
+    const bool down =
+        !source.action.is_empty()
+            ? input->is_action_pressed(source.action)
+            : source.button >= 0 &&
+                  input->is_joy_button_pressed(pad_device_, static_cast<JoyButton>(source.button));
+    pad_state_.buttons[PAD_SLOT_INDEX[slot]] = down;
+  }
+  // Axis slot i IS axis i of the standard mapping: the core reads the left stick
+  // at 0/1 and the right at 2/3, which is Godot's own numbering as well.
+  for (int slot = 0; slot < SLOT_AXIS_COUNT; slot++) {
+    const int axis = pad_axes_[slot];
+    pad_state_.axes[static_cast<size_t>(slot)] =
+        axis < 0 ? 0.0 : input->get_joy_axis(pad_device_, static_cast<JoyAxis>(axis));
+  }
+  return pad_.poll(view, pad_state_, now);
 }
 
 /**

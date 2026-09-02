@@ -1277,6 +1277,27 @@ bool View::press_focused(bool down) {
   return true;
 }
 
+bool View::cancel_focused_press() {
+  LayoutNode *node = focus_;
+  if (node == nullptr || !node->pressed) return false;
+  // Dropped, never released: `release` is what activates, and this is the path
+  // for a press that ends without concluding (ZAB-70).
+  node->pressed = false;
+  return true;
+}
+
+bool View::scroll_focused_by(double dx, double dy) {
+  LayoutNode *node = focus_;
+  // A focus waiting on a row a `Repeat` has not realized still names the list it
+  // lives in, so the stick keeps scrolling THAT one — G12 (ZAB-145) is what puts
+  // a logical focus here to ask.
+  if (node == nullptr || !in_layout(*node)) return false;
+  LayoutNode *scroller = scroller_of(*node);
+  if (scroller == nullptr) return false;
+  return set_scroll_offset(*scroller, scroller->scroll_offset.x + dx,
+                           scroller->scroll_offset.y + dy);
+}
+
 // --- the host channel -----------------------------------------------------
 
 LayoutNode *View::find_by_id(std::string_view id, NodeType type) {

@@ -45,9 +45,46 @@ On `settings-screen` (the one it opens on):
 - **Checkboxes and switches** take a tap and Enter alike, the radios in the Quality
   row are exclusive by value, and the tabs switch panels.
 
-Two things on that screen are not G10's and do not work yet: the **language
-dropdown** does not open (its popover is G9, ZAB-142) and the **name field** is
-inert (G11, ZAB-144).
+Both of the things that paragraph used to say were missing have landed since: the
+**language dropdown** opens (G9, ZAB-142) and the **name field** takes text (G11,
+ZAB-144).
+
+### Checking G13 by hand
+
+Plug a controller in — the log says which one it found, and the view starts
+reading it. Nothing has to be wired for that: a pad is polled by the SDK, and the
+whole point is that everything it produces goes through the handlers the keyboard
+already uses, so the two can never drift apart.
+
+On `settings-screen`:
+
+- **D-pad or left stick**: one push is one step of focus, the same spatial step
+  the arrows take. **Hold one**: nothing for 400 ms, then a step every 90 ms — a
+  second held is 8 steps, not a slide.
+- **A** presses the focused control and activates it when you LET GO, exactly
+  where Enter does. Unplug the pad mid-press and it cancels instead: pulling a
+  cable is not how a player buys something.
+- **On a slider**, the directions along its axis move the VALUE and the cross ones
+  move the focus off it; `brightness-apply` lands when you release the direction,
+  not on every step.
+- **On the name field**, ←/→ walk the caret and hand the direction back at the end
+  of the text, so you leave the field with the d-pad instead of being trapped in
+  it. ↑/↓ always navigate.
+- **B** closes the language dropdown, and the modal on the showcase's `overlays`
+  view — it is the Escape key. With nothing up it does nothing at all, so a game's
+  own pause menu still gets its B.
+- **Right stick** scrolls the `ScrollView` the focus is in, at a speed that
+  depends on how far you push it. And walking the focus down a long list drags the
+  list along, so the focus ring is never off screen.
+
+Remapping, from the game side (`main.gd` does none of this — the defaults are
+meant to need nothing):
+
+```gdscript
+$Zabloo.set_pad_button("a", JOY_BUTTON_B)      # swap A and B
+$Zabloo.set_pad_action("a", &"ui_accept")      # or follow the InputMap
+$Zabloo.set_pad_axis("scroll_y", JOY_AXIS_LEFT_Y)
+```
 
 ### Checking G9 by hand
 
@@ -121,14 +158,13 @@ that ON SAVE is the dev loop, `zabloo dev --godot`, which is G14 (ZAB-147).
 G2 is the chassis — the loader, the layout pass, the tessellator and the pointer —
 G4 added the text engine, so labels measure, wrap and paint their glyphs, G5 added
 images, G6 clipping and scrolling, G7 states, spatial focus and the data channel,
-G8 the transition engine, G9 the overlay layer and G10 the four controls with a
-value. The rest of the catalog arrives capability by capability, and until it does
+G8 the transition engine, G9 the overlay layer, G10 the four controls with a
+value, G11 the TextInput and G13 the gamepad. The rest of the catalog arrives
+capability by capability, and until it does
 those nodes degrade rather than disappear — the same forward-tolerance a game gets
 from an SDK older than its content:
 
 | Not yet | Lands in |
 |---|---|
-| TextInput | G11 (ZAB-144) |
 | Data-driven lists (`Repeat`) | G12 (ZAB-145) |
-| Gamepad | G13 (ZAB-146) |
 | Live reload from `zabloo dev --godot` | G14 (ZAB-147) |

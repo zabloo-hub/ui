@@ -44,6 +44,9 @@ func _ready() -> void:
 	# The return leg of the data channel: a control writing its own value tells
 	# the game through this, whether the player moved it or `set_value` did.
 	_view.data_changed.connect(_on_data_changed)
+	# Only so the playground can SAY that a pad arrived. The view starts and stops
+	# its own poll loop off this very signal — a game wires nothing for the pad.
+	Input.joy_connection_changed.connect(_on_joy_connection_changed)
 	_load()
 
 
@@ -75,7 +78,13 @@ func _load() -> void:
 	_view.set_data("settings.quality", "high")
 	_view.set_data("settings.language", "en")
 	_view.set_data("profile.name", "Nova")
-	_log.text = "%s — arrows navigate, Enter presses, Escape dismisses, E swaps example" % path.get_file()
+	var pads := Input.get_connected_joypads()
+	var pad: String = Input.get_joy_name(pads[0]) if not pads.is_empty() else "no gamepad"
+	# The pad is one more source of input (ZAB-47): the d-pad and the left stick
+	# navigate, A presses, B dismisses the modal that owns the input, and the right
+	# stick scrolls the ScrollView the focus is in.
+	_log.text = "%s — arrows/d-pad navigate, Enter/A press, Escape/B dismiss, E swaps example — %s" % [
+		path.get_file(), pad]
 
 
 ## Reload, example swapping and view switching, by hand.
@@ -141,6 +150,10 @@ func _on_action(name: String, context: Dictionary) -> void:
 			_log.text = "quit"
 		_:
 			_log.text = "action: %s" % name
+
+
+func _on_joy_connection_changed(device: int, connected: bool) -> void:
+	_log.text = "gamepad %d %s" % [device, "connected" if connected else "disconnected"]
 
 
 func _on_data_changed(path: String, value: Variant) -> void:

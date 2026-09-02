@@ -53,6 +53,45 @@ slider's axis adjust it and the release of that key is what fires `onCommit`, bu
 is only ever told about presses — so `ZablooView` calls the runtime's `settle_slider_keys()`
 when the arrow comes up. It is adapter plumbing, not an operation: a game never calls it.
 
+### The gamepad, and remapping it
+
+The [gamepad](input.md#gamepad) needs nothing from a game to work: `ZablooView` reads the
+first connected joypad every frame while one is plugged in — a pad is a state that is
+**polled**, never an event that arrives — and stops the moment the last one goes. With no
+pad connected it asks for no frames at all.
+
+What it reads is Godot's standard mapping: `JOY_BUTTON_A` presses, `JOY_BUTTON_B` goes
+back, the d-pad and the left stick navigate, the right stick scrolls the `ScrollView` the
+focus lives in. Those numbers are Godot's own and not the ones the rules are written in —
+Godot puts the d-pad at 11–14 where the standard mapping puts it at 12–15 — and the adapter
+translates, so the behaviour is the same on every target.
+
+A console title has its own remapping screen, and the UI has to follow it rather than
+insist on the factory layout. Three methods do that. A **slot** is what the runtime asks
+for; what fills it is the game's business:
+
+| Slot | Read by default from |
+|---|---|
+| `a`, `b` | `JOY_BUTTON_A`, `JOY_BUTTON_B` |
+| `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right` | the four `JOY_BUTTON_DPAD_*` |
+| `nav_x`, `nav_y` | `JOY_AXIS_LEFT_X`, `JOY_AXIS_LEFT_Y` |
+| `scroll_x`, `scroll_y` | `JOY_AXIS_RIGHT_X`, `JOY_AXIS_RIGHT_Y` |
+
+```gdscript
+view.set_pad_button("a", JOY_BUTTON_B)          # swap A and B
+view.set_pad_action("a", &"ui_accept")          # or follow an InputMap action
+view.set_pad_axis("scroll_y", JOY_AXIS_LEFT_Y)  # scroll with the left stick
+```
+
+`set_pad_action` takes **button slots only**: an action is a boolean and an axis is
+bipolar, so the sticks are remapped by index (`-1` switches a slot off). Naming a button
+for a slot also takes any action back off it. Each answers whether the slot exists — a
+typo is answered, never fatal, like the id operations above.
+
+**Exactly one view reads the pad**, for the same reason exactly one reads the keyboard: a
+device belongs to the process, so two views in a scene would each walk their own focus on
+one push of the stick. See [who the keys belong to](input.md#who-the-keys-belong-to-normative).
+
 ### Addressing by id
 
 Every operation but `SetData` names a node by its `id`, so the nodes a game drives carry

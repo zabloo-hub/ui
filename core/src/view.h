@@ -209,6 +209,24 @@ class View {
    */
   bool dismiss_top_modal();
 
+  // --- the gamepad's own two intentions (2026-08-12, ZAB-47) ---
+  // Everything else a pad asks for is served by a handler above: a direction is
+  // `move_focus` (with `edit_key` first, and the Slider's axis inside it), A is
+  // `press_focused` and B is `dismiss_top_modal`. These two have no key that
+  // produces them, so they are the pad's alone. The loop is `pad.h`.
+
+  /**
+   * Releases the focused node's press without activating it — what a pointer
+   * leaving its control already does, and what an unplugged pad has to do:
+   * pulling a cable is not how a player buys something.
+   */
+  bool cancel_focused_press();
+  /**
+   * Scrolls the `ScrollView` the focus lives in, by a pixel delta. Nothing at
+   * all when the focus is outside every scroller, or on nothing.
+   */
+  bool scroll_focused_by(double dx, double dy);
+
   // --- the host channel, by id (`docs/format/host-channel.md`) ---
   // Each answers whether it found the control. A `false` means no node of that
   // type carries that id and NOTHING was applied — a game looping over ids must
