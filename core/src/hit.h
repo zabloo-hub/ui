@@ -40,9 +40,8 @@ const Clip *child_clip(const LayoutNode &node, const Clip *inherited, ClipArena 
  * child that IS painted unreachable, the same paint/input mismatch as clipping
  * the paint alone, just in the other direction.
  *
- * `Overlay` subtrees are skipped: they belong to the layer, which is hit-tested
- * first and against the view rect rather than against this tree's regions. The
- * layer itself arrives with G9 (ZAB-142).
+ * `Overlay` subtrees are skipped: they belong to the layer, which `resolve_hit`
+ * tests first and against the view rect rather than against this tree's regions.
  */
 LayoutNode *hit_test(LayoutNode &root, double x, double y, ClipArena &arena,
                      const Clip *inherited = nullptr);

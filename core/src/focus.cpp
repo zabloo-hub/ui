@@ -32,12 +32,6 @@ LayoutNode *autofocus_in(LayoutNode &scope) {
   return nullptr;
 }
 
-void collect_focusables(LayoutNode &scope, std::vector<LayoutNode *> &out) {
-  if (!in_layout(scope)) return;  // a pruned subtree has stale rects
-  if (is_focusable(scope)) out.push_back(&scope);
-  for (LayoutNode &child : scope.children) collect_focusables(child, out);
-}
-
 namespace {
 
 double center_x(const Rect &rect) { return rect.x + rect.width / 2.0; }

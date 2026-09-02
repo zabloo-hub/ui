@@ -232,11 +232,17 @@ void ZablooView::_notification(int what) {
 bool ZablooView::load_envelope(const String &json) {
   const CharString utf8 = json.utf8();
   const bool ok = document_.load(std::string_view(utf8.get_data(), utf8.length()));
-  report_diagnostics();
-  if (!ok) return false;
+  if (!ok) {
+    report_diagnostics();
+    return false;
+  }
   caret_node_ = nullptr;  // see `show_view`
   if (!view_id_.is_empty()) show_view(view_id_);
   relayout();
+  // After the first frame, not before it: some of what the view finds about the
+  // payload only turns up once it has been laid out — an anchor whose trigger can
+  // never fire needs the focusability the resolve pass settles.
+  report_diagnostics();
   return true;
 }
 
@@ -460,6 +466,12 @@ void ZablooView::_process(double) {
   view->set_now(clock_ms());
   view->layout_frame();
   queue_redraw();
+  // A frame of pure motion used to produce nothing a game could hear, so nothing
+  // drained it. An `autoCloseMs` timeout does (G9): it fires from INSIDE the
+  // layout pass, with its `onDismiss` and the `false` it writes into the bound
+  // `visible`. Draining here is what makes those reach the game on the frame they
+  // happened, instead of waiting for whatever the player did next.
+  flush_events();
   if (!view->animating()) set_process(false);
 }
 
@@ -909,6 +921,13 @@ void ZablooView::_unhandled_key_input(const Ref<InputEvent> &event) {
       // an arrow expects; a held Enter is not a second press of the same button.
       if (key->is_echo() && key->is_pressed()) return;
       changed = view->press_focused(key->is_pressed());
+      break;
+    case KEY_ESCAPE:
+      // A dismiss request for the modal that owns the input — the keyboard's B
+      // button. With nothing up it is NOT ours: an Escape this view did not use
+      // belongs to the game's own pause menu, so it falls through untouched.
+      if (!key->is_pressed() || !view->dismiss_top_modal()) return;
+      changed = true;
       break;
     default:
       return;  // not ours: leave it for the scene

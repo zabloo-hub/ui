@@ -14,6 +14,7 @@
 #include "easing.h"
 #include "focus.h"
 #include "hit.h"
+#include "overlay.h"
 #include "scroll.h"
 #include "spinner.h"
 #include "text.h"
@@ -134,7 +135,7 @@ TextLayoutOptions View::text_options(const Style &style, double font_line_height
  * tessellator actually used, not a second computation of it that could drift.
  */
 void View::place_text(LayoutNode &node) {
-  if (!in_layout(node)) return;
+  if (!shown(node)) return;
   if (node.ir->type == NodeType::Text && node.has_text_block) {
     // Lines are placed inside the padding box: a Text's own padding already grew
     // its measured size, so it has to keep the glyphs off the edge too.
@@ -147,7 +148,11 @@ void View::place_text(LayoutNode &node) {
                 style.text_align.value_or(TextAlign::Start),
                 style.text_align_y.value_or(TextAlign::Start), node.text_lines);
   }
-  for (LayoutNode &child : node.children) place_text(child);
+  // Overlay children are skipped: an entry is laid out AFTER this pass, against
+  // the view rect, and placed by its own call from `layout_frame`.
+  for (LayoutNode &child : node.children) {
+    if (in_flow(child)) place_text(child);
+  }
 }
 
 // --- view -----------------------------------------------------------------
@@ -177,6 +182,9 @@ View::View(const Envelope &envelope, std::string_view view_id, DataStore &data)
 void View::prepare(LayoutNode &node) {
   const Node &ir = *node.ir;
   if (!ir.id.empty()) by_id_[ir.id] = &node;
+  // Kept as the tree is built, never found by walking it (ZAB-73). G12 (ZAB-145)
+  // is what will also have to drop entries here, when a `Repeat` releases a row.
+  if (ir.type == NodeType::Overlay) overlays_.push_back(&node);
   if (ir.type == NodeType::Collapse) {
     node.open = ir.open.value_or(true);
     apply_open(node);
@@ -229,23 +237,60 @@ void View::layout_frame() {
   // Recomputed from scratch every frame: a tween that landed last frame must not
   // keep the adapter asking for more (`animating`).
   animating_ = false;
-  // Before the resolve pass, deliberately: a focus assigned here reaches THIS
-  // frame's style merge, so `states.focused` never lands a frame late. It reads
-  // the PREVIOUS frame's `disabled` flags, and `prune_disabled` below is what
+  // The layer settles first: the focus an opening modal moves has to reach THIS
+  // frame's style merge, or `states.focused` would land a frame late. An anchored
+  // entry is the one thing here that reads rects, and it reads the ones already
+  // laid out (see `is_on_screen`).
+  layer_ = collect_layer(overlays_, LayerPresence(overlay_layer_));
+  // Before the resolve pass, deliberately, for the same reason. It reads the
+  // PREVIOUS frame's `disabled` flags, and `prune_disabled` below is what
   // corrects a node the game has just switched off — one frame of stale flags,
   // and an invisible one, because `disabled` merges last and its override is
   // already painting over the focus ring that same frame.
-  sync_focus();
+  overlay_layer_.sync_modal_focus();
+  overlay_layer_.sync_auto_close(now_);
   // A control that left the layout under the pointer (a tab panel switching, a
   // Collapse closing) must not keep wearing the hover state on its way back.
   prune_hover();
+  // Before resolve: a closing overlay is still painted for one transition, and
+  // that is what keeps the resolve pass from dropping its subtree mid-fade.
+  overlay_layer_.sync_presence(now_);
   resolve(root_, now_);
   prune_disabled();
   Leaves leaves(*this);
   measure(root_, leaves, viewport_.width);
   arrange(root_, viewport_);
   place_text(root_);
+  // Then the layer, in `(z, document order)`, each entry measured and arranged
+  // against the view rect. What paints is the live layer plus whatever is still
+  // fading out, in that same order — a closing modal keeps its place under the
+  // toast that was above it.
+  paint_layer_ = overlay_layer_.any_exiting()
+                     ? collect_layer(overlays_, PaintPresence(overlay_layer_))
+                     : layer_;
+  for (LayoutNode *overlay : paint_layer_) {
+    measure(*overlay, leaves, viewport_.width);
+    overlay_layer_.arrange_overlay(*overlay, viewport_);
+  }
+  // After arrange, where the boxes are final: a popover that just opened scrolls
+  // its list to the option it focused. It only ever writes scroll offsets, and
+  // arrange is the only pass that reads one back, so re-running it settles this.
+  if (reveal_opened_popover()) {
+    arrange(root_, viewport_);
+    for (LayoutNode *overlay : paint_layer_) overlay_layer_.arrange_overlay(*overlay, viewport_);
+  }
+  // Text is placed in a pass of its own here, not lazily as the reference does,
+  // so a layer entry has to be placed AFTER its own arrange — the tree pass above
+  // stopped at it.
+  for (LayoutNode *overlay : paint_layer_) place_text(*overlay);
+  // Last, once every box is final — the tree's AND the layer's: a field inside a
+  // modal has to keep its caret in view too, and its rect only exists after the
+  // loop above.
   sync_text_scroll();
+  // A timeout counting down — or one that just fired, whose dismiss the next
+  // frame has still to act on — is something that will change with no further
+  // input, which is exactly what `animating` promises the adapter.
+  if (overlay_layer_.wants_frame()) animating_ = true;
 }
 
 /**
@@ -330,9 +375,10 @@ NodeAnim *View::anim_of(LayoutNode &node, const ResolvedTransition *transition) 
 }
 
 void View::resolve(LayoutNode &node, double now) {
-  if (!in_layout(node)) {
+  if (!shown(node)) {
     // Out of layout: nothing to paint, and no honest previous value for the day it
-    // comes back — dropping the state makes that return snap, like a mount.
+    // comes back — dropping the state makes that return snap, like a mount. An
+    // overlay mid-exit is the exception: it is still on screen this frame.
     forget_anim(node);
     return;
   }
@@ -870,8 +916,13 @@ void View::set_toggle_checked(LayoutNode &node, bool checked) {
   if (group != nullptr) {
     // A radio only ever turns ON; the group's value is the state that moves.
     if (!checked) return;
+    // Choosing is the gesture that ends the menu (2026-08-12, ZAB-25), and it
+    // ends it even when the choice is the option already selected — a dropdown
+    // that stayed open on "I meant this one" would be a dead end.
+    overlay_layer_.close_enclosing_popover(node);
     // Re-picking the option already selected moves nothing, so nothing is
-    // reported — closing the popover it was chosen in is G9's (ZAB-142).
+    // reported — the menu still closed, which is the popover's rule and not this
+    // one's.
     if (node.checked) return;
     const DataValue chosen = scalar_value(ir.value.literal(Scalar{}));
     group->group_value = chosen;
@@ -966,15 +1017,6 @@ bool View::settle_slider_keys() {
   return true;
 }
 
-LayoutNode *View::slider_at(double x, double y) {
-  LayoutNode *node = hit(x, y);
-  for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
-    if (candidate->disabled) continue;
-    if (candidate->ir->type == NodeType::Slider) return candidate;
-  }
-  return nullptr;
-}
-
 bool View::end_slider_drag(bool settle) {
   const SliderGesture gesture = slider_drag_;
   if (gesture.node == nullptr) return false;
@@ -1006,6 +1048,9 @@ void View::activate(LayoutNode &node) {
   int index = 0;
   LayoutNode *group = tab_group_of(node, index);
   if (group != nullptr) set_selected(*group, index);
+  // Opening a popover is behavior on TOP of the action, never instead of it: a
+  // `<Select>` trigger is an ordinary Button that happens to be an anchor.
+  overlay_layer_.toggle_popovers(node);
 }
 
 /**
@@ -1041,17 +1086,76 @@ void View::set_focus(LayoutNode *node) {
   if (focus_->field != nullptr) focus_->field->caret_since = now_;
 }
 
+LayoutNode &View::scope() { return focus_scope(root_, layer_); }
+
 /**
- * A focus that is still on screen keeps it — a node that has just gone disabled
- * included, which `prune_disabled` takes away right after the resolve pass that
- * settles the flag. Otherwise the scope's `autofocus` takes over, and nothing at
- * all when it names nothing: an empty focus is honest, a focus on a node that
- * left the layout is not.
+ * The scope's initial focus.
+ *
+ * A popover opens ON its selection — the option the group already holds, so a
+ * list of twenty languages lands where the player left it (2026-08-12, ZAB-25) —
+ * and everything else opens on its declared `autofocus`.
  */
-void View::sync_focus() {
-  if (focus_ != nullptr && in_layout(*focus_)) return;
-  set_focus(autofocus_in(root_));
+LayoutNode *View::autofocus(LayoutNode &scope) {
+  if (!is_press_triggered(scope)) return autofocus_in(scope);
+
+  LayoutNode *option = selected_option_in(scope);
+  if (option == nullptr || !is_focusable(*option)) {
+    option = autofocus_in(scope);
+    if (option == nullptr) {
+      // Nothing chosen yet: the FIRST option, never nothing. A menu the player
+      // opened is a menu they are in, and one that starts with no focus cannot be
+      // walked with the arrows at all — the keyboard would have nowhere to step
+      // from. (Only a popover does this: everywhere else "no autofocus" honestly
+      // means the author asked for none.)
+      std::vector<LayoutNode *> options;
+      candidates_in(scope, options);
+      option = options.empty() ? nullptr : options.front();
+    }
+  }
+  // Whatever it lands on has to be SEEN: the list opens scrolled to it.
+  pending_reveal_ = option;
+  return option;
 }
+
+void View::candidates_in(LayoutNode &scope, std::vector<LayoutNode *> &out) {
+  if (!in_layout(scope)) return;  // pruned subtrees have stale rects
+  // A closed popover is pruned the same way, but by the LAYER's predicate:
+  // `popover_open` is overlay state and not a layout flag, so `in_layout` alone
+  // would offer its options — stale rects included — as candidates.
+  if (scope.ir->type == NodeType::Overlay &&
+      std::find(layer_.begin(), layer_.end(), &scope) == layer_.end()) {
+    return;
+  }
+  if (is_focusable(scope)) out.push_back(&scope);
+  for (LayoutNode &child : scope.children) candidates_in(child, out);
+}
+
+/**
+ * Reveals the focus a POPOVER opened on, once this frame's boxes are final.
+ *
+ * `reveal_focused` is otherwise navigation-only, and deliberately so: a pointer
+ * press focuses what the player is already looking at, and a focus restored
+ * during a relayout would scroll a frame late. A popover is the case that rule
+ * does not cover — it opens ON its selection (2026-08-12, ZAB-25), so the list
+ * has to be scrolled to an option that the frame it appears on has only just
+ * been laid out. Doing it here, after arrange, is what makes it the SAME frame:
+ * only scroll offsets change, and arrange is the only pass that reads one back.
+ */
+bool View::reveal_opened_popover() {
+  LayoutNode *node = pending_reveal_;
+  pending_reveal_ = nullptr;
+  if (node == nullptr || !in_layout(*node)) return false;
+  return reveal_focused(*node);
+}
+
+bool View::dismiss_top_modal() {
+  LayoutNode *modal = top_modal(layer_);
+  if (modal == nullptr) return false;
+  overlay_layer_.request_dismiss(*modal);
+  return true;
+}
+
+bool View::shown(const LayoutNode &node) { return in_layout(node) || node.presence_exiting; }
 
 void View::prune_hover() {
   if (hovered_ != nullptr && !in_layout(*hovered_)) {
@@ -1107,12 +1211,19 @@ bool View::move_focus(double dx, double dy) {
   // of G11 (ZAB-144), which hands its axis back at the end of the text: a slider's
   // travel is short, so stepping through it is cheap, and a control that swallowed
   // all four directions is exactly what breaks a screen for a pad.
+  //
+  // Before the scope, and it needs no check against it: the focus is already
+  // inside whatever owns it, so a slider that holds the focus is by definition one
+  // the player can reach.
   if (slider_axis_key(focus_, dx)) {
     nudge_slider(*focus_, dx, dy);
     return true;
   }
+  // Only inside the current scope: while a modal is up, the trap that derives
+  // from it is exactly this — nothing under it is a candidate (2026-08-11).
+  LayoutNode &walk = scope();
   std::vector<LayoutNode *> candidates;
-  collect_focusables(root_, candidates);
+  candidates_in(walk, candidates);
   if (candidates.empty()) return false;
 
   LayoutNode *current = focus_;
@@ -1122,7 +1233,7 @@ bool View::move_focus(double dx, double dy) {
     // The player asked to move and there is no rect to move FROM, so the walk
     // starts again from the scope's `autofocus` — the rule already documented for
     // having no focus at all.
-    LayoutNode *start = autofocus_in(root_);
+    LayoutNode *start = autofocus(walk);
     set_focus(start != nullptr ? start : candidates.front());
     return true;
   }
@@ -1231,7 +1342,17 @@ const GeometryBuilder &View::paint() {
   // named them: nothing may hold a `Clip *` across a paint.
   paint_clips_.reset();
   geometry_.reset();
-  if (ir_root_ != nullptr) paint_node(root_, 1.0, nullptr);
+  if (ir_root_ == nullptr) return geometry_;
+  paint_node(root_, 1.0, nullptr);
+  // Then the layer, in `(z, document order)`. Each entry is a PAINT ROOT: it
+  // opens a group of its own, because sharing the tree's would put the tree's
+  // glyphs over this panel (a group draws all its solids before all its text),
+  // and it starts from its own `presence` rather than from the opacity of
+  // wherever it was declared — so a backdrop and its panel fade in together.
+  for (LayoutNode *overlay : paint_layer_) {
+    geometry_.start_root();
+    paint_node(*overlay, overlay->presence, nullptr);
+  }
   return geometry_;
 }
 
@@ -1242,7 +1363,7 @@ const GeometryBuilder &View::paint() {
  * anything rendering to a texture.
  */
 void View::paint_node(LayoutNode &node, double opacity, const Clip *clip) {
-  if (!in_layout(node)) return;
+  if (!shown(node)) return;
   const double own = opacity * node.resolved.opacity;
   // Everything below is cut to the region this node's own rect is subject to.
   geometry_.set_clip(clip);
@@ -1289,7 +1410,10 @@ void View::paint_node(LayoutNode &node, double opacity, const Clip *clip) {
   const Clip *inner = child_clip(node, clip, paint_clips_);
   // Clipped away entirely: the subtree — and the scrollbar — paint nothing.
   if (is_empty_clip(inner)) return;
-  for (LayoutNode &child : node.children) paint_node(child, own, inner);
+  // Overlay children are skipped here: they paint in the layer pass, above.
+  for (LayoutNode &child : node.children) {
+    if (in_flow(child)) paint_node(child, own, inner);
+  }
   if (node.ir->type == NodeType::ScrollView) paint_scrollbar(node, own, inner);
 }
 
@@ -1586,11 +1710,33 @@ bool View::set_text(std::string_view id, std::string_view text) {
  * regions in `paint_clips_`, and a hit test between two frames must not hand
  * those addresses back to be overwritten.
  */
-LayoutNode *View::hit(double x, double y) {
-  if (ir_root_ == nullptr) return nullptr;
+LayerHit View::hit_layer(double x, double y) {
+  if (ir_root_ == nullptr) return LayerHit{};
   hit_clips_.reset();
-  return hit_test(root_, x, y, hit_clips_);
+  return resolve_hit(root_, layer_, x, y, hit_clips_);
 }
+
+LayoutNode *View::hit(double x, double y) {
+  const LayerHit resolved = hit_layer(x, y);
+  return resolved.kind == LayerHit::Kind::Node ? resolved.node : nullptr;
+}
+
+namespace {
+
+/**
+ * Nearest self-or-ancestor a gesture belongs to, stopping at an `Overlay`: a
+ * layer entry is the top of its own input scope, so a gesture inside a modal
+ * never reaches the ScrollView or Collapse it happens to be declared inside.
+ */
+template <typename Predicate>
+LayoutNode *find_up(LayoutNode *node, Predicate predicate) {
+  for (LayoutNode *current = node; current != nullptr; current = current->parent) {
+    if (current->ir->type == NodeType::Overlay) return nullptr;
+    if (predicate(*current)) return current;
+  }
+  return nullptr;
+}
+}  // namespace
 
 /**
  * Is this node's own rect reachable at that point? Asked on release, where the
@@ -1605,57 +1751,21 @@ bool View::reachable_at(LayoutNode &node, double x, double y) {
 }
 
 /**
- * What a press takes hold of: a Button or a Toggle, and nothing else.
- *
- * Deliberately NARROWER than the focusable set. A Collapse header toggles on the
- * release without ever wearing `pressed` (see `pointer_up`), and a Slider and a
- * TextInput run gestures of their own — G10 (ZAB-143) and G11 (ZAB-144). Up from
- * what was hit to whatever governs the gesture: a label inside a button is
- * pressed by pressing the button.
- */
-LayoutNode *View::pressable_at(double x, double y) {
-  LayoutNode *node = hit(x, y);
-  for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
-    if (candidate->disabled) continue;
-    if (candidate->ir->type == NodeType::Button || candidate->ir->type == NodeType::Toggle) {
-      return candidate;
-    }
-  }
-  return nullptr;
-}
-
-/** The field a press lands in, which then owns the pointer for the gesture. */
-LayoutNode *View::field_at(double x, double y) {
-  LayoutNode *node = hit(x, y);
-  for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
-    if (candidate->ir->type == NodeType::TextInput && candidate->field != nullptr &&
-        !candidate->disabled) {
-      return candidate;
-    }
-  }
-  return nullptr;
-}
-
 /**
  * What a mouse lights up: exactly the focusable set (2026-08-11, ZAB-36), so one
  * rule answers both questions rather than two lists drifting apart — and a mouse
  * and a pad see the same dead control.
  */
 LayoutNode *View::hoverable_at(double x, double y) {
-  LayoutNode *node = hit(x, y);
-  for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
-    if (is_focusable(*candidate)) return candidate;
-  }
-  return nullptr;
+  // A modal's backdrop captures the input, so it lights up nothing below it.
+  return find_up(hit(x, y), [](const LayoutNode &node) { return is_focusable(node); });
 }
 
 /** The Collapse header at this point, if the press did not land on a control. */
 LayoutNode *View::collapse_header_at(double x, double y) {
-  LayoutNode *node = hit(x, y);
-  for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
-    if (is_collapse_header(*candidate) && !candidate->disabled) return candidate;
-  }
-  return nullptr;
+  return find_up(hit(x, y), [](const LayoutNode &node) {
+    return is_collapse_header(node) && !node.disabled;
+  });
 }
 
 /**
@@ -1717,13 +1827,28 @@ bool View::pointer_down(double x, double y, bool mouse) {
   // Slider gesture ends the way a cancel ends it — settling, since its value is
   // already on screen and already written.
   drag_ = ScrollDrag{};
+  backdrop_press_ = nullptr;
   end_slider_drag(true);
   const bool moved = pointer_move(x, y, mouse);
-  // A Slider and a TextInput take the pointer FIRST, and for the same reason: the
-  // gesture starts on the press — the thumb jumps to the finger, the caret lands
-  // where it was clicked — and both live inside scrollable screens where the drag
-  // has to move the control and not the list.
-  LayoutNode *slider = slider_at(x, y);
+  // One walk for the whole press: everything below reads what the layer resolved,
+  // rather than testing the same point again.
+  const LayerHit resolved = hit_layer(x, y);
+  if (resolved.kind == LayerHit::Kind::Backdrop) {
+    // A tap on a modal's backdrop: dismissed on release, like a button click, and
+    // never falling through to what the modal covers. FIRST, because a modal
+    // captures everything below it — a Slider under one must not take the press.
+    backdrop_press_ = resolved.node;
+    return true;
+  }
+  LayoutNode *node = resolved.kind == LayerHit::Kind::Node ? resolved.node : nullptr;
+  // A Slider and a TextInput take the pointer before any button, and for the same
+  // reason: the gesture starts on the press — the thumb jumps to the finger, the
+  // caret lands where it was clicked — and both live inside scrollable screens
+  // where the drag has to move the control and not the list.
+  LayoutNode *slider =
+      find_up(node, [](const LayoutNode &candidate) {
+        return !candidate.disabled && candidate.ir->type == NodeType::Slider;
+      });
   if (slider != nullptr) {
     slider_drag_ = SliderGesture{slider, slider->slider_value};
     slider->pressed = true;
@@ -1732,14 +1857,23 @@ bool View::pointer_down(double x, double y, bool mouse) {
     set_slider_value(*slider, value_at_point(*slider, x, y));
     return true;
   }
-  LayoutNode *field = field_at(x, y);
+  LayoutNode *field = find_up(node, [](const LayoutNode &candidate) {
+    return !candidate.disabled && candidate.ir->type == NodeType::TextInput &&
+           candidate.field != nullptr;
+  });
   if (field != nullptr) {
     text_drag_ = field;
     set_focus(field);
     set_field_selection(*field, caret_at(text_index_at(*field, x)));
     return true;
   }
-  LayoutNode *target = pressable_at(x, y);
+  // What a press takes hold of next: a Button or a Toggle, and nothing else —
+  // deliberately NARROWER than the focusable set. A Collapse header toggles on the
+  // release without ever wearing `pressed` (see `pointer_up`).
+  LayoutNode *target = find_up(node, [](const LayoutNode &candidate) {
+    return !candidate.disabled &&
+           (candidate.ir->type == NodeType::Button || candidate.ir->type == NodeType::Toggle);
+  });
   if (target != nullptr) {
     if (pressed_ != nullptr) pressed_->pressed = false;
     pressed_ = target;
@@ -1751,7 +1885,6 @@ bool View::pointer_down(double x, double y, bool mouse) {
   // Nothing took the press, so it may be the beginning of a scroll. A disabled
   // control refuses the press above, and refusing means it falls THROUGH: a dead
   // button inside a scroller does not swallow the drag that moves the list.
-  LayoutNode *node = hit(x, y);
   LayoutNode *scroller = node != nullptr ? scroller_of(*node) : nullptr;
   // `scroller_of` starts at the parent, so a press on the scroller itself — its
   // padding, its background — has to be caught here too.
@@ -1792,6 +1925,18 @@ bool View::pointer_up(double x, double y, bool mouse) {
     return true;
   }
 
+  LayoutNode *backdrop = backdrop_press_;
+  backdrop_press_ = nullptr;
+  if (backdrop != nullptr) {
+    // Dismissed only if the release lands on the same backdrop — a press that
+    // slid onto the panel is a press that changed its mind.
+    const LayerHit resolved = hit_layer(x, y);
+    if (resolved.kind == LayerHit::Kind::Backdrop && resolved.node == backdrop) {
+      overlay_layer_.request_dismiss(*backdrop);
+    }
+    return true;
+  }
+
   const bool dragged = drag_.moved;
   drag_ = ScrollDrag{};
   if (dragged) {
@@ -1811,8 +1956,10 @@ bool View::pointer_up(double x, double y, bool mouse) {
 }
 
 bool View::pointer_wheel(double x, double y, double dx, double dy) {
-  LayoutNode *node = hit(x, y);
-  if (node == nullptr) return false;
+  // A modal captures the wheel too: nothing below it scrolls.
+  const LayerHit resolved = hit_layer(x, y);
+  if (resolved.kind != LayerHit::Kind::Node) return false;
+  LayoutNode *node = resolved.node;
   LayoutNode *scroller = node->ir->type == NodeType::ScrollView ? node : scroller_of(*node);
   if (scroller == nullptr) return false;
   // Axis for axis, as the reference maps a browser's deltas: a scroller that does
@@ -1850,6 +1997,10 @@ bool View::pointer_cancel() {
   text_drag_ = nullptr;
   changed = drag_.node != nullptr || changed;
   drag_ = ScrollDrag{};
+  // A backdrop press that never concluded: nothing is dismissed, exactly as a
+  // press released off its control fires nothing.
+  changed = backdrop_press_ != nullptr || changed;
+  backdrop_press_ = nullptr;
   return changed;
 }
 

@@ -14,7 +14,6 @@
 #pragma once
 
 #include <cstddef>
-#include <vector>
 
 #include "layout.h"
 
@@ -55,8 +54,11 @@ LayoutNode *autofocus_in(LayoutNode &scope);
  */
 double navigation_score(const Rect &from, const Rect &to, double dx, double dy);
 
-/** Every focusable node of a subtree, in document order. */
-void collect_focusables(LayoutNode &scope, std::vector<LayoutNode *> &out);
+// There is deliberately no `collect_focusables` here. "Everything focusable in
+// this subtree" stopped being answerable from a tree alone once the overlay layer
+// landed (G9): a CLOSED popover's options are still `in_layout`, so the answer
+// depends on what is in the layer this frame. The view owns that walk
+// (`View::candidates_in`), which is the only place that knows.
 
 /**
  * How far a scroller has to move on one axis to bring `[start, start + size)`

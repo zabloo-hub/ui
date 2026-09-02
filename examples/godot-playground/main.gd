@@ -13,14 +13,18 @@ extends Control
 ## Read from OUTSIDE the project on purpose: copying them in would leave the
 ## playground rendering a stale build of the very examples it exists to show.
 ##
-## Two rather than one because each G# ticket needs its own thing on screen, and
-## rotating a single constant per ticket kept destroying the last one's way of
+## Several rather than one because each G# ticket needs its own thing on screen,
+## and rotating a single constant per ticket kept destroying the last one's way of
 ## checking itself. `settings-screen` is the F5 catalog — tabs, checkboxes,
-## switches, radios and sliders — and `showcase`'s `motion` view is what G8 left
-## here: four curves racing, a bar that tweens its VALUE, the Spinner's wave.
+## switches, radios and sliders — `showcase`'s `motion` view is what G8 left here
+## (four curves racing, a bar that tweens its VALUE, the Spinner's wave) and its
+## `overlays` view is G9's: a modal that dims, captures and traps the focus, a
+## toast that closes itself, tooltips that ride their anchor's hover OR focus with
+## flip and clamp, and a popover whose open state is the SDK's.
 const SOURCES := [
 	{"path": "../settings-screen/dist/zabloo.ir.json", "view": "settings"},
 	{"path": "../showcase/dist/zabloo.ir.json", "view": "motion"},
+	{"path": "../showcase/dist/zabloo.ir.json", "view": "overlays"},
 ]
 
 @onready var _view: ZablooView = $Zabloo
@@ -71,7 +75,7 @@ func _load() -> void:
 	_view.set_data("settings.quality", "high")
 	_view.set_data("settings.language", "en")
 	_view.set_data("profile.name", "Nova")
-	_log.text = "%s — arrows navigate, Enter presses, E swaps example" % path.get_file()
+	_log.text = "%s — arrows navigate, Enter presses, Escape dismisses, E swaps example" % path.get_file()
 
 
 ## Reload, example swapping and view switching, by hand.
