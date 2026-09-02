@@ -1268,6 +1268,31 @@ TEST(view, a_gesture_that_leaves_the_value_where_it_found_it_does_not_commit) {
   CHECK(view->drain_data_changes().empty());
 }
 
+TEST(view, a_bound_value_reads_off_the_channel_and_clamps_to_the_range) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &volume = volume_of(*view);
+
+  document.set_data("settings.volume", DataValue::of_number(43));
+  view->layout_frame();
+  CHECK_EQ(volume.slider_value, 40.0);  // snapped to the grid of tens
+
+  // A numeric STRING moves it too: the game may have pushed a value that crossed
+  // a text field or a JSON payload, and a bound control must not hinge on which
+  // side did the parsing.
+  document.set_data("settings.volume", DataValue::of_text("70"));
+  view->layout_frame();
+  CHECK_EQ(volume.slider_value, 70.0);
+
+  // Anything else is no value at all, which leaves the control at its minimum.
+  document.set_data("settings.volume", DataValue::of_text("loud"));
+  view->layout_frame();
+  CHECK_EQ(volume.slider_value, 0.0);
+  document.set_data("settings.volume", DataValue::of_number(999));
+  view->layout_frame();
+  CHECK_EQ(volume.slider_value, 100.0);
+}
+
 TEST(view, a_cancelled_slider_gesture_settles_and_a_disabled_one_does_not) {
   Document document = loaded(SLIDER_VIEW, 200, 200);
   View *view = document.view();
@@ -1287,7 +1312,8 @@ TEST(view, a_cancelled_slider_gesture_settles_and_a_disabled_one_does_not) {
   CHECK(document.load(R"({"v":1,"views":{"panel":{"type":"Container","children":[
     {"type":"Slider","id":"volume","layout":{"width":200,"height":20},
      "disabled":{"bind":"ui.dead"},"onCommit":"volume-apply",
-     "children":[{"type":"Container"},{"type":"Container","layout":{"width":20,"height":20}}]}]}}})"));
+     "children":[{"type":"Container"},
+                  {"type":"Container","layout":{"width":20,"height":20}}]}]}}})"));
   View *reloaded = document.view();
   reloaded->set_size(200, 200);
   reloaded->layout_frame();

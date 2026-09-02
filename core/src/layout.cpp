@@ -179,8 +179,10 @@ void arrange_slider(LayoutNode &node, const Rect &rect) {
     // is ordinary here (a `clip` is the only thing that cuts paint or input, ZAB-7).
     const double cross_size = cross_of(child, horizontal, across);
     const double cross_pos = (horizontal ? content.y : content.x) + (across - cross_size) * 0.5;
-    arrange(child, horizontal ? Rect{content.x + start, cross_pos, size, cross_size}
-                              : Rect{cross_pos, content.y + length - start - size, cross_size, size});
+    const Rect box = horizontal
+                         ? Rect{content.x + start, cross_pos, size, cross_size}
+                         : Rect{cross_pos, content.y + length - start - size, cross_size, size};
+    arrange(child, box);
   };
 
   if (fill != nullptr && in_flow(*fill)) place(*fill, 0.0, geometry.fill_length);

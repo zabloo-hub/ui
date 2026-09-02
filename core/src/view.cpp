@@ -586,14 +586,14 @@ void View::apply_bindings(LayoutNode &node) {
   if (ir.type == NodeType::Slider) {
     const SliderRange range = range_of(node);
     // Unbound, `value` is the initial number; bound, the store decides — and an
-    // empty store leaves the control at its minimum.
-    const DataValue *bound = ir.value.is_bound() ? read_bind(node, ir.value.bind) : nullptr;
-    double initial = range.min;
-    if (ir.value.is_bound()) {
-      if (bound != nullptr && bound->kind == DataValue::Kind::Number) initial = bound->number;
-    } else if (ir.value.value.kind == Scalar::Kind::Number) {
-      initial = ir.value.value.number;
-    }
+    // empty store leaves the control at its minimum. `to_number` is what accepts
+    // the numeric strings the channel blurs, so a value that crossed a text field
+    // or a JSON payload still moves the control.
+    const double initial = ir.value.is_bound()
+                               ? to_number(read_bind(node, ir.value.bind), range.min)
+                               : (ir.value.value.kind == Scalar::Kind::Number
+                                      ? ir.value.value.number
+                                      : range.min);
     node.slider_value = quantize(initial, range);
   }
   // A TextInput's bound value lands here too, in G11 (ZAB-144): the prop exists,
