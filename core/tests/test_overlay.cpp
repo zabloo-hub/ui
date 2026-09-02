@@ -8,11 +8,14 @@
 // `View` built from a small envelope — which asserts the same rules against more
 // of the machine, not less.
 
+#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "overlay.h"
 #include "overlay_layer.h"
+#include "tessellator.h"
 #include "testing.h"
 #include "view.h"
 
@@ -418,7 +421,7 @@ const char *CAPTURE = R"({"type":"Container","children":[
   {"type":"Overlay","id":"modal","layout":{"justify":"start","align":"start"},"children":[
     {"type":"Button","id":"accept","layout":{"width":20,"height":20}}]}]})";
 
-LayerHit hit_at(View &view, LayoutNode &root, double x, double y) {
+LayerHit hit_at(LayoutNode &root, double x, double y) {
   ClipArena arena;
   std::vector<LayoutNode *> overlays;
   overlays_of(root, overlays);
@@ -432,7 +435,7 @@ TEST(overlay, goes_to_the_tree_while_the_layer_is_empty) {
   Document document = loaded(envelope(R"({"type":"Button","id":"only",
     "layout":{"width":100,"height":100}})"));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  const LayerHit hit = hit_at(*document.view(), root, 50, 50);
+  const LayerHit hit = hit_at(root, 50, 50);
   CHECK(hit.kind == LayerHit::Kind::Node);
   CHECK(hit.node == &root);
 }
@@ -440,7 +443,7 @@ TEST(overlay, goes_to_the_tree_while_the_layer_is_empty) {
 TEST(overlay, gives_the_event_to_a_modals_child_not_to_what_it_covers) {
   Document document = loaded(envelope(CAPTURE));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  const LayerHit hit = hit_at(*document.view(), root, 10, 10);
+  const LayerHit hit = hit_at(root, 10, 10);
   CHECK(hit.kind == LayerHit::Kind::Node);
   CHECK(hit.node == find(root, "accept"));
 }
@@ -449,7 +452,7 @@ TEST(overlay, captures_for_a_modal_a_point_on_no_child_is_a_backdrop_tap) {
   // Never a fall-through: the button underneath must not see it.
   Document document = loaded(envelope(CAPTURE));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  const LayerHit hit = hit_at(*document.view(), root, 80, 80);
+  const LayerHit hit = hit_at(root, 80, 80);
   CHECK(hit.kind == LayerHit::Kind::Backdrop);
   CHECK(hit.node == find(root, "modal"));
 }
@@ -460,7 +463,7 @@ TEST(overlay, hides_a_lower_overlays_children_behind_the_modal_above_them) {
      "children":[{"type":"Button","id":"buried","layout":{"width":40,"height":40}}]},
     {"type":"Overlay","id":"modal","z":1}]})"));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  const LayerHit hit = hit_at(*document.view(), root, 10, 10);
+  const LayerHit hit = hit_at(root, 10, 10);
   CHECK(hit.kind == LayerHit::Kind::Backdrop);
   CHECK(hit.node == find(root, "modal"));
 }
@@ -472,11 +475,11 @@ TEST(overlay, lets_input_through_a_non_modal_overlay_its_own_rect_is_inert) {
      "children":[{"type":"Button","id":"undo","layout":{"width":20,"height":20}}]}]})"));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
   // Away from its child: straight through to the tree.
-  LayerHit hit = hit_at(*document.view(), root, 80, 80);
+  LayerHit hit = hit_at(root, 80, 80);
   CHECK(hit.kind == LayerHit::Kind::Node);
   CHECK(hit.node == find(root, "below"));
   // On its child: its children still take their events.
-  hit = hit_at(*document.view(), root, 10, 10);
+  hit = hit_at(root, 10, 10);
   CHECK(hit.kind == LayerHit::Kind::Node);
   CHECK(hit.node == find(root, "undo"));
 }
@@ -486,7 +489,7 @@ TEST(overlay, keeps_looking_below_a_non_modal_overlay_for_the_modal_underneath_i
     {"type":"Overlay","id":"modal","z":0},
     {"type":"Overlay","id":"toast","modal":false,"z":10}]})"));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  const LayerHit hit = hit_at(*document.view(), root, 50, 50);
+  const LayerHit hit = hit_at(root, 50, 50);
   CHECK(hit.kind == LayerHit::Kind::Backdrop);
   CHECK(hit.node == find(root, "modal"));
 }
@@ -496,7 +499,7 @@ TEST(overlay, misses_when_the_point_is_outside_every_rect) {
   Document document = loaded(envelope(R"({"type":"Button","id":"small",
     "layout":{"width":10,"height":10}})"));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  CHECK(hit_at(*document.view(), root, 150, 150).kind == LayerHit::Kind::Miss);
+  CHECK(hit_at(root, 150, 150).kind == LayerHit::Kind::Miss);
 }
 
 TEST(overlay, skips_a_hover_triggered_overlay_so_a_hint_never_takes_the_pointer) {
@@ -507,7 +510,7 @@ TEST(overlay, skips_a_hover_triggered_overlay_so_a_hint_never_takes_the_pointer)
     {"type":"Overlay","id":"tip","modal":true,
      "anchor":{"id":"below","at":"bottom","trigger":"hover"}}]})"));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  const LayerHit hit = hit_at(*document.view(), root, 50, 50);
+  const LayerHit hit = hit_at(root, 50, 50);
   CHECK(hit.kind == LayerHit::Kind::Node);
   CHECK(hit.node == find(root, "below"));
 }
@@ -519,7 +522,7 @@ TEST(overlay, still_gives_a_manually_triggered_anchored_overlay_its_events) {
     {"type":"Button","id":"below","layout":{"width":100,"height":100}},
     {"type":"Overlay","id":"menu","modal":true,"anchor":{"id":"below","at":"bottom"}}]})"));
   LayoutNode &root = const_cast<LayoutNode &>(document.view()->root());
-  const LayerHit hit = hit_at(*document.view(), root, 50, 50);
+  const LayerHit hit = hit_at(root, 50, 50);
   CHECK(hit.kind == LayerHit::Kind::Backdrop);
   CHECK(hit.node == find(root, "menu"));
 }
@@ -1092,4 +1095,29 @@ TEST(overlay, autoCloseMs_is_ignored_by_a_trigger_but_not_by_a_plain_anchor) {
   const std::vector<ActionEvent> actions = view.drain_actions();
   CHECK_EQ(actions.size(), 1u);
   if (!actions.empty()) CHECK_EQ(actions[0].name, std::string("note-gone"));
+}
+
+TEST(overlay, every_layer_entry_paints_as_a_root_of_its_own) {
+  // Sharing the tree's group would put the tree's glyphs over the panel floating
+  // above them, since a group draws all its solids before all its text. Two roots
+  // can share a region — both unclipped, as here — and still have to be ordered
+  // one behind the other, which is the one thing a clip cannot say.
+  Document document = loaded(envelope(R"({"type":"Container",
+    "style":{"background":"#101218"},"children":[
+      {"type":"Text","id":"under","text":"behind"},
+      {"type":"Overlay","id":"modal","style":{"background":"#00000099"},
+       "layout":{"justify":"center","align":"center"},"children":[
+        {"type":"Container","id":"panel","layout":{"width":60,"height":30},
+         "style":{"background":"#1e293b"}}]}]})"));
+  View &view = *document.view();
+  const GeometryBuilder &geometry = view.paint();
+
+  uint32_t groups = 0;
+  for (const Batch *batch : geometry.batches()) {
+    if (batch->indices.empty()) continue;
+    groups = std::max(groups, batch->group + 1);
+  }
+  // The tree is one, the entry another — and the entry's solids come after the
+  // tree's text, which is what the group boundary buys.
+  CHECK_EQ(groups, 2u);
 }
