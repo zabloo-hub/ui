@@ -1751,7 +1751,6 @@ bool View::reachable_at(LayoutNode &node, double x, double y) {
 }
 
 /**
-/**
  * What a mouse lights up: exactly the focusable set (2026-08-11, ZAB-36), so one
  * rule answers both questions rather than two lists drifting apart — and a mouse
  * and a pad see the same dead control.
