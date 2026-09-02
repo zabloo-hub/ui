@@ -106,8 +106,14 @@ func _process(_delta: float) -> void:
 func _pump(peer: Dictionary) -> bool:
 	var stream: StreamPeerTCP = peer["stream"]
 	stream.poll()
-	if stream.get_status() != StreamPeerTCP.STATUS_CONNECTED:
+	var status := stream.get_status()
+	# CONNECTING is kept, not dropped: an accepted socket can report it for a poll
+	# or two, and treating that as "gone" would lose a push now and then — the
+	# worst kind of bug to have in the thing you reach for when something is odd.
+	if status != StreamPeerTCP.STATUS_CONNECTED and status != StreamPeerTCP.STATUS_CONNECTING:
 		return false
+	if status == StreamPeerTCP.STATUS_CONNECTING:
+		return true
 	var available := stream.get_available_bytes()
 	if available > 0:
 		var chunk: Array = stream.get_data(available)
