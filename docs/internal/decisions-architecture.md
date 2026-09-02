@@ -3704,6 +3704,15 @@ la pasada de resolve, así que el validador no puede verla y se avisa una vez de
 runtime. Eso obliga a un cambio pequeño en el adaptador: `report_diagnostics()` pasa a
 correr **después** del primer `relayout()`, no antes, o el aviso no llegaría nunca.
 
+**Y un frame de puro movimiento pasa a drenar lo que produjo.** El `_process` del
+adaptador corría `layout_frame()` y no llamaba a `flush_events()`, lo cual era
+inofensivo mientras un frame de motion no producía nada que un juego pudiera oír.
+Un `autoCloseMs` sí: dispara **desde dentro** del pase de layout, con su
+`onDismiss` y el `false` que escribe en el `visible` bindeado. Encontrado en el
+proceso de Godot, no en los tests: el toast se cerraba en pantalla pero sus
+señales llegaban al juego en el momento en que el jugador hiciera cualquier otra
+cosa.
+
 **En Godot, Escape solo se consume si de verdad cerró algo.** `_unhandled_key_input` gana
 `KEY_ESCAPE` → `View::dismiss_top_modal()`, y **sin modal arriba el evento no se acepta**:
 un Escape que esta vista no usó pertenece al menú de pausa del juego. Es la traducción

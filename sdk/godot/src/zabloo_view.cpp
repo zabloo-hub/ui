@@ -383,6 +383,12 @@ void ZablooView::_process(double) {
   view->set_now(clock_ms());
   view->layout_frame();
   queue_redraw();
+  // A frame of pure motion used to produce nothing a game could hear, so nothing
+  // drained it. An `autoCloseMs` timeout does (G9): it fires from INSIDE the
+  // layout pass, with its `onDismiss` and the `false` it writes into the bound
+  // `visible`. Draining here is what makes those reach the game on the frame they
+  // happened, instead of waiting for whatever the player did next.
+  flush_events();
   if (!view->animating()) set_process(false);
 }
 
