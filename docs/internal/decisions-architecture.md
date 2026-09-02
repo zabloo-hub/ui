@@ -3709,6 +3709,18 @@ correr **después** del primer `relayout()`, no antes, o el aviso no llegaría n
 un Escape que esta vista no usó pertenece al menú de pausa del juego. Es la traducción
 literal de lo que hace la web, donde el `preventDefault()` vive dentro del `if (modal)`.
 
+**Una divergencia entre la spec y la referencia, encontrada por el camino y
+arreglada en los dos sitios.** `docs/components/overlay.md` dice que `autoCloseMs`
+se ignora con `trigger: "hover"` **y** con `"press"` — a un menú se le pide que se
+cierre, no se le pone un temporizador —, y la referencia solo saltaba el `hover`,
+así que un popover con timeout se cerraba solo. La spec es el contrato
+(2026-08-13), de modo que el core implementa la regla escrita y `renderer-web` se
+corrige con ella, con un test que falla contra la regla vieja: durante el port, un
+fallo del renderer web se arregla **allí**, no se replica aquí ni se deja derivar.
+Nota de para qué sirve un test: el primer intento afirmaba `closeVisible`, que un
+popover no llama nunca —cierra con su propio flag—, así que pasaba en verde contra
+las dos reglas.
+
 **Coste aceptado, y es el invariante de batches otra vez:** cada entrada de la capa es un
 **paint root** (`start_root()`), así que el pintado se parte en un grupo por entrada. Ya no
 hay "todos los sólidos de la pantalla en un batch" — lo rompió antes el clip (2026-09-01) y

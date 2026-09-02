@@ -514,6 +514,43 @@ describe("autoCloseMs", () => {
     expect(state.host.closeVisible).not.toHaveBeenCalled();
   });
 
+  it("never arms one for a popover either — a menu is dismissed, not timed out", () => {
+    vi.useFakeTimers();
+    const anchor = trigger();
+    const menu = overlay({
+      id: "menu",
+      autoCloseMs: 1000,
+      anchor: { id: "trigger", at: "bottom", trigger: "press" },
+    });
+    menu.popoverOpen = true;
+    const state = rig(box([anchor, menu]));
+
+    state.layer.syncAutoClose();
+    vi.advanceTimersByTime(2000);
+
+    // A popover closes with its own flag, so THAT is what a timeout would move —
+    // `closeVisible` is never the tell for one.
+    expect(menu.popoverOpen).toBe(true);
+    expect(state.host.dismissed).not.toHaveBeenCalled();
+  });
+
+  it("still arms one for an anchored overlay that is merely PLACED there", () => {
+    vi.useFakeTimers();
+    const anchor = trigger();
+    const note = overlay({
+      id: "note",
+      autoCloseMs: 1000,
+      anchor: { id: "trigger", at: "bottom" },
+    });
+    const state = rig(box([anchor, note]));
+
+    state.layer.syncAutoClose();
+    vi.advanceTimersByTime(1000);
+
+    // `manual` is an ordinary overlay that happens to be placed against a rect.
+    expect(state.host.closeVisible).toHaveBeenCalledWith(note);
+  });
+
   it("clears everything armed when the view goes down", () => {
     vi.useFakeTimers();
     const toast = overlay({ id: "toast", autoCloseMs: 1000 });

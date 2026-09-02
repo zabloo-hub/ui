@@ -149,9 +149,12 @@ void OverlayLayer::sync_auto_close(double now) {
   for (LayoutNode *overlay : view_.overlays_) {
     const bool live = std::find(layer.begin(), layer.end(), overlay) != layer.end();
     const std::optional<double> ms = auto_close_ms(*overlay);
-    // Never for a triggered overlay: a hint is dismissed by leaving its anchor,
-    // and a popover by choosing or dismissing.
-    if (!live || !ms.has_value() || is_anchored(*overlay)) {
+    // Never for a TRIGGERED overlay: a hint is dismissed by leaving its anchor,
+    // and a menu is dismissed, not timed out. An anchored overlay whose trigger is
+    // `manual` is an ordinary one that happens to be placed against a rect, and it
+    // times out like any other (`docs/components/overlay.md`).
+    if (!live || !ms.has_value() || is_hover_triggered(*overlay) ||
+        is_press_triggered(*overlay)) {
       overlay->auto_close_at.reset();
       continue;
     }

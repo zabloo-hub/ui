@@ -380,8 +380,12 @@ export class OverlayLayer {
 
   /**
    * Arms `autoCloseMs` while an overlay is in the layer; disarms it when it leaves.
-   * Never for a hover-triggered one: what dismisses that is leaving the anchor, and
-   * a timer would take the hint away from under a pointer still resting on it.
+   *
+   * Never for a TRIGGERED one: what dismisses a hint is leaving the anchor, and a
+   * timer would take it away from under a pointer still resting on it; a menu is
+   * dismissed, not timed out. An anchored overlay whose trigger is `manual` is an
+   * ordinary one that happens to be placed against a rect, and it times out like
+   * any other (`docs/components/overlay.md`).
    */
   syncAutoClose(): void {
     const layer = this.host.layer();
@@ -393,7 +397,8 @@ export class OverlayLayer {
     for (const overlay of layer) {
       const ms = overlaySpec(overlay)?.autoCloseMs;
       if (ms === undefined || this.autoCloseTimers.has(overlay)) continue;
-      if (anchorSpec(overlay)?.trigger === "hover") continue;
+      const trigger = anchorSpec(overlay)?.trigger;
+      if (trigger === "hover" || trigger === "press") continue;
       const timer = setTimeout(() => {
         this.autoCloseTimers.delete(overlay);
         this.requestDismiss(overlay);

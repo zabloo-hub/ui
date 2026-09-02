@@ -1065,3 +1065,31 @@ TEST(overlay, an_anchored_overlay_survives_a_long_run_of_frames) {
   }
   CHECK_EQ(view.paint_layer().size(), 1u);
 }
+
+TEST(overlay, autoCloseMs_is_ignored_by_a_trigger_but_not_by_a_plain_anchor) {
+  // A hint is dismissed by leaving its anchor and a menu is dismissed, not timed
+  // out; an anchored overlay whose trigger is `manual` is an ordinary one that
+  // happens to be placed against a rect (`docs/components/overlay.md`).
+  Document document = loaded(envelope(R"({"type":"Container","children":[
+    {"type":"Button","id":"target","layout":{"width":40,"height":20}},
+    {"type":"Overlay","id":"tip","modal":false,"autoCloseMs":1000,"onDismiss":"tip-gone",
+     "anchor":{"id":"target","at":"bottom","trigger":"hover"}},
+    {"type":"Overlay","id":"menu","autoCloseMs":1000,"onDismiss":"menu-gone",
+     "anchor":{"id":"target","at":"bottom","trigger":"press"}},
+    {"type":"Overlay","id":"note","modal":false,"autoCloseMs":1000,"onDismiss":"note-gone",
+     "anchor":{"id":"target","at":"top"}}]})"));
+  View &view = *document.view();
+  // The hint is up (the pointer is on its anchor) and the menu is open.
+  view.pointer_move(10, 10);
+  view.pointer_down(10, 10);
+  view.pointer_up(10, 10);
+  view.layout_frame();
+  view.drain_actions();
+  CHECK_EQ(view.paint_layer().size(), 3u);
+
+  view.set_now(5000);
+  view.layout_frame();
+  const std::vector<ActionEvent> actions = view.drain_actions();
+  CHECK_EQ(actions.size(), 1u);
+  if (!actions.empty()) CHECK_EQ(actions[0].name, std::string("note-gone"));
+}
