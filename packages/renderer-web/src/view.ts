@@ -1792,6 +1792,11 @@ class WebView implements InputView {
    */
   private pruneDisabled(): void {
     if (this.focusedNode?.disabled) this.setFocus(null);
+    // The KEYBOARD's slider gesture goes the same way the pointer's does, one
+    // line below: cancelled, never committed, because the value never settled
+    // (ZAB-63). Dropping it here rather than letting `settleSliderKeys` find it
+    // is what keeps a held arrow from committing a control the game just killed.
+    if (this.sliderKeys?.node.disabled) this.sliderKeys = null;
     this.pointer.pruneDisabled();
   }
 

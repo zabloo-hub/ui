@@ -151,6 +151,7 @@ void ZablooView::_bind_methods() {
   ClassDB::bind_method(D_METHOD("set_selected_tab", "id", "index"),
                        &ZablooView::set_selected_tab);
   ClassDB::bind_method(D_METHOD("set_checked", "id", "checked"), &ZablooView::set_checked);
+  ClassDB::bind_method(D_METHOD("set_value", "id", "value"), &ZablooView::set_value);
   ClassDB::bind_method(D_METHOD("set_scroll", "id", "x", "y"), &ZablooView::set_scroll);
   ClassDB::bind_method(D_METHOD("reload", "json"), &ZablooView::reload);
 
@@ -321,6 +322,18 @@ bool ZablooView::set_checked(const String &id, bool checked) {
   const CharString utf8 = id.utf8();
   if (view == nullptr || !view->set_checked(utf8_of(utf8), checked)) {
     UtilityFunctions::push_warning("[zabloo] set_checked: no Toggle with id \"", id, "\"");
+    return false;
+  }
+  flush_events();
+  relayout();
+  return true;
+}
+
+bool ZablooView::set_value(const String &id, double value) {
+  zabloo::View *view = document_.view();
+  const CharString utf8 = id.utf8();
+  if (view == nullptr || !view->set_value(utf8_of(utf8), value)) {
+    UtilityFunctions::push_warning("[zabloo] set_value: no Slider with id \"", id, "\"");
     return false;
   }
   flush_events();
@@ -791,12 +804,21 @@ void ZablooView::_unhandled_key_input(const Ref<InputEvent> &event) {
   // arrow expects; a repeated Enter is not a second press of the same button.
   const bool repeat = key->is_echo();
 
+  // A direction moves the focus — or, on a Slider, its own axis nudges the value
+  // — and LETTING GO of it ends that gesture. The core is told about presses, so
+  // the release is the only thing that can tell it where the nudging stopped,
+  // and `onCommit` is what a game applies the expensive thing on (2026-08-11,
+  // ZAB-24). The same job the browser's `keyup` does for the reference.
+  const auto arrow = [&](double dx, double dy) {
+    return key->is_pressed() ? view->move_focus(dx, dy) : view->settle_slider_keys();
+  };
+
   bool changed = false;
   switch (key->get_keycode()) {
-    case KEY_LEFT: changed = key->is_pressed() && view->move_focus(-1, 0); break;
-    case KEY_RIGHT: changed = key->is_pressed() && view->move_focus(1, 0); break;
-    case KEY_UP: changed = key->is_pressed() && view->move_focus(0, -1); break;
-    case KEY_DOWN: changed = key->is_pressed() && view->move_focus(0, 1); break;
+    case KEY_LEFT: changed = arrow(-1, 0); break;
+    case KEY_RIGHT: changed = arrow(1, 0); break;
+    case KEY_UP: changed = arrow(0, -1); break;
+    case KEY_DOWN: changed = arrow(0, 1); break;
     case KEY_ENTER:
     case KEY_KP_ENTER:
     case KEY_SPACE:

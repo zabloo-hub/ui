@@ -8,56 +8,80 @@ extends Control
 ## spelling follows Godot's conventions (snake_case, and the callbacks are
 ## signals).
 
-## The envelope `examples/showcase` exports. Read from OUTSIDE the project on
-## purpose: copying it in would leave the playground rendering a stale build of
-## the example it exists to show.
-const ENVELOPE := "../showcase/dist/zabloo.ir.json"
-## The view that exercises what G9 landed: a modal that dims, captures and traps
-## the focus, a toast that closes itself, tooltips that ride their anchor's hover
-## OR focus with flip and clamp, and a popover whose open state is the SDK's.
-const VIEW := "overlays"
+## The examples this playground can show, and the view each one opens on.
+##
+## Read from OUTSIDE the project on purpose: copying them in would leave the
+## playground rendering a stale build of the very examples it exists to show.
+##
+## Several rather than one because each G# ticket needs its own thing on screen,
+## and rotating a single constant per ticket kept destroying the last one's way of
+## checking itself. `settings-screen` is the F5 catalog — tabs, checkboxes,
+## switches, radios and sliders — `showcase`'s `motion` view is what G8 left here
+## (four curves racing, a bar that tweens its VALUE, the Spinner's wave) and its
+## `overlays` view is G9's: a modal that dims, captures and traps the focus, a
+## toast that closes itself, tooltips that ride their anchor's hover OR focus with
+## flip and clamp, and a popover whose open state is the SDK's.
+const SOURCES := [
+	{"path": "../settings-screen/dist/zabloo.ir.json", "view": "settings"},
+	{"path": "../showcase/dist/zabloo.ir.json", "view": "motion"},
+	{"path": "../showcase/dist/zabloo.ir.json", "view": "overlays"},
+]
 
 @onready var _view: ZablooView = $Zabloo
 @onready var _log: Label = $Log
 
+var _source := 0
 var _gold := 1200
 var _progress := 0.1
+var _volume := 60.0
 var _collapsed := false
 
 
 func _ready() -> void:
+	# Connected ONCE. `_load` is also what R re-runs, and Godot errors on a signal
+	# connected twice — so a reload used to cost an error and a doubled callback.
 	_view.action.connect(_on_action)
+	# The return leg of the data channel: a control writing its own value tells
+	# the game through this, whether the player moved it or `set_value` did.
+	_view.data_changed.connect(_on_data_changed)
 	_load()
 
 
 func _load() -> void:
+	var source: Dictionary = SOURCES[_source]
 	var here := ProjectSettings.globalize_path("res://")
-	var path := here.path_join(ENVELOPE).simplify_path()
+	var path := here.path_join(source["path"]).simplify_path()
 	if not _view.load_file(path):
 		_log.text = "could not load %s\n%s" % [path, "\n".join(_view.get_diagnostics())]
 		return
-	# Said out loud, because the envelope is multi-view and loading it only shows
-	# the first one: without this the constant above would be a comment.
-	_view.show_view(VIEW)
-	_view.action.connect(_on_action)
-	# The return leg of the data channel: a control writing its own value tells
-	# the game through this, whether the player moved it or `set_checked` did.
-	_view.data_changed.connect(_on_data_changed)
-	# The game's state, pushed whenever it has it. Bound props read it: the gold
-	# label shows it, and `shop.thanked` decides whether its row is in the layout
-	# at all.
+	# Said out loud, because an envelope is multi-view and loading it only shows
+	# the first one: without this the table above would be a comment.
+	_view.show_view(source["view"])
+	# The game's state, pushed whenever it has it. Bound props read it — and the
+	# controls WRITE back into these same paths, which is what `_on_data_changed`
+	# below is listening to.
 	_view.set_data("player.gold", _gold)
 	_view.set_data("player.hp", 0.7)
 	_view.set_data("shop.thanked", false)
 	_view.set_data("demo.progress", 0.1)
 	_view.set_data("inbox.unread", 3)
-	_log.text = "loaded %s — arrows navigate, Enter presses, Escape dismisses" % path.get_file()
+	_view.set_data("settings.volume", _volume)
+	_view.set_data("settings.music", 30)
+	_view.set_data("settings.brightness", 0.5)
+	_view.set_data("settings.sfx", true)
+	_view.set_data("settings.subtitles", false)
+	_view.set_data("settings.hints", true)
+	_view.set_data("settings.fullscreen", true)
+	_view.set_data("settings.quality", "high")
+	_view.set_data("settings.language", "en")
+	_view.set_data("profile.name", "Nova")
+	_log.text = "%s — arrows navigate, Enter presses, Escape dismisses, E swaps example" % path.get_file()
 
 
-## Reload and view switching, by hand.
+## Reload, example swapping and view switching, by hand.
 ##
 ## `_load` is the production hot-update path (`load_file` → `load_envelope` →
-## the core's one loader), so pressing R after re-exporting the example is the
+## the core's one loader), so pressing R after re-exporting an example is the
 ## same swap a platform push performs — which is what makes it worth having
 ## here: it is how you watch an image survive a reload by its content hash, and
 ## a removed one release its texture. Doing it ON SAVE is `zabloo dev --godot`,
@@ -68,21 +92,32 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if event.keycode == KEY_R:
 		_load()
 		return
-	# The motion view's two hosts of a tween. SPACE races the four curves against
-	# each other from one `set_data`, which is the whole "no trigger list" rule in
-	# one keypress: nothing here mentions animation, the value simply moved. C
-	# drives the Collapse through the host channel instead of through a tap, so
-	# the same height tween runs whoever asked for it.
-	if event.keycode == KEY_SPACE:
-		_progress = 0.9 if _progress < 0.5 else 0.1
-		_view.set_data("demo.progress", _progress)
-		_view.set_data("player.hp", _progress)
-		_log.text = "demo.progress = %.1f" % _progress
+	if event.keycode == KEY_E:
+		_source = (_source + 1) % SOURCES.size()
+		_load()
+		return
+	# Two ways of moving a control WITHOUT touching it, so the by-id operations
+	# can be seen doing exactly what the player's gesture does. V drives the
+	# volume slider — the value glides to where it was pushed while a drag would
+	# have snapped, and `onCommit` fires either way — and C drives the Collapse.
+	if event.keycode == KEY_V:
+		_volume = 0.0 if _volume > 50.0 else 100.0
+		_view.set_value("volume", _volume)
+		_log.text = "set_value volume = %.0f" % _volume
 		return
 	if event.keycode == KEY_C:
 		_collapsed = not _collapsed
 		_view.set_open("animated-collapse", _collapsed)
 		_log.text = "collapse %s" % ("open" if _collapsed else "closed")
+		return
+	# The motion view's other host of a tween: SPACE races the four curves against
+	# each other from one `set_data`, which is the whole "no trigger list" rule in
+	# one keypress — nothing here mentions animation, the value simply moved.
+	if event.keycode == KEY_SPACE:
+		_progress = 0.9 if _progress < 0.5 else 0.1
+		_view.set_data("demo.progress", _progress)
+		_view.set_data("player.hp", _progress)
+		_log.text = "demo.progress = %.1f" % _progress
 		return
 	var views := ["controls", "layout", "lists", "media", "motion", "navigation",
 		"overlays", "theming", "typography"]

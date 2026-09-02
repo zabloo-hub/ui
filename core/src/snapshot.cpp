@@ -451,14 +451,18 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs, const 
   }
 
   // The one number a control's behavior owns. A Toggle's is its cross-fade
-  // progress and a ProgressBar's is its tweened fraction; a Slider's arrives with
-  // G10 (ZAB-143).
+  // progress, a ProgressBar's is its tweened fraction, and a Slider's is the
+  // value it PAINTS — which trails the logical one while a change the game made
+  // glides in, and is what the rects beside it were laid out from.
   if (node.ir->type == NodeType::Toggle) {
     writer.key("value");
     writer.number_value(node.checked_progress);
   } else if (node.ir->type == NodeType::ProgressBar) {
     writer.key("value");
     writer.number_value(node.progress);
+  } else if (node.ir->type == NodeType::Slider) {
+    writer.key("value");
+    writer.number_value(node.slider_display);
   }
 
   // `field` (G11, ZAB-144) and `window` (G12, ZAB-145) belong here, in that
