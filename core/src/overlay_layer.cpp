@@ -83,11 +83,12 @@ void OverlayLayer::sync_modal_focus() {
       on_present_layer(*current)) {
     return;
   }
-  // G12 (ZAB-145) adds the one exception between here and the line below: a focus
-  // waiting on a virtualized row that is not realized right now is not free to
-  // give away (ZAB-70), so scrolling a list must never hand it to the view's
-  // `autofocus`. There are no unrealized rows until a `Repeat` builds them.
-  //
+  // Nothing wears the focus because the row that holds it is not realized right
+  // now (ZAB-70): the focus is not free to give away, so nothing happens here —
+  // scrolling a list must never teleport the focus to the view's `autofocus`.
+  // A modal that just opened is the exception: it owns the focus by definition,
+  // and it will hand it back when it closes.
+  if (!opened && view_.pending_focus_.has_value()) return;
   // Outside the scope (or gone): the restored node if it still qualifies,
   // otherwise the scope's `autofocus` — and nothing at all if neither does,
   // rather than leaving a node under the modal wearing the focused state.

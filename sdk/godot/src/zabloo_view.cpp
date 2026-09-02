@@ -179,8 +179,8 @@ void ZablooView::_bind_methods() {
   // spells it — the whole point of a per-engine adapter. All three are ordinary
   // signals, so GDScript, C# and C++ consume them the same way.
   //
-  // `context` is empty until G12 (ZAB-145) gives an action fired inside a
-  // `Repeat` item the path, key and index of the item it came from.
+  // `context` carries the path, key and index of the item an action fired from
+  // inside a `Repeat`, and is empty for one fired from the document itself.
   ADD_SIGNAL(MethodInfo("action", PropertyInfo(Variant::STRING, "name"),
                         PropertyInfo(Variant::DICTIONARY, "context")));
   // A control wrote its own value into a bound path — the return leg of the data
@@ -1335,8 +1335,19 @@ void ZablooView::flush_events() {
   zabloo::View *view = document_.view();
   if (view == nullptr) return;
   for (const zabloo::ActionEvent &action : view->drain_actions()) {
+    // The item the action fired from (ZAB-29), or an empty dictionary when it
+    // fired from the document itself. `path` is an ADDRESS, so it is also what
+    // the game writes back through with `set_data`; `key` is absent whenever the
+    // list identifies its rows by position.
     Dictionary context;
-    if (!action.item_path.empty()) context["path"] = String::utf8(action.item_path.c_str());
+    if (!action.item_path.empty()) {
+      context["path"] = String::utf8(action.item_path.c_str());
+      context["index"] = action.item_index;
+      if (action.has_key) {
+        context["key"] = action.key_is_number ? Variant(action.key_number)
+                                              : Variant(String::utf8(action.key_text.c_str()));
+      }
+    }
     emit_signal("action", String::utf8(action.name.c_str()), context);
   }
   for (const zabloo::DataChange &change : view->drain_data_changes()) {

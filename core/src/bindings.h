@@ -8,25 +8,32 @@
 // screen — which is the criterion the corpus enforces. The same role
 // `ease_progress` plays for motion.
 //
-// Nothing here has a `Repeat` to run against yet: G12 (ZAB-145) is what opens
-// the scopes. Until then every node's scope stack is empty and `resolve_binding`
-// hands paths straight through, which is exactly what it is supposed to do
-// outside a template.
+// Outside a template a node has no scope at all and `resolve_binding` hands
+// paths straight through, which is exactly what it is supposed to do there.
 
 #pragma once
 
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "data.h"
 
 namespace zabloo {
 
 /**
- * One item scope open while a template is instantiated — a stack of these grows
- * one entry per enclosing `Repeat`.
+ * One item scope open while a template is instantiated — a chain of these grows
+ * one link per enclosing `Repeat`, innermost first.
+ *
+ * A CHAIN and not a stack copied per instance, because a scope is shared: when a
+ * `SetData` reorders a list, pointing one row at another element has to be one
+ * mutation that its whole subtree sees, nested lists included. A nested instance
+ * holding its own copy of the outer scope would keep reading the row the outer
+ * one used to be — which is precisely the case ZAB-29 went out of its way to make
+ * reachable, a product row binding its category's alias.
+ *
+ * The links are owned by the instance root each one was opened for, so a chain
+ * outlives every node that points into it and dies when its row does.
  */
 struct ItemScope {
   /** The enclosing Repeat's `as` (default `"item"`). */
@@ -35,6 +42,8 @@ struct ItemScope {
   std::string path;
   /** Position in the array — what `"<alias>.$index"` resolves to. */
   int index = 0;
+  /** The scope this one is nested in, or null at the outermost `Repeat`. */
+  const ItemScope *outer = nullptr;
 };
 
 /**
@@ -56,7 +65,7 @@ struct ResolvedBind {
  * deeper (`"item.a.$index"`) is an ordinary segment that will simply read no
  * value.
  */
-ResolvedBind resolve_binding(std::string_view bind, const std::vector<ItemScope> &scopes);
+ResolvedBind resolve_binding(std::string_view bind, const ItemScope *innermost);
 
 /** Absolute path of element `index` of the array at `array_path`. */
 std::string item_path(std::string_view array_path, int index);

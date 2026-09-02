@@ -131,7 +131,7 @@ class OverlayLayer {
   /**
    * A released node's identity dies with it. Everything else the layer keeps is a
    * field ON the node, so this is only the modal stack — which points at nodes
-   * from the outside. Nothing releases a node yet; G12 (ZAB-145) is what will.
+   * from the outside — which a `Repeat` does whenever a row leaves its window.
    */
   void forget(const LayoutNode &node);
 
