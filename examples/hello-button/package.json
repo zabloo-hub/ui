@@ -5,6 +5,7 @@
   "description": "The vertical-slice project: a pressable Button exported as IR and rendered by the Unity SDK",
   "scripts": {
     "dev": "zabloo dev",
+    "dev:godot": "zabloo dev --godot",
     "dev:unity": "zabloo dev --unity",
     "build": "zabloo export",
     "typecheck": "tsc --noEmit"

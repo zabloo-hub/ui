@@ -4170,3 +4170,70 @@ snapshot no tiene guion de botones.
 `core/tests/test_gamepad.cpp` y `core/tests/test_pad.cpp`. Docs:
 `docs/format/host-channel.md` (§ *The gamepad, and remapping it*), `docs/format/input.md` y
 `golden/README.md`. Corpus: `gamepad-nav` fuera de `core/tests/golden-skip.json`.
+
+## 2026-09-03 — El dev loop de Godot: el receptor vive en el JUEGO, y el envelope viaja fino (ZAB-147, F11 G14)
+
+**Decisión:** `zabloo dev --godot` empuja cada guardado al **proceso del juego**, no al
+editor, y lo que empuja es el envelope **sin bytes de assets**. El receptor es un autoload
+que registra el propio addon, así que habilitar el plugin ES la instalación completa: el
+juego no cablea nada, igual que no cablea nada para el mando (2026-08-12, ZAB-47).
+
+**Dónde vive, y por qué no en el editor.** En Unity el dev server vivía en el EDITOR porque
+el juego corre dentro de él (Play mode). El `Run` de Godot lanza **otro proceso**, así que
+lo único que tiene una vista viva que intercambiar es el juego — de ahí `TCPServer` + parseo
+HTTP mínimo en el runtime (la stdlib de Godot no trae servidor HTTP; `HTTPClient` es solo
+cliente). Se descarta la "opción a evaluar" del ticket —que el `EditorPlugin` escuchara
+también y escribiera el `.json` importado— por dos motivos: en Godot el envelope **no es un
+asset importado**, `load_file` lo lee de disco al arrancar, así que un proyecto parado ya
+abre sobre el último export sin que nadie escriba nada (eso es justo lo que Unity tenía que
+simular con `AssetDatabase.ImportAsset`); y editor y juego pelearían por el mismo puerto.
+
+**GDScript, y por tanto cero C++.** Es la misma frontera que `zabloo_plugin.gd` ya declaraba:
+GDScript para lo que no tiene bucle caliente, C++ para lo que corre por frame sobre cada
+nodo. Un `TCPServer` consultado una vez por frame y una reescritura de JSON por guardado no
+es trabajo del core — y las dos piezas que hacen falta, `JSON` y `HTTPRequest`, son de Godot:
+el core tiene **lector** de JSON y ningún escritor, a propósito. El adaptador no cambia ni
+una línea, porque `reload()` ya existía, el store de datos ya vivía en el `Document`
+(2026-08-03) y las texturas ya se cachean por hash (2026-09-02, G5).
+
+**Solo en builds debug**, y en **loopback**. Un canal de dev que un juego publicado pudiera
+abrir es un canal por el que se podría hablar con la máquina de un jugador; y escuchar más
+allá de `127.0.0.1` pondría el juego en la red en la que se desarrolla. Un segundo proceso
+encuentra el puerto ocupado y lo dice, en vez de escuchar en silencio a nadie.
+
+**El transporte es el de ZAB-14, con el motor como su segundo consumidor.** El push lleva el
+envelope fino y una cabecera `x-zabloo-assets` con la ruta `/asset/<hash>` que el preview
+server ya servía; el juego pide **solo los hashes que no tiene**, los guarda, y suelta los
+que el envelope nuevo dejó de referenciar — la misma regla que la cache de texturas
+(2026-08-11, ZAB-12). Un guardado en un proyecto con megabytes de PNGs mueve kilobytes, y
+una imagen se transfiere **una vez** por más recargas que vengan detrás. La rehidratación
+ocurre **antes** de `reload()`, así que el loader sigue recibiendo SIEMPRE un envelope
+completo: se parte el transporte, nunca el camino de carga (invariante de 2026-08-01, y
+literalmente lo que hace la página del preview desde 2026-08-11).
+
+Corolario que lo hace barato de verdad: como el adaptador cachea texturas **por hash**, un
+hash que ya se decodificó ni siquiera vuelve a decodificarse tras el swap. La deduplicación
+tiene dos pisos —bytes que no viajan y píxeles que no se decodifican— y ninguno de los dos
+sabe del otro.
+
+**El aviso de "no alcanzable" se dice UNA vez.** Hasta ahora el push imprimía una línea por
+guardado mientras el receptor no contestara — el ruido exacto que hizo opt-in el push a
+motor (2026-08-10), reaparecido en el caso normal de una tarde entera trabajando en el
+navegador. Ahora el pusher recuerda si el otro extremo estaba vivo: avisa al perderlo, calla
+hasta que conteste, y dice `— back` cuando vuelve. Un silencio permanente tampoco valdría:
+dejaría "he dado a Play" indistinguible de "se ha roto".
+
+**Detalles pequeños que son contrato:** el push responde `{"views": n}` **antes** de
+rehidratar (un fetch puede tardar y el CLI no tiene por qué esperarlo), y el CLI lo imprime
+— un juego que aceptó el push en cero vistas se parece demasiado a uno que lo aceptó en
+tres; dos guardados dentro de un mismo fetch **colapsan en uno**, el último, que es la misma
+regla que el propio `dev` aplica a los exports; y un asset que no llega cuesta sus píxeles y
+nunca la recarga (el nodo pinta su `background`, que es el placeholder autorado de ZAB-13).
+
+**`--unity` se queda intacto** y sigue mandando el envelope entero: su receptor no sabe nada
+de bytes diferidos. Se irá con el barrido de G17, como fija la decisión de 2026-08-24.
+
+**Verificación:** por definición no la puede arbitrar el corpus golden (corre el core sin
+motor y sin proceso). Está en `examples/godot-playground/README.md` § *Checking G14 by
+hand*, con la medida que el criterio de salida pedía: N recargas → 1 transferencia del
+asset, leída en el log de los dos lados.

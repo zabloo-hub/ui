@@ -56,14 +56,19 @@ is you playing the part of the game.
 ```bash
 zabloo dev                     # → http://localhost:5078
 zabloo dev --open              # …and open it in the browser
-zabloo dev --unity             # …and push each save to the Unity editor's dev mode
+zabloo dev --godot             # …and hot-swap each save in the running Godot game
 zabloo dev --preview-port 8080 # port of the web preview
-zabloo dev --port 5077         # dev-mode port of the Unity editor (with --unity)
+zabloo dev --godot-port 5079   # dev-mode port of the Godot game (with --godot)
+zabloo dev --unity             # …and push each save to the Unity editor's dev mode
 zabloo dev --allow-host <host> # answer to another Host too (repeatable)
 ```
 
-With `--unity`, every save hot-swaps the running view in the editor (Play mode included)
-through the same loading path production hot-updates use.
+One flag per engine, combinable. With `--godot`, every save hot-swaps the running game
+through the same loading path production hot-updates use — the receiver is the addon's
+`ZablooDevMode` autoload, installed by enabling the Zabloo plugin, listening on loopback in
+debug builds only. The push carries the tree **without its asset bytes**; the game fetches
+only the content hashes it does not already hold, so a save moves KB and an image is
+transferred once. `--unity` does the same for the Unity editor, whole envelope and all.
 
 **A save whose export fails is reported on the page, and never as a red overlay.** The
 **last good render stays on screen** — that is the thing you were looking at, and hiding it

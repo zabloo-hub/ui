@@ -65,6 +65,7 @@ export async function scaffold(dir: string, options: ScaffoldOptions = {}): Prom
     type: "module",
     scripts: {
       dev: "zabloo dev",
+      "dev:godot": "zabloo dev --godot",
       "dev:unity": "zabloo dev --unity",
       build: "zabloo export",
       typecheck: "tsc --noEmit",

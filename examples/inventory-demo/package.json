@@ -5,6 +5,7 @@
   "description": "ScrollView reference screen: a shop with real overflow — vertical list, horizontal category strip and a Collapse inside the scroll",
   "scripts": {
     "dev": "zabloo dev",
+    "dev:godot": "zabloo dev --godot",
     "dev:unity": "zabloo dev --unity",
     "build": "zabloo export",
     "typecheck": "tsc --noEmit"

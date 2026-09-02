@@ -100,6 +100,17 @@ describe("preview server", () => {
     expect(envelope.views).toEqual({ main: { type: "Image", src: "asset:hero.png" } });
   });
 
+  // The Godot dev mode pushes the same thin text (G14), so handing it back is
+  // what keeps one save from splitting the same megabytes twice.
+  it("hands back the thin envelope it is now serving", async () => {
+    const server = await start();
+
+    const thin = server.setEnvelope(ENVELOPE);
+
+    expect(thin).toBe(await (await fetch(`${server.url}envelope`)).text());
+    expect(JSON.parse(thin).assets["hero.png"].data).toBeUndefined();
+  });
+
   it("serves each asset by content hash, cacheable forever", async () => {
     const server = await start();
     server.setEnvelope(ENVELOPE);
