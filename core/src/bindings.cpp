@@ -3,7 +3,6 @@
 #include <cmath>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "data.h"
 
@@ -15,11 +14,11 @@ constexpr std::string_view INDEX_SEGMENT = "$index";
 
 }  // namespace
 
-ResolvedBind resolve_binding(std::string_view bind, const std::vector<ItemScope> &scopes) {
+ResolvedBind resolve_binding(std::string_view bind, const ItemScope *innermost) {
   ResolvedBind out;
   // Innermost scope first: a nested list's alias shadows the one outside it.
-  for (size_t i = scopes.size(); i > 0; i--) {
-    const ItemScope &scope = scopes[i - 1];
+  for (const ItemScope *link = innermost; link != nullptr; link = link->outer) {
+    const ItemScope &scope = *link;
     if (scope.alias.empty()) continue;
     if (bind == scope.alias) {
       out.path = scope.path;

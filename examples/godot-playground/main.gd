@@ -20,12 +20,19 @@ extends Control
 ## (four curves racing, a bar that tweens its VALUE, the Spinner's wave) and its
 ## `overlays` view is G9's: a modal that dims, captures and traps the focus, a
 ## toast that closes itself, tooltips that ride their anchor's hover OR focus with
-## flip and clamp, and a popover whose open state is the SDK's.
+## flip and clamp, and a popover whose open state is the SDK's. `inventory-demo`
+## is G12's: one template over an array the GAME pushes, virtualized inside the
+## scroller, with per-row state that travels with its `key` when the array moves.
 const SOURCES := [
 	{"path": "../settings-screen/dist/zabloo.ir.json", "view": "settings"},
 	{"path": "../showcase/dist/zabloo.ir.json", "view": "motion"},
 	{"path": "../showcase/dist/zabloo.ir.json", "view": "overlays"},
+	{"path": "../inventory-demo/dist/zabloo.ir.json", "view": "inventory"},
 ]
+
+## How many rows the inventory pushes. Well past what the viewport can show, on
+## purpose: the point of the example is that only the visible ones are realized.
+const INVENTORY_ROWS := 400
 
 @onready var _view: ZablooView = $Zabloo
 @onready var _log: Label = $Log
@@ -35,6 +42,7 @@ var _gold := 1200
 var _progress := 0.1
 var _volume := 60.0
 var _collapsed := false
+var _inventory_offset := 0
 
 
 func _ready() -> void:
@@ -75,7 +83,30 @@ func _load() -> void:
 	_view.set_data("settings.quality", "high")
 	_view.set_data("settings.language", "en")
 	_view.set_data("profile.name", "Nova")
+	_view.set_data("shop.items", _inventory())
 	_log.text = "%s — arrows navigate, Enter presses, Escape dismisses, E swaps example" % path.get_file()
+
+
+## The array behind the inventory's list — the game's data, not the UI's.
+##
+## Every row carries the `id` the template names as its `keyPath`, which is what
+## makes a row's state (its focus, its favourite checkbox, a transition in flight)
+## travel with the ITEM when the array is reordered instead of staying pinned to
+## the position it used to sit at.
+func _inventory(offset: int = 0) -> Array:
+	var tags := ["⚔", "🛡", "🏹", "🧪", "💍", "🪖"]
+	var rows := []
+	for i in INVENTORY_ROWS:
+		var n := i + offset
+		rows.append({
+			"id": "item-%d" % n,
+			"tag": tags[n % tags.size()],
+			"name": "Item %d" % n,
+			"detail": "Row %d of %d" % [n + 1, INVENTORY_ROWS],
+			"price": str(10 + (n % 90)),
+			"fav": n % 7 == 0,
+		})
+	return rows
 
 
 ## Reload, example swapping and view switching, by hand.
@@ -113,6 +144,22 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	# The motion view's other host of a tween: SPACE races the four curves against
 	# each other from one `set_data`, which is the whole "no trigger list" rule in
 	# one keypress — nothing here mentions animation, the value simply moved.
+	# The list, driven the way a game drives one: the array is pushed WHOLE and the
+	# renderer reconciles it. I reverses it (every row keeps its own state and
+	# moves with it), and O renumbers the ids (every row is a new item, so state
+	# stays where it is). Two keys, and the difference between them is exactly
+	# what declaring a `keyPath` buys.
+	if event.keycode == KEY_I:
+		var rows := _inventory()
+		rows.reverse()
+		_view.set_data("shop.items", rows)
+		_log.text = "shop.items reversed — %d rows" % rows.size()
+		return
+	if event.keycode == KEY_O:
+		_inventory_offset += INVENTORY_ROWS
+		_view.set_data("shop.items", _inventory(_inventory_offset))
+		_log.text = "shop.items replaced — ids from item-%d" % _inventory_offset
+		return
 	if event.keycode == KEY_SPACE:
 		_progress = 0.9 if _progress < 0.5 else 0.1
 		_view.set_data("demo.progress", _progress)
@@ -139,6 +186,12 @@ func _on_action(name: String, context: Dictionary) -> void:
 			_log.text = "bought — gold is now %d" % _gold
 		"quit":
 			_log.text = "quit"
+		"favourite":
+			# An action from inside a row arrives with the item it fired from
+			# (2026-08-11, ZAB-29): its absolute path, its raw key and its
+			# position. The path is an address, so it is also what a write back
+			# would go through.
+			_log.text = "favourite %s (index %s)" % [context.get("key", "?"), context.get("index", "?")]
 		_:
 			_log.text = "action: %s" % name
 

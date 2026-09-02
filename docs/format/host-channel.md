@@ -48,6 +48,10 @@ A `Variant` carries what the channel carries: a bool, a number, a string, and �
 bound path addresses **into** what was pushed — an `Array` or a `Dictionary` too.
 `set_data("shop.items", [...])` is what makes `{"bind": "shop.items.1.name"}` resolve.
 
+The `action` signal's `context` is the `ActionContext` below as a `Dictionary`, with the
+same keys (`path`, `key`, `index`) — and empty for an action fired from the document
+itself, since GDScript has no absent value that reads better than an empty dictionary.
+
 The keyboard has one Godot-only wrinkle, and it belongs to the `Slider`. Arrow keys along a
 slider's axis adjust it and the release of that key is what fires `onCommit`, but the core
 is only ever told about presses — so `ZablooView` calls the runtime's `settle_slider_keys()`

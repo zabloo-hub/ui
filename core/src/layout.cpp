@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 
 #include "progress.h"
@@ -13,25 +14,7 @@
 namespace zabloo {
 namespace {
 
-void link_parents(LayoutNode &node) {
-  for (LayoutNode &child : node.children) {
-    child.parent = &node;
-    link_parents(child);
-  }
-}
-
 bool is_row(const LayoutNode &node) { return node.ir->layout.direction == Direction::Row; }
-
-/**
- * Whether a node breaks its children into several lines (2026-08-11, ZAB-32 — a
- * grid IS a row that wraps). `wrap` only takes effect on a ROW: the measure pass
- * carries a width offer and nothing else, so a column has no length to break
- * against and lays its children on one line — the same degradation an SDK that
- * predates the flag gives.
- */
-bool wraps_lines(const LayoutNode &node) {
-  return node.ir->layout.wrap && is_row(node);
-}
 
 /**
  * The width a node's children may use. A `ScrollView` offers nothing on a
@@ -71,13 +54,20 @@ void fill_flow_items(LayoutNode &node) {
  * Groups items into the lines they lay out on, greedy first-fit. Lines partition
  * the item sequence in order, so where each starts is the whole answer.
  *
+ * A virtualized node caps the line at the `per_line` its window assumed, so the
+ * two can never drift: `items_per_line` computes the same first-fit ahead of
+ * time, and a realized window has to break exactly where it was planned to.
+ *
  * Without `wrap` there is a single line: what every node emitted before ZAB-32
  * assumes, and the reason nothing else in the pass had to change.
  */
 void break_lines(LayoutNode &node, std::optional<double> content_main, double gap) {
   node.line_starts.clear();
   if (node.items.empty()) return;
-  if (!wraps_lines(node) || !content_main.has_value()) {
+  const std::optional<int> cap =
+      node.virtual_span.has_value() ? std::optional<int>(node.virtual_span->per_line)
+                                    : std::nullopt;
+  if (!wraps_lines(node) || (!content_main.has_value() && !cap.has_value())) {
     node.line_starts.push_back(0);
     return;
   }
@@ -87,7 +77,8 @@ void break_lines(LayoutNode &node, std::optional<double> content_main, double ga
   for (uint32_t index = 0; index < node.items.size(); index++) {
     const double main = node.item_mains[index];
     const double needed = in_line == 0 ? main : used + gap + main;
-    if (in_line > 0 && needed > *content_main) {
+    const bool full = cap.has_value() && in_line >= static_cast<uint32_t>(*cap);
+    if (in_line > 0 && (full || (content_main.has_value() && needed > *content_main))) {
       node.line_starts.push_back(index);
       in_line = 0;
     }
@@ -104,6 +95,10 @@ uint32_t line_end(const LayoutNode &node, size_t line) {
 /**
  * The size the children take as a whole: the longest line on the main axis, the
  * lines stacked on the cross one.
+ *
+ * A virtualized `Repeat` overrides the axis its lines stack on with the space of
+ * the WHOLE array — the realized window is a fraction of it, and the scroll
+ * bounds must not depend on how much is realized.
  */
 Size flow_size(const LayoutNode &node, double gap) {
   double main = 0.0;
@@ -121,7 +116,9 @@ Size flow_size(const LayoutNode &node, double gap) {
     cross += line_cross;
   }
   cross += gap * static_cast<double>(std::max<size_t>(node.line_starts.size(), 1) - 1);
-  return Size{main, cross};
+  if (!node.virtual_span.has_value()) return Size{main, cross};
+  const double reserved = node.virtual_span->reserved;
+  return wraps_lines(node) ? Size{main, reserved} : Size{reserved, cross};
 }
 
 /**
@@ -193,25 +190,48 @@ void arrange_slider(LayoutNode &node, const Rect &rect) {
 
 }  // namespace
 
+/**
+ * `wrap` only takes effect on a ROW: the measure pass carries a width offer and
+ * nothing else, so a column has no length to break against and lays its children
+ * on one line — the same degradation an SDK that predates the flag gives.
+ */
+bool wraps_lines(const LayoutNode &node) { return node.ir->layout.wrap && is_row(node); }
+
+LayoutNode &NodeList::emplace_back() {
+  items_.push_back(std::make_unique<LayoutNode>());
+  return *items_.back();
+}
+
+size_t NodeList::index_of(const LayoutNode &child) const {
+  for (size_t i = 0; i < items_.size(); i++) {
+    if (items_[i].get() == &child) return i;
+  }
+  return items_.size();
+}
+
 void build_layout_tree(const Node &ir, LayoutNode &out) {
   out.ir = &ir;
   out.children.clear();
-  // Reserved exactly, so pushing a child never moves the ones already there.
-  out.children.reserve(ir.children.size());
-  for (const Node &child : ir.children) {
+  // A `Repeat`'s template is NOT built here: its instances come from the DATA,
+  // and the expansion pass builds one per element of the window it can see. What
+  // the document contributes is `children[1..]`, the empty state, which is built
+  // as usual and kept out of layout until there is nothing to repeat.
+  const size_t first = ir.type == NodeType::Repeat ? 1 : 0;
+  for (size_t index = first; index < ir.children.size(); index++) {
+    const Node &child = ir.children[index];
     // A statically hidden subtree is not built at all. `visible: false` has
     // display:none semantics and nothing can turn it back on, so it has no
     // runtime worth keeping — and the snapshot of a view that declares one shows
     // no node, which is what the reference records. A BOUND `visible` builds
     // normally: the data may well say yes.
     if (child.visible.kind == Bindable<bool>::Kind::Value && !child.visible.value) continue;
-    out.children.emplace_back();
-    build_layout_tree(child, out.children.back());
+    // The parent is linked here and not in a pass of its own: a node's address
+    // no longer moves while its siblings are appended (`NodeList`), so a pointer
+    // taken during the walk names where the node will still be.
+    LayoutNode &node = out.children.emplace_back();
+    node.parent = &out;
+    build_layout_tree(child, node);
   }
-  // Parents are linked only once the whole tree is built: a node moves while its
-  // siblings are being appended, so a pointer taken during the walk would name
-  // where a node USED to be.
-  if (out.parent == nullptr) link_parents(out);
 }
 
 bool in_layout(const LayoutNode &node) { return node.visible_flag && node.section_shown; }
@@ -358,10 +378,13 @@ void arrange(LayoutNode &node, const Rect &rect) {
   }
 
   const bool wrapping = wraps_lines(node);
+  // A virtualized node starts its flow past the lines it did not realize, on the
+  // axis those lines stack on — which is the cross axis when it wraps.
+  const double span_lead = node.virtual_span.has_value() ? node.virtual_span->lead : 0.0;
   // Where the next line starts on the cross axis — the one value that genuinely
   // carries from one line to the next.
-  double stack_cross = row ? content.y : content.x;
-  const double main_lead = row ? content.x : content.y;
+  double stack_cross = (row ? content.y : content.x) + (wrapping ? span_lead : 0.0);
+  const double main_lead = (row ? content.x : content.y) + (wrapping ? 0.0 : span_lead);
 
   for (size_t line = 0; line < node.line_starts.size(); line++) {
     const uint32_t begin = node.line_starts[line];
