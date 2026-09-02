@@ -105,6 +105,11 @@ class ZablooView : public Control {
   /** Sets a `Toggle`, or picks an option of an `"exclusive-check"` group. */
   bool set_checked(const String &id, bool checked);
   /**
+   * Moves a `Slider` — the player's gesture with both its hooks, so a value the
+   * game pushes reaches `onChange` and `onCommit` exactly as a drag would.
+   */
+  bool set_value(const String &id, double value);
+  /**
    * Writes a `TextInput`'s text, as if it had been typed — the caret lands at the
    * end. `maxLength` does NOT apply: it bounds what the player can type, never
    * what the data is allowed to hold (2026-08-11, ZAB-26).

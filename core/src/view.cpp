@@ -204,13 +204,18 @@ void View::prepare(LayoutNode &node) {
     fields_.push_back(&node);
   }
   if (ir.visible.is_bound() || ir.disabled.is_bound() || ir.checked.is_bound() ||
-      (ir.type == NodeType::TextInput && ir.value.is_bound()) ||
-      (ir.group == GroupBehavior::ExclusiveCheck && ir.value.is_bound())) {
+      ((ir.type == NodeType::Slider || ir.type == NodeType::TextInput ||
+        ir.group == GroupBehavior::ExclusiveCheck) &&
+       ir.value.is_bound())) {
     bound_.push_back(&node);
   }
-  // Settled: this is the node's initial value, so its caret belongs at the end of
-  // it — where a player who had just typed it would have left it.
+  // Settled: this is the node's initial value, so a field's caret belongs at the
+  // end of it — where a player who had just typed it would have left it.
   apply_bindings(node, true);
+  // Starting ON this data means there is nothing to animate from, so the slider
+  // paints its value at once instead of gliding in from zero. That is a mount —
+  // and G12 (ZAB-145) reuses it for an instance recycled onto another item.
+  node.slider_display = node.slider_value;
   for (LayoutNode &child : node.children) prepare(child);
 }
 
@@ -373,6 +378,7 @@ void View::resolve(LayoutNode &node, double now) {
   // (decision 2026-08-11 §5) — before the children, since a Collapse decides here
   // whether its content is in layout at all this frame.
   if (node.ir->type == NodeType::ProgressBar) resolve_progress(node, anim, tween, now);
+  else if (node.ir->type == NodeType::Slider) resolve_slider(node, anim, tween, now);
   else if (node.ir->type == NodeType::Collapse) resolve_collapse(node, anim, tween, now);
 
   for (LayoutNode &child : node.children) resolve(child, now);
@@ -415,6 +421,21 @@ void View::resolve_progress(LayoutNode &node, NodeAnim *anim,
   const SteppedValue stepped =
       step_value(anim, TrackKey::Progress, progress_target(node), transition, now);
   node.progress = stepped.value;
+  if (stepped.animating) animating_ = true;
+}
+
+/**
+ * The Slider's painted value. A change that comes from the game (a binding,
+ * `set_value`) GLIDES; the one in the player's hand does not — a thumb lagging
+ * the finger reads as a broken control, not as juice — so a gesture in flight
+ * steps with no transition, which is the engine's instant path.
+ */
+void View::resolve_slider(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,
+                          double now) {
+  const bool gesturing = slider_drag_.node == &node || slider_keys_.node == &node;
+  const SteppedValue stepped = step_value(anim, TrackKey::Value, node.slider_value,
+                                          gesturing ? nullptr : transition, now);
+  node.slider_display = stepped.value;
   if (stepped.animating) animating_ = true;
 }
 
@@ -620,6 +641,19 @@ void View::apply_bindings(LayoutNode &node, bool settle) {
     node.checked =
         ir.checked.is_bound() ? is_truthy(read_bind(node, ir.checked.bind)) : ir.checked.literal(false);
   }
+  if (ir.type == NodeType::Slider) {
+    const SliderRange range = range_of(node);
+    // Unbound, `value` is the initial number; bound, the store decides — and an
+    // empty store leaves the control at its minimum. `to_number` is what accepts
+    // the numeric strings the channel blurs, so a value that crossed a text field
+    // or a JSON payload still moves the control.
+    const double initial = ir.value.is_bound()
+                               ? to_number(read_bind(node, ir.value.bind), range.min)
+                               : (ir.value.value.kind == Scalar::Kind::Number
+                                      ? ir.value.value.number
+                                      : range.min);
+    node.slider_value = quantize(initial, range);
+  }
   if (ir.type == NodeType::TextInput && node.field != nullptr) {
     // Unbound, `value` is the initial text; bound, the store decides — and an
     // empty store leaves the field empty, showing its placeholder. The game's own
@@ -636,8 +670,6 @@ void View::apply_bindings(LayoutNode &node, bool settle) {
                                    : clamp_selection(node.field->selection,
                                                      node.field->chars.size());
   }
-  // A Slider's bound value lands here too, in G10 (ZAB-143): the props exist, the
-  // runtime that holds them does not yet.
 }
 
 /**
@@ -662,6 +694,7 @@ bool View::watches(const LayoutNode &node, std::string_view written) const {
   if (ir.visible.is_bound() && touches(ir.visible.bind)) return true;
   if (ir.disabled.is_bound() && touches(ir.disabled.bind)) return true;
   if (ir.type == NodeType::Toggle && ir.checked.is_bound() && touches(ir.checked.bind)) return true;
+  if (ir.type == NodeType::Slider && ir.value.is_bound() && touches(ir.value.bind)) return true;
   if (ir.type == NodeType::TextInput && ir.value.is_bound() && touches(ir.value.bind)) return true;
   if (ir.group == GroupBehavior::ExclusiveCheck && ir.value.is_bound() && touches(ir.value.bind)) {
     return true;
@@ -865,6 +898,92 @@ void View::set_toggle_checked(LayoutNode &node, bool checked) {
   if (!group_action.empty()) fire(node, group_action);
 }
 
+// --- Slider (2026-08-11, ZAB-24) -------------------------------------------
+
+SliderRange View::range_of(const LayoutNode &node) const {
+  return resolve_range(node.ir->min, node.ir->max, node.ir->step);
+}
+
+bool View::slider_vertical(const LayoutNode &node) const {
+  return grows_upward(node.ir->slider_axis);
+}
+
+void View::set_slider_value(LayoutNode &node, double value) {
+  const double next = quantize(value, range_of(node));
+  if (next == node.slider_value) return;
+  node.slider_value = next;
+  const Node &ir = *node.ir;
+  std::string path;
+  if (ir.value.is_bound() && write_path(node, ir.value.bind, path)) {
+    write_data(path, DataValue::of_number(next));
+  }
+  if (!ir.on_change.empty()) fire(node, ir.on_change);
+}
+
+void View::commit_slider(const SliderGesture &gesture) {
+  if (gesture.node == nullptr) return;
+  const std::string &action = gesture.node->ir->on_commit;
+  if (!action.empty() && gesture.node->slider_value != gesture.from) fire(*gesture.node, action);
+}
+
+double View::value_at_point(const LayoutNode &node, double x, double y) const {
+  const bool vertical = slider_vertical(node);
+  const double padding = node.resolved.padding;
+  const double length =
+      std::max(0.0, (vertical ? node.rect.height : node.rect.width) - padding * 2);
+  const double start = (vertical ? node.rect.y : node.rect.x) + padding;
+  // The thumb's own size, straight from the measure — the same number
+  // `arrange_slider` insets the travel by, so the two cannot drift apart.
+  const LayoutNode *thumb = node.children.size() > 1 ? &node.children[1] : nullptr;
+  const double thumb_size =
+      thumb != nullptr ? std::min(vertical ? thumb->measured.y : thumb->measured.x, length) : 0.0;
+  return value_at(vertical ? y : x, start, length, thumb_size, range_of(node), vertical);
+}
+
+/**
+ * One arrow press on the focused Slider. Only the keys ALONG its axis reach here
+ * (the cross-axis ones keep navigating), and on a vertical slider up means more —
+ * the value grows upward, like the track does.
+ */
+void View::nudge_slider(LayoutNode &node, double dx, double dy) {
+  const bool vertical = slider_vertical(node);
+  const double direction = vertical ? -dy : dx;
+  if (slider_keys_.node == nullptr) slider_keys_ = SliderGesture{&node, node.slider_value};
+  set_slider_value(node, step_by(node.slider_value, direction, range_of(node)));
+}
+
+bool View::slider_axis_key(const LayoutNode *node, double dx) const {
+  if (node == nullptr || node->ir->type != NodeType::Slider || !in_layout(*node)) return false;
+  if (node->disabled) return false;
+  return slider_vertical(*node) ? dx == 0.0 : dx != 0.0;
+}
+
+bool View::settle_slider_keys() {
+  const SliderGesture gesture = slider_keys_;
+  if (gesture.node == nullptr) return false;
+  slider_keys_ = SliderGesture{};
+  commit_slider(gesture);
+  return true;
+}
+
+LayoutNode *View::slider_at(double x, double y) {
+  LayoutNode *node = hit(x, y);
+  for (LayoutNode *candidate = node; candidate != nullptr; candidate = candidate->parent) {
+    if (candidate->disabled) continue;
+    if (candidate->ir->type == NodeType::Slider) return candidate;
+  }
+  return nullptr;
+}
+
+bool View::end_slider_drag(bool settle) {
+  const SliderGesture gesture = slider_drag_;
+  if (gesture.node == nullptr) return false;
+  slider_drag_ = SliderGesture{};
+  gesture.node->pressed = false;
+  if (settle) commit_slider(gesture);
+  return true;
+}
+
 /**
  * Activating a control — the one path shared by pointer taps, Enter and the pad.
  * A Button fires its named action (and moves the selection when it is a tab); a
@@ -968,13 +1087,30 @@ void View::prune_disabled() {
     pressed_->pressed = false;
     pressed_ = nullptr;
   }
-  // A field switched off mid-selection lets the pointer go. Nothing concludes:
-  // the buffer never moved (ZAB-63).
+  // CANCELLED, not settled: the control died under the finger, so its value never
+  // became the player's (ZAB-63). Both gestures alike — a held arrow must not
+  // commit a control the game just killed either. A scroll drag survives on
+  // purpose: a disabled section is still readable, so scrolling it was never an
+  // interaction that section owned.
+  if (slider_drag_.node != nullptr && slider_drag_.node->disabled) end_slider_drag(false);
+  if (slider_keys_.node != nullptr && slider_keys_.node->disabled) slider_keys_ = SliderGesture{};
+  // A field switched off mid-selection lets the pointer go too. Nothing concludes
+  // there either, and for a simpler reason than the Slider's: the buffer never
+  // moved, so there was never a value to settle or to throw away.
   if (text_drag_ != nullptr && text_drag_->disabled) text_drag_ = nullptr;
 }
 
 bool View::move_focus(double dx, double dy) {
   if (ir_root_ == nullptr) return false;
+  // On a focused Slider the arrows ALONG its axis adjust the value and the cross
+  // ones keep navigating (2026-08-11, ZAB-24). Deliberately unlike the TextInput
+  // of G11 (ZAB-144), which hands its axis back at the end of the text: a slider's
+  // travel is short, so stepping through it is cheap, and a control that swallowed
+  // all four directions is exactly what breaks a screen for a pad.
+  if (slider_axis_key(focus_, dx)) {
+    nudge_slider(*focus_, dx, dy);
+    return true;
+  }
   std::vector<LayoutNode *> candidates;
   collect_focusables(root_, candidates);
   if (candidates.empty()) return false;
@@ -1017,7 +1153,7 @@ bool View::press_focused(bool down) {
   if (node == nullptr || !in_layout(*node) || node->disabled) return false;
   // A Slider is adjusted with the axis arrows and a TextInput submits with Enter:
   // neither has anything to activate, and a press must not fall through to the
-  // Collapse branch below. Both arrive with G10 (ZAB-143) and G11 (ZAB-144).
+  // Collapse branch below. The field's own handling arrives with G11 (ZAB-144).
   if (node->ir->type == NodeType::Slider || node->ir->type == NodeType::TextInput) return false;
   if (down) {
     if (node->pressed) return false;
@@ -1067,6 +1203,18 @@ bool View::set_checked(std::string_view id, bool checked) {
   // The player's gesture, hooks included — a game and a player produce identical
   // results (`docs/format/host-channel.md`).
   set_toggle_checked(*node, checked);
+  return true;
+}
+
+bool View::set_value(std::string_view id, double value) {
+  LayoutNode *node = find_by_id(id, NodeType::Slider);
+  if (node == nullptr) return false;
+  // A whole gesture and not just a write: the value moves and then SETTLES, so a
+  // game that pushes a number gets its `onCommit` exactly as a player's release
+  // would have. `set_checked`'s "a tap given by the game", one control over.
+  const SliderGesture gesture{node, node->slider_value};
+  set_slider_value(*node, value);
+  commit_slider(gesture);
   return true;
 }
 
@@ -1529,6 +1677,13 @@ bool View::pointer_move(double x, double y, bool mouse) {
       changed = true;
     }
   }
+  if (slider_drag_.node != nullptr) {
+    // No drag threshold: a slider follows the finger from the first pixel. There
+    // is no tap-vs-drag ambiguity to resolve — the press already set a value.
+    const double before = slider_drag_.node->slider_value;
+    set_slider_value(*slider_drag_.node, value_at_point(*slider_drag_.node, x, y));
+    return slider_drag_.node->slider_value != before || changed;
+  }
   if (text_drag_ != nullptr) {
     // The anchor stays where the press landed and only the focus follows the
     // pointer, so dragging backwards selects backwards.
@@ -1558,13 +1713,25 @@ bool View::pointer_move(double x, double y, bool mouse) {
 
 bool View::pointer_down(double x, double y, bool mouse) {
   // A new press ends whatever was still in flight, so the hover refresh below
-  // cannot advance the previous gesture's drag by the jump between the two.
+  // cannot advance the previous gesture's drag by the jump between the two. A
+  // Slider gesture ends the way a cancel ends it — settling, since its value is
+  // already on screen and already written.
   drag_ = ScrollDrag{};
+  end_slider_drag(true);
   const bool moved = pointer_move(x, y, mouse);
-  // A field takes the pointer BEFORE anything else can: it drags a selection out,
-  // and screens full of fields are scrollable, so the gesture must not become a
-  // scroll of the list the field sits in. (G10, ZAB-143, joins it here for the
-  // Slider, whose drag has the same problem.)
+  // A Slider and a TextInput take the pointer FIRST, and for the same reason: the
+  // gesture starts on the press — the thumb jumps to the finger, the caret lands
+  // where it was clicked — and both live inside scrollable screens where the drag
+  // has to move the control and not the list.
+  LayoutNode *slider = slider_at(x, y);
+  if (slider != nullptr) {
+    slider_drag_ = SliderGesture{slider, slider->slider_value};
+    slider->pressed = true;
+    // The pointer and directional navigation share ONE focus (2026-08-04).
+    set_focus(slider);
+    set_slider_value(*slider, value_at_point(*slider, x, y));
+    return true;
+  }
   LayoutNode *field = field_at(x, y);
   if (field != nullptr) {
     text_drag_ = field;
@@ -1598,6 +1765,12 @@ bool View::pointer_down(double x, double y, bool mouse) {
 }
 
 bool View::pointer_up(double x, double y, bool mouse) {
+  // The Slider's release settles the gesture: `onCommit` is the "apply the
+  // expensive thing" event, and it only fires if the number actually moved.
+  if (end_slider_drag(true)) {
+    pointer_move(x, y, mouse);
+    return true;
+  }
   if (text_drag_ != nullptr) {
     // A selection concludes by simply existing: there is nothing to fire and no
     // value to settle — the buffer never changed.
@@ -1665,12 +1838,14 @@ bool View::pointer_cancel() {
     pressed_ = nullptr;
     changed = true;
   }
-  // A selection drag simply stops: the buffer never moved, so there is nothing
-  // it could have concluded. G10 (ZAB-143) adds the one real exception here: a
-  // Slider SETTLES on a cancel. Its value is already on screen and was written
-  // into its bound path on every move, so refusing `onCommit` would leave the
-  // game without the "apply the expensive thing" event for a value the player
-  // really did leave there.
+  // The one exception to "ends without concluding": a Slider SETTLES on a cancel.
+  // Its value is already on screen and was written into its bound path on every
+  // move, so refusing `onCommit` would leave the game without the "apply the
+  // expensive thing" event for a value the player really did leave there. Same
+  // reading as a pad unplugged mid-nudge (2026-08-12, ZAB-47).
+  changed = end_slider_drag(true) || changed;
+  // A selection drag is NOT that exception: the buffer never moved, so there is
+  // nothing it could have concluded either way.
   changed = text_drag_ != nullptr || changed;
   text_drag_ = nullptr;
   changed = drag_.node != nullptr || changed;

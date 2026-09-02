@@ -3649,6 +3649,108 @@ reclampado en el arrange), `core/src/tessellator.{h,cpp}` (los grupos), `core/sr
 `docs/format/host-channel.md` (el `set_scroll` de la tabla de Godot). Corpus: `scroll-clip`
 fuera de `core/tests/golden-skip.json`.
 
+## 2026-09-02 — El `Slider` en el core, y G10 resulta ser solo el `Slider` (ZAB-143, F11 G10)
+
+**Decisión:** el último control con valor entra como port literal de `slider.ts`, y con él
+**`controls` sale de la skip-list comparando byte a byte**. El corpus queda en 7 casos
+pendientes, y `disabled` estrecha su motivo hasta lo único que le quedaba: el `field` del
+TextInput (G11).
+
+**Lo primero es lo que el ticket no sabía de sí mismo.** El enunciado pide Toggle, Slider,
+ProgressBar y Spinner; tres de los cuatro ya estaban. El `Toggle` —slots posicionales,
+`checked` bindeado de lectura/escritura, `exclusive-check` derivando del valor del grupo,
+`set_checked`— aterrizó entre G7 y G8, y el `ProgressBar` y el `Spinner` enteros en G8, que
+ya dejó escrito que se adelantaban. **Comprobado desaltando los dos casos, no supuesto:** de
+las 21 diferencias que quedaban, veinte colgaban del `Slider` y una del TextInput. Así que
+G10 es el `Slider`, y lo que sigue es sobre él.
+
+**La geometría, que es lo que el corpus arbitra:** el nodo ES la pista y sus dos slots los
+coloca el valor, no el pase de flex — `children[0]` abarca la fracción de la **longitud
+entera** (así el carril se llena al llegar a `max`) mientras `children[1]` recorre un travel
+**metido medio thumb por cada extremo**, que es lo que mantiene cada píxel dentro del rect
+del nodo. Los dos conservan su tamaño en el eje cruzado y se centran en él, de modo que **el
+thumb desborda a su padre**: ordinario desde ZAB-7, porque la invariante de 2026-08-06 dice
+que un nodo no pinta fuera de **su propio** rect, no que un hijo no pueda salirse del padre.
+El vertical va de abajo arriba, como un fader. Y el `Slider` **se mide como hoja**: la
+longitud del carril es su `layout`, jamás la suma de sus slots — un thumb de 18 px no puede
+definir una pista de 220.
+
+**Tres trampas de paridad, del mismo tipo que este repo ya tiene escritas dos veces.** (a)
+`tidy` —lo que convierte `0.1 * 3` en `0.3` antes de que el número viaje al juego— es
+`Number(x.toFixed(10))`, que redondea los medios **hacia +infinito** y no alejándose del
+cero: de ahí `floor(v + 0.5)` y no `std::round`, la misma nota que lleva el snap del glifo en
+G4. Se hace a mano y no con `printf`, que lee el separador decimal del **locale**. (b) Por
+encima de `1e5` se deja el número en paz: ahí el propio espaciado de un `double` ya es más
+ancho que la décima cifra decimal, así que redondear es la identidad, y multiplicar por
+`1e10` sacaría el producto de los enteros exactos y redondearía dos veces. (c) `max` sigue
+siendo **siempre** un stop alcanzable aunque el rango no sea un número entero de pasos: el
+jugador ve el final del carril, y dejarlo inalcanzable se lee como un control roto.
+
+**Una operación nueva en la superficie del core, y es del teclado:
+`settle_slider_keys()`.** Las flechas del eje ajustan el valor y `onCommit` pertenece al
+**final** del gesto, pero al core solo se le cuentan pulsaciones — una flecha mantenida es
+`move_focus` repitiendo, y nada en eso dice dónde para. El adaptador, que sí ve la tecla
+subir, lo dice. Es fontanería del adaptador y no una operación del canal de host: un juego
+no la llama nunca. Es el papel que el `keyup` del navegador juega en la referencia, y el que
+el `settleSliderKeys` del mando va a pedirle en G13.
+
+**El dedo salta, el juego planea.** Un cambio que viene de un binding o de `set_value`
+interpola el valor pintado con el `transition` del nodo; el que está en la mano del jugador
+**no** —un pulgar por detrás del dedo se lee como control roto, no como juice—, así que un
+gesto en vuelo pasa por el motor de G8 con `transition` nulo, que es su camino instantáneo.
+
+**Los tres finales de un gesto no son el mismo.** Una **soltada** asienta; un **cancel**
+también —la única excepción a "termina sin concluir" de ZAB-70, porque el valor ya está en
+pantalla y ya se escribió en su path en cada move, así que negarle el `onCommit` dejaría al
+juego sin el evento de "aplica lo caro" para un número que el jugador sí dejó ahí—; y un
+control que el juego **deshabilita** bajo el dedo **cancela sin asentar**, porque ahí el
+valor nunca llegó a ser del jugador (ZAB-63). Se suma un cuarto, propio del core y no de la
+referencia: una **pulsación nueva** con un gesto todavía en los libros lo termina asentando,
+por el mismo motivo por el que el core ya reseteaba ahí el drag de scroll — la referencia no
+lo necesita porque captura el puntero, y el adaptador de Godot no captura nada.
+
+**Un fallo de la referencia contra su propia spec, encontrado y ARREGLADO en los dos
+lados.** `docs/components/slider.md` dice que un gesto en vuelo cuando el juego deshabilita
+el control se cancela y nunca se commitea, y no dice "el del puntero"; `pruneDisabled` solo
+soltaba el drag, así que una flecha mantenida asentaba un control que acababa de morir. Aquí
+**no** se aplica el "reproducir y anotar" de 2026-09-01 (ZAB-139): aquel caso pedía tocar los
+dos targets y, sobre todo, no contradecía nada escrito — la política dice que un fallo de
+verdad *se arregla allí*, y la del versionado que **la spec es el contrato**. Es una línea en
+cada target, con un test en cada uno que falla sin ella. Ningún caso del corpus lo alcanza:
+un snapshot no tiene guion de teclas.
+
+**Y una divergencia de coacción que sí habría sido silenciosa:** el valor bindeado se lee con
+`to_number` y no mirando solo `Kind::Number`, que es lo que hace la referencia y lo que
+`data.h` ya tenía escrito — el juego puede haber empujado un número que cruzó un campo de
+texto o un payload JSON, y un control bindeado no puede depender de qué lado hizo el parseo.
+
+**Verificado en un proceso Godot real** (4.6.2, `examples/settings-screen`, escena
+desechable con input sintético y capturas): una pulsación en el carril salta al valor y lo
+escribe; el arrastre escribe en cada move y **no** commitea; la soltada deja exactamente un
+`brightness-apply`; un gesto que devuelve el thumb donde estaba no deja **nada**; dos
+flechas escriben 90 y 80 y solo la soltada commitea; la flecha cruzada mueve el foco sin
+tocar el valor; `set_value` hace el gesto entero. Y en píxeles: el thumb de un valor 50 sobre
+un carril de 340 con thumb de 18 cae en x=480 —`310 + 9 + 161`, exacto— y una captura a
+mitad del glide muestra la etiqueta bindeada ya en **0** con el thumb todavía de camino, que
+es la decisión del párrafo anterior en una imagen.
+
+**De paso, en el playground:** deja de rotarse un `ENVELOPE` por ticket —cada rotación
+destruía la forma de comprobar del ticket anterior— y pasa a una lista que `E` alterna, con
+`settings-screen` y el `motion` del showcase conviviendo. Y `action` se conectaba en `_ready`
+**y** en `_load`, así que cada `R` costaba un error de Godot y un callback duplicado.
+
+**Lo que en esa pantalla no funciona y no es de este ticket:** el desplegable de idioma (su
+popover es G9, ZAB-142) y el campo de nombre (G11, ZAB-144).
+
+**Dónde vive:** `core/src/slider.{h,cpp}` (el módulo puro), `core/src/layout.cpp` (la medida
+como hoja y `arrange_slider`), `core/src/view.{h,cpp}` (el estado, los dos gestos, los dos
+hooks, `set_value` y `resolve_slider`), `core/src/snapshot.cpp` (el `value`) y
+`sdk/godot/src/zabloo_view.cpp` (`set_value`, y la flecha que sube). Tests:
+`core/tests/test_slider.cpp` y la sección de Slider de `core/tests/test_view.cpp` — la
+secuencia es justo lo que un snapshot no puede grabar, y los tests se comprobaron con
+mutaciones. Docs: `docs/format/host-channel.md`. Corpus: `controls` fuera de
+`core/tests/golden-skip.json`.
+
 ## 2026-09-02 — `TextInput` en el core: el caret, y la entrada de texto que en Godot es del motor (ZAB-144, F11 G11)
 
 **Decisión:** el 13º primitivo entra en el core como port literal de `textinput.ts` y
@@ -3744,11 +3846,18 @@ Al soltar no se dispara nada y no se asienta nada — el buffer nunca se movió 
 alcanzable:** el caso `textinput` del corpus contiene un `Repeat`, y sus métricas graban las
 dos instancias expandidas (`ref: "4.0"`, `"4.1"`). Eso es G12 (ZAB-145). Comprobado
 des-saltando el caso: **las diez diferencias que quedan cuelgan todas del `Repeat`** y ni una
-del campo. Los otros dos casos que la skip-list colgaba de este ticket se estrechan igual —
-`disabled` y `settings` ya solo difieren en el `Slider` de G10 (ZAB-143), y `settings` no
-necesita nada de G9: su popover anclado está cerrado, así que su capa está vacía. Los tres
-motivos de `golden-skip.json` se reescriben en vez de borrarse, que es para lo que el guardia
-de ZAB-136 existe.
+del campo, así que su línea de `golden-skip.json` se reescribe en vez de borrarse — que es
+para lo que el guardia de ZAB-136 existe.
+
+**Los otros dos casos que la skip-list colgaba de este ticket sí salen, y salen al MERGEAR.**
+`disabled` y `settings` esperaban cada uno a las dos mitades que G10 (ZAB-143) y este ticket
+traían por separado, así que ninguna de las dos ramas podía quitarlos sola y las dos
+conservaron la línea culpando a la otra. Al fusionar, la resolución correcta de
+`golden-skip.json` es **la unión de las ELIMINACIONES, no la de las entradas** — exactamente
+el error que la fusión de G5 y G7 cometió el 2026-09-01 y que aquel guardia cazó. Con eso el
+corpus baja a cinco casos saltados: `overlays` y `anchors` (G9), `textinput` y `repeat` (G12)
+y `gamepad-nav` (G13). `settings` además no necesitaba nada de G9: su popover anclado está
+cerrado, así que su capa está vacía.
 
 **Diferidos, con su motivo:** el campo **multilínea**, que es una extensión sobre el wrap de
 ZAB-17 (un caret con fila además de columna, selección por rangos de línea, scroll vertical)
