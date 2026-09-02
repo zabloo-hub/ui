@@ -418,8 +418,7 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs, const 
 
   // An `Overlay` is a paint root laid out against the view rect, so the regions of
   // wherever it was DECLARED never apply to it — the same boundary `effective_clip`
-  // and the paint pass draw. The region restarts here. G9 (ZAB-142) is what puts
-  // one in the layer; until then nothing reaches this branch.
+  // and the paint pass draw. The region restarts here.
   const Clip *cut = node.ir->type == NodeType::Overlay ? nullptr : inherited;
   if (cut != nullptr) {
     writer.key("clip");
@@ -521,11 +520,26 @@ std::string snapshot_view(const View &view) {
   writer.key("pressed");
   write_ref_or_null(writer, refs, view.pressed());
 
-  // Overlays in `(z, document order)`, bottom-most first. The layer is assembled
-  // in G10 (ZAB-143); until then no node ever reaches it, which is the same empty
-  // array a view without overlays writes.
+  // Overlays in `(z, document order)`, bottom-most first — the layer as this
+  // frame PAINTED it, so an entry still fading out is in it, with the `presence`
+  // it is fading by.
   writer.key("layer");
   writer.begin_array();
+  for (const LayoutNode *overlay : view.paint_layer()) {
+    writer.element();
+    writer.begin_object();
+    writer.key("ref");
+    writer.string(ref_of(refs, overlay));
+    writer.key("z");
+    writer.number_value(overlay->ir->z);
+    writer.key("modal");
+    writer.bool_value(overlay->ir->modal);
+    writer.key("presence");
+    writer.number_value(overlay->presence);
+    writer.key("rect");
+    write_rect(writer, overlay->rect);
+    writer.end_object();
+  }
   writer.end_array();
 
   writer.key("tree");

@@ -216,6 +216,35 @@ struct LayoutNode {
    */
   std::optional<double> loop_started_at;
 
+  // --- the overlay layer (2026-08-11, ZAB-19), on an `Overlay` only ---
+  /**
+   * How far this Overlay has entered the layer, 0 (gone) to 1 (fully up), and the
+   * tween that moves it.
+   *
+   * The tween is deliberately NOT in `anim`: the resolve pass drops that one
+   * whenever a node leaves layout, and an exit whose starting point is erased by
+   * the exit itself would never animate. It is what lets a closing modal outlive
+   * the `visible` that closed it by exactly one transition — and what comes out
+   * of it is pixels and nothing else, because input, focus and the auto-close
+   * timers all read the LIVE layer, which the overlay has already left.
+   */
+  double presence = 1.0;
+  std::unique_ptr<NodeAnim> presence_anim;
+  /** Out of the live layer but still fading: it paints, and nothing else. */
+  bool presence_exiting = false;
+  /**
+   * A popover's open state — the one piece of overlay state that is not
+   * `visible`, because "open" is runtime state and not the game's data
+   * (2026-08-12, ZAB-25). Only an `anchor.trigger: "press"` overlay reads it.
+   */
+  bool popover_open = false;
+  /**
+   * When this overlay's `autoCloseMs` expires, in the view's injected clock.
+   * Absent means nothing is armed: it is set on entering the layer and cleared on
+   * leaving it, so a toast that closes early never fires late.
+   */
+  std::optional<double> auto_close_at;
+
   // --- per-pass scratch, cleared and refilled rather than reallocated ---
   std::vector<FlowItem> items;
   std::vector<double> item_mains;
