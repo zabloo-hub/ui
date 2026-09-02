@@ -39,6 +39,7 @@ operations, and **signals** for the callbacks.
 | `SetOpen` | `set_open(id: String, open: bool) -> bool` | Data changed | `data_changed(path: String, value: Variant)` |
 | `SetSelectedTab` | `set_selected_tab(id: String, index: int) -> bool` | Diagnostic | `diagnostic(code: String, message: String, fatal: bool)` |
 | `SetChecked` | `set_checked(id: String, checked: bool) -> bool` | | |
+| `SetValue` | `set_value(id: String, value: float) -> bool` | | |
 | `SetScroll` | `set_scroll(id: String, x: float, y: float) -> bool` | | |
 | `Reload` | `reload(json: String) -> bool` | | |
 
@@ -46,10 +47,14 @@ A `Variant` carries what the channel carries: a bool, a number, a string, and �
 bound path addresses **into** what was pushed — an `Array` or a `Dictionary` too.
 `set_data("shop.items", [...])` is what makes `{"bind": "shop.items.1.name"}` resolve.
 
-`SetValue` and `SetText` are not on the Godot node yet: their subjects (`Slider`,
-`TextInput`) have no runtime there until ZAB-143 and ZAB-144. Binding them now would mean
-answering `false` for a control that exists, which is the one thing the return value is not
-allowed to mean.
+`SetText` is not on the Godot node yet: its subject, the `TextInput`, has no runtime there
+until ZAB-144. Binding it now would mean answering `false` for a control that exists, which
+is the one thing the return value is not allowed to mean.
+
+The keyboard has one Godot-only wrinkle, and it belongs to the `Slider`. Arrow keys along a
+slider's axis adjust it and the release of that key is what fires `onCommit`, but the core
+is only ever told about presses — so `ZablooView` calls the runtime's `settle_slider_keys()`
+when the arrow comes up. It is adapter plumbing, not an operation: a game never calls it.
 
 ### Addressing by id
 

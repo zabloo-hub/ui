@@ -606,6 +606,25 @@ describe("the disabled state (decision 2026-08-17, ZAB-63)", () => {
     expect(view.actions).toEqual([]);
   });
 
+  it("cancels the KEYBOARD's slider gesture too, instead of committing it", async () => {
+    // The spec says a gesture in flight when the game disables the control is
+    // cancelled and never committed (`docs/components/slider.md`). Only the
+    // pointer's was: a held arrow used to settle a control that had just died.
+    const view = await mountForTest(CORPUS.disabled);
+    view.handle.setData("settings.custom", false);
+    const track = center(view.snapshot(), "section-slider");
+    view.pointer.click(track.x, track.y);
+    view.actions.length = 0;
+    view.keyDown("ArrowRight");
+    expect(view.actions).toEqual([{ action: "detail-changed" }]);
+
+    view.handle.setData("settings.custom", true); // the game kills it mid-nudge
+    view.keyUp("ArrowRight");
+
+    // The value never settled, so nothing is applied.
+    expect(view.actions).toEqual([{ action: "detail-changed" }]);
+  });
+
   it("does not toggle a disabled Collapse from its header", async () => {
     const view = await mountForTest(CORPUS.disabled);
     const header = center(view.snapshot(), "collapse-header");

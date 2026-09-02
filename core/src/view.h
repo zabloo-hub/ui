@@ -29,6 +29,7 @@
 #include "glyphs.h"
 #include "groups.h"
 #include "layout.h"
+#include "slider.h"
 #include "tessellator.h"
 #include "transition.h"
 #include "validate.h"
@@ -149,11 +150,29 @@ class View {
   bool set_selected_tab(std::string_view id, int index);
   bool set_checked(std::string_view id, bool checked);
   /**
+   * Moves a `Slider` — exactly the gesture the player would have made, hooks
+   * included: the value is clamped and quantized to the range, written into its
+   * bound path, and both `onChange` and `onCommit` fire, the latter only if the
+   * number actually moved.
+   */
+  bool set_value(std::string_view id, double value);
+  /**
    * Scrolls a `ScrollView`. Host API and not IR: the offset has no prop to
    * author (2026-08-11, ZAB-9), and whatever lands here is clamped to the bounds
    * the last relayout computed.
    */
   bool set_scroll(std::string_view id, double x, double y);
+
+  /**
+   * The arrow key adjusting a `Slider` was let go: the gesture ends and fires
+   * `onCommit`, if the value moved during it.
+   *
+   * Its own call because the core is told about presses, not releases: an arrow
+   * held down is `move_focus` repeating, and nothing in that tells the runtime
+   * where the gesture stops. The adapter, which does see the key come up, says
+   * so — the same job the browser's `keyup` does for the reference.
+   */
+  bool settle_slider_keys();
 
   /** Named actions produced since the last drain, in the order they fired. */
   std::vector<ActionEvent> drain_actions();
@@ -264,6 +283,19 @@ class View {
   };
   ScrollDrag drag_;
 
+  /**
+   * A `Slider` gesture in flight. `from` is the value it started at, and the only
+   * reason it is kept: `onCommit` fires at the end of a gesture and only if the
+   * player actually moved the number.
+   */
+  struct SliderGesture {
+    LayoutNode *node = nullptr;
+    double from = 0.0;
+  };
+  /** The pointer's drag, and the arrow key's — two gestures, never at once. */
+  SliderGesture slider_drag_;
+  SliderGesture slider_keys_;
+
   class Leaves;
   friend class Leaves;
 
@@ -305,6 +337,38 @@ class View {
   void group_options(LayoutNode &group, LayoutNode &node, std::vector<LayoutNode *> &out) const;
   void apply_group_value(LayoutNode &group);
   void set_toggle_checked(LayoutNode &node, bool checked);
+
+  // --- Slider: value state, gestures and the two hooks (2026-08-11, ZAB-24) ---
+
+  SliderRange range_of(const LayoutNode &node) const;
+  bool slider_vertical(const LayoutNode &node) const;
+  /**
+   * The single state-mutation path for a Slider — a drag, a tap on the track, an
+   * arrow key, `set_value`: it quantizes, writes the new number into its bound
+   * path (the return leg of the data channel) and fires the live `onChange`.
+   * `onCommit` is NOT fired here — it belongs to the end of a gesture.
+   */
+  void set_slider_value(LayoutNode &node, double value);
+  /** Ends a gesture: `onCommit` fires only if the player really moved the value. */
+  void commit_slider(const SliderGesture &gesture);
+  /**
+   * The value a point on the track selects. Mirrors `arrange_slider` exactly —
+   * same padding, same thumb inset — so the thumb lands under the finger and
+   * stays there for the rest of the drag.
+   */
+  double value_at_point(const LayoutNode &node, double x, double y) const;
+  /** One arrow press on the focused Slider, along its own axis. */
+  void nudge_slider(LayoutNode &node, double dx, double dy);
+  /** True while this arrow adjusts the focused Slider instead of moving the focus. */
+  bool slider_axis_key(const LayoutNode *node, double dx) const;
+  /** The Slider a press at this point takes hold of, or null. */
+  LayoutNode *slider_at(double x, double y);
+  /**
+   * Ends the pointer's Slider gesture. `settle` is what tells a release and a
+   * cancel — which both settle — from a control the game killed under the finger,
+   * which does not: there the value never became the player's.
+   */
+  bool end_slider_drag(bool settle);
   /** One path for a tap, Enter and the pad: what a control does when activated. */
   void activate(LayoutNode &node);
   /** What a release does, whether the press came from a finger or from a key. */
@@ -331,6 +395,14 @@ class View {
   NodeAnim *anim_of(LayoutNode &node, const ResolvedTransition *transition);
   void resolve_progress(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,
                         double now);
+  /**
+   * The Slider's PAINTED value. A change that comes from the game (a binding,
+   * `set_value`) glides; the one in the player's hand does not — a thumb lagging
+   * the finger reads as a broken control, not as juice — so a gesture in flight
+   * steps with no transition, which is the engine's instant path.
+   */
+  void resolve_slider(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,
+                      double now);
   /** The bar's bound or literal `value`, read normatively (`clamp_progress`). */
   double progress_target(LayoutNode &node);
   void resolve_collapse(LayoutNode &node, NodeAnim *anim, const ResolvedTransition *transition,

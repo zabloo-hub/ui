@@ -103,6 +103,11 @@ class ZablooView : public Control {
   bool set_selected_tab(const String &id, int index);
   /** Sets a `Toggle`, or picks an option of an `"exclusive-check"` group. */
   bool set_checked(const String &id, bool checked);
+  /**
+   * Moves a `Slider` — the player's gesture with both its hooks, so a value the
+   * game pushes reaches `onChange` and `onCommit` exactly as a drag would.
+   */
+  bool set_value(const String &id, double value);
   /** Scrolls a `ScrollView`, clamped to the bounds of the last relayout. */
   bool set_scroll(const String &id, double x, double y);
   /** Re-loads the current content. The same path a hot-update takes. */
