@@ -1180,7 +1180,8 @@ const char *SLIDER_VIEW = R"({"v":1,"tokens":{"motion.slow":100},"views":{"panel
   "type":"Container","layout":{"direction":"column"},
   "children":[
     {"type":"Slider","id":"volume","layout":{"width":200,"height":20},
-     "value":{"bind":"settings.volume"},"min":0,"max":100,"step":10,
+     "value":{"bind":"settings.volume"},"disabled":{"bind":"ui.dead"},
+     "min":0,"max":100,"step":10,
      "transition":{"duration":"{motion.slow}","easing":"linear"},
      "onChange":"volume-preview","onCommit":"volume-apply","autofocus":true,
      "children":[
@@ -1319,6 +1320,21 @@ TEST(view, a_cancelled_slider_gesture_settles_and_a_disabled_one_does_not) {
   reloaded->layout_frame();
   reloaded->pointer_down(100, 10);
   CHECK(reloaded->drain_actions().empty());  // it never took the press at all
+}
+
+TEST(view, a_keyboard_gesture_on_a_control_the_game_kills_is_cancelled_too) {
+  // The spec says a gesture in flight when the game disables the control is
+  // cancelled and never committed (`docs/components/slider.md`), and it does not
+  // say "the pointer's". A held arrow must not settle a control that just died.
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  view->move_focus(1, 0);
+  CHECK_EQ(action_names(*view), std::string("volume-preview"));
+
+  document.set_data("ui.dead", DataValue::of_bool(true));
+  view->layout_frame();  // `prune_disabled` runs here
+  CHECK(!view->settle_slider_keys());
+  CHECK_EQ(action_names(*view), std::string(""));
 }
 
 TEST(view, the_axis_arrows_adjust_the_slider_and_the_cross_ones_keep_navigating) {

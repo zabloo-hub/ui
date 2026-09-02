@@ -993,9 +993,12 @@ void View::prune_disabled() {
     pressed_ = nullptr;
   }
   // CANCELLED, not settled: the control died under the finger, so its value never
-  // became the player's (ZAB-63). A scroll drag survives on purpose — a disabled
-  // section is still readable, so scrolling it was never an interaction it owned.
+  // became the player's (ZAB-63). Both gestures alike — a held arrow must not
+  // commit a control the game just killed either. A scroll drag survives on
+  // purpose: a disabled section is still readable, so scrolling it was never an
+  // interaction that section owned.
   if (slider_drag_.node != nullptr && slider_drag_.node->disabled) end_slider_drag(false);
+  if (slider_keys_.node != nullptr && slider_keys_.node->disabled) slider_keys_ = SliderGesture{};
 }
 
 bool View::move_focus(double dx, double dy) {
