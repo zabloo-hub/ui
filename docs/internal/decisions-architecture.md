@@ -3970,3 +3970,96 @@ pantalla de consola, v1.x como en web.
 teclado virtual, parpadeo). Tests: `core/tests/test_textinput.cpp` (port de
 `textinput.test.ts`), más el bloque `TextInput` de `test_view.cpp` y tres casos en
 `test_snapshot.cpp`. Docs: `docs/format/host-channel.md` (`SetText` en la tabla de Godot).
+
+## 2026-09-02 — `Repeat` en el core: la dirección de un nodo es contrato, y el ámbito de item es una cadena compartida (ZAB-145, F11 G12)
+
+**Decisión:** las listas dirigidas por datos entran como port de `repeat.ts` más la
+mitad de `view.ts` que las expande, las recicla y las virtualiza. Con ellas **`repeat`
+y `textinput` salen de la skip-list comparando byte a byte**, y el corpus baja a **un
+solo caso pendiente** (`gamepad-nav`, G13). Pero lo que este ticket decide de verdad no
+es la lista: es **cómo se puede tocar el árbol**.
+
+**G12 es el primer pase que REESTRUCTURA el árbol por frame**, y eso rompía una
+invariante que hasta aquí se cumplía por accidente. `LayoutNode::children` era un
+`std::vector<LayoutNode>` —nodos por valor— mientras la vista guarda punteros crudos a
+nodos por todas partes: el foco, el nodo pulsado y el hovereado, el índice por `id`, la
+lista de bindeados, los campos, los overlays, la pila de modales, un arrastre en vuelo.
+Eso era seguro solo porque el árbol se construía una vez al cargar y no se movía nunca.
+Un `Repeat` lo mueve en cada frame —reordena, inserta y suelta instancias según los
+datos y la ventana—, y con nodos por valor cada uno de esos movimientos habría dejado
+colgando todos esos punteros a la vez.
+
+**La respuesta es un tipo, `NodeList`**, que posee `vector<unique_ptr<LayoutNode>>` y
+cuyos `operator[]` e iteradores devuelven `LayoutNode&`. Las direcciones son estables
+para siempre y reordenar es mover punteros. Se eligió el envoltorio sobre el
+`unique_ptr` desnudo porque **se lee igual que antes**: `for (LayoutNode &child :
+node.children)` y `node.children[0].children[1]` siguen significando lo que dicen, así
+que los ~40 sitios del core y los ~300 de los tests compilan sin tocarse y la
+indirección se escribe UNA vez, aquí, en vez de en cada recorrido. El coste real fue
+**un solo sitio**: `overlay.cpp` sacaba el índice de documento por aritmética de
+punteros sobre el vector del padre, y ahora se lo pregunta a la lista. Y hubo un
+dividendo: `build_layout_tree` deja de necesitar una segunda pasada para enlazar los
+`parent` —un nodo ya no se mueve mientras se le añaden hermanos, así que el puntero que
+se toma durante el recorrido nombra dónde el nodo va a seguir estando—.
+
+**Descartado mover por valor y reconstruir los registros:** el diff de hoy habría sido
+mucho más pequeño, a cambio de reintroducir exactamente la clase de puntero colgante que
+este core evita, y de un recorrido completo del árbol en cada frame que moviera la
+ventana — justo lo que ZAB-73 quitó.
+
+**El ámbito de item es una CADENA, no un vector copiado.** La referencia comparte los
+`ItemScope` como objetos, así que rescopear una fila exterior es una mutación que ve
+todo el subárbol. En C++ un `vector<ItemScope>` por instancia habría dado a cada lista
+anidada su propia COPIA del ámbito de fuera, y esa copia se quedaría rancia justo en el
+caso que ZAB-29 se molestó en hacer alcanzable: una fila de producto bindeando el alias
+de su categoría. Así que `ItemScope` gana un `outer` y `resolve_binding` recorre la
+cadena de dentro afuera; cada enlace lo posee la raíz de la instancia que lo abrió, de
+modo que sobrevive a todo nodo que apunte a él y muere con su fila. Es la semántica de la
+referencia, y en C++ además es más barata que copiar.
+
+**Los registros se mantienen, y el de los `Repeat` se recorre POR ÍNDICE.** `sync_repeats`
+itera `repeats_` leyendo su tamaño en cada paso, porque `expand` **añade**: las instancias
+que crea una lista exterior traen sus listas interiores a esta misma pasada, que es lo que
+hace que el caso anidado salga bien por construcción y no por una recursión aparte. De ahí
+una regla pequeña que hay que respetar: una fila descartada **anula** su entrada en vez de
+borrarla, o una eliminación a mitad de la pasada desplazaría los índices bajo los pies del
+bucle; la pasada compacta al terminar.
+
+**El template no se construye.** `build_layout_tree` se salta `children[0]` de un `Repeat`:
+sus instancias salen de los DATOS, y lo que aporta el documento es `children[1..]`, el
+estado vacío, construido como siempre y fuera del layout hasta que hace falta. Corolario
+que la expansión explota: el estado vacío se empuja SIEMPRE el último, así que sus huecos
+propietarios son los últimos de la lista y no hay que buscarlos.
+
+**El foco de una fila no realizada es lógico, y `sync_modal_focus` deja de repartirlo.** Es
+la mitad de ZAB-70 que faltaba: scrollear una fila enfocada fuera de la ventana no es el
+jugador soltando el foco, es el renderer reciclando un nodo, así que el foco sobrevive como
+`{repeat, identidad, ruta de índices}` y **nadie** se lo queda mientras tanto. Sin ese
+guardia, la rueda, un arrastre o el stick regalaban el foco al `autofocus` de la vista.
+
+**Lo que el corpus NO puede ver, y por eso lleva tests de secuencia:** que una instancia
+recicla su nodo y no lo reconstruye, que el estado viaja con la `key` al reordenar (y se
+queda clavado a la posición sin ella), que un `resettle` asienta en el PRIMER frame
+mientras un `set_data` sobre el dato propio de la fila sigue animando, que una acción desde
+dentro de un item lleva su contexto, y que una lista anidada alcanza el alias de fuera
+antes y después de mover la fila que la contiene. Un snapshot es un frame; nada de eso lo
+es.
+
+**La convergencia en dos frames es contrato, no un detalle del arnés.** La expansión lee
+los rects que dejó el frame ANTERIOR, así que un scroll mueve el contenido primero y la
+ventana converge justo después — que es exactamente el frame de asentamiento que
+`golden/README.md` ya exigía a todos los targets, y lo que `sync_extent` pide cuando
+detecta la deriva.
+
+**Lo que no entra aquí, con su motivo:** el `focused_scroller` del stick —que la lista con
+foco pendiente siga siendo la que scrollea— pertenece al pad, que es G13 (ZAB-146), porque
+hoy el core no tiene stick que cablear; y la MEDIDA de que 400 filas desiguales scrollean
+fluido es G15 (ZAB-148), así que aquí queda la evidencia en el playground y no el número.
+
+**Dónde vive:** `core/src/repeat.{h,cpp}` (el módulo puro), `core/src/layout.{h,cpp}`
+(`NodeList`, `RepeatState`, `virtual_span`, el tope de línea, el espacio reservado y el
+`lead` del arrange), `core/src/bindings.{h,cpp}` (la cadena), el bloque `Repeat` de
+`core/src/view.{h,cpp}` y `core/src/snapshot.cpp` (el bloque `window`). En Godot,
+`sdk/godot/src/zabloo_view.cpp` (el contexto de la acción como `Dictionary`). Tests:
+`core/tests/test_repeat.cpp` (port de `repeat.test.ts`) y el bloque `Repeat` de
+`test_view.cpp`. Docs: `docs/format/host-channel.md` y el README del playground.

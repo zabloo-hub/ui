@@ -92,9 +92,10 @@ double clamp_axis(double start, double size, double bounds_start, double bounds_
 std::vector<uint32_t> document_path(const LayoutNode &node) {
   std::vector<uint32_t> path;
   for (const LayoutNode *current = &node; current->parent != nullptr; current = current->parent) {
-    const std::vector<LayoutNode> &siblings = current->parent->children;
-    // The children live in a vector the parent owns, so the index is the offset.
-    path.push_back(static_cast<uint32_t>(current - siblings.data()));
+    // Asked of the list rather than derived from the address: children are owned
+    // behind pointers so a `Repeat` can reorder them without moving a node
+    // (`NodeList`), and an offset into the storage is no longer a position.
+    path.push_back(static_cast<uint32_t>(current->parent->children.index_of(*current)));
   }
   std::reverse(path.begin(), path.end());
   return path;

@@ -13,8 +13,6 @@
     "criterion claims it."
   ],
   "cases": {
-    "textinput": "The Repeat expanded into its two instances, and the field each reads from its own item — G12 (ZAB-145). The four fields OUTSIDE it already compare: geometry, the caret, the empty state, a bound value and content scrolled past its box all landed with G11 (ZAB-144).",
-    "repeat": "A bound array expanded into instances and virtualized — G12 (ZAB-145).",
     "gamepad-nav": "The pad script: spatial navigation and stick scrolling replayed through the poll loop — G13 (ZAB-146)."
   }
 }

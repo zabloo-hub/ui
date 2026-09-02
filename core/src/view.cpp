@@ -164,7 +164,7 @@ View::View(const Envelope &envelope, std::string_view view_id, DataStore &data)
   ir_root_ = found != nullptr ? &found->root : nullptr;
   if (ir_root_ == nullptr) return;
   build_layout_tree(*ir_root_, root_);
-  prepare(root_);
+  prepare(root_, nullptr);
   // The focus is NOT settled here. `autofocus` is initial state like a Collapse's
   // `open`, but whether the node it names can take the focus at all depends on
   // the inherited `disabled` flag — and nothing has resolved that yet. It settles
@@ -179,12 +179,30 @@ View::View(const Envelope &envelope, std::string_view view_id, DataStore &data)
  * `checked` from its own value, so it has to speak before they do — otherwise an
  * option would settle on its own `checked` and be overwritten a moment later.
  */
-void View::prepare(LayoutNode &node) {
+void View::prepare(LayoutNode &node, const ItemScope *scopes) {
   const Node &ir = *node.ir;
+  // An `id` inside a template is worn by every instance of it: the map keeps the
+  // last one realized, so the host channel still reaches ONE of them. Addressing
+  // a particular row by id is not a thing v1 has — an action from inside a row
+  // comes back with its item context instead.
   if (!ir.id.empty()) by_id_[ir.id] = &node;
-  // Kept as the tree is built, never found by walking it (ZAB-73). G12 (ZAB-145)
-  // is what will also have to drop entries here, when a `Repeat` releases a row.
+  node.scopes = scopes;
+  // Kept as the tree is built, never found by walking it (ZAB-73), and `discard`
+  // is what drops the entries again when a `Repeat` lets a row go.
   if (ir.type == NodeType::Overlay) overlays_.push_back(&node);
+  if (ir.type == NodeType::Repeat) {
+    // Before the children, like every registry here: the sets are top-down, which
+    // is what lets the expansion sweep reach a nested list on the same pass that
+    // created the instance holding it.
+    repeats_.push_back(&node);
+    node.repeat = std::make_unique<RepeatState>();
+    // What `build_layout_tree` left in `children` is the empty state, and only
+    // that: the template's instances come from the data, not from the document.
+    for (LayoutNode &slot : node.children) {
+      slot.section_shown = false;
+      node.repeat->empty.push_back(&slot);
+    }
+  }
   if (ir.type == NodeType::Collapse) {
     node.open = ir.open.value_or(true);
     apply_open(node);
@@ -211,20 +229,19 @@ void View::prepare(LayoutNode &node) {
     // searched for the two fields in it (ZAB-73).
     fields_.push_back(&node);
   }
-  if (ir.visible.is_bound() || ir.disabled.is_bound() || ir.checked.is_bound() ||
-      ((ir.type == NodeType::Slider || ir.type == NodeType::TextInput ||
-        ir.group == GroupBehavior::ExclusiveCheck) &&
-       ir.value.is_bound())) {
-    bound_.push_back(&node);
-  }
+  node.data_bound = ir.visible.is_bound() || ir.disabled.is_bound() || ir.checked.is_bound() ||
+                    ((ir.type == NodeType::Slider || ir.type == NodeType::TextInput ||
+                      ir.group == GroupBehavior::ExclusiveCheck) &&
+                     ir.value.is_bound());
+  if (node.data_bound) bound_.push_back(&node);
   // Settled: this is the node's initial value, so a field's caret belongs at the
   // end of it — where a player who had just typed it would have left it.
   apply_bindings(node, true);
   // Starting ON this data means there is nothing to animate from, so the slider
   // paints its value at once instead of gliding in from zero. That is a mount —
-  // and G12 (ZAB-145) reuses it for an instance recycled onto another item.
+  // and `resettle` reuses it for an instance recycled onto another item.
   node.slider_display = node.slider_value;
-  for (LayoutNode &child : node.children) prepare(child);
+  for (LayoutNode &child : node.children) prepare(child, scopes);
 }
 
 void View::set_size(double width, double height) {
@@ -237,6 +254,10 @@ void View::layout_frame() {
   // Recomputed from scratch every frame: a tween that landed last frame must not
   // keep the adapter asking for more (`animating`).
   animating_ = false;
+  // The expansion first, before anything reads the tree: a row that the data just
+  // created has to exist before the layer is collected, before the resolve pass
+  // walks it and before it is measured.
+  sync_repeats();
   // The layer settles first: the focus an opening modal moves has to reach THIS
   // frame's style merge, or `states.focused` would land a frame late. An anchored
   // entry is the one thing here that reads rects, and it reads the ones already
@@ -287,6 +308,10 @@ void View::layout_frame() {
   // modal has to keep its caret in view too, and its rect only exists after the
   // loop above.
   sync_text_scroll();
+  // With the boxes final, what a virtualized list learnt from them: one line's
+  // size, and whether these rects would now plan a different window than the one
+  // this frame was laid out with.
+  sync_extents();
   // A timeout counting down — or one that just fired, whose dismiss the next
   // frame has still to act on — is something that will change with no further
   // input, which is exactly what `animating` promises the adapter.
@@ -626,16 +651,8 @@ std::optional<Color> View::optional_color(const ColorValue &value, Color fallbac
 
 // --- bindings -------------------------------------------------------------
 
-namespace {
-
-/** The scopes of a node outside every template — shared, and never written to. */
-const std::vector<ItemScope> NO_SCOPES;
-
-}  // namespace
-
 const DataValue *View::read_bind(const LayoutNode &node, const std::string &bind) {
-  const ResolvedBind resolved =
-      resolve_binding(bind, node.scopes != nullptr ? *node.scopes : NO_SCOPES);
+  const ResolvedBind resolved = resolve_binding(bind, node.scopes);
   if (resolved.kind == ResolvedBind::Kind::Index) {
     index_value_ = DataValue::of_number(resolved.index);
     return &index_value_;
@@ -644,8 +661,7 @@ const DataValue *View::read_bind(const LayoutNode &node, const std::string &bind
 }
 
 bool View::write_path(const LayoutNode &node, const std::string &bind, std::string &out) const {
-  const ResolvedBind resolved =
-      resolve_binding(bind, node.scopes != nullptr ? *node.scopes : NO_SCOPES);
+  const ResolvedBind resolved = resolve_binding(bind, node.scopes);
   // An index is a POSITION, not a slot: there is nowhere in the data to put it.
   if (resolved.kind != ResolvedBind::Kind::Path) return false;
   out = resolved.path;
@@ -656,8 +672,8 @@ bool View::write_path(const LayoutNode &node, const std::string &bind, std::stri
  * Derives from data everything this node's state reads.
  *
  * The single place those states are computed, so building a node and a `SetData`
- * landing on it settle it the same way — which is what G12 (ZAB-145) will lean on
- * when an item instance is recycled onto another element.
+ * landing on it settle it the same way — which is what `resettle` leans on when
+ * an item instance is recycled onto another element.
  *
  * `settle` separates the two callers for the one state that has a position in it:
  * a field being BUILT puts its caret at the end of the value it was given, while
@@ -770,6 +786,328 @@ void View::write_data(const std::string &path, DataValue value) {
   if (data_ != nullptr) data_->set(path, value);
   data_written(path);
   data_changes_.push_back(DataChange{path, std::move(value)});
+}
+
+// --- Repeat: expansion, item scopes and the life of an instance (ZAB-31) ----
+
+namespace {
+
+/** The alias a template binds its element under when the node declares none. */
+constexpr std::string_view ITEM_ALIAS = "item";
+
+/** Whether a ScrollView scrolls on the axis a virtualized list stacks its lines on. */
+bool scrolls_on(const LayoutNode &scroller, bool vertical) {
+  const ScrollAxis axis = scroller.ir->scroll_axis;
+  return axis == ScrollAxis::Both ||
+         axis == (vertical ? ScrollAxis::Vertical : ScrollAxis::Horizontal);
+}
+
+/** Whether a measurement moved enough to matter — a subpixel wobble is not a relayout. */
+bool measurement_moved(const std::optional<double> &previous, double next) {
+  return !previous.has_value() || std::fabs(*previous - next) > 0.5;
+}
+
+}  // namespace
+
+void View::sync_repeats() {
+  // By index and re-reading the size, because `expand` APPENDS: the instances an
+  // outer list creates bring their own inner lists into this same sweep, which is
+  // what makes a nested list come out right by construction. Discarded rows null
+  // their entry rather than erase it, so those indices cannot shift underneath.
+  for (size_t i = 0; i < repeats_.size(); i++) {
+    if (repeats_[i] != nullptr) expand(*repeats_[i]);
+  }
+  repeats_.erase(std::remove(repeats_.begin(), repeats_.end(), nullptr), repeats_.end());
+}
+
+void View::expand(LayoutNode &node) {
+  RepeatState &state = *node.repeat;
+  const Node &ir = *node.ir;
+  // `items` is a binding by construction (the IR carries no literal data):
+  // anything else repeats nothing, and the empty state takes over.
+  std::string array_path;
+  const bool bound = !ir.items_bind.empty() && write_path(node, ir.items_bind, array_path);
+  const DataValue *items =
+      bound && data_ != nullptr ? items_of(data_->get(array_path)) : nullptr;
+  const int count = items != nullptr ? static_cast<int>(items->items.size()) : 0;
+  state.item_count = count;
+
+  const Node *item_ir = item_template(ir);
+  const WindowPlan plan = plan_window(node, count);
+  node.virtual_span = plan.span;
+  state.first = plan.first;
+  state.count = plan.count;
+
+  if (item_ir == nullptr || !bound) {
+    state.slots.clear();
+  } else {
+    window_slots(items, ir.key_path, plan.first, plan.count, state.slots);
+  }
+  reconcile_window(state.instances, state.slots, state.entries, state.dropped);
+
+  // Every current child, out of the list and held: reordering is then a move of
+  // pointers, and the nodes themselves never change address — which is what lets
+  // the focus, the id index and a gesture in flight all keep pointing at them.
+  node.children.take_all(state.taken);
+  // The empty state is always pushed last, so what precedes it is the old window.
+  const size_t empty_first = state.taken.size() - state.empty.size();
+
+  for (const RepeatInstance &gone : state.dropped) {
+    // Before the discard, which is what would forget it: the focus of a row that
+    // leaves the window survives as the ITEM it was on (ZAB-70).
+    remember_focus(node, *gone.node);
+    discard(*gone.node);
+    state.taken[gone.slot].reset();
+  }
+
+  const std::string alias = ir.item_alias.empty() ? std::string(ITEM_ALIAS) : ir.item_alias;
+  state.next.clear();
+  for (const WindowEntry<RepeatInstance> &entry : state.entries) {
+    std::string path = item_path(array_path, entry.slot.index);
+    LayoutNode *child = nullptr;
+    if (entry.instance != nullptr) {
+      child = entry.instance->node;
+      node.children.push_back(std::move(state.taken[entry.instance->slot]));
+      rescope(*child, alias, path, entry.slot.index);
+    } else {
+      child = &build_instance(*item_ir, node, alias, std::move(path), entry.slot.index);
+    }
+    state.next.emplace(entry.slot.identity,
+                       RepeatInstance{child, static_cast<uint32_t>(node.children.size() - 1)});
+    // Back in the window: the item the focus is waiting on takes it again.
+    restore_focus(node, entry.slot.identity, *child);
+  }
+  state.instances.swap(state.next);
+  state.next.clear();
+
+  // The empty state is in layout exactly while there is nothing to repeat — the
+  // display:none semantics of every other slot (2026-08-11, ZAB-29).
+  for (size_t i = empty_first; i < state.taken.size(); i++) {
+    state.taken[i]->section_shown = count == 0;
+    node.children.push_back(std::move(state.taken[i]));
+  }
+  state.taken.clear();
+}
+
+LayoutNode &View::build_instance(const Node &item_ir, LayoutNode &node, const std::string &alias,
+                                 std::string path, int index) {
+  LayoutNode &child = node.children.emplace_back();
+  child.parent = &node;
+  // The link is owned by the instance root and chained to whatever scope the
+  // `Repeat` itself sits in, which is what lets a nested list reach the element
+  // outside it — and what makes moving that outer row one mutation.
+  child.scope_link = std::make_unique<ItemScope>();
+  child.scope_link->alias = alias;
+  child.scope_link->path = std::move(path);
+  child.scope_link->index = index;
+  child.scope_link->outer = node.scopes;
+  build_layout_tree(item_ir, child);
+  prepare(child, child.scope_link.get());
+  return child;
+}
+
+void View::rescope(LayoutNode &instance, const std::string &alias, const std::string &path,
+                   int index) {
+  ItemScope *scope = instance.scope_link.get();
+  if (scope == nullptr) return;
+  if (scope->path == path && scope->index == index && scope->alias == alias) return;
+  scope->alias = alias;
+  scope->path = path;
+  scope->index = index;
+  // The subtree now reads another element: everything derived from data has to be
+  // derived again (its text follows on its own — it is read at measure time).
+  resettle(instance);
+}
+
+void View::resettle(LayoutNode &node) {
+  if (node.data_bound) apply_bindings(node, true);
+  forget_tweens(node);
+  for (LayoutNode &child : node.children) resettle(child);
+}
+
+View::WindowPlan View::plan_window(LayoutNode &node, int item_count) {
+  // Everything is realized when there is nothing to window against — a `Repeat`
+  // outside a ScrollView, or one whose lines stack across the axis its scroller
+  // scrolls — because then the whole list is on screen anyway and virtualizing it
+  // would only cost a measurement.
+  const WindowPlan whole{std::nullopt, 0, item_count};
+  RepeatState &state = *node.repeat;
+  // Nothing to repeat: the node is not a list this frame, it is its empty state —
+  // and reserving the space of zero items would flatten it to nothing.
+  if (item_count == 0) return whole;
+  LayoutNode *scroller = scroller_of(node);
+  if (scroller == nullptr) return whole;
+  // The lines of a wrapping node stack across it, so a grid is scrolled on the
+  // cross axis — vertically, since `wrap` only takes effect on a row.
+  const bool wrapping = wraps_lines(node);
+  const bool vertical = wrapping || node.ir->layout.direction != Direction::Row;
+  if (!scrolls_on(*scroller, vertical)) return whole;
+
+  const double view_length = vertical ? scroller->rect.height : scroller->rect.width;
+  if (!state.extent.has_value() || !(*state.extent > 0.0) || !(view_length > 0.0)) {
+    // Nothing measured yet — the first frame of a list, or of a reload. Realize a
+    // batch, and let the next frame settle the window with real rects.
+    if (item_count <= INITIAL_WINDOW) return whole;
+    return WindowPlan{std::nullopt, 0, INITIAL_WINDOW};
+  }
+
+  ItemMetrics metrics;
+  metrics.extent = *state.extent;
+  metrics.gap = node.resolved.gap;
+  const double padding = node.resolved.padding;
+  metrics.per_line =
+      wrapping ? items_per_line(std::max(0.0, node.rect.width - padding * 2.0),
+                                state.item_main.value_or(0.0), metrics.gap)
+               : 1;
+  const double start = vertical ? node.rect.y : node.rect.x;
+  const double view_start = (vertical ? scroller->rect.y : scroller->rect.x) - start - padding;
+  const ItemSpan span = visible_span(item_count, metrics, view_start, view_length);
+  return WindowPlan{span, span.first, span.count};
+}
+
+void View::sync_extents() {
+  for (LayoutNode *node : repeats_) {
+    if (node != nullptr) sync_extent(*node);
+  }
+}
+
+/**
+ * Learns one line's size from the instances that were just laid out. The
+ * assumption virtualization rests on is that every instance of a template
+ * measures the same, so ONE of them is the measurement. When it moves — the first
+ * frame of a list, a resize that changes how many cells fit — the window this
+ * frame used came from the old number, so the frame is repeated with the new one.
+ */
+void View::sync_extent(LayoutNode &node) {
+  RepeatState &state = *node.repeat;
+  if (!state.instances.empty() && !node.children.empty()) {
+    LayoutNode &instance = node.children[0];
+    // A width that moved is a relayout: whatever was learnt for the old one (rows
+    // that wrapped differently, another number of cells per line) is not a
+    // measurement of THIS list any more.
+    if (measurement_moved(state.measured_width, node.rect.width)) {
+      state.extent.reset();
+      state.item_main.reset();
+    }
+    state.measured_width = node.rect.width;
+    const bool row = node.ir->layout.direction == Direction::Row;
+    const double main = row ? instance.measured.x : instance.measured.y;
+    const double extent =
+        wraps_lines(node) ? (row ? instance.measured.y : instance.measured.x) : main;
+    // The BIGGEST instance seen wins. With the uniform items the assumption is
+    // about, that is the item's own size on the first frame and it never moves
+    // again; with rows of unequal size it converges upwards in a few frames
+    // instead of oscillating between two windows forever, each of which would
+    // schedule the next. The list is looser than it should be, never busy.
+    state.extent = state.extent.has_value() ? std::max(*state.extent, extent) : extent;
+    state.item_main = state.item_main.has_value() ? std::max(*state.item_main, main) : main;
+  }
+  // Whether THIS frame's rects would now produce a different window than the one
+  // it was laid out with. They usually would not — but a scroll moved the rects
+  // after the expansion pass read them, and the frame the game asked for is not
+  // the one that shows the rows it scrolled to. So the view asks for one more, and
+  // it converges there: what the plan reads (the scroller's rect, the node's own
+  // reserved size) does not depend on which items are realized.
+  if (window_drifted(node, state)) animating_ = true;
+}
+
+bool View::window_drifted(LayoutNode &node, RepeatState &state) {
+  const WindowPlan next = plan_window(node, state.item_count);
+  return next.first != state.first || next.count != state.count;
+}
+
+LayoutNode *View::repeat_of(const LayoutNode &node) const {
+  // A node of the EMPTY state is not inside an item, so it walks past its
+  // `Repeat` and finds whatever list encloses the whole thing.
+  for (const LayoutNode *current = &node; current != nullptr; current = current->parent) {
+    LayoutNode *parent = current->parent;
+    if (parent == nullptr || parent->repeat == nullptr) continue;
+    const std::vector<LayoutNode *> &empty = parent->repeat->empty;
+    if (std::find(empty.begin(), empty.end(), current) == empty.end()) return parent;
+  }
+  return nullptr;
+}
+
+void View::discard(LayoutNode &node) {
+  // The list itself is going: there is nothing left for a pending focus to come
+  // back to.
+  if (pending_focus_.has_value() && pending_focus_->repeat == &node) pending_focus_.reset();
+  const auto drop = [&node](std::vector<LayoutNode *> &list) {
+    list.erase(std::remove(list.begin(), list.end(), &node), list.end());
+  };
+  drop(bound_);
+  drop(overlays_);
+  drop(fields_);
+  // Last frame's layer too. It is rebuilt further down this very frame, so
+  // nothing would read a stale entry — but a list of pointers to freed nodes is
+  // the exact class of bug the tree's stable addresses exist to keep out.
+  drop(layer_);
+  drop(paint_layer_);
+  // NULLED and not erased: `sync_repeats` may be walking this very list by index.
+  std::replace(repeats_.begin(), repeats_.end(), &node, static_cast<LayoutNode *>(nullptr));
+  overlay_layer_.forget(node);
+  if (!node.ir->id.empty()) {
+    const auto found = by_id_.find(node.ir->id);
+    if (found != by_id_.end() && found->second == &node) by_id_.erase(found);
+  }
+  if (focus_ == &node) focus_ = nullptr;
+  if (hovered_ == &node) hovered_ = nullptr;
+  if (pressed_ == &node) pressed_ = nullptr;
+  if (backdrop_press_ == &node) backdrop_press_ = nullptr;
+  if (pending_reveal_ == &node) pending_reveal_ = nullptr;
+  if (text_drag_ == &node) text_drag_ = nullptr;
+  if (drag_.node == &node) drag_ = ScrollDrag{};
+  if (slider_drag_.node == &node) slider_drag_ = SliderGesture{};
+  if (slider_keys_.node == &node) slider_keys_ = SliderGesture{};
+  for (LayoutNode &child : node.children) discard(child);
+}
+
+/**
+ * Keeps the focus of a row that is about to be un-realized, as the ITEM it sat on
+ * (ZAB-70). Scrolling a focused row out of the window is not the player giving up
+ * the focus — it is the renderer recycling a node — so what would otherwise happen
+ * is the worst of both: the discard drops the focus, and the next frame's
+ * `sync_modal_focus`, seeing none, hands it to the view's `autofocus`, which can be
+ * at the other end of the screen. Nobody asked for that, and a wheel, a drag or the
+ * right stick all trigger it.
+ *
+ * So the focus becomes LOGICAL: nothing wears it, `sync_modal_focus` refuses to give
+ * it away, and the row takes it back when it is realized again (`restore_focus`).
+ */
+void View::remember_focus(LayoutNode &repeat, LayoutNode &instance) {
+  if (focus_ == nullptr) return;
+  std::vector<uint32_t> path;
+  for (const LayoutNode *current = focus_; current != &instance; current = current->parent) {
+    LayoutNode *parent = current->parent;
+    if (parent == nullptr) return;  // the focus is not inside this instance
+    path.push_back(static_cast<uint32_t>(parent->children.index_of(*current)));
+  }
+  std::reverse(path.begin(), path.end());
+  for (const auto &[identity, live] : repeat.repeat->instances) {
+    if (live.node != &instance) continue;
+    pending_focus_ = PendingFocus{&repeat, identity, std::move(path)};
+    return;
+  }
+}
+
+/**
+ * Gives the focus back to an item that was realized again. The path is walked
+ * against the NEW instance — a subtree whose shape changed (a nested list with
+ * another window inside it) simply does not resolve, and the focus is then honestly
+ * nowhere rather than on some other node of the row.
+ */
+void View::restore_focus(LayoutNode &repeat, const std::string &identity, LayoutNode &instance) {
+  if (!pending_focus_.has_value()) return;
+  if (pending_focus_->repeat != &repeat || pending_focus_->identity != identity) return;
+  const std::vector<uint32_t> path = pending_focus_->path;
+  // Realized again, whatever comes of the walk: it stops being pending here.
+  pending_focus_.reset();
+  LayoutNode *target = &instance;
+  for (const uint32_t index : path) {
+    if (index >= target->children.size()) return;
+    target = &target->children[index];
+  }
+  if (is_focusable(*target)) set_focus(target);
 }
 
 // --- Collapse and groups --------------------------------------------------
@@ -1042,8 +1380,8 @@ void View::activate(LayoutNode &node) {
     set_toggle_checked(node, next_checked(node.checked, exclusive_group_of(node) != nullptr));
     return;
   }
-  // Fired with the item it belongs to, if any — G12 (ZAB-145) is what gives an
-  // action fired inside a `Repeat` the context that says WHICH one.
+  // Fired with the item it belongs to, if any: an action from inside a `Repeat`
+  // carries the context that says WHICH one (2026-08-11, ZAB-29).
   if (!node.ir->on_click.empty()) fire(node, node.ir->on_click);
   int index = 0;
   LayoutNode *group = tab_group_of(node, index);
@@ -2048,9 +2386,24 @@ bool View::reveal_focused(LayoutNode &node) {
 }
 
 void View::fire(const LayoutNode &node, const std::string &action) {
-  (void)node;
   ActionEvent event;
   event.name = action;
+  // The item it fired from, when it fired inside a `Repeat` (ZAB-29) — the
+  // innermost one, which is enough for nested lists because its path already
+  // embeds every enclosing index.
+  const LayoutNode *repeat = repeat_of(node);
+  const ItemScope *scope = node.scopes;
+  if (repeat != nullptr && scope != nullptr) {
+    event.item_path = scope->path;
+    event.item_index = scope->index;
+    const ItemKey key =
+        item_key(data_ != nullptr ? data_->get(scope->path) : nullptr, repeat->ir->key_path);
+    // Absent when identity is positional: the game gets a key only if there is one.
+    event.has_key = key.present;
+    event.key_is_number = key.is_number;
+    event.key_number = key.number;
+    event.key_text = key.text;
+  }
   actions_.push_back(std::move(event));
 }
 

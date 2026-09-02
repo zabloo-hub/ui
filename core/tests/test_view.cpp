@@ -1682,3 +1682,380 @@ TEST(view, an_id_that_names_no_field_is_answered_and_nothing_is_applied) {
   CHECK(!view->set_text("nope", "x"));
   CHECK(view->drain_data_changes().empty());
 }
+
+// --- Repeat: expansion, identity and the window (G12, ZAB-145) -------------
+
+namespace {
+
+/**
+ * A keyed list of 40px rows inside a 100px scroller, plus an empty state.
+ *
+ * The numbers are chosen so the window is easy to reason about: stride 40 with no
+ * gap, a viewport that shows two and a half rows, and the two buffer lines on each
+ * side that `visible_span` keeps.
+ */
+const char *LIST_VIEW = R"({"v":1,"views":{"list":{
+  "type":"Container","children":[
+    {"type":"ScrollView","id":"scroller","axis":"vertical",
+     "layout":{"direction":"column","width":100,"height":100},
+     "children":[
+       {"type":"Repeat","id":"rows","items":{"bind":"shop.items"},"as":"it","key":"id",
+        "layout":{"direction":"column"},
+        "children":[
+          {"type":"Button","id":"row","onClick":"buy","layout":{"width":100,"height":40},
+           "children":[{"type":"Text","id":"label","text":{"bind":"it.name"}}]},
+          {"type":"Text","id":"nothing","text":"empty"}]}]}]}}})";
+
+/** `[{id, name}, …]` — the shape a keyed list arrives in. */
+DataValue named_rows(const std::vector<std::pair<std::string, std::string>> &rows) {
+  DataValue out = DataValue::array();
+  for (const auto &[id, name] : rows) {
+    DataValue row = DataValue::object();
+    row.insert("id", DataValue::of_text(id));
+    row.insert("name", DataValue::of_text(name));
+    out.push(std::move(row));
+  }
+  return out;
+}
+
+DataValue counted_rows(int count) {
+  std::vector<std::pair<std::string, std::string>> rows;
+  for (int i = 0; i < count; i++) {
+    rows.emplace_back(std::to_string(i), "row " + std::to_string(i));
+  }
+  return named_rows(rows);
+}
+
+/** The `Repeat` of `LIST_VIEW` — the scroller is what wraps it. */
+const LayoutNode &rows_of(const View &view) { return view.root().children[0].children[0]; }
+
+/** What a row's bound label reads right now — the item its instance points at. */
+std::string label_of(const LayoutNode &instance) {
+  return instance.children[0].text_content;
+}
+
+}  // namespace
+
+TEST(view, a_repeat_shows_its_empty_state_only_while_there_is_nothing_to_repeat) {
+  Document document;
+  document.load(LIST_VIEW);
+  View *view = document.view();
+  view->set_size(200, 200);
+  view->layout_frame();
+
+  // Absent data is the empty case, exactly like an array of zero elements or a
+  // value of the wrong shape (2026-08-11, ZAB-29).
+  const LayoutNode &rows = rows_of(*view);
+  CHECK_EQ(rows.children.size(), 1u);
+  CHECK(rows.children[0].section_shown);
+
+  document.set_data("shop.items", named_rows({{"a", "Poción"}, {"b", "Espada"}}));
+  view->layout_frame();
+  CHECK_EQ(rows.children.size(), 3u);
+  CHECK_EQ(label_of(rows.children[0]), std::string("Poción"));
+  CHECK_EQ(label_of(rows.children[1]), std::string("Espada"));
+  // The empty state stays built and stays LAST — it is out of layout, not gone.
+  CHECK(!rows.children[2].section_shown);
+
+  document.set_data("shop.items", DataValue::of_text("not an array"));
+  view->layout_frame();
+  CHECK_EQ(rows.children.size(), 1u);
+  CHECK(rows.children[0].section_shown);
+}
+
+TEST(view, a_keyed_instance_travels_with_its_item_when_the_array_reorders) {
+  Document document;
+  document.load(LIST_VIEW);
+  View *view = document.view();
+  view->set_size(200, 200);
+  document.set_data("shop.items", named_rows({{"a", "Poción"}, {"b", "Espada"}}));
+  view->layout_frame();
+
+  const LayoutNode &rows = rows_of(*view);
+  const LayoutNode *was_first = &rows.children[0];
+  const LayoutNode *was_second = &rows.children[1];
+
+  document.set_data("shop.items", named_rows({{"b", "Espada"}, {"a", "Poción"}}));
+  view->layout_frame();
+
+  // The very same nodes, in the other order: what reordering moves is the
+  // instance, and with it every piece of state the view keyed by node identity.
+  CHECK(&rows.children[0] == was_second);
+  CHECK(&rows.children[1] == was_first);
+  CHECK_EQ(label_of(rows.children[0]), std::string("Espada"));
+  CHECK_EQ(label_of(rows.children[1]), std::string("Poción"));
+}
+
+TEST(view, without_a_key_identity_is_the_position_and_stays_there) {
+  // The author said the row IS the position, so an insert leaves each instance
+  // where it was and hands it another element.
+  const char *unkeyed = R"({"v":1,"views":{"list":{
+    "type":"Container","children":[
+      {"type":"Repeat","id":"rows","items":{"bind":"shop.items"},"as":"it",
+       "children":[{"type":"Text","id":"label","text":{"bind":"it.name"}}]}]}}})";
+  Document document;
+  document.load(unkeyed);
+  View *view = document.view();
+  view->set_size(200, 200);
+  document.set_data("shop.items", named_rows({{"a", "Poción"}, {"b", "Espada"}}));
+  view->layout_frame();
+
+  const LayoutNode &rows = view->root().children[0];
+  const LayoutNode *first = &rows.children[0];
+
+  document.set_data("shop.items", named_rows({{"b", "Espada"}, {"a", "Poción"}}));
+  view->layout_frame();
+  CHECK(&rows.children[0] == first);
+  CHECK_EQ(rows.children[0].text_content, std::string("Espada"));
+}
+
+TEST(view, an_action_from_inside_an_item_says_which_one) {
+  Document document;
+  document.load(LIST_VIEW);
+  View *view = document.view();
+  view->set_size(200, 200);
+  document.set_data("shop.items", named_rows({{"a", "Poción"}, {"b", "Espada"}}));
+  view->layout_frame();
+
+  const LayoutNode &second = rows_of(*view).children[1];
+  view->pointer_down(second.rect.x + 5, second.rect.y + 5);
+  view->pointer_up(second.rect.x + 5, second.rect.y + 5);
+
+  const std::vector<ActionEvent> actions = view->drain_actions();
+  CHECK_EQ(actions.size(), 1u);
+  if (actions.empty()) return;
+  CHECK_EQ(actions[0].name, std::string("buy"));
+  // The absolute path of the item, its raw key and its position (ZAB-29) — the
+  // path is what the game writes back through, so it is an address and not a name.
+  CHECK_EQ(actions[0].item_path, std::string("shop.items.1"));
+  CHECK_EQ(actions[0].item_index, 1);
+  CHECK(actions[0].has_key);
+  CHECK_EQ(actions[0].key_text, std::string("b"));
+}
+
+TEST(view, an_action_from_the_document_itself_carries_no_item) {
+  Document document = loaded(BUTTON_VIEW);
+  View *view = document.view();
+  view->pointer_down(40, 25);
+  view->pointer_up(40, 25);
+  const std::vector<ActionEvent> actions = view->drain_actions();
+  CHECK_EQ(actions.size(), 1u);
+  if (!actions.empty()) CHECK(actions[0].item_path.empty());
+}
+
+TEST(view, a_long_list_realizes_a_window_and_reserves_the_rest) {
+  Document document;
+  document.load(LIST_VIEW);
+  View *view = document.view();
+  view->set_size(200, 200);
+  document.set_data("shop.items", counted_rows(40));
+  // The first frame measures the rows; the second is the one that can window
+  // them, which is the settling frame the corpus gives every case.
+  view->layout_frame();
+  view->layout_frame();
+
+  const LayoutNode &rows = rows_of(*view);
+  CHECK(rows.virtual_span.has_value());
+  if (!rows.virtual_span.has_value()) return;
+  // Viewport 100 over a stride of 40 covers lines 0..2, plus two buffer lines.
+  CHECK_EQ(rows.virtual_span->first, 0);
+  CHECK_EQ(rows.virtual_span->count, 5);
+  // The space of the WHOLE array: the scroll bounds must not depend on how much
+  // of it exists.
+  CHECK_NEAR(rows.virtual_span->reserved, 40 * 40.0, 1e-9);
+  CHECK_NEAR(rows.rect.height, 1600.0, 1e-9);
+  CHECK_EQ(rows.children.size(), 6u);  // five rows and the empty state
+
+  // Scrolled: another window, offset by the lines it skipped. It takes two
+  // frames on purpose — the expansion reads the rects the PREVIOUS frame left,
+  // so the scroll moves the content first and the window converges right after,
+  // which is exactly what `sync_extent` asks for another frame to do.
+  view->set_scroll("scroller", 0, 400);
+  view->layout_frame();
+  view->layout_frame();
+  CHECK_EQ(rows.virtual_span->first, 8);
+  CHECK_NEAR(rows.virtual_span->lead, 320.0, 1e-9);
+  // The first realized row sits where the tenth row belongs, not at the top.
+  CHECK_NEAR(rows.children[0].rect.y, 320.0 - 400.0, 1e-9);
+  CHECK_EQ(label_of(rows.children[0]), std::string("row 8"));
+}
+
+TEST(view, the_focus_of_an_unrealized_row_is_logical_and_comes_back_with_it) {
+  Document document;
+  document.load(LIST_VIEW);
+  View *view = document.view();
+  view->set_size(200, 200);
+  document.set_data("shop.items", counted_rows(40));
+  view->layout_frame();
+  view->layout_frame();
+
+  const LayoutNode &rows = rows_of(*view);
+  const LayoutNode *first_row = &rows.children[0];
+  view->pointer_down(first_row->rect.x + 5, first_row->rect.y + 5);
+  view->pointer_up(first_row->rect.x + 5, first_row->rect.y + 5);
+  view->drain_actions();
+  CHECK(view->focus() == first_row);
+
+  // Scrolling that row out of the window is the renderer recycling a node, not
+  // the player giving up the focus (ZAB-70): nothing wears it, and nothing takes
+  // it — least of all whatever the view would otherwise autofocus.
+  view->set_scroll("scroller", 0, 600);
+  view->layout_frame();
+  view->layout_frame();
+  CHECK(view->focus() == nullptr);
+  CHECK_EQ(label_of(rows.children[0]), std::string("row 13"));
+
+  // Realized again: the item takes it back, at the same node of the row.
+  view->set_scroll("scroller", 0, 0);
+  view->layout_frame();
+  view->layout_frame();
+  CHECK(view->focus() != nullptr);
+  if (view->focus() == nullptr) return;
+  CHECK_EQ(label_of(*view->focus()), std::string("row 0"));
+}
+
+TEST(view, a_recycled_instance_settles_on_its_new_item_in_the_very_first_frame) {
+  // ZAB-66: the row is moving to another element, so a frame that showed the old
+  // one's colours halfway to the new one's would describe neither. What settles
+  // it is both halves at once — re-derive what data drives, and drop the tweens.
+  const char *toggles = R"({"v":1,"views":{"list":{
+    "type":"Container","children":[
+      {"type":"Repeat","id":"rows","items":{"bind":"shop.items"},"as":"it","key":"id",
+       "children":[
+         {"type":"Toggle","id":"row","checked":{"bind":"it.on"},
+          "transition":{"duration":200},
+          "layout":{"width":40,"height":20},
+          "children":[
+            {"type":"Container","id":"on","layout":{"width":16,"height":16}},
+            {"type":"Container","id":"off","layout":{"width":16,"height":16}}]}]}]}}})";
+  Document document;
+  document.load(toggles);
+  View *view = document.view();
+  view->set_size(200, 200);
+
+  DataValue items = DataValue::array();
+  for (const auto &[id, on] : std::vector<std::pair<const char *, bool>>{{"a", true},
+                                                                        {"b", false}}) {
+    DataValue row = DataValue::object();
+    row.insert("id", DataValue::of_text(id));
+    row.insert("on", DataValue::of_bool(on));
+    items.push(std::move(row));
+  }
+  document.set_data("shop.items", std::move(items));
+  view->layout_frame();
+
+  const LayoutNode &rows = view->root().children[0];
+  CHECK_NEAR(rows.children[0].checked_progress, 1.0, 1e-9);
+  CHECK_NEAR(rows.children[1].checked_progress, 0.0, 1e-9);
+
+  // Swap the two elements. Each instance travels with its key, so the node that
+  // showed "a" is now at position 1 — and it must PAINT its state, not slide
+  // towards it from the row it used to be.
+  DataValue swapped = DataValue::array();
+  for (const auto &[id, on] : std::vector<std::pair<const char *, bool>>{{"b", false},
+                                                                        {"a", true}}) {
+    DataValue row = DataValue::object();
+    row.insert("id", DataValue::of_text(id));
+    row.insert("on", DataValue::of_bool(on));
+    swapped.push(std::move(row));
+  }
+  document.set_data("shop.items", std::move(swapped));
+  view->set_now(16);
+  view->layout_frame();
+  CHECK_NEAR(rows.children[0].checked_progress, 0.0, 1e-9);
+  CHECK_NEAR(rows.children[1].checked_progress, 1.0, 1e-9);
+}
+
+TEST(view, a_write_to_an_items_own_data_keeps_animating) {
+  // The other side of the same rule: same identity, no reorder, so nothing was
+  // recycled — a value that moves tweens, which is the model of F7 exactly.
+  const char *toggles = R"({"v":1,"views":{"list":{
+    "type":"Container","children":[
+      {"type":"Repeat","id":"rows","items":{"bind":"shop.items"},"as":"it","key":"id",
+       "children":[
+         {"type":"Toggle","id":"row","checked":{"bind":"it.on"},
+          "transition":{"duration":200},
+          "layout":{"width":40,"height":20},
+          "children":[
+            {"type":"Container","id":"on","layout":{"width":16,"height":16}},
+            {"type":"Container","id":"off","layout":{"width":16,"height":16}}]}]}]}}})";
+  Document document;
+  document.load(toggles);
+  View *view = document.view();
+  view->set_size(200, 200);
+
+  DataValue items = DataValue::array();
+  DataValue row = DataValue::object();
+  row.insert("id", DataValue::of_text("a"));
+  row.insert("on", DataValue::of_bool(false));
+  items.push(std::move(row));
+  document.set_data("shop.items", std::move(items));
+  view->layout_frame();
+
+  const LayoutNode &only = view->root().children[0].children[0];
+  CHECK_NEAR(only.checked_progress, 0.0, 1e-9);
+
+  document.set_data("shop.items.0.on", DataValue::of_bool(true));
+  // The frame that notices the change is where the tween starts; the next one is
+  // where it has run for a while.
+  view->layout_frame();
+  view->set_now(100);
+  view->layout_frame();
+  // Halfway through the duration, and therefore neither end of it.
+  CHECK(only.checked_progress > 0.0);
+  CHECK(only.checked_progress < 1.0);
+}
+
+TEST(view, a_nested_list_expands_in_the_same_sweep_and_reaches_the_outer_alias) {
+  const char *nested = R"({"v":1,"views":{"list":{
+    "type":"Container","children":[
+      {"type":"Repeat","id":"cats","items":{"bind":"shop.cats"},"as":"cat","key":"id",
+       "children":[
+         {"type":"Container","id":"cat-row","children":[
+           {"type":"Repeat","id":"items","items":{"bind":"cat.items"},"as":"it","key":"id",
+            "children":[
+              {"type":"Text","id":"label","text":{"bind":"it.name"}},
+              {"type":"Text","id":"none","text":"none"}]}]},
+         {"type":"Text","id":"no-cats","text":"no cats"}]}]}}})";
+  Document document;
+  document.load(nested);
+  View *view = document.view();
+  view->set_size(200, 200);
+
+  const auto category = [](const char *id, const std::vector<const char *> &names) {
+    DataValue cat = DataValue::object();
+    cat.insert("id", DataValue::of_text(id));
+    DataValue items = DataValue::array();
+    for (const char *name : names) {
+      DataValue item = DataValue::object();
+      item.insert("id", DataValue::of_text(name));
+      item.insert("name", DataValue::of_text(std::string(id) + "/" + name));
+      items.push(std::move(item));
+    }
+    cat.insert("items", std::move(items));
+    return cat;
+  };
+  DataValue cats = DataValue::array();
+  cats.push(category("a", {"x"}));
+  cats.push(category("b", {"y"}));
+  document.set_data("shop.cats", std::move(cats));
+  // ONE frame: expanding the outer list creates the instances the inner ones live
+  // in, and the sweep reaches them right after because it walks the registry by
+  // index while `expand` appends to it.
+  view->layout_frame();
+
+  const LayoutNode &cats_node = view->root().children[0];
+  CHECK_EQ(cats_node.children.size(), 3u);  // two categories and the empty state
+  const LayoutNode &first_inner = cats_node.children[0].children[0].children[0];
+  CHECK_EQ(first_inner.text_content, std::string("a/x"));
+
+  // Reordering the OUTER list moves one scope link, and the inner instances read
+  // through it: a nested chain points AT that link rather than copying it.
+  DataValue swapped = DataValue::array();
+  swapped.push(category("b", {"y"}));
+  swapped.push(category("a", {"x"}));
+  document.set_data("shop.cats", std::move(swapped));
+  view->layout_frame();
+  const LayoutNode &moved_inner = cats_node.children[0].children[0].children[0];
+  CHECK_EQ(moved_inner.text_content, std::string("b/y"));
+}
