@@ -482,10 +482,25 @@ void write_node(Writer &writer, const LayoutNode &node, const Refs &refs, const 
     writer.end_object();
   }
 
-  // `window` (G12, ZAB-145) belongs here, after the field. It is written by the
-  // ticket that gives the runtime something to say; until then it is absent,
-  // which is what "this node has none" already means everywhere else in this
-  // document.
+  // The window a virtualized `Repeat` realized, and the space it reserved for
+  // everything outside it. Absent on a node that is not virtualized — a list
+  // short enough to realize whole says nothing here, which is the honest answer.
+  if (node.virtual_span.has_value()) {
+    const ItemSpan &span = *node.virtual_span;
+    writer.key("window");
+    writer.begin_object();
+    writer.key("first");
+    writer.number_value(span.first);
+    writer.key("count");
+    writer.number_value(span.count);
+    writer.key("perLine");
+    writer.number_value(span.per_line);
+    writer.key("lead");
+    writer.number_value(span.lead);
+    writer.key("reserved");
+    writer.number_value(span.reserved);
+    writer.end_object();
+  }
 
   if (!node.children.empty()) {
     // The region a child inherits, computed exactly as paint and hit-testing do.

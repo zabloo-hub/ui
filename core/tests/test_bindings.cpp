@@ -1,14 +1,12 @@
 // The normative helpers of `@zabloo/format`, checked against the rules the
 // format writes down.
 //
-// Nothing here has a `Repeat` to run against yet — G12 (ZAB-145) is what opens a
-// scope — so these cases build the scopes by hand. That is the point: if the
-// three targets do not compute the same path and the same identity from the same
-// stack, the same envelope with the same `SetData` stops producing the same
-// screen.
+// The scopes are built by hand here rather than by expanding a `Repeat`, which
+// is the point: if the three targets do not compute the same path and the same
+// identity from the same chain, the same envelope with the same `SetData` stops
+// producing the same screen.
 
 #include <string>
-#include <vector>
 
 #include "bindings.h"
 #include "testing.h"
@@ -17,30 +15,32 @@ using namespace zabloo;
 
 namespace {
 
-ItemScope scope(const char *alias, const char *path, int index) {
+ItemScope scope(const char *alias, const char *path, int index,
+                const ItemScope *outer = nullptr) {
   ItemScope out;
   out.alias = alias;
   out.path = path;
   out.index = index;
+  out.outer = outer;
   return out;
 }
 
-std::string path_of(const char *bind, const std::vector<ItemScope> &scopes) {
-  const ResolvedBind resolved = resolve_binding(bind, scopes);
+std::string path_of(const char *bind, const ItemScope *innermost) {
+  const ResolvedBind resolved = resolve_binding(bind, innermost);
   return resolved.kind == ResolvedBind::Kind::Path ? resolved.path : std::string("(index)");
 }
 
 }  // namespace
 
 TEST(bindings, outside_a_template_a_path_passes_through_untouched) {
-  const std::vector<ItemScope> none;
-  CHECK_EQ(path_of("player.gold", none), std::string("player.gold"));
-  CHECK_EQ(path_of("item.name", none), std::string("item.name"));
+  CHECK_EQ(path_of("player.gold", nullptr), std::string("player.gold"));
+  CHECK_EQ(path_of("item.name", nullptr), std::string("item.name"));
 }
 
 TEST(bindings, the_innermost_alias_wins_so_nesting_shadows) {
-  const std::vector<ItemScope> scopes{scope("cat", "shop.cats.2", 2),
-                                      scope("item", "shop.cats.2.items.5", 5)};
+  const ItemScope outer = scope("cat", "shop.cats.2", 2);
+  const ItemScope inner = scope("item", "shop.cats.2.items.5", 5, &outer);
+  const ItemScope *scopes = &inner;
   CHECK_EQ(path_of("item.name", scopes), std::string("shop.cats.2.items.5.name"));
   // A nested list can still reach the element OUTSIDE it, which is why the alias
   // is declared and not reserved.
@@ -52,7 +52,8 @@ TEST(bindings, the_innermost_alias_wins_so_nesting_shadows) {
 }
 
 TEST(bindings, only_the_exact_index_leaf_is_reserved) {
-  const std::vector<ItemScope> scopes{scope("item", "shop.items.3", 3)};
+  const ItemScope only = scope("item", "shop.items.3", 3);
+  const ItemScope *scopes = &only;
   const ResolvedBind position = resolve_binding("item.$index", scopes);
   CHECK(position.kind == ResolvedBind::Kind::Index);
   CHECK_EQ(position.index, 3);

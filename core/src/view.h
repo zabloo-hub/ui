@@ -41,11 +41,19 @@ namespace zabloo {
 struct ActionEvent {
   std::string name;
   /**
-   * Where it fired from, when it fired inside a `Repeat` item (ZAB-29). Empty
-   * until G12 (ZAB-145) instantiates items: an action from the document itself
-   * carries no context, which is exactly what an empty path means.
+   * The item it fired from, when it fired inside a `Repeat` (ZAB-29) — the
+   * INNERMOST one, which is enough for nested lists because its path already
+   * embeds every enclosing index. An action from the document itself carries no
+   * context, which is exactly what an empty path means.
    */
   std::string item_path;
+  /** The item's raw key, absent when identity is positional. */
+  bool has_key = false;
+  bool key_is_number = false;
+  double key_number = 0.0;
+  std::string key_text;
+  /** Its position in the array. Meaningless without `item_path`. */
+  int item_index = 0;
 };
 
 /**
@@ -224,6 +232,11 @@ class View {
   /**
    * Scrolls the `ScrollView` the focus lives in, by a pixel delta. Nothing at
    * all when the focus is outside every scroller, or on nothing.
+   *
+   * "Lives in" covers a focus that is only LOGICAL — a virtualized row the
+   * `Repeat` has not realized (ZAB-70) still names the list it belongs to — so
+   * the stick does not go dead precisely while the player is scrolling that row
+   * out of the window.
    */
   bool scroll_focused_by(double dx, double dy);
 
@@ -364,8 +377,34 @@ class View {
    * searched for the two fields in it.
    */
   std::vector<LayoutNode *> fields_;
+  /**
+   * Every `Repeat` of the tree, kept the same way and iterated BY INDEX: the
+   * expansion pass appends to it while it runs, which is what lets the instances
+   * an outer list creates bring their own inner lists into the same sweep.
+   *
+   * A discarded row NULLS its entry instead of erasing it, so a removal in the
+   * middle of that sweep cannot shift the indices out from under it; the sweep
+   * compacts the list when it is done.
+   */
+  std::vector<LayoutNode *> repeats_;
   /** Ids the host channel addresses. The last node realized under an id wins. */
   std::unordered_map<std::string, LayoutNode *> by_id_;
+  /**
+   * The focus of a virtualized row that is no longer realized (ZAB-70). It names
+   * the ITEM and not the node, because the node is gone: the `Repeat` it belongs
+   * to, the identity reconciliation keys that item by, and the child-index path
+   * from the instance root down to the node that had the focus.
+   *
+   * While it is set, `focus_` is null and nothing wears the focused state — but
+   * the focus is NOT free to give away: scrolling a list must never hand it to
+   * the view's `autofocus`.
+   */
+  struct PendingFocus {
+    LayoutNode *repeat = nullptr;
+    std::string identity;
+    std::vector<uint32_t> path;
+  };
+  std::optional<PendingFocus> pending_focus_;
   /**
    * Where a `"<alias>.$index"` read lands, since a position is a number the data
    * does not contain and so has nowhere in the store to be. Consumed by the
@@ -442,8 +481,81 @@ class View {
   double font_size(const Style &style) const;
   TextLayoutOptions text_options(const Style &style, double font_line_height,
                                  std::optional<double> max_width) const;
-  /** Initial state and bindings, once, over the freshly built tree. */
-  void prepare(LayoutNode &node);
+  /**
+   * Initial state and bindings, once, over a freshly built tree — the whole view
+   * at load, one template instance at every expansion after that.
+   */
+  void prepare(LayoutNode &node, const ItemScope *scopes);
+
+  // --- Repeat: expansion, item scopes and the life of an instance (ZAB-31) ---
+
+  /**
+   * Turns the `Repeat` nodes of the tree into nodes, top-down: the window each
+   * one can show becomes instances of its template, and everything outside it
+   * stays reserved space. It is the first thing a frame does — before the overlay
+   * layer is collected — so an Overlay declared inside a row joins the layer on
+   * the very frame that row appears, and the resolve pass sees a plain tree.
+   */
+  void sync_repeats();
+  void expand(LayoutNode &node);
+  /** A fresh instance of the template, scoped to one element of the array. */
+  LayoutNode &build_instance(const Node &item_ir, LayoutNode &node, const std::string &alias,
+                             std::string path, int index);
+  /**
+   * Points a reused instance at another element — what a `SetData` that reorders,
+   * inserts or removes comes down to. The scope link is SHARED by every node of
+   * the subtree (nested lists included, which chain to it), so moving a row is
+   * one mutation however deep it is, and every binding inside follows on its next
+   * read.
+   */
+  void rescope(LayoutNode &instance, const std::string &alias, const std::string &path, int index);
+  /**
+   * Starts a reused instance ON the element it now points at: every value it
+   * derives from data is derived again, and the transition state of every node in
+   * it is dropped so this frame's values are PAINTED instead of tweened towards
+   * (ZAB-66).
+   *
+   * Both halves are needed and neither is enough alone. Settling the bindings
+   * lands the states a binding drives (a Toggle's crossfade, a Slider's glide),
+   * but the declared props are tweened out of `anim`, which still holds the values
+   * of the row this instance used to be: without the clear the very next resolve
+   * pass sees a target that moved, retargets from the old value and UNDOES the
+   * settle. And the clear alone would leave those states derived from the previous
+   * element.
+   *
+   * It walks the whole subtree and not the bound list for the same reason: a node
+   * whose look depends on the item without reading data itself — the label of a
+   * row whose `disabled` came from the element — has nothing to re-derive and
+   * everything to snap.
+   */
+  void resettle(LayoutNode &node);
+  /** What a frame realizes: the window, or the whole array when there is nothing to window against. */
+  struct WindowPlan {
+    std::optional<ItemSpan> span;
+    int first = 0;
+    int count = 0;
+  };
+  WindowPlan plan_window(LayoutNode &node, int item_count);
+  /**
+   * Learns one line's size from the instances that were just laid out, and asks
+   * for another frame when this one's rects would now plan a different window.
+   */
+  void sync_extents();
+  void sync_extent(LayoutNode &node);
+  bool window_drifted(LayoutNode &node, RepeatState &state);
+  /** The `Repeat` this node was instantiated by, i.e. the one that owns its innermost scope. */
+  LayoutNode *repeat_of(const LayoutNode &node) const;
+  /**
+   * Lets an instance go: it left the window, or its item left the array. Every
+   * piece of state the view keyed by node identity dies with it — which is exactly
+   * the state that does NOT travel with the item, and the reason a `key` is worth
+   * declaring.
+   */
+  void discard(LayoutNode &node);
+  /** Keeps the focus of a row about to be un-realized, as the ITEM it sat on (ZAB-70). */
+  void remember_focus(LayoutNode &repeat, LayoutNode &instance);
+  /** Gives it back to an item that was realized again, if its shape still resolves. */
+  void restore_focus(LayoutNode &repeat, const std::string &identity, LayoutNode &instance);
   /**
    * Derives from data everything this node's state reads. `settle` puts a field's
    * caret at the end of its new value (a build) rather than clamping the one the

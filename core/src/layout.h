@@ -22,12 +22,14 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "bindings.h"
 #include "color.h"
 #include "data.h"
 #include "envelope.h"
+#include "repeat.h"
 #include "states.h"
 #include "text.h"
 #include "textinput.h"
@@ -111,6 +113,124 @@ struct FieldState {
   Selection composing_selection;
 };
 
+struct LayoutNode;
+
+/**
+ * A node's children, owned, with STABLE addresses.
+ *
+ * Nodes are held behind pointers rather than stored by value, and that is not a
+ * style choice: the view keeps raw pointers into this tree everywhere it has
+ * state to remember — the focus, the pressed and hovered nodes, the id index,
+ * the bound list, the fields, the overlays, the modal stack, a drag in flight.
+ * Until G12 that was safe by accident, because the tree was built once at load
+ * and never restructured. A `Repeat` restructures it every frame: reordering,
+ * inserting and dropping instances as the data and the window move. With nodes
+ * stored by value each of those moves would leave every one of those pointers
+ * dangling, so address stability is what this type exists to guarantee.
+ *
+ * It reads like a vector of nodes on purpose — `for (LayoutNode &child :
+ * node.children)` and `node.children[0].children[1]` both mean what they say —
+ * so the indirection is spelled once here instead of at every walk in the core.
+ */
+class NodeList {
+ public:
+  /** Iterates as `LayoutNode&`: the pointers are this type's business, not the caller's. */
+  template <typename Slot, typename Ref>
+  class Iterator {
+   public:
+    explicit Iterator(Slot *slot) : slot_(slot) {}
+
+    Ref &operator*() const { return **slot_; }
+    Iterator &operator++() {
+      slot_++;
+      return *this;
+    }
+    bool operator!=(const Iterator &other) const { return slot_ != other.slot_; }
+
+   private:
+    Slot *slot_;
+  };
+
+  using Slot = std::unique_ptr<LayoutNode>;
+  using iterator = Iterator<Slot, LayoutNode>;
+  using const_iterator = Iterator<const Slot, const LayoutNode>;
+
+  LayoutNode &operator[](size_t index) { return *items_[index]; }
+  const LayoutNode &operator[](size_t index) const { return *items_[index]; }
+  LayoutNode &back() { return *items_.back(); }
+  const LayoutNode &back() const { return *items_.back(); }
+  size_t size() const { return items_.size(); }
+  bool empty() const { return items_.empty(); }
+
+  iterator begin() { return iterator(items_.data()); }
+  iterator end() { return iterator(items_.data() + items_.size()); }
+  const_iterator begin() const { return const_iterator(items_.data()); }
+  const_iterator end() const { return const_iterator(items_.data() + items_.size()); }
+
+  /** A fresh child at the end — the shape every static build site uses. */
+  LayoutNode &emplace_back();
+  /** Adopts a node built elsewhere: how a `Repeat` puts an instance back in place. */
+  void push_back(Slot node) { items_.push_back(std::move(node)); }
+  /** Empties the list into `out`, keeping order: a reorder is that plus `push_back`. */
+  void take_all(std::vector<Slot> &out) {
+    out.clear();
+    out.swap(items_);
+  }
+  void clear() { items_.clear(); }
+  /** The position of a child, or `size()` when it is not one — document order. */
+  size_t index_of(const LayoutNode &child) const;
+
+ private:
+  std::vector<Slot> items_;
+};
+
+/** One live instance of a template, and the child slot that owns it. */
+struct RepeatInstance {
+  LayoutNode *node = nullptr;
+  /**
+   * Where it sat in the node's children when the last expansion left it there.
+   *
+   * Kept with the pointer rather than searched for: reconciliation hands back an
+   * instance and the expansion then has to take its OWNING slot out of the list,
+   * and on a list realized whole that lookup would be a scan per row per frame.
+   */
+  uint32_t slot = 0;
+};
+
+/**
+ * A `Repeat`'s runtime state (ZAB-31) — the instances it has realized, keyed by
+ * the identity of the item they show, plus the uniform size the virtualization
+ * assumes. Owned by the view; the layout pass only ever reads `virtual_span`.
+ */
+struct RepeatState {
+  /** Live template instances, by `item_identity` — this is what reordering moves. */
+  std::unordered_map<std::string, RepeatInstance> instances;
+  /** The empty-state slot (`children[1..]`), built once and kept out of layout. */
+  std::vector<LayoutNode *> empty;
+  /** One line's measured size on the stacking axis, until a frame measures one. */
+  std::optional<double> extent;
+  /** One item's measured size on the main axis — what decides how many fit per line. */
+  std::optional<double> item_main;
+  /** The width those two were measured at: another one means they are stale. */
+  std::optional<double> measured_width;
+  /** Elements in the bound array on the last expansion. */
+  int item_count = 0;
+  /** The window that expansion realized — what the next frame's plan is compared against. */
+  int first = 0;
+  int count = 0;
+
+  /**
+   * Per-expansion scratch, cleared and refilled so a steady frame allocates
+   * nothing. `taken` holds the children while they are being reordered and is
+   * empty everywhere outside `expand`.
+   */
+  std::vector<std::unique_ptr<LayoutNode>> taken;
+  std::vector<ItemSlot> slots;
+  std::vector<WindowEntry<RepeatInstance>> entries;
+  std::vector<RepeatInstance> dropped;
+  std::unordered_map<std::string, RepeatInstance> next;
+};
+
 /** One or two children sharing a box — see `flow_items`. */
 struct FlowItem {
   uint32_t first = 0;
@@ -128,7 +248,7 @@ struct FlowItem {
 struct LayoutNode {
   const Node *ir = nullptr;
   LayoutNode *parent = nullptr;
-  std::vector<LayoutNode> children;
+  NodeList children;
 
   // --- geometry ---
   /** What the content asked for, before a declared width/height replaced it. */
@@ -209,14 +329,38 @@ struct LayoutNode {
    */
   DataValue group_value;
   /**
-   * The item scopes this node was instantiated under, or null outside every
-   * template — shared and never written to, so the common case costs a pointer.
-   * G12 (ZAB-145) is what opens one.
+   * A `Repeat`'s instances and the geometry they are windowed by, or null on
+   * every other node — a pointer, like `field` and `anim`.
    */
-  const std::vector<ItemScope> *scopes = nullptr;
+  std::unique_ptr<RepeatState> repeat;
+  /**
+   * `Repeat` only: the realized window and the space that stands in for the rest.
+   * Absent when the node is not virtualized (no scroller to window against, or an
+   * array short enough to realize whole), and then it lays out like any container.
+   */
+  std::optional<ItemSpan> virtual_span;
+  /**
+   * The innermost item scope this node was instantiated under, or null outside
+   * every template. The link is owned by the instance root it was opened for and
+   * SHARED by its whole subtree, so pointing a row at another element is one
+   * mutation however deep the tree under it goes.
+   */
+  const ItemScope *scopes = nullptr;
+  /**
+   * The scope this node opened, on the root of a `Repeat` instance only — what
+   * every node under it points at. Owned here so it dies exactly when its row
+   * does, and stable in memory because a nested chain links to it.
+   */
+  std::unique_ptr<ItemScope> scope_link;
   /** The static or bound `visible`, and the section flag a Collapse/Tabs owns. */
   bool visible_flag = true;
   bool section_shown = true;
+  /**
+   * Whether a binding drives this node's STATE — the same predicate the view's
+   * bound registry is built from, kept on the node so an instance being recycled
+   * can ask one node about itself without searching that list (ZAB-66).
+   */
+  bool data_bound = false;
   /** Declared on this node; `disabled` is that OR an ancestor's (ZAB-63). */
   bool disabled_flag = false;
   bool disabled = false;
@@ -314,6 +458,16 @@ void build_layout_tree(const Node &ir, LayoutNode &out);
 
 /** In layout at all: `visible` and the section flags, the one display:none path. */
 bool in_layout(const LayoutNode &node);
+
+/**
+ * Whether a node breaks its children into several lines (2026-08-11, ZAB-32 — a
+ * grid IS a row that wraps). `wrap` only takes effect on a ROW.
+ *
+ * Exported because the window a virtualized `Repeat` plans has to agree with it:
+ * a wrapping node stacks its LINES on the cross axis, so which axis is scrolled
+ * and what a line even is both hang off this answer.
+ */
+bool wraps_lines(const LayoutNode &node);
 
 /**
  * Whether a node takes part in its parent's flow. An `Overlay` never does
