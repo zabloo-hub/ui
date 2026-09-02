@@ -430,7 +430,6 @@ class View {
    * looking at (2026-08-12, ZAB-47).
    */
   bool reveal_focused(LayoutNode &node);
-  LayoutNode *pressable_at(double x, double y);
   LayoutNode *hoverable_at(double x, double y);
   LayoutNode *collapse_header_at(double x, double y);
   void fire(const LayoutNode &node, const std::string &action);

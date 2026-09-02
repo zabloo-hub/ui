@@ -1251,22 +1251,6 @@ bool View::reachable_at(LayoutNode &node, double x, double y) {
 }
 
 /**
- * What a press takes hold of: a Button or a Toggle, and nothing else.
- *
- * Deliberately NARROWER than the focusable set. A Collapse header toggles on the
- * release without ever wearing `pressed` (see `pointer_up`), and a Slider and a
- * TextInput run gestures of their own — G10 (ZAB-143) and G11 (ZAB-144). Up from
- * what was hit to whatever governs the gesture: a label inside a button is
- * pressed by pressing the button.
- */
-LayoutNode *View::pressable_at(double x, double y) {
-  return find_up(hit(x, y), [](const LayoutNode &node) {
-    return !node.disabled &&
-           (node.ir->type == NodeType::Button || node.ir->type == NodeType::Toggle);
-  });
-}
-
-/**
  * What a mouse lights up: exactly the focusable set (2026-08-11, ZAB-36), so one
  * rule answers both questions rather than two lists drifting apart — and a mouse
  * and a pad see the same dead control.
@@ -1334,10 +1318,19 @@ bool View::pointer_down(double x, double y, bool mouse) {
     backdrop_press_ = resolved.node;
     return true;
   }
-  // G10 (ZAB-143) and G11 (ZAB-144) take the pointer BEFORE this, for the same
-  // reason: a Slider's drag and a field's selection both live inside scrollable
-  // screens, and neither may become a scroll of the list they sit in.
-  LayoutNode *target = pressable_at(x, y);
+  // One walk for the whole press: everything below reads the node the layer
+  // already resolved, rather than testing the same point again.
+  LayoutNode *node = resolved.kind == LayerHit::Kind::Node ? resolved.node : nullptr;
+  // What a press takes hold of: a Button or a Toggle, and nothing else —
+  // deliberately NARROWER than the focusable set. A Collapse header toggles on the
+  // release without ever wearing `pressed` (see `pointer_up`), and a Slider and a
+  // TextInput run gestures of their own, which G10 (ZAB-143) and G11 (ZAB-144)
+  // take the pointer for BEFORE this, for the same reason: both live inside
+  // scrollable screens, and neither may become a scroll of the list they sit in.
+  LayoutNode *target = find_up(node, [](const LayoutNode &candidate) {
+    return !candidate.disabled &&
+           (candidate.ir->type == NodeType::Button || candidate.ir->type == NodeType::Toggle);
+  });
   if (target != nullptr) {
     if (pressed_ != nullptr) pressed_->pressed = false;
     pressed_ = target;
@@ -1349,7 +1342,6 @@ bool View::pointer_down(double x, double y, bool mouse) {
   // Nothing took the press, so it may be the beginning of a scroll. A disabled
   // control refuses the press above, and refusing means it falls THROUGH: a dead
   // button inside a scroller does not swallow the drag that moves the list.
-  LayoutNode *node = hit(x, y);
   LayoutNode *scroller = node != nullptr ? scroller_of(*node) : nullptr;
   // `scroller_of` starts at the parent, so a press on the scroller itself — its
   // padding, its background — has to be caught here too.
