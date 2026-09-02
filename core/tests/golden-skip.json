@@ -10,9 +10,12 @@
     "",
     "A reason names the capability that is missing and the ticket that lands it.",
     "Where a case waits on several, the first named is the one whose exit",
-    "criterion claims it."
+    "criterion claims it.",
+    "",
+    "EMPTY since G13 (ZAB-146): every case of the corpus now reproduces its",
+    "metrics byte for byte against the core. Merging two branches that each",
+    "emptied a line of this file means taking the union of the DELETIONS, never",
+    "of the entries — the guard below catches that mistake, and has twice."
   ],
-  "cases": {
-    "gamepad-nav": "The pad script: spatial navigation and stick scrolling replayed through the poll loop — G13 (ZAB-146)."
-  }
+  "cases": {}
 }

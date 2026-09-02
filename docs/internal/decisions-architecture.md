@@ -4063,3 +4063,110 @@ fluido es G15 (ZAB-148), así que aquí queda la evidencia en el playground y no
 `sdk/godot/src/zabloo_view.cpp` (el contexto de la acción como `Dictionary`). Tests:
 `core/tests/test_repeat.cpp` (port de `repeat.test.ts`) y el bloque `Repeat` de
 `test_view.cpp`. Docs: `docs/format/host-channel.md` y el README del playground.
+
+## 2026-09-02 — El mando en Godot: el bucle es del core, y los índices los traduce el adaptador (ZAB-146, F11 G13)
+
+**Decisión:** el mando entra como port literal de `gamepad.ts` y de `input/pad.ts`, y con
+él **`gamepad-nav` sale de la skip-list comparando byte a byte a la primera**. Con G12
+(ZAB-145) dentro, **`golden-skip.json` se queda vacío**: los diecisiete casos del corpus
+que miden un frame reproducen sus métricas byte a byte contra el core —sin motor y sin
+GPU— y el decimoctavo, que graba una negativa de carga, se rechaza con su código. Es la
+primera de las cinco condiciones de salida de F11, y lo que G3 levantó el andamio para
+poder decir.
+
+**El bucle vive en el core, no en el adaptador, y eso no es una preferencia: es lo que
+hace que el corpus pueda arbitrarlo.** `gamepad.h` son las reglas puras (mapeo estándar,
+zona muerta con histéresis, reloj de repeat, respuesta cuadrática del stick) y `pad.h` es
+el bucle que las corre: flancos de A y B, y la cascada de una dirección — caret del campo,
+después el foco, que en un `Slider` es donde su eje se ajusta. Si eso hubiera quedado en
+`sdk/godot`, un caso con guion `pad` no se podría reproducir sin arrancar Godot, que es
+exactamente la frontera de ZAB-134 al revés. Al adaptador le queda lo que solo un motor
+puede contestar: **qué dispositivo, qué botón y cuándo mirar**.
+
+**El `PadController` NO lo posee la `View`, y es la decisión con más filo del ticket.**
+Todo su estado es del *dispositivo* — hacia dónde empuja el stick, qué botones estaban
+abajo en el poll anterior — y una `View` es desechable: un hot-update la reconstruye.
+Limpiarlo con ella sería el bug, no la higiene: `press_` es lo que convierte un botón
+mantenido en un flanco, así que ponerlo a cero a media pulsación haría que el poll
+siguiente leyera la A como recién pulsada y presionara **lo que el árbol nuevo tuviera
+enfocado**, un control al que el jugador no apuntó. Así que lo poseen el adaptador y el
+runner golden, y recibe la `View &` en cada `poll`. Es lo mismo que la referencia dice en
+`input/pad.ts` ("there is deliberately no `reset()`"), llevado a su consecuencia: aquí el
+objeto que se reconstruye es otro, y por eso el dueño tiene que ser otro.
+
+**Dos cosas del port que no son copia, con su motivo:**
+
+1. **`activePad` no se porta.** Existe porque `navigator.getGamepads()` devuelve huecos;
+   `get_connected_joypads()` de Godot ya devuelve solo los conectados, así que "el primero"
+   es una regla del adaptador y no del contrato. Un artefacto del navegador no es
+   vocabulario compartido.
+2. **A la cascada solo entran las direcciones HORIZONTALES.** La referencia le pregunta al
+   campo por las cuatro y le dicen que no en las verticales; el `edit_key` del core asienta
+   una composición IME en vuelo *antes* de contestar (G11), así que una dirección que un
+   campo no puede reclamar jamás no debe perturbar una. El comportamiento observable es
+   idéntico — ↑/↓ navegan siempre (ZAB-26, decisión 4) — y el efecto lateral no ocurre.
+
+**Los índices de Godot no son los del mapeo estándar, y traducirlos es literalmente para lo
+que existe el adaptador.** `JoyButton` pone el d-pad en 11–14 y el mapeo W3C —el que hablan
+`gamepad.ts`, el core y el guion `pad` del corpus— en 12–15. La traducción ocurre a la
+entrada, de modo que un guion escrito en `golden/cases.json` significa lo mismo en los dos
+targets. Los ejes sí coinciden (0/1 izquierdo, 2/3 derecho).
+
+**Remapeo: slots, por índice o por acción del `InputMap`.** De fábrica el mando funciona sin
+configurar nada; `set_pad_button(slot, JoyButton)`, `set_pad_action(slot, StringName)` y
+`set_pad_axis(slot, JoyAxis)` son la salida de emergencia que un título de consola necesita,
+porque su pantalla de remapeo ya existe y la UI tiene que seguirla en vez de insistir en el
+reparto de fábrica. Un **slot** es lo que pide el runtime (`a`, `b`, `dpad_*`, `nav_x/y`,
+`scroll_x/y`); con qué se llena es cosa del juego. `set_pad_action` es **solo de botones**:
+una acción es un booleano y un eje es bipolar, así que los sticks se remapean por índice
+(`-1` apaga el slot). Un slot inexistente se contesta con `false` y un aviso, como las
+operaciones por id.
+
+**El `_process` pasa a tener dos motivos, y son distintos.** El movimiento se acaba solo; un
+mando conectado no — el dispositivo se **consulta** y nunca empuja, así que la única forma de
+saber que el jugador pulsó algo es mirar, un frame tras otro, mientras siga enchufado. Los
+dos se centralizan en `sync_process()`, y sin mando ni movimiento no se programa ni un frame,
+que es lo de siempre. De paso, la mitad del `relayout` que arma el IME y el parpadeo del
+caret se extrae a `sync_editing`: el mando puede meter el foco en un campo, y un campo
+enfocado es un campo para el que hay que armar el IME.
+
+**Perder el input es lo mismo que perder el cable, y entra por la misma puerta.** Un
+dispositivo es del **proceso**, así que dos vistas en una escena moverían cada una su foco
+con el mismo empujón del stick (`input_owner.h`, G7). La vista que deja de ser dueña
+`adopt_pad(-1)`, con lo que una pulsación en vuelo se **cancela** y un `Slider` a medio
+ajustar **asienta** — las dos reglas de cierre de ZAB-47, que no son solo para el cable.
+Lo que se comprueba por frame es únicamente la propiedad; lo que hay enchufado llega como
+señal (`joy_connection_changed`).
+
+**Dos intenciones nuevas en la `View`, y solo dos:** `cancel_focused_press` (soltar sin
+activar) y `scroll_focused_by`. Todo lo demás que pide un mando ya tenía handler, que es la
+prueba de que no es un segundo modelo de input.
+
+**`scroll_focused_by` pregunta también por el foco LÓGICO**, que es la otra mitad de
+ZAB-70 y llegó al fusionar G12 (ZAB-145): mientras la fila enfocada no está realizada,
+`focus()` es nulo pero el foco no se ha ido —nombra el item—, así que el stick sigue
+scrolleando **esa** lista. Leyendo solo el nodo realizado, el stick derecho se quedaría
+muerto justo mientras el jugador está sacando de la ventana la fila que tiene el foco, que
+es el momento en que más obviamente lo está usando.
+
+**El runner golden se queda sin `unsupported()`.** Existía para que un caso que pidiera algo
+que el runner no sabía producir **fallara en voz alta** en vez de medir un frame que no era.
+Con el pad, el runner cubre el vocabulario entero de un caso —`(envelope, data, viewport,
+clock, pad)`— así que una función que ya no puede devolver nada es código muerto: se
+sustituye por el comentario que dice que `golden-skip.json` es, desde aquí, una lista de
+capacidades que faltan y de nada más.
+
+**Lo que el corpus NO prueba, dicho en voz alta.** `gamepad-nav` graba **dónde acabó** el
+jugador: dos pasos de d-pad, un cruce a la lista y medio segundo de stick derecho (110 px, que
+son `1100 × 0.1`). La histéresis de la zona muerta, el espaciado del repeat y la respuesta
+cuadrática ocurren **entre** frames y solo los fija `test_gamepad.cpp`; la secuencia de un
+gesto —que la A active en el flanco de subida y no antes, que desenchufar a media pulsación
+cancele y a medio nudge asiente— solo la fija `test_pad.cpp`, contra una `View` de verdad. Un
+snapshot no tiene guion de botones.
+
+**Dónde vive:** `core/src/gamepad.{h,cpp}` (las reglas), `core/src/pad.{h,cpp}` (el bucle),
+`core/src/view.{h,cpp}` (las dos intenciones), `core/tests/test_golden.cpp` (`replay_pad`) y
+`sdk/godot/src/zabloo_view.{h,cpp}` (polling, traducción de índices, remapeo). Tests:
+`core/tests/test_gamepad.cpp` y `core/tests/test_pad.cpp`. Docs:
+`docs/format/host-channel.md` (§ *The gamepad, and remapping it*), `docs/format/input.md` y
+`golden/README.md`. Corpus: `gamepad-nav` fuera de `core/tests/golden-skip.json`.

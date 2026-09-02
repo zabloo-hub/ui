@@ -1615,6 +1615,32 @@ bool View::press_focused(bool down) {
   return true;
 }
 
+bool View::cancel_focused_press() {
+  LayoutNode *node = focus_;
+  if (node == nullptr || !node->pressed) return false;
+  // Dropped, never released: `release` is what activates, and this is the path
+  // for a press that ends without concluding (ZAB-70).
+  node->pressed = false;
+  return true;
+}
+
+bool View::scroll_focused_by(double dx, double dy) {
+  // A focus waiting on a row the `Repeat` has not realized still names the list
+  // it lives in, so the stick keeps scrolling THAT one (ZAB-70). Without it the
+  // stick would go dead exactly while the player is scrolling the focused row out
+  // of the window — which is the moment they are most obviously using it.
+  LayoutNode *node = focus_;
+  LayoutNode *scroller = nullptr;
+  if (node != nullptr) {
+    scroller = in_layout(*node) ? scroller_of(*node) : nullptr;
+  } else if (pending_focus_.has_value() && pending_focus_->repeat != nullptr) {
+    scroller = scroller_of(*pending_focus_->repeat);
+  }
+  if (scroller == nullptr) return false;
+  return set_scroll_offset(*scroller, scroller->scroll_offset.x + dx,
+                           scroller->scroll_offset.y + dy);
+}
+
 // --- the host channel -----------------------------------------------------
 
 LayoutNode *View::find_by_id(std::string_view id, NodeType type) {

@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "json.h"
+#include "pad.h"
 #include "snapshot.h"
 #include "testing.h"
 #include "view.h"
@@ -79,23 +80,50 @@ JsonRef skip_reason(std::string_view name) { return skipped().get(name); }
 bool is_refusal(JsonRef spec) { return spec.get("refuses").exists(); }
 
 /**
- * What a case asks for that this runner cannot produce yet, or an empty string.
+ * Replays a case's `pad` script against the view.
  *
- * Reported rather than silently ignored: measuring a frame that skipped the
- * clock, the pad or half the data would compare a different frame from the one
- * the corpus recorded, and pass or fail for the wrong reason.
+ * A pad is POLLED, never pushed: a `press` only becomes an intention on a frame
+ * that reads it, so a step that changes the state does nothing until an
+ * `advanceMs` gives the loop one. That is the whole reason the corpus can carry
+ * a gamepad at all — a declarative script of a STATE replays anywhere, while a
+ * stream of one platform's events would not.
+ *
+ * `clock` arrives at the instant the case's own `advanceMs` left it and leaves
+ * where the script ends, because the frame that gets measured is the last one
+ * this ran.
  */
-std::string unsupported(JsonRef spec) {
-  std::vector<std::string> missing;
-  if (spec.get("pad").exists()) missing.emplace_back("a gamepad to replay (G13, ZAB-146)");
+void replay_pad(View &view, JsonRef steps, double &clock) {
+  // Shaped the way a standard-mapping pad reports itself — 17 buttons and 4 axes,
+  // all at rest — exactly as the reference harness plugs one in.
+  PadSnapshot pad;
+  pad.buttons.assign(17, false);
+  pad.axes.assign(4, 0.0);
+  PadController controller;
+  controller.connect(clock);
 
-  if (missing.empty()) return {};
-  std::string out = "this runner has no ";
-  for (size_t i = 0; i < missing.size(); i++) {
-    if (i > 0) out += ", and no ";
-    out += missing[i];
+  const auto button = [&pad](JsonRef index, bool down) {
+    const size_t at = static_cast<size_t>(index.as_number(0.0));
+    if (at >= pad.buttons.size()) pad.buttons.resize(at + 1, false);
+    pad.buttons[at] = down;
+  };
+
+  for (uint32_t i = 0; i < steps.size(); i++) {
+    const JsonRef step = steps.at(i);
+    if (step.get("press").exists()) {
+      button(step.get("press"), true);
+    } else if (step.get("release").exists()) {
+      button(step.get("release"), false);
+    } else if (step.get("axis").exists()) {
+      const size_t at = static_cast<size_t>(step.get("axis").as_number(0.0));
+      if (at >= pad.axes.size()) pad.axes.resize(at + 1, 0.0);
+      pad.axes[at] = step.get("value").as_number(0.0);
+    } else {
+      clock += step.get("advanceMs").as_number(0.0);
+      view.set_now(clock);
+      controller.poll(view, pad, clock);
+      view.layout_frame();
+    }
   }
-  return out;
 }
 
 /**
@@ -170,11 +198,19 @@ std::string replay(JsonRef spec, std::string &failure) {
   // record is of the frame at that instant, not of the frames on the way there.
   // Both settling frames happen at time 0, which is what makes them a mount — and
   // a mount snaps, so nothing has started moving before the clock does.
+  double clock = 0.0;
   const double advance = spec.get("advanceMs").as_number(0.0);
   if (advance > 0.0) {
-    view->set_now(advance);
+    clock = advance;
+    view->set_now(clock);
     view->layout_frame();
   }
+
+  // And last the pad, which moves the clock the rest of the way in the steps its
+  // own script asks for: a poll is a frame, so the spans between them are where
+  // a held direction repeats and where the scroll stick covers ground.
+  const JsonRef pad = spec.get("pad");
+  if (pad.exists()) replay_pad(*view, pad, clock);
   return snapshot_view(*view);
 }
 
@@ -308,11 +344,11 @@ std::vector<std::pair<std::string, JsonRef>> metric_cases() {
 
 /** True when the case reproduced its record exactly. */
 bool reproduces(const std::string &name, JsonRef spec, std::string &why) {
-  const std::string missing = unsupported(spec);
-  if (!missing.empty()) {
-    why = name + ": " + missing;
-    return false;
-  }
+  // Nothing is skipped for want of a runner any more: a case is
+  // `(envelope, data, viewport, clock, pad)` and this replays all five, which is
+  // what makes `golden-skip.json` a list of missing CAPABILITIES and nothing
+  // else. A case asking for something new has to teach this function to produce
+  // it, rather than being measured on a frame it never reached.
   std::string failure;
   const std::string actual = replay(spec, failure);
   if (!failure.empty()) {

@@ -38,6 +38,9 @@ script of it replays anywhere. A step is either a change to that state
 for the poll loop to see it in (`{"advanceMs": 16}`) — and nothing happens until
 one of those spans runs, exactly as on a real pad. Indices are the standard
 mapping: `0`=A, `1`=B, `12`–`15`=d-pad, axes `0`/`1` left stick, `2`/`3` right.
+An engine may number its own buttons differently — Godot's `JoyButton` puts the
+d-pad at 11–14 — and translating is the adapter's job, so a script written here
+means the same thing on every target.
 
 Two rules the runner applies to every case, and that every other target has to
 apply too:

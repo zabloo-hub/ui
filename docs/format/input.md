@@ -248,7 +248,12 @@ repeatedly without moving), scroll dead zone `0.15`, hold-to-repeat after `400 m
 step every `90 ms`, and a scroll speed of `1100 px/s` at full deflection.
 
 The pointer's cancel gesture applies to the pad as well: a press that ends outside the
-control — including a disconnected pad — cancels instead of activating.
+control — including a disconnected pad — cancels instead of activating, and a `Slider` it
+was nudging settles (above).
+
+Which physical control fills each of those roles is the SDK's business, not the format's: a
+target reads its engine's own standard mapping out of the box and lets a game point a role
+at something else — see [the Godot spelling](host-channel.md#the-gamepad-and-remapping-it).
 
 ## Who the keys belong to (normative)
 

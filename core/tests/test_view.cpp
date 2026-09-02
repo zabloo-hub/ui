@@ -1914,6 +1914,43 @@ TEST(view, the_focus_of_an_unrealized_row_is_logical_and_comes_back_with_it) {
   CHECK_EQ(label_of(*view->focus()), std::string("row 0"));
 }
 
+TEST(view, the_stick_keeps_scrolling_the_list_a_logical_focus_lives_in) {
+  // The other half of ZAB-70's logical focus, and the pad's (ZAB-47): while the
+  // focused row is not realized, `focus()` is null — but the focus is not gone,
+  // it names the item. If `scroll_focused_by` read only the realized node, the
+  // right stick would go dead exactly while the player is scrolling that row out
+  // of the window, which is the moment they are most obviously using it.
+  Document document;
+  document.load(LIST_VIEW);
+  View *view = document.view();
+  view->set_size(200, 200);
+  document.set_data("shop.items", counted_rows(40));
+  view->layout_frame();
+  view->layout_frame();
+
+  const LayoutNode &rows = rows_of(*view);
+  const LayoutNode *first_row = &rows.children[0];
+  view->pointer_down(first_row->rect.x + 5, first_row->rect.y + 5);
+  view->pointer_up(first_row->rect.x + 5, first_row->rect.y + 5);
+  view->drain_actions();
+  CHECK(view->focus() != nullptr);
+  CHECK(view->scroll_focused_by(0, 40));
+  view->layout_frame();
+
+  // Now scroll it clean out of the realized window.
+  view->set_scroll("scroller", 0, 600);
+  view->layout_frame();
+  view->layout_frame();
+  CHECK(view->focus() == nullptr);
+
+  const LayoutNode *scroller = view->root().children.empty() ? nullptr : &view->root().children[0];
+  CHECK(scroller != nullptr);
+  if (scroller == nullptr) return;
+  const double before = scroller->scroll_offset.y;
+  CHECK(view->scroll_focused_by(0, 40));
+  CHECK_NEAR(scroller->scroll_offset.y, before + 40.0, 1e-9);
+}
+
 TEST(view, a_recycled_instance_settles_on_its_new_item_in_the_very_first_frame) {
   // ZAB-66: the row is moving to another element, so a frame that showed the old
   // one's colours halfway to the new one's would describe neither. What settles

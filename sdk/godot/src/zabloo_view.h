@@ -30,6 +30,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "pad.h"
 #include "view.h"
 
 namespace godot {
@@ -119,6 +120,42 @@ class ZablooView : public Control {
   bool set_scroll(const String &id, double x, double y);
   /** Re-loads the current content. The same path a hot-update takes. */
   bool reload(const String &json);
+
+  // --- the gamepad, and what a game may remap it to (2026-08-12, ZAB-47) ---
+  //
+  // Out of the box the pad is read through Godot's own standard mapping —
+  // `JOY_BUTTON_A` presses, `JOY_BUTTON_B` goes back, the d-pad and the left
+  // stick navigate, the right stick scrolls — so a project that plugs a
+  // controller in gets a navigable UI with nothing to configure.
+  //
+  // These three are the escape hatch a console title needs: its own remapping
+  // screen already exists, and the UI has to follow it rather than insist on the
+  // factory layout. A slot is what the RUNTIME asks for; what fills it is the
+  // game's business.
+  //
+  // | Slot | Filled by default with |
+  // |---|---|
+  // | `a`, `b` | `JOY_BUTTON_A`, `JOY_BUTTON_B` |
+  // | `dpad_up`, `dpad_down`, `dpad_left`, `dpad_right` | the four `JOY_BUTTON_DPAD_*` |
+  // | `nav_x`, `nav_y` | `JOY_AXIS_LEFT_X`, `JOY_AXIS_LEFT_Y` |
+  // | `scroll_x`, `scroll_y` | `JOY_AXIS_RIGHT_X`, `JOY_AXIS_RIGHT_Y` |
+  //
+  // Each answers whether the slot exists, and a miss is a typo rather than a
+  // reason to die — the same contract the id operations above follow.
+
+  /** Reads a button slot from another `JoyButton`, clearing any action on it. */
+  bool set_pad_button(const String &slot, int button);
+  /**
+   * Reads a button slot from an `InputMap` action instead — `&"ui_accept"` and
+   * friends — so a game that already lets the player rebind its controls has the
+   * UI follow the same bindings. An empty name hands the slot back to its button.
+   *
+   * Button slots only: an action is a boolean (or a strength), and an axis is
+   * bipolar. Remap the sticks by index.
+   */
+  bool set_pad_action(const String &slot, const StringName &action);
+  /** Reads an axis slot from another `JoyAxis`; `-1` switches the slot off. */
+  bool set_pad_axis(const String &slot, int axis);
 
   void set_envelope_path(const String &path);
   String get_envelope_path() const;
@@ -229,8 +266,60 @@ class ZablooView : public Control {
   void schedule_caret();
   void flip_caret(int64_t generation);
 
+  // --- the gamepad (ZAB-47) ---
+  /**
+   * The pad's own state machine, and the snapshot it reads.
+   *
+   * The controller is the ADAPTER's and not the view's on purpose: everything in
+   * it is device state, and a `View` is disposable — a hot-update rebuilds one.
+   * Clearing the edges along with the tree would make the very next poll read a
+   * held A as newly pressed (see `pad.h`). The snapshot is kept alive for the
+   * same kind of reason, a smaller one: polling every frame must not allocate.
+   */
+  zabloo::PadController pad_;
+  zabloo::PadSnapshot pad_state_;
+  /** The joypad being read — the first connected one — or -1 while none is. */
+  int pad_device_ = -1;
+
+  /** What fills one button slot: a `JoyButton`, or an `InputMap` action instead. */
+  struct PadButtonSource {
+    int button = -1;
+    StringName action;
+  };
+  /** Indexed by `PadButtonSlot`, and the axes by `PadAxisSlot` (`zabloo_view.cpp`). */
+  PadButtonSource pad_buttons_[6];
+  int pad_axes_[4] = {0, 1, 2, 3};
+
+  /** The factory layout, and the snapshot every poll fills. */
+  void init_pad();
+  /** Whether this view is the one reading the pad right now. */
+  bool polls_pad() const;
+  /** Reconciles what is read against what is plugged in and who owns the input. */
+  void sync_pad();
+  /** Takes (or lets go of) one device, running the closing rules on the way out. */
+  void adopt_pad(int device);
+  void on_joy_connection_changed(int device, bool connected);
+  /**
+   * One poll: fill the snapshot from the device and let the core's loop run its
+   * rules over it. Answers whether anything changed.
+   */
+  bool poll_pad(zabloo::View &view, double now);
+
   /** Re-runs the core's layout against the current control size and redraws. */
   void relayout();
+  /**
+   * Frames on demand: while something is moving, and while a pad is being read.
+   *
+   * The two reasons are different and both are real — motion has an end, and a
+   * connected pad has to be asked every frame whether the player pressed
+   * something, because the device is POLLED and never pushes.
+   */
+  void sync_process();
+  /**
+   * Arms (or disarms) the IME and the caret's blink for whatever holds the focus.
+   * Called from every path that can move the focus, the pad's included.
+   */
+  void sync_editing(zabloo::View &view);
   /** The engine's monotonic clock in milliseconds — the one the core is given. */
   double clock_ms() const;
   /**
