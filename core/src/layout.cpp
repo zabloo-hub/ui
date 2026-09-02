@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "progress.h"
+#include "slider.h"
 
 namespace zabloo {
 namespace {
@@ -123,6 +124,71 @@ Size flow_size(const LayoutNode &node, double gap) {
   return Size{main, cross};
 }
 
+/**
+ * A slot's size across the rail — its own if it has one, else the full rail.
+ *
+ * Read from `resolved`, like the whole pass: the declared value is an input the
+ * resolve pass has already collapsed, so a token that does not resolve is auto
+ * (full rail) instead of "declared", and a height mid-tween moves the slot.
+ */
+double cross_of(const LayoutNode &node, bool horizontal, double fallback) {
+  const std::optional<double> &resolved = horizontal ? node.resolved.height : node.resolved.width;
+  if (!resolved.has_value()) return fallback;
+  return horizontal ? node.measured.y : node.measured.x;
+}
+
+/**
+ * The Slider's own arrange (2026-08-11, ZAB-24): the node IS the track, and its
+ * two positional slots are placed from the VALUE instead of by the flex pass —
+ * `children[0]` (the fill) spans the value's fraction of the rail and
+ * `children[1]` (the thumb) rides the travel, inset by half its own size so it
+ * never paints outside the node's rect.
+ *
+ * Both slots keep their measured size across the track (a thin rail with a fat
+ * thumb is the normal case) and are centered on it; `padding` insets the rail,
+ * like it does everywhere else. A vertical slider runs bottom-to-top.
+ */
+void arrange_slider(LayoutNode &node, const Rect &rect) {
+  const double padding = node.resolved.padding;
+  const bool horizontal = !grows_upward(node.ir->slider_axis);
+  const Rect content{rect.x + padding, rect.y + padding, std::max(0.0, rect.width - padding * 2),
+                     std::max(0.0, rect.height - padding * 2)};
+  const double length = horizontal ? content.width : content.height;
+  const double across = horizontal ? content.height : content.width;
+
+  // The PAINTED value, which trails the logical one while a bound change glides
+  // in — the same rule as the ProgressBar: the value is tweened, never the rect.
+  const double fraction =
+      fraction_of(node.slider_display, resolve_range(node.ir->min, node.ir->max, node.ir->step));
+
+  LayoutNode *fill = !node.children.empty() ? &node.children[0] : nullptr;
+  LayoutNode *thumb = node.children.size() > 1 ? &node.children[1] : nullptr;
+  // A thumb out of flow was not measured this frame, so it has no size to read:
+  // the travel is the whole rail, exactly as it is on a slider with no thumb.
+  const double thumb_size =
+      thumb != nullptr && in_flow(*thumb)
+          ? std::min(horizontal ? thumb->measured.x : thumb->measured.y, length)
+          : 0.0;
+  const SliderGeometry geometry = slider_geometry(fraction, length, thumb_size);
+
+  // `start` runs along the axis from the rail's beginning; on a vertical track
+  // that beginning is the BOTTOM, so it is mirrored into view space.
+  const auto place = [&](LayoutNode &child, double start, double size) {
+    // Centered across the rail, at its OWN size: the usual slider is a fat thumb
+    // on a thin rail, so the thumb overflows its parent on the cross axis — which
+    // is ordinary here (a `clip` is the only thing that cuts paint or input, ZAB-7).
+    const double cross_size = cross_of(child, horizontal, across);
+    const double cross_pos = (horizontal ? content.y : content.x) + (across - cross_size) * 0.5;
+    arrange(child, horizontal ? Rect{content.x + start, cross_pos, size, cross_size}
+                              : Rect{cross_pos, content.y + length - start - size, cross_size, size});
+  };
+
+  if (fill != nullptr && in_flow(*fill)) place(*fill, 0.0, geometry.fill_length);
+  if (thumb != nullptr && in_flow(*thumb)) place(*thumb, geometry.thumb_start, thumb_size);
+  // Extra children are not part of the contract: they would have no defined
+  // position, so they are left where they are (measured, never arranged).
+}
+
 }  // namespace
 
 void build_layout_tree(const Node &ir, LayoutNode &out) {
@@ -166,14 +232,23 @@ Size measure(LayoutNode &node, LeafMeasurer &leaf, std::optional<double> availab
       own.has_value() ? std::optional<double>(std::max(0.0, *own - padding * 2)) : std::nullopt;
 
   Size size;
-  if (node.children.empty()) {
+  if (node.ir->type == NodeType::Slider) {
+    // A Slider measures as a LEAF: the rail's length and thickness are its own
+    // layout props, never the sum of its slots (an 18px thumb must not define a
+    // 220px track). The slots are still measured — the thumb's own size is what
+    // the value-driven arrange positions — they just do not add up.
+    //
+    // In flow only, like every other branch: the resolve pass returns early for a
+    // node out of layout, so its `resolved` is whatever the last frame that
+    // painted it left there, and measuring with those is measuring the past.
+    for (LayoutNode &child : node.children) {
+      if (in_flow(child)) measure(child, leaf, inner);
+    }
+    size = Size{padding * 2, padding * 2};
+  } else if (node.children.empty()) {
     const Size measured = leaf.measure_leaf(node, inner);
     size = Size{measured.x + padding * 2, measured.y + padding * 2};
   } else {
-    // G10 (ZAB-143) lands the Slider here: it measures as a LEAF, because the
-    // rail's length is its own layout prop and never the sum of its slots. Until
-    // then it flows like any other container, which is the same degradation an
-    // SDK that predates the type gives it.
     const bool row = is_row(node);
     const double gap = node.resolved.gap;
     const std::optional<double> offer = child_width(node, inner);
@@ -212,8 +287,12 @@ Size measure(LayoutNode &node, LeafMeasurer &leaf, std::optional<double> availab
 
 void arrange(LayoutNode &node, const Rect &rect) {
   node.rect = rect;
-  // G10 (ZAB-143) adds the Slider's value-driven slots here. Until they land it
-  // arranges its children through the ordinary flex path below.
+  // The Slider places its slots from its VALUE and not by the flex pass, so it
+  // never reaches the distribution below.
+  if (node.ir->type == NodeType::Slider) {
+    arrange_slider(node, rect);
+    return;
+  }
   fill_flow_items(node);
   if (node.items.empty()) {
     // Nothing in flow, nothing to scroll to. The extent has to fall back to zero

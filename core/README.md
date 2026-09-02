@@ -42,6 +42,16 @@ only if `assets/fonts/` ever changes, and commit what it writes.
 | `clip.{h,cpp}` | The region a subtree is cut to, and the arena that gives each one a stable identity |
 | `hit.{h,cpp}` | Who is under the pointer, under the regions this frame cut — the one place that keeps paint and input agreeing |
 | `scroll.{h,cpp}` | How far the content reaches, and where the overlay indicator sits on it |
+| `slider.{h,cpp}` | The rail's math: the range, the snap, the fraction, and where the fill and thumb sit on it |
+| `progress.{h,cpp}` | The bar's fill: a fraction of the content box along the main axis |
+| `spinner.{h,cpp}` | The wave over the beads, sampled from the loop's phase |
+| `collapse.{h,cpp}` | The two heights a section animates between |
+| `groups.{h,cpp}` | The `group` vocabulary, and the Toggle's two slots |
+| `focus.{h,cpp}` | The spatial navigation score, and the scroll a revealed node asks for |
+| `data.{h,cpp}` | The store a path addresses into, and the prefix index a write drops |
+| `bindings.{h,cpp}` | Where a bound path resolves, inside an item scope or out of one |
+| `easing.{h,cpp}` | The four closed-form curves, so parity between targets is arithmetic |
+| `transition.{h,cpp}` | The engine: one track per animatable value, retargeted on change |
 | `ttf.{h,cpp}` | The rasterizer: stb_truetype over the shipped TTF, with the unit contract every target shares |
 | `glyphs.{h,cpp}` | The atlas we own — packing, growth, the kerning cache — and the LRU of one per point size |
 | `text.{h,cpp}` | The normative wrap: break points, hard breaks, `maxLines`, ellipsis, alignment |

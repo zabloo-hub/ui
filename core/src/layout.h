@@ -146,6 +146,17 @@ struct LayoutNode {
    */
   double checked_progress = 0.0;
   /**
+   * A Slider's runtime value, already clamped and quantized to its range — the
+   * one the game hears about and the one an arrow key steps.
+   */
+  double slider_value = 0.0;
+  /**
+   * The value this frame PAINTS, which trails `slider_value` while a change the
+   * GAME made glides in (G8's engine) and equals it exactly while the player has
+   * the thumb: a thumb lagging the finger reads as a broken control, not as juice.
+   */
+  double slider_display = 0.0;
+  /**
    * The selected value of an `"exclusive-check"` group. Options derive their
    * `checked` from it and never store one of their own — the selection is ONE
    * value, which is the semantics of a radio (2026-08-11, ZAB-23).

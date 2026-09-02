@@ -1160,3 +1160,219 @@ TEST(view, a_new_press_ends_whatever_gesture_was_still_in_flight) {
   view->pointer_down(100, 190);
   CHECK_NEAR(offset_y(*view), 50.0, 0.001);
 }
+
+// --- Slider: the gestures and the two hooks (2026-08-11, ZAB-24) -----------
+//
+// The corpus records where the fill and the thumb landed; what it cannot record
+// is the SEQUENCE — that the value is written on every move and settled once at
+// the end, and that a gesture in the player's hand does not glide.
+
+namespace {
+
+/**
+ * Two sliders in a 200×200 view. `volume` is a 200×20 rail across the top, in
+ * tens, with both hooks and a bound value; `tall` is a 20×100 fader under it.
+ *
+ * Its thumb is 20 wide, so the travel is the middle 180px: a point at x is the
+ * fraction `(x - 10) / 180`.
+ */
+const char *SLIDER_VIEW = R"({"v":1,"tokens":{"motion.slow":100},"views":{"panel":{
+  "type":"Container","layout":{"direction":"column"},
+  "children":[
+    {"type":"Slider","id":"volume","layout":{"width":200,"height":20},
+     "value":{"bind":"settings.volume"},"min":0,"max":100,"step":10,
+     "transition":{"duration":"{motion.slow}","easing":"linear"},
+     "onChange":"volume-preview","onCommit":"volume-apply","autofocus":true,
+     "children":[
+       {"type":"Container","id":"fill","layout":{"height":4}},
+       {"type":"Container","id":"thumb","layout":{"width":20,"height":20}}]},
+    {"type":"Slider","id":"tall","layout":{"width":20,"height":100},"axis":"vertical",
+     "children":[
+       {"type":"Container","layout":{"width":6}},
+       {"type":"Container","layout":{"width":20,"height":20}}]}]}}})";
+
+const LayoutNode &volume_of(const View &view) { return view.root().children[0]; }
+const LayoutNode &tall_of(const View &view) { return view.root().children[1]; }
+
+/** The action names fired since the last drain, joined so a mismatch prints them. */
+std::string action_names(View &view) {
+  std::string out;
+  for (const ActionEvent &event : view.drain_actions()) {
+    if (!out.empty()) out += ",";
+    out += event.name;
+  }
+  return out;
+}
+
+}  // namespace
+
+TEST(view, a_tap_on_the_track_jumps_the_value_and_the_release_settles_it) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &volume = volume_of(*view);
+  // An empty store leaves the control at its minimum.
+  CHECK_EQ(volume.slider_value, 0.0);
+
+  // (100 - 10) / 180 = 0.5 of 0..100, on the grid of tens.
+  CHECK(view->pointer_down(100, 10));
+  CHECK_EQ(volume.slider_value, 50.0);
+  CHECK(volume.pressed);
+  CHECK(volume.focused);  // the pointer and the arrows share one focus
+  // Live: the value is written into its bound path and `onChange` fires, but the
+  // gesture has not ended, so `onCommit` has not.
+  const std::vector<DataChange> changes = view->drain_data_changes();
+  CHECK_EQ(changes.size(), 1u);
+  if (!changes.empty()) {
+    CHECK_EQ(changes[0].path, std::string("settings.volume"));
+    CHECK_EQ(changes[0].value.number, 50.0);
+  }
+  CHECK_EQ(action_names(*view), std::string("volume-preview"));
+
+  CHECK(view->pointer_up(100, 10));
+  CHECK(!volume.pressed);
+  CHECK_EQ(action_names(*view), std::string("volume-apply"));
+}
+
+TEST(view, a_drag_writes_on_every_move_and_commits_exactly_once) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &volume = volume_of(*view);
+
+  view->pointer_down(10, 10);   // the minimum: nothing moved, nothing fired
+  CHECK_EQ(volume.slider_value, 0.0);
+  CHECK(view->drain_data_changes().empty());
+  CHECK_EQ(action_names(*view), std::string(""));
+
+  // No drag threshold: a slider follows the finger from the first pixel.
+  CHECK(view->pointer_move(64, 10));
+  CHECK_EQ(volume.slider_value, 30.0);
+  view->pointer_move(154, 10);
+  CHECK_EQ(volume.slider_value, 80.0);
+  CHECK_EQ(view->drain_data_changes().size(), 2u);
+  CHECK_EQ(action_names(*view), std::string("volume-preview,volume-preview"));
+
+  view->pointer_up(154, 10);
+  CHECK_EQ(action_names(*view), std::string("volume-apply"));
+}
+
+TEST(view, a_gesture_that_leaves_the_value_where_it_found_it_does_not_commit) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  document.set_data("settings.volume", DataValue::of_number(50));
+  view->layout_frame();
+  CHECK_EQ(volume_of(*view).slider_value, 50.0);
+
+  view->pointer_down(100, 10);  // the value it already had
+  view->pointer_up(100, 10);
+  CHECK_EQ(action_names(*view), std::string(""));
+  CHECK(view->drain_data_changes().empty());
+}
+
+TEST(view, a_cancelled_slider_gesture_settles_and_a_disabled_one_does_not) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  view->pointer_down(100, 10);
+  view->drain_actions();
+  // The one exception to "a cancel ends without concluding": the number is on
+  // screen and already written, so the game gets its "apply" event.
+  CHECK(view->pointer_cancel());
+  CHECK(!volume_of(*view).pressed);
+  CHECK_EQ(action_names(*view), std::string("volume-apply"));
+
+  // A control the game kills under the finger is the other reading: the value
+  // never became the player's, so the gesture is cancelled and not settled.
+  view->pointer_down(154, 10);
+  view->drain_actions();
+  document.set_data("ui.dead", DataValue::of_bool(true));
+  CHECK(document.load(R"({"v":1,"views":{"panel":{"type":"Container","children":[
+    {"type":"Slider","id":"volume","layout":{"width":200,"height":20},
+     "disabled":{"bind":"ui.dead"},"onCommit":"volume-apply",
+     "children":[{"type":"Container"},{"type":"Container","layout":{"width":20,"height":20}}]}]}}})"));
+  View *reloaded = document.view();
+  reloaded->set_size(200, 200);
+  reloaded->layout_frame();
+  reloaded->pointer_down(100, 10);
+  CHECK(reloaded->drain_actions().empty());  // it never took the press at all
+}
+
+TEST(view, the_axis_arrows_adjust_the_slider_and_the_cross_ones_keep_navigating) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &volume = volume_of(*view);
+  CHECK(volume.focused);  // autofocus
+
+  CHECK(view->move_focus(1, 0));
+  CHECK_EQ(volume.slider_value, 10.0);
+  CHECK(volume.focused);  // it adjusted, it did not move
+  CHECK(view->move_focus(1, 0));
+  CHECK_EQ(volume.slider_value, 20.0);
+  // Live on every press, settled once when the key comes up.
+  CHECK_EQ(action_names(*view), std::string("volume-preview,volume-preview"));
+  CHECK(view->settle_slider_keys());
+  CHECK_EQ(action_names(*view), std::string("volume-apply"));
+  CHECK(!view->settle_slider_keys());  // the gesture is over, not repeatable
+
+  // The cross axis is not the slider's: it navigates to the fader below.
+  CHECK(view->move_focus(0, 1));
+  CHECK(tall_of(*view).focused);
+  CHECK_EQ(volume.slider_value, 20.0);
+}
+
+TEST(view, a_vertical_slider_grows_upward_and_its_arrows_follow_the_track) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &tall = tall_of(*view);
+  // The fader sits at y 20..120; its thumb is 20 tall, so the travel is 20..100.
+  CHECK_EQ(tall.rect.height, 100.0);
+
+  view->pointer_down(tall.rect.x + 10, tall.rect.y + 90);  // near the BOTTOM
+  CHECK_NEAR(tall.slider_value, 0.0, 1e-9);
+  view->pointer_move(tall.rect.x + 10, tall.rect.y + 10);  // near the TOP
+  CHECK_NEAR(tall.slider_value, 1.0, 1e-9);
+  view->pointer_up(tall.rect.x + 10, tall.rect.y + 10);
+
+  // Up means MORE, like the track does. Continuous, so an arrow borrows 5%.
+  view->move_focus(0, 1);
+  CHECK_NEAR(tall.slider_value, 0.95, 1e-9);
+  view->move_focus(0, -1);
+  CHECK_NEAR(tall.slider_value, 1.0, 1e-9);
+}
+
+TEST(view, set_value_is_a_whole_gesture_and_snaps_to_the_grid) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  CHECK(!view->set_value("nope", 1));
+  CHECK(!view->set_value("fill", 1));  // there IS a node, and it is not a Slider
+
+  CHECK(view->set_value("volume", 43));
+  CHECK_EQ(volume_of(*view).slider_value, 40.0);
+  // The game's gesture and the player's produce the same thing: the write, the
+  // live hook and the settle, in that order.
+  CHECK_EQ(view->drain_data_changes().size(), 1u);
+  CHECK_EQ(action_names(*view), std::string("volume-preview,volume-apply"));
+}
+
+TEST(view, the_game_moves_the_slider_with_a_glide_and_the_finger_moves_it_at_once) {
+  Document document = loaded(SLIDER_VIEW, 200, 200);
+  View *view = document.view();
+  const LayoutNode &volume = volume_of(*view);
+
+  document.set_data("settings.volume", DataValue::of_number(100));
+  frame_at(*view, 0);
+  CHECK_EQ(volume.slider_value, 100.0);
+  CHECK_EQ(volume.slider_display, 0.0);  // the frame it moves still paints the old value
+  CHECK(view->animating());
+  frame_at(*view, 50);
+  CHECK_NEAR(volume.slider_display, 50.0, 1e-9);
+  frame_at(*view, 100);
+  CHECK_EQ(volume.slider_display, 100.0);
+  CHECK(!view->animating());
+
+  // The value in the player's hand does NOT glide: a thumb trailing the finger
+  // reads as a broken control, not as juice.
+  view->pointer_down(10, 10);
+  frame_at(*view, 100);
+  CHECK_EQ(volume.slider_value, 0.0);
+  CHECK_EQ(volume.slider_display, 0.0);
+  CHECK(!view->animating());
+}
