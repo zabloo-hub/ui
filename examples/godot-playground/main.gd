@@ -141,9 +141,6 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		_view.set_open("animated-collapse", _collapsed)
 		_log.text = "collapse %s" % ("open" if _collapsed else "closed")
 		return
-	# The motion view's other host of a tween: SPACE races the four curves against
-	# each other from one `set_data`, which is the whole "no trigger list" rule in
-	# one keypress — nothing here mentions animation, the value simply moved.
 	# The list, driven the way a game drives one: the array is pushed WHOLE and the
 	# renderer reconciles it. I reverses it (every row keeps its own state and
 	# moves with it), and O renumbers the ids (every row is a new item, so state
@@ -160,6 +157,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		_view.set_data("shop.items", _inventory(_inventory_offset))
 		_log.text = "shop.items replaced — ids from item-%d" % _inventory_offset
 		return
+	# The motion view's other host of a tween: SPACE races the four curves against
+	# each other from one `set_data`, which is the whole "no trigger list" rule in
+	# one keypress — nothing here mentions animation, the value simply moved.
 	if event.keycode == KEY_SPACE:
 		_progress = 0.9 if _progress < 0.5 else 0.1
 		_view.set_data("demo.progress", _progress)
