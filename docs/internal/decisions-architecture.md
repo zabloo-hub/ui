@@ -3648,3 +3648,80 @@ reclampado en el arrange), `core/src/tessellator.{h,cpp}` (los grupos), `core/sr
 `scroll`). En Godot, `sdk/godot/src/zabloo_view.{h,cpp}`. Docs:
 `docs/format/host-channel.md` (el `set_scroll` de la tabla de Godot). Corpus: `scroll-clip`
 fuera de `core/tests/golden-skip.json`.
+
+## 2026-09-02 — La capa de overlays en el core: el reloj se inyecta, la presencia vive en el nodo y el texto se coloca por entrada (ZAB-142, F11 G9)
+
+**Decisión:** la capa entera —`Overlay` fuera del flujo, dos pasadas de layout y de
+pintado, captura modal, focus-trap, `presence`, anclaje con flip y clamp, y el popover—
+entra en el core como port de `overlay.ts` y `overlays/layer.ts`. Con ella **`overlays` y
+`anchors` salen de la skip-list comparando byte a byte** (a la primera, sin una sola
+divergencia de layout), y el corpus queda en 6 casos pendientes.
+
+**Sin la interfaz `OverlayHost` de la referencia.** El reparto sí se conserva —
+`overlay.{h,cpp}` son las reglas puras, `overlay_layer.{h,cpp}` el estado por frame— pero
+la clase guarda un `View &` y es su `friend`. El seam de TS existe para poder importar el
+módulo sin importar la vista; en C++ no resuelve ningún problema y costaría una llamada
+virtual por nodo y frame. La consecuencia de test es que la mitad de estado se ejercita
+contra una `View` real construida desde un envelope, en vez de contra un host falso: la
+misma regla comprobada contra más máquina, no contra menos.
+
+**Los cuatro mapas de la referencia desaparecen, porque el core es dueño de sus nodos.**
+La web guarda tweens de presencia, valores de presencia, entradas en salida y timers
+armados en `Map`s indexados por identidad, porque un renderer JS no puede colgar campos de
+un nodo que no le pertenece. Aquí los cuatro son campos de `LayoutNode` y mueren con el
+árbol, así que en la clase solo queda la pila de modales —que apunta a nodos desde fuera— y
+los avisos de ancla. De ahí también que **no haya un `reset()`**: un envelope nuevo
+construye una `View` nueva, y con ella una capa nueva.
+
+**El tween de presencia va en un `NodeAnim` propio, NO en `anim`.** Es la misma razón que
+la referencia da para sacarlo de su `NodeAnim`: la pasada de resolve tira `anim` cuando un
+nodo sale del layout, y una salida que borra su propio punto de partida no se anima. Lo que
+sobrevive al `visible` es **píxeles y nada más** — input, foco, pila de modales y timers
+leen la capa **viva**, que el overlay ya abandonó.
+
+**`autoCloseMs` con el reloj inyectado, y un timer armado ES movimiento.** La referencia
+usa `setTimeout`; el core no sabe qué hora es (ZAB-134), así que el timeout es una fecha
+límite comparada una vez por frame contra el `now` que le inyectan. De ahí una decisión que
+conviene tener escrita: mientras haya uno armado, **`animating()` devuelve `true`**, porque
+lo que ese booleano le promete al adaptador es exactamente "algo va a cambiar sin más
+input". El coste es que un toast de 3 s mantiene el bucle de layout vivo 3 s; la
+alternativa —exponer el próximo despertar y que el adaptador lo agende— metía reloj en el
+adaptador, que es justo el lado de la frontera donde no debe estar.
+
+**Lo que el port destapa y es específico del core: el texto se coloca en una PASADA.** La
+referencia coloca las líneas perezosamente (`placeText`) desde el paint y desde el
+snapshot, así que el orden no le importa; el core las coloca una vez tras el arrange (G4).
+Con una capa, esa pasada corría **antes** de que las entradas estuvieran dispuestas, y el
+texto de un modal habría aterrizado sobre rects del frame anterior. Ahora el recorrido del
+árbol se para en los nodos fuera de flujo y cada entrada se coloca tras **su** arrange.
+
+**Diagnósticos: el ancla que no resuelve NO se avisa en runtime, la que no toma input sí.**
+Un `anchor.id` colgante ya lo nombra la pasada de carga (`unknown-anchor`), así que
+repetirlo por overlay y por frame sería el mismo ruido que un token desconocido —
+2026-08-12 ya decidió que eso se dice una vez, al cargar. Un ancla **no focusable** con
+`trigger` es otra cosa: la focusabilidad depende del `disabled` heredado, que solo asienta
+la pasada de resolve, así que el validador no puede verla y se avisa una vez desde el
+runtime. Eso obliga a un cambio pequeño en el adaptador: `report_diagnostics()` pasa a
+correr **después** del primer `relayout()`, no antes, o el aviso no llegaría nunca.
+
+**En Godot, Escape solo se consume si de verdad cerró algo.** `_unhandled_key_input` gana
+`KEY_ESCAPE` → `View::dismiss_top_modal()`, y **sin modal arriba el evento no se acepta**:
+un Escape que esta vista no usó pertenece al menú de pausa del juego. Es la traducción
+literal de lo que hace la web, donde el `preventDefault()` vive dentro del `if (modal)`.
+
+**Coste aceptado, y es el invariante de batches otra vez:** cada entrada de la capa es un
+**paint root** (`start_root()`), así que el pintado se parte en un grupo por entrada. Ya no
+hay "todos los sólidos de la pantalla en un batch" — lo rompió antes el clip (2026-09-01) y
+esto lo rompe una vez más, a cambio del painter's order que la capa exige: dos raíces
+pueden compartir región y aun así tener que ordenarse una detrás de otra, que es
+exactamente lo que `set_clip` no puede expresar y para lo que `start_root` existía desde G6.
+
+**Dónde vive:** `core/src/overlay.{h,cpp}` (reglas puras: `collect_layer`, `anchor_box`,
+`resolve_hit`, `step_presence`, `is_on_screen`, `selected_option_in`),
+`core/src/overlay_layer.{h,cpp}` (pila de modales, dismiss, presencia, timers, anclaje,
+popovers), `core/src/layout.h` (los cuatro campos nuevos del nodo), `core/src/view.{h,cpp}`
+(las dos pasadas, el scope del foco, el backdrop del puntero, `dismiss_top_modal`,
+`reveal_opened_popover`) y `core/src/snapshot.cpp` (el array `layer`). En Godot,
+`sdk/godot/src/zabloo_view.cpp` (Escape y el orden de los diagnósticos). Tests:
+`core/tests/test_overlay.cpp`. Corpus: `overlays` y `anchors` fuera de
+`core/tests/golden-skip.json`.

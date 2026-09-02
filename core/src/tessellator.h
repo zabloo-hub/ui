@@ -112,8 +112,7 @@ class GeometryBuilder {
    *
    * Without it an overlay entry would keep filling the tree's group, and since a
    * group draws its solids before its text, the tree's glyphs would come out ON
-   * TOP of the panel floating over them (2026-08-12, ZAB-25). The layer that
-   * needs it arrives with G9 (ZAB-142).
+   * TOP of the panel floating over them (2026-08-12, ZAB-25).
    */
   void start_root(const Clip *clip = nullptr);
 

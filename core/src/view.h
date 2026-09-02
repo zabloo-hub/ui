@@ -29,6 +29,7 @@
 #include "glyphs.h"
 #include "groups.h"
 #include "layout.h"
+#include "overlay_layer.h"
 #include "tessellator.h"
 #include "transition.h"
 #include "validate.h"
@@ -137,6 +138,13 @@ class View {
    */
   bool press_focused(bool down);
 
+  /**
+   * Asks the modal that owns the input to close — Escape on a keyboard, B on a
+   * pad. False when no modal is up, and that answer matters to the adapter: an
+   * Escape this view did not use belongs to the game's own pause menu.
+   */
+  bool dismiss_top_modal();
+
   // --- the host channel, by id (`docs/format/host-channel.md`) ---
   // Each answers whether it found the control. A `false` means no node of that
   // type carries that id and NOTHING was applied — a game looping over ids must
@@ -186,6 +194,12 @@ class View {
    * way (`ImageLibrary::adopt_size`).
    */
   ImageLibrary &images() { return images_; }
+  /**
+   * The overlay layer as this frame PAINTED it: every present Overlay in
+   * `(z, document order)`, plus whatever is still fading out. Each entry carries
+   * its own `presence`, which is what the paint pass and the snapshot fade it by.
+   */
+  const std::vector<LayoutNode *> &paint_layer() const { return paint_layer_; }
   /** The node holding focus, or null. Moving it is G7's (ZAB-140). */
   const LayoutNode *focus() const { return focus_; }
   /** The node under the pointer, and the one it is holding down. Either may be null. */
@@ -202,6 +216,11 @@ class View {
   const std::vector<Diagnostic> &warnings() const { return warnings_; }
 
  private:
+  // The layer reads and writes the view directly rather than through a seam: the
+  // reference's `OverlayHost` exists to break a TypeScript import cycle, and here
+  // it would buy a virtual call per node per frame and nothing else.
+  friend class OverlayLayer;
+
   const Envelope *envelope_ = nullptr;
   DataStore *data_ = nullptr;
   std::string id_;
@@ -222,6 +241,17 @@ class View {
   std::vector<Diagnostic> warnings_;
   /** Nodes whose STATE is driven by a binding — what a write has to revisit. */
   std::vector<LayoutNode *> bound_;
+  /**
+   * Every `Overlay` of the view, hidden ones included. Kept as the tree is built
+   * rather than found by walking it (ZAB-73): on a thousand-row list that walk is
+   * five thousand visits to find three panels, once a frame.
+   */
+  std::vector<LayoutNode *> overlays_;
+  /** The live layer this frame — what owns input, focus and the timers. */
+  std::vector<LayoutNode *> layer_;
+  /** The live layer plus whatever is still fading out: what PAINTS. */
+  std::vector<LayoutNode *> paint_layer_;
+  OverlayLayer overlay_layer_{*this};
   /** Ids the host channel addresses. The last node realized under an id wins. */
   std::unordered_map<std::string, LayoutNode *> by_id_;
   /**
@@ -263,6 +293,15 @@ class View {
     bool moved = false;
   };
   ScrollDrag drag_;
+  /** The modal whose backdrop took the press, dismissed if the release lands there too. */
+  LayoutNode *backdrop_press_ = nullptr;
+  /**
+   * The node a just-opened popover focused, to be revealed once this frame's
+   * boxes are final. `reveal_focused` otherwise reads rects that are already laid
+   * out; a popover's are not, so this defers it by exactly one PASS instead of by
+   * one frame (`reveal_opened_popover`).
+   */
+  LayoutNode *pending_reveal_ = nullptr;
 
   class Leaves;
   friend class Leaves;
@@ -317,8 +356,32 @@ class View {
 
   // --- focus ---
   void set_focus(LayoutNode *node);
-  /** Keeps a still-valid focus, otherwise falls back to the scope's `autofocus`. */
-  void sync_focus();
+  /** Where the focus may live right now: the top modal's subtree, or the root. */
+  LayoutNode &scope();
+  /**
+   * The scope's initial focus. A popover opens ON its selection — the option the
+   * group already holds — and everything else on its declared `autofocus`.
+   */
+  LayoutNode *autofocus(LayoutNode &scope);
+  /**
+   * Whether this node is still on screen this frame: in layout, or an Overlay
+   * that has left the live layer and is painting out its fade. That exception is
+   * the only place a node outside the layout is drawn at all, and it is bounded
+   * to the layer.
+   */
+  static bool shown(const LayoutNode &node);
+  /**
+   * Navigation candidates: everything focusable inside `scope`, minus the
+   * subtrees of overlays that are not up. A closed popover stays `in_layout` —
+   * the open flag lives on the overlay, not on the layout flags — so `in_layout`
+   * alone would offer its options, stale rects included.
+   */
+  void candidates_in(LayoutNode &scope, std::vector<LayoutNode *> &out);
+  /**
+   * Reveals the focus a POPOVER opened on, once this frame's boxes are final.
+   * True when it moved a scroll offset, so the caller re-arranges.
+   */
+  bool reveal_opened_popover();
   /** Drops hover and press from a node that has left the layout under them. */
   void prune_hover();
   /** Releases what a node that has just become disabled was holding. */
@@ -351,6 +414,9 @@ class View {
   Color color(const ColorValue &value, Color fallback) const;
   std::optional<Color> optional_color(const ColorValue &value, Color fallback) const;
 
+  /** The layer first (top-down, a modal captures), then the tree. */
+  LayerHit hit_layer(double x, double y);
+  /** The same, for the callers that have nothing to say about a backdrop. */
   LayoutNode *hit(double x, double y);
   /** Is this node's own rect reachable at that point, given its ancestors' clips? */
   bool reachable_at(LayoutNode &node, double x, double y);

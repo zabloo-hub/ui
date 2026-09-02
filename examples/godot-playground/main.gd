@@ -12,10 +12,10 @@ extends Control
 ## purpose: copying it in would leave the playground rendering a stale build of
 ## the example it exists to show.
 const ENVELOPE := "../showcase/dist/zabloo.ir.json"
-## The view that exercises what G8 landed: the four curves side by side, a bar
-## that tweens its VALUE, the Spinner's wave, a Collapse animating its own height
-## and buttons whose states cross-fade.
-const VIEW := "motion"
+## The view that exercises what G9 landed: a modal that dims, captures and traps
+## the focus, a toast that closes itself, tooltips that ride their anchor's hover
+## OR focus with flip and clamp, and a popover whose open state is the SDK's.
+const VIEW := "overlays"
 
 @onready var _view: ZablooView = $Zabloo
 @onready var _log: Label = $Log
@@ -51,7 +51,7 @@ func _load() -> void:
 	_view.set_data("shop.thanked", false)
 	_view.set_data("demo.progress", 0.1)
 	_view.set_data("inbox.unread", 3)
-	_log.text = "loaded %s — arrows navigate, Enter presses, SPACE races the bars" % path.get_file()
+	_log.text = "loaded %s — arrows navigate, Enter presses, Escape dismisses" % path.get_file()
 
 
 ## Reload and view switching, by hand.
