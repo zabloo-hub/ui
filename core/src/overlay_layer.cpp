@@ -194,6 +194,12 @@ bool OverlayLayer::anchor_allows(const LayoutNode &node) {
   LayoutNode *anchor = anchor_node(spec.id);
   if (anchor == nullptr) return true;
   // A tooltip that has lost sight of its anchor is pointing at nothing.
+  //
+  // The arena is rewound per question, not per frame: `is_on_screen` keeps none
+  // of the addresses it is handed, so the regions of one chain are the most that
+  // ever needs to be live. Letting it run would grow it by one region per
+  // anchored overlay per frame, forever.
+  anchor_clips_.reset();
   if (!is_on_screen(*anchor, anchor_clips_)) return false;
   if (spec.trigger == OverlayTrigger::Manual) return true;
   // Hover lights up exactly the focusable set (2026-08-11, ZAB-36), so an anchor

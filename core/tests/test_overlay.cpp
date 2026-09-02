@@ -1048,3 +1048,20 @@ TEST(overlay, a_layer_is_not_sized_so_an_overlays_own_width_and_height_are_ignor
   CHECK_NEAR(bubble.rect.width, 30.0, 0.001);
   CHECK_NEAR(bubble.rect.height, 8.0, 0.001);
 }
+
+TEST(overlay, an_anchored_overlay_survives_a_long_run_of_frames) {
+  // Two hundred frames of the clipped-anchor path, which is the one that resolves
+  // regions every frame. It does not measure the arena — nothing exposes its size
+  // — so what it guards is that the path stays correct under repetition; the bound
+  // itself is the `reset()` in `anchor_allows` and the reason written beside it.
+  Document document = loaded(envelope(R"({"type":"Container","children":[
+    {"type":"ScrollView","id":"list","layout":{"height":40},"children":[
+      {"type":"Button","id":"target","layout":{"width":20,"height":20}}]},
+    {"type":"Overlay","id":"tip","modal":false,"anchor":{"id":"target","at":"right"}}]})"));
+  View &view = *document.view();
+  for (int frame = 0; frame < 200; frame++) {
+    view.set_now(frame * 16.0);
+    view.layout_frame();
+  }
+  CHECK_EQ(view.paint_layer().size(), 1u);
+}
