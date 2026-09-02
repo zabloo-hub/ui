@@ -3648,3 +3648,119 @@ reclampado en el arrange), `core/src/tessellator.{h,cpp}` (los grupos), `core/sr
 `scroll`). En Godot, `sdk/godot/src/zabloo_view.{h,cpp}`. Docs:
 `docs/format/host-channel.md` (el `set_scroll` de la tabla de Godot). Corpus: `scroll-clip`
 fuera de `core/tests/golden-skip.json`.
+
+## 2026-09-02 — `TextInput` en el core: el caret, y la entrada de texto que en Godot es del motor (ZAB-144, F11 G11)
+
+**Decisión:** el 13º primitivo entra en el core como port literal de `textinput.ts` y
+`controls/field.ts`, con el adaptador de Godot poniendo lo único que un core sin motor no
+puede tener: teclas, IME, portapapeles y teclado virtual. Con ello el bloque `field` entra
+en el `ViewSnapshot`, `empty` deja de faltar en la lista de estados, y **los cuatro campos
+de `golden/envelopes/textinput.json` que no están dentro del `Repeat` comparan byte a byte**
+— geometría, caret, estado vacío, valor bindeado y contenido desbordando su caja.
+
+**Las dos conversiones UTF-16 de la referencia NO se portan, y eso es la mitad del port.**
+`codePointIndex`/`utf16Offset` existen solo porque un string de JavaScript cuenta unidades
+UTF-16 y el `<textarea>` oculto habla en ellas; el invariante que compran —*los índices se
+cuentan en code points, o el caret parte un emoji por la mitad*— aquí sale de los tipos:
+`TextMetrics` ya habla `char32_t`, así que el buffer se decodifica una vez a un
+`std::vector<char32_t>` y todo el frame indexa esa misma tabla. En Godot tampoco hacen
+falta: su `String` es UTF-32. El split se cachea en el nodo y muere con el buffer, que es la
+misma regla que ZAB-73 escribió para la referencia — el caret, el resaltado y el scroll del
+campo lo piden varias veces por frame.
+
+**Dos divergencias encontradas al portar, ambas de la referencia y ambas cazadas por sus
+propios tests:**
+
+1. **El kerning va ENTRE dos costuras, nunca en la de la izquierda.** Escrito con el kern
+   sumado a los dos lados, el punto medio de un par apretado se desplaza medio kern y un
+   clic cae al otro lado de la costura. Solo se ve con una fuente que kernee de verdad, que
+   es justo lo que el test `AV` de la referencia trae.
+2. **El default de `scroll_for` es un píxel de caret, no `CARET.width`.** El llamante real
+   pasa los dos que mide el caret; el default de uno es lo que hace que los tests de la
+   referencia lean `21` donde el campo en pantalla scrollea a `22`. Portarlo con el default
+   "bonito" habría cambiado en silencio los tres casos de scroll.
+
+**`apply_bindings` gana un `settle`, y es el corpus quien lo exige.** Un campo que se
+CONSTRUYE pone el caret al final del valor que le dieron; uno en el que el juego acaba de
+escribir conserva el que dejó el jugador y solo lo clampa. No es cosmético: `textinput.json`
+graba caret 5 en el campo literal `"Sergi"` y caret **0** sobre `"Barcelona"`, porque el
+`set_data` llegó después del build. Ninguna otra cosa que derive de datos tiene una posición
+dentro, así que el flag existe para el campo y para nada más.
+
+**El teclado en Godot: `unicode`, y una cascada en la que el campo habla primero.** El orden
+es portapapeles → `edit_key` → carácter → navegación, y cada escalón devuelve lo que no
+puede usar. `InputEventKey.unicode` es la única fuente honesta de texto —lleva ya dentro las
+muertas y los modificadores, mientras que un keycode es un botón físico que en un teclado
+español dice otra cosa— y se descartan los códigos de control (Backspace, Tab y Enter llevan
+`unicode` y ya los resolvió el escalón anterior) y todo lo que va con Ctrl/Cmd, que es un
+comando. Un Alt suelto **no** se descarta: en muchas distribuciones es como se alcanza un
+carácter. Copiar, cortar y pegar los devuelve el core a propósito: la selección y la
+inserción son suyas, el portapapeles es del `DisplayServer`, y un pegado vuelve por
+`insert_text` para que `maxLength` y la regla de una línea se apliquen igual que a una tecla.
+
+**IME: el core guarda la BASE, porque Godot no manda el valor entero.** El renderer web lo
+tiene gratis —el `<textarea>` sostiene todo el valor y lo devuelve completo en cada
+actualización—; `DisplayServer.ime_get_text()` da solo la cadena en composición, así que cada
+actualización tiene que **reemplazar** la anterior o "ko" se escribe "kko". El campo guarda
+lo que tenía antes de empezar y compone siempre contra eso. Lo demás es la regla de ZAB-26
+intacta: la composición se enseña y **el juego no se entera** hasta que asienta, porque media
+sílaba no es un valor. `NOTIFICATION_WM_IME_UPDATE` con cadena vacía no distingue "abandonada"
+de "asentada", así que el campo conserva lo que muestra y se avisa una sola vez.
+
+**El parpadeo es un reloj de dos frames por periodo, y un repaint sin pasada de layout.**
+`caret_visible` es forma cerrada del tiempo desde la última edición, así que ni el árbol, ni
+sus valores, ni sus cajas dependen de él: los únicos frames que un parpadeo necesita son los
+dos por periodo en que la respuesta cambia. Se piden con un `SceneTreeTimer` —`_process`
+sería la herramienta equivocada para "dentro de medio segundo", y que una ventana en segundo
+plano lo frene es el resultado correcto— y lo que se pide es `set_now` + `queue_redraw`, sin
+`layout_frame`. Se sostiene por el mismo motivo que en web (ZAB-73): **toda mutación de esta
+vista termina en `relayout`**, así que un repaint nunca lee valores que un frame completo
+debería haber refrescado. Un temporizador que aterriza con el foco ya fuera del campo
+simplemente no reengancha. La cancelación es por **generación** y no por cancelar el timer:
+un número que se incrementa es más barato y más seguro que perseguir un `SceneTreeTimer`.
+
+**Un fallo del adaptador que solo un campo podía destapar: se tesela ANTES de subir
+el atlas.** `_draw` barría los atlas y después llamaba a `paint()`. Bastaba mientras el
+único texto de la pantalla eran nodos `Text`, porque un `Text` mete sus glifos en el
+atlas al MEDIR, o sea antes del `_draw` entero. Un `TextInput` es el primer nodo cuyos
+glifos solo se conocen al pintar — nadie mide un placeholder —, así que llegaban un frame
+tarde y, en una pantalla que después se queda quieta, no llegaban nunca: el campo aparecía
+con **solo las letras que algún otro `Text` ya había rasterizado**. Se vio en la primera
+captura del playground, donde "Tu nombre" salía como "no r" porque `n`, `o` y `r` son las
+únicas que comparte con el botón de al lado. El arreglo es reordenar dos líneas —
+`paint()` y luego el barrido—, y el renderer web nunca lo tuvo porque su capa GL sube por
+`version` desde dentro del bucle de dibujo, es decir después de teselar de todas formas.
+
+**El campo se queda el puntero, y una selección no concluye nada.** Un press dentro de un
+campo lo enfoca y coloca el caret **antes que nada más**, por el mismo motivo por el que G10
+hará lo propio con el `Slider`: las pantallas llenas de campos son scrolleables, y un arrastre
+de selección no puede convertirse en un scroll de la lista. El ancla se queda donde cayó el
+press y solo el foco sigue al puntero, así que arrastrar hacia atrás selecciona hacia atrás.
+Al soltar no se dispara nada y no se asienta nada — el buffer nunca se movió —, y un
+`pointer_cancel` hace exactamente lo mismo: es la excepción contraria a la del `Slider`
+(ZAB-70), que sí asienta porque su valor ya está en pantalla y ya se escribió.
+
+**Lo que este ticket NO cierra, y por qué el criterio de salida de la issue no era
+alcanzable:** el caso `textinput` del corpus contiene un `Repeat`, y sus métricas graban las
+dos instancias expandidas (`ref: "4.0"`, `"4.1"`). Eso es G12 (ZAB-145). Comprobado
+des-saltando el caso: **las diez diferencias que quedan cuelgan todas del `Repeat`** y ni una
+del campo. Los otros dos casos que la skip-list colgaba de este ticket se estrechan igual —
+`disabled` y `settings` ya solo difieren en el `Slider` de G10 (ZAB-143), y `settings` no
+necesita nada de G9: su popover anclado está cerrado, así que su capa está vacía. Los tres
+motivos de `golden-skip.json` se reescriben en vez de borrarse, que es para lo que el guardia
+de ZAB-136 existe.
+
+**Diferidos, con su motivo:** el campo **multilínea**, que es una extensión sobre el wrap de
+ZAB-17 (un caret con fila además de columna, selección por rangos de línea, scroll vertical)
+y otro componente de trabajo, no un flag; el estilizado del caret y del resaltado, compatible
+y del mismo tipo que el del scrollbar del `ScrollView`; los **clusters de grafemas**, que
+piden tabla de segmentación — la misma razón por la que el shaping es v2 —; y el teclado en
+pantalla de consola, v1.x como en web.
+
+**Dónde vive:** `core/src/textinput.{h,cpp}` (el modelo puro), el bloque `TextInput` de
+`core/src/view.{h,cpp}` (buffer, caret, `edit_key`, composición, `set_text`, `paint_field`),
+`core/src/layout.h` (`FieldState`), `core/src/snapshot.cpp` (el bloque `field` y el estado
+`empty`), y `sdk/godot/src/zabloo_view.{h,cpp}` (cascada de teclas, portapapeles, IME,
+teclado virtual, parpadeo). Tests: `core/tests/test_textinput.cpp` (port de
+`textinput.test.ts`), más el bloque `TextInput` de `test_view.cpp` y tres casos en
+`test_snapshot.cpp`. Docs: `docs/format/host-channel.md` (`SetText` en la tabla de Godot).

@@ -51,6 +51,11 @@ func _load() -> void:
 	_view.set_data("shop.thanked", false)
 	_view.set_data("demo.progress", 0.1)
 	_view.set_data("inbox.unread", 3)
+	# The two text fields of the `controls` view (key 1). Pushed like any other
+	# state: a field's `value` is a read/write binding, so this seeds it and
+	# typing into it comes back on `data_changed`.
+	_view.set_data("profile.name", "Sergi")
+	_view.set_data("ui.search", "")
 	_log.text = "loaded %s — arrows navigate, Enter presses, SPACE races the bars" % path.get_file()
 
 
