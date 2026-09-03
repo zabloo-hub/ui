@@ -4581,3 +4581,48 @@ el adaptador, que es exactamente lo que la regla de oro protege.
 
 **Sin desglosar todavía:** los tickets de F12 se escriben al abrir la fase, con el mismo
 patrón que F11 (**Zona**, **No toca**, y los casos del corpus que cada uno cierra).
+
+## 2026-09-03 — El chasis del SDK de Unity: el C# viejo se borra, y el adaptador nace partido en ficheros (ZAB-196, F12 UN3)
+
+**Decisión:** `sdk/unity` deja de ser el port a C# cancelado (4 de 13 tipos sobre UI Toolkit,
+~1.700 líneas) y pasa a ser el **chasis** del adaptador fino sobre el core C++: un paquete UPM
+`com.zabloo.sdk` (Unity 2022.3, dependencia `com.unity.inputsystem`) con `ZablooView` como
+**`partial class`**, un fichero por concern, para que los cuatro tickets de Wave B (render,
+puntero/teclado, mando, canal de host) no compitan por ninguno. El código viejo queda en el
+historial, como `examples/unity-playground` quedó en b996877; el playground vuelve como proyecto
+mínimo que referencia el paquete **por path**.
+
+**Cuatro convenciones pequeñas que los tickets de Wave B heredan, y su porqué:**
+
+1. **Ocho hooks, no cinco.** Además de `Paint`/`PollPointer`/`PollKeyboard`/`PollPad`/`Flush`,
+   `ZablooView.cs` declara `CreateNative`, `DestroyNative` y `Step(nowMs)` como `partial void`,
+   y los tres son de **Host.cs** (UN7), que es quien posee los handles del documento. El motivo
+   es de compilación: el `NativeMethods.cs` de UN2 no existe aún, y un `partial void` sin
+   implementar compila a nada — así el ciclo de vida, el reloj y el tamaño quedan escritos
+   aquí sin nombrar una función del ABI que todavía no tiene firma.
+2. **Los `.meta` de los plugins se GENERAN, no se committean.** Unity borra un `.meta` cuyo
+   asset falta, así que un juego de cinco committeados perdería cuatro en cada máquina que
+   abriera el playground con solo su plataforma instalada. `scons install` (en
+   `sdk/unity/SConstruct`, espejo del de Godot) escribe binario y `.meta` juntos desde
+   plantillas con GUID fijo; los dos van gitignorados. Las plantillas SON los import settings
+   escritos a mano — un PluginImporter por plataforma, restringido a ella y, en desktop, a su
+   editor.
+3. **macOS lleva `libzabloo.dylib`, no un `.bundle`.** Es lo que sale de `scons capi` tal cual,
+   Unity lo carga igual con `DllImport("zabloo")`, y un bundle obligaría al install a montar
+   `Contents/MacOS/` + `Info.plist` para nada. En Windows el fichero pierde el prefijo
+   (`zabloo.dll`): es el nombre que resuelve bajo Mono **e** IL2CPP.
+4. **Los envelopes del playground van a `StreamingAssets/`, cargados por path.** Un `TextAsset`
+   gitignorado no puede referenciarse desde la escena de forma estable (Unity le pone GUID
+   nuevo), así que `Playground.cs` — el `main.gd` de Unity — los lee de disco y llama a
+   `LoadEnvelope`; el campo `envelope` del inspector queda para juegos reales. Sin
+   `EventSystem` a propósito: el adaptador leerá los dispositivos del Input System
+   directamente, como el de Godot lee `InputEvent`.
+
+**`zabloo dev --unity` y `dev:unity` se quedan.** Los retarga UN8; quitarlos ahora dejaría la CLI
+cambiando de forma dos veces. Las docs públicas dejan de describir el SDK viejo y llevan una nota
+corta ("en construcción, F12") en vez de una página vacía.
+
+**Lo que este ticket no puede verificar:** no hay editor de Unity en la máquina que lo escribió,
+así que "abre en 2022.3 y en Unity 6 sin errores de compilación" es la comprobación que queda para
+quien lo abra — y `ProjectSettings/` es mínimo a propósito, para que Unity 2022.3 lo complete y
+se committee lo que escriba.

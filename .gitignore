@@ -48,6 +48,10 @@ packages/renderer-web/native/*.wasm
 core/bin/
 sdk/godot/bin/
 sdk/godot/addons/zabloo/bin/
+# El plugin nativo del paquete de Unity lo copia `scons install` (sdk/unity) desde
+# core/bin, con su .meta generado al lado (2026-09-03, UN3).
+sdk/unity/Runtime/Plugins/**/libzabloo.*
+sdk/unity/Runtime/Plugins/**/zabloo.dll*
 .sconsign.dblite
 *.o
 *.obj

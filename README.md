@@ -40,9 +40,8 @@ authoring (React/JSX + tokens) → IR (tree + styles + events) → per-engine SD
 **On npm since 0.2.0, pre-1.0.** `@zabloo/format`, `@zabloo/react`, `@zabloo/renderer-web`,
 `@zabloo/cli` and `create-zabloo-app` are published; the Godot addon ships as a zip on the
 [Releases](https://github.com/zabloo-hub/ui/releases) page — an engine SDK is not an npm
-package — and the Unity SDK is not released yet. The IR v1 is validated in code across **three render
-targets** — a WebGL2 renderer, the Godot SDK, and the Unity SDK (UI Toolkit custom
-geometry: `generateVisualContent` / Mesh API) — all running the same self-render
+package — and the Unity SDK is being rebuilt (below). The IR v1 is validated in code across
+**two render targets** — a WebGL2 renderer and the Godot SDK — running the same self-render
 pipeline: own Flexbox layout pass, own tessellator, own glyph atlases.
 
 **Godot is the engine that renders.** Its SDK is a **GDExtension in C++**, and that C++
@@ -63,14 +62,13 @@ it matters if you are picking this up today:
 |---|---|---|
 | **Web renderer** (`@zabloo/renderer-web`) | **13 / 13** | Runs the whole catalog: this is where every capability lands first, and what the `zabloo dev` preview and the future visual editor render with. |
 | **Godot SDK** (`sdk/godot` + `core/`) | **13 / 13** | Renders the whole catalog, and every case of the golden corpus reproduces its recorded metrics **byte for byte** against the web renderer. Godot 4.4+. Desktop is measured; Android and iOS build in CI but have not been run on a device; web is experimental; consoles compile and are not validated. [What a frame costs](docs/performance.md). |
-| **Unity SDK** (`sdk/unity`) | **4 / 13** — `Container`, `Text`, `Button`, `Collapse` | Catching up. Everything else degrades through the format's normative rule for unknown types: **rendered as a `Container` keeping its layout, style and children**, with a warning. Content never disappears; it loses the behavior. |
+| **Unity SDK** (`sdk/unity`) | **0 / 13** — under construction | Being rebuilt as a **thin adapter over the same core** (F12): a UPM package whose C# uploads the core's triangles and translates input, reaching the core through its C ABI. The earlier C# port (4 of 13 types, UI Toolkit) was removed. [Where it stands](sdk/unity/README.md). |
 
 Unreal renders nothing yet — it is *designed* in parallel (every IR decision is validated
 against all three engines) rather than implemented, and lands as a thin adapter over the
-same core rather than another port.
+same core rather than another port (F13, after Unity).
 
-What the system does today — all of it in the web renderer and the Godot SDK, and in the
-Unity SDK as far as the table above goes:
+What the system does today — all of it in the web renderer and the Godot SDK:
 
 - **The full node vocabulary** — `Container`, `Text`, `Button`, `Collapse`, `ScrollView`,
   `Image`, `Overlay`, `Toggle`, `Slider`, `TextInput`, `Repeat`, `ProgressBar`, `Spinner`
@@ -109,7 +107,7 @@ Unity SDK as far as the table above goes:
   alignment on both axes, and `clip`/`ellipsis` truncation, with every width kerned like
   the painted run. One normative algorithm over one rasterizer we own (`stb_truetype`,
   the same TTF on every target), so a line breaks in the same place in the browser and
-  in Godot — never through the engine's own text server (Unity porting it).
+  in Godot — never through the engine's own text server.
 - **Scrolling and clipping**: a `ScrollView` measures its children unconstrained on the
   scrolled axis and clips to its own rect (wheel, drag, and a scroll call from the game);
   `clip` is a paint prop any node can carry, and it cuts paint and hit-testing alike.
@@ -125,11 +123,10 @@ Unity SDK as far as the table above goes:
   re-lays out live), and automatic spatial focus/navigation computed from the live layout
   rects. In the web renderer and in Godot that navigation is driven by **keyboard and
   gamepad alike** — d-pad/stick move the focus, A activates, B dismisses the top modal,
-  the right stick scrolls, and moving the focus drags the scroll along to reveal it. The
-  Unity SDK is on arrows/Enter today.
+  the right stick scrolls, and moving the focus drags the scroll along to reveal it.
 - **Dev loop**: save a `.tsx` → `zabloo dev` re-exports into a live browser preview;
-  add `--godot` to also hot-push each save to the running Godot game (or `--unity` to the
-  Unity editor) — through the same loading path as production hot-update.
+  add `--godot` to also hot-push each save to the running Godot game — through the same
+  loading path as production hot-update.
 
 ## How it works
 
@@ -178,7 +175,7 @@ ui/
 │   └── create-zabloo-app/ project scaffolder
 ├── sdk/
 │   ├── godot/             the GDExtension adapter + the installable addons/zabloo/
-│   └── unity/             com.zabloo.sdk — UPM package (UI Toolkit custom geometry)
+│   └── unity/             com.zabloo.sdk — UPM package, a thin adapter over core/ (F12, in progress)
 ├── docs/                  the format spec + the component catalog
 ├── golden/                golden envelopes: the same input must render the same on every target
 └── examples/              see examples/README.md for which one to open
@@ -186,7 +183,8 @@ ui/
     ├── hello-button/      the vertical slice: one pressable Button, React → IR → engine
     ├── inventory-demo/    a shop with real overflow — list, category strip, nested Collapse
     ├── settings-screen/   the whole form catalog composed as one real screen
-    └── godot-playground/  the Godot project that loads them, capability by capability
+    ├── godot-playground/  the Godot project that loads them, capability by capability
+    └── unity-playground/  the Unity project that hosts the adapter being built
 ```
 
 `core/` sits at the root, a sibling of `sdk/` and `packages/`, on purpose: `packages/*`
