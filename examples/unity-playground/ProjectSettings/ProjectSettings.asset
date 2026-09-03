@@ -1,0 +1,15 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!129 &1
+PlayerSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 24
+  productGUID: 86297c3626c94a3997140afbc53708b6
+  companyName: zabloo
+  productName: unity-playground
+  defaultScreenWidth: 960
+  defaultScreenHeight: 600
+  defaultScreenWidthWeb: 960
+  defaultScreenHeightWeb: 600
+  runInBackground: 1
+  activeInputHandler: 1

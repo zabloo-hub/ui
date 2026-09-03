@@ -1,11 +1,11 @@
 {
   "name": "com.zabloo.sdk",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "displayName": "zabloo SDK",
-  "description": "Renders zabloo IR content inside Unity via UI Toolkit custom geometry (generateVisualContent / Mesh API). Loads versioned IR envelopes — manual imports and platform hot-updates go through the same path.",
+  "description": "Renders zabloo IR content inside Unity: a thin C# adapter over the shared native core (layout, text, tessellation and the runtime all live in libzabloo). Under construction — F12. The version is a placeholder until the package is released; it will be stamped from the @zabloo/* release group.",
   "unity": "2022.3",
   "dependencies": {
-    "com.unity.nuget.newtonsoft-json": "3.2.1"
+    "com.unity.inputsystem": "1.7.0"
   },
   "keywords": ["ui", "zabloo", "ir"],
   "author": {

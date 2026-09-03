@@ -7,8 +7,8 @@ This is the tutorial. The rest of `docs/` is the **reference** — normative pag
 exactly what every SDK must do. This page instead builds one screen from nothing, and links
 out whenever a concept has a page of its own.
 
-**You need** Node 22+ and pnpm. An engine — Godot 4.4+, or Unity 2022.3 LTS or newer — only
-for step 6; the first five steps run entirely in the browser preview.
+**You need** Node 22+ and pnpm. An engine — Godot 4.4+ — only for step 6; the first five
+steps run entirely in the browser preview.
 
 > **Working on zabloo/ui itself?** From a clone of this repository you can scaffold into
 > the workspace instead of installing from npm — `--workspace` wires the project to the
@@ -260,10 +260,7 @@ embeds every enclosing index, so nested lists work from the innermost item alone
 
 > **Status.** The action context is in the format ([`ActionContext`](format/bindings.md#action-context)
 > in `@zabloo/format`), the web preview logs it as above, and Godot delivers it as the
-> second argument of the `action` signal (a `Dictionary`). The Unity SDK's `OnAction` is
-> `Action<string>` today — it delivers the action **name** only, and surfacing the context in
-> C# comes later. Until then, a Unity game that needs to know which row was pressed reads
-> the selection from its own state.
+> second argument of the `action` signal (a `Dictionary`).
 
 ## 5. Theme and variants
 
@@ -428,62 +425,10 @@ the update and not the session — see [Loading](format/loading.md).
 
 ### Unity
 
-The SDK ships as a UPM package, `com.zabloo.sdk` under `sdk/unity` (not yet published — add
-it to `Packages/manifest.json` by local path or git URL):
-
-```json
-"com.zabloo.sdk": "file:../../path/to/sdk/unity"
-```
-
-Then, in the scene:
-
-1. Add a **`ZablooDocument`** to a GameObject. It requires a `UIDocument` and adds one.
-2. Drop `dist/zabloo.ir.json` into `Assets/` and assign the imported `TextAsset` to the
-   document's **Envelope** field.
-3. Set **View** to the view id you want — `main-menu`.
-
-The game talks to the UI through the document, which is the stable handle: the view is
-disposable and gets swapped on every reload, while subscriptions survive and pushed data is
-replayed.
-
-```csharp
-using UnityEngine;
-using Zabloo;
-
-[RequireComponent(typeof(ZablooDocument))]
-public sealed class ShopDriver : MonoBehaviour
-{
-    [SerializeField] int _gold = 1000;
-
-    ZablooDocument _doc;
-
-    // Start, not OnEnable: it runs after ZablooDocument has built the view.
-    void Start()
-    {
-        _doc = GetComponent<ZablooDocument>();
-        _doc.OnAction += OnZablooAction;
-        _doc.SetData("player.gold", _gold);
-    }
-
-    void OnDestroy()
-    {
-        if (_doc != null) _doc.OnAction -= OnZablooAction;
-    }
-
-    void OnZablooAction(string action)
-    {
-        if (action != "buy") return;
-        _gold -= 100;
-        _doc.SetData("player.gold", _gold);   // the bound Text updates and re-lays out
-        _doc.SetData("shop.thanked", true);   // the bound `visible` reveals the row
-    }
-}
-```
-
-`SetData` is cached on the document, so pushing a value before the view exists — or before a
-bound node does — applies as soon as it does. Beyond it, the document exposes `Reload(json)`
-for hot-swapping content, and `View` for the operations that drive a specific node
-(`View.SetOpen(id, open)`).
+**Under construction.** The Unity SDK is being rebuilt as a thin adapter over the same
+native core Godot runs (F12); the earlier C# port was removed. Its package, `com.zabloo.sdk`
+under [`sdk/unity`](../sdk/unity/README.md), compiles and installs by path but renders
+nothing yet — that README tracks what works.
 
 ### The dev loop, in-engine
 
@@ -502,8 +447,8 @@ survives it: the store lives on the document, not on the view it feeds. The push
 the tree without its asset bytes, and the game fetches only the content hashes it does not
 already hold, so replacing one image transfers one image and saving a `.tsx` transfers none.
 
-**Unity.** Enable **Zabloo → Dev Mode (listen on localhost:5077)** in the editor and run
-`pnpm dev:unity`; every save hot-swaps the running view there, Play mode included.
+**Unity.** `pnpm dev:unity` pushes each save to `localhost:5077`; the receiver on the Unity
+side comes with the rebuilt SDK (F12).
 
 Either way it is the exact loading path a production hot-update uses. One loading mechanism,
 three ways in: a manual import, a dev push, a platform hot-update.

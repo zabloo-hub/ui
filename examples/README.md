@@ -1,9 +1,9 @@
 # Examples
 
-Four zabloo projects and one Godot project. Each of the four is a normal `create-zabloo-app`
+Four zabloo projects and two engine projects. Each of the four is a normal `create-zabloo-app`
 layout — `src/views/*.tsx` (one file, one view), `src/theme.ts` (tokens + variants), a
 `zabloo.config.ts` — so anything you read here works the same in a project of your own. The
-fifth is the engine end: it loads the envelopes the other four export.
+other two are the engine end: they load the envelopes the four export.
 
 Run any of them from the repo root:
 
@@ -17,8 +17,7 @@ the **game**: it fills its bindings panel from the envelope's bindings, logs the
 actions your UI fires in the console's **Actions** tab, and exposes the live handle as
 `window.zabloo`, so the browser console can push data
 (`zabloo.setData("player.gold", 900)`) exactly the way a game's own code would. Add
-`--godot` to push each save to a running Godot game as well (or `--unity`, to the Unity
-editor).
+`--godot` to push each save to a running Godot game as well.
 
 ## Which one to open
 
@@ -29,6 +28,7 @@ editor).
 | [`inventory-demo`](inventory-demo/README.md) | A real screen built on data: hundreds of virtualized rows, a horizontal strip, a Collapse inside a scroller. |
 | [`settings-screen`](settings-screen/README.md) | A real screen built on controls: tabs, toggles, sliders, a dropdown and a text field, all bound. |
 | [`godot-playground`](godot-playground/README.md) | **The engine end.** A Godot project that loads the four above, one at a time, so every capability can be checked where it actually ships. |
+| [`unity-playground`](unity-playground/README.md) | The same for Unity — a scaffold while the adapter is built (F12); it opens and compiles, and renders nothing yet. |
 
 The showcase is exhaustive and the other two zabloo projects are realistic; they are
 different questions. "How does `maxLines` behave?" is a showcase question. "How do I lay a

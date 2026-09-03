@@ -154,8 +154,8 @@ zabloo dev --godot-port 5079   # dev-mode port of the Godot game (with --godot)
 | `--cwd <dir>` | `"."` | Project root. |
 | `--godot` | off | Also pushes each export to the running Godot game's dev mode. |
 | `--godot-port <port>` | `5079` | The Godot game's dev-mode port (only with `--godot`). |
-| `--unity` | off | Also POSTs each export to the Unity editor's dev mode. |
-| `--port <port>` | `5077` | The Unity editor's dev-mode port (only with `--unity`). |
+| `--unity` | off | Also POSTs each export to the Unity SDK's dev mode (the receiver comes with the rebuilt SDK, F12). |
+| `--port <port>` | `5077` | The Unity dev-mode port (only with `--unity`). |
 | `--preview-port <port>` | `5078` | The web preview's port. |
 | `--open` | off | Opens the preview in the browser once it is up. |
 | `--allow-host <host>` | — | An extra `Host` the preview answers to, beyond the loopback names. Repeatable; `"*"` turns the check off. |
@@ -183,9 +183,9 @@ reloads follow. The rehydrated envelope is what reaches the loader — always a 
 A second instance of the game finds the port taken and says so; `zabloo/dev_mode/port` in
 the project settings moves it.
 
-**With `--unity`**, every save hot-swaps the running view in the editor (Play mode
-included). That push carries the whole envelope: its receiver knows nothing about deferred
-bytes.
+**With `--unity`**, the push goes to the Unity SDK's dev mode. That SDK is being rebuilt as
+a thin adapter over the same core Godot runs (F12) and has no receiver yet, so today the flag
+only reports that nothing is listening. The push carries the whole envelope.
 
 ### The preview
 
