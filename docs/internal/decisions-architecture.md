@@ -4784,3 +4784,68 @@ ya trae el `scons install` que copia el binario Y escribe su `.meta` — dos com
 para lo mismo son la deriva que este repo evita. **Riesgo que queda:** que el core
 compile con MSVC en CI es lo que prueba la matriz de Windows; hasta hoy solo lo había
 compilado a través de godot-cpp.
+
+## 2026-09-03 — El mando en Unity: el `zb_pad` es del proceso, el dueño se poda en vez de darse de baja, y la Y se voltea a la entrada (ZAB-199, F12 UN6)
+
+**Decisión:** el mando entra en el adaptador de Unity como la traducción literal del bloque
+de pad de Godot (G13) y de `input_owner.{h,cpp}`: `ZablooView.Pad.cs` lee `Gamepad.current`
+del Input System y lo vierte, slot a slot, en el snapshot del mapeo estándar que consume
+`zb_pad_poll`; `PadMapping.cs` es la tabla (índices W3C, controles de fábrica, los diez
+nombres de slot); `InputOwner.cs` decide qué vista oye el teclado y pollea el pad. El bucle
+sigue siendo del core — flancos, zona muerta con histéresis, reloj de repeat, respuesta
+cuadrática —, que es por lo que el corpus lo arbitra con el guion `pad` sin motor. Cuatro
+cosas que aquí son decisión y no copia:
+
+1. **La Y de los sticks se niega a la entrada.** El mapeo estándar (y Godot con él) reporta
+   un stick empujado hacia ARRIBA como Y negativa; el Input System lo reporta como +1. Sin
+   el flip, el foco caminaría al revés y el stick derecho scrollearía contra el jugador — y
+   ningún caso del corpus lo vería, porque el guion `pad` ya está escrito en el signo del
+   core. Es la única aritmética del adaptador, vive en un solo sitio (`PadMapping.Axis`) y
+   tiene su test. Los sticks se leen **sin procesar** (`ReadUnprocessedValue`): la zona
+   muerta con histéresis es regla del core, y un stick que el motor ya hubiera recortado la
+   aplicaría dos veces. Y los slots de fábrica son **posiciones** (`South`/`East`), no
+   letras: en un DualShock los mismos slots son Cruz y Círculo sin que nadie configure nada.
+2. **El `zb_pad` es uno por proceso, propiedad del adaptador, y NO de ninguna vista.** Todo su
+   estado es del dispositivo, y una vista es desechable (un hot-update la reconstruye);
+   limpiarlo con ella haría que una A mantenida se leyera como recién pulsada tras el swap
+   y pulsara lo que el árbol nuevo tuviera enfocado (G13). Vive en una clase estática
+   anidada con el snapshot — 17 bytes y 4 doubles reutilizados: pollear por frame no aloca
+   — y se destruye en el `DomainUnload`, como los documentos: el plugin nativo no se
+   descarga en el editor, y un handle que nadie destruye es una fuga en cada Play. Cambiar
+   de vista dueña se modela como **desconectar y volver a conectar**: la que lo pierde suelta
+   primero (su pulsación cancela, su slider asienta), y solo después la que lo toma recibe
+   `zb_pad_connect(now)`.
+3. **Sin señal de conexión: se reconcilia por frame, y por eso.** Godot necesitaba
+   `joy_connection_changed` porque su `_process` estaba apagado sin mando; en Unity
+   `Update` corre siempre y `PollPad` con él, así que las tres cosas que pueden irse —el
+   dueño (el jugador tocó otra vista), el mando, la vista nativa— se comprueban cada frame
+   y las tres entran por la misma puerta que el cable arrancado. Suscribirse además a
+   `InputSystem.onDeviceChange` sería código que no cambia ningún frame.
+4. **El dueño del input se registra perezosamente y la lista se PODA.** `ZablooView.cs` es
+   zona de otro ticket y no ofrece hooks de enable/disable a los partials, así que una vista
+   se registra en su primer `PollPad` y una vista deshabilitada o destruida cae de la lista
+   la próxima vez que alguien pregunta. La regla observable es la de Godot — primera vista,
+   tocarla se lo lleva, al irse cae a la más antigua —, sin una baja que una vista pueda
+   olvidar. Va tipado sobre `Behaviour` y no sobre `ZablooView` para que el test corra con
+   cualquier componente y sin plugin. Un fallo que solo la semántica de null de Unity
+   destapa, y que el test cazó: un dueño **destruido** ES `== null` para Unity, así que
+   podarlo con `owner != null` es saltarse justo al que hay que sustituir.
+
+**El contrato entre partials es un `partial void` con `ref`.** Pad.cs necesita el `zb_view*`
+que Host.cs (UN7) posee y aún no existe: `partial void NativeView(ref IntPtr handle)` sin
+implementar compila a nada y deja el cero, con lo que el pad no pollea; UN7 lo implementa en
+una línea, y el contrato es que devuelva cero siempre que la vista nativa no exista. Es la
+misma técnica con la que UN3 dejó `CreateNative`/`Step` declarados sin firma del ABI.
+
+**Lo que no se puede afirmar desde esta máquina:** no hay Unity ni mando. El C# se compiló
+con dotnet 8 contra un shim del Input System (solo sintaxis y tipos), los tests puros
+(`PadMappingTests`, `InputOwnerTests`) pasan con NUnit real, y el test PlayMode
+(`PadTests`, con `InputTestFixture`: una pulsación = un paso, un segundo = 8, desenchufar
+cancela y asienta, dos vistas y solo el dueño se mueve) queda escrito contra la API pública
+y pasa cuando UN7 haya mergeado y alguien lo corra en el editor. El procedimiento con mando
+real está en `examples/unity-playground/README.md` › *Checking UN6 by hand*.
+
+**Dónde vive:** `sdk/unity/Runtime/ZablooView.Pad.cs`, `Runtime/Input/PadMapping.cs`,
+`Runtime/Input/InputOwner.cs`, `Tests/PlayMode/{PadMappingTests,InputOwnerTests,PadTests}.cs`.
+La fila de Unity en `docs/format/host-channel.md` (§ *The gamepad, and remapping it*) es de
+UN7/UN11, que tienen esa zona.

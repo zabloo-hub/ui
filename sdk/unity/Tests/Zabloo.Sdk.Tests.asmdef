@@ -3,6 +3,8 @@
     "rootNamespace": "Zabloo.Tests",
     "references": [
         "Zabloo.Sdk",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

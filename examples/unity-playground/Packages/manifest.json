@@ -13,6 +13,7 @@
     "com.unity.modules.unitywebrequest": "1.0.0"
   },
   "testables": [
-    "com.zabloo.sdk"
+    "com.zabloo.sdk",
+    "com.unity.inputsystem"
   ]
 }
