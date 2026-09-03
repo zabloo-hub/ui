@@ -17,7 +17,9 @@ game ──── SetData / SetOpen / SetChecked / … ────▶ UI
 The signatures below are the **web target**'s (`@zabloo/renderer-web`), given inline as the
 concrete spelling of each operation. The **Godot** SDK exposes the same contract on the
 `ZablooView` node, spelled the way an engine node is: `snake_case` methods for the
-operations, and **signals** for the callbacks.
+operations, and **signals** for the callbacks. The **Unity** SDK exposes it on the
+`ZablooView` component, spelled the way a C# class is: `PascalCase` methods, and C#
+**events** for the callbacks.
 
 ## The operations (normative)
 
@@ -56,6 +58,90 @@ The keyboard has one Godot-only wrinkle, and it belongs to the `Slider`. Arrow k
 slider's axis adjust it and the release of that key is what fires `onCommit`, but the core
 is only ever told about presses — so `ZablooView` calls the runtime's `settle_slider_keys()`
 when the arrow comes up. It is adapter plumbing, not an operation: a game never calls it.
+
+### Unity spelling
+
+| Operation | Unity | Callback | Unity event |
+|---|---|---|---|
+| `SetData` | `SetData(string path, object value)` | Action | `event Action<string, ActionContext> OnAction` |
+| `SetOpen` | `SetOpen(string id, bool open) → bool` | Data changed | `event Action<string, object> OnDataChanged` |
+| `SetSelectedTab` | `SetSelectedTab(string id, int index) → bool` | Diagnostic | `event Action<Diagnostic> OnDiagnostic` |
+| `SetChecked` | `SetChecked(string id, bool isChecked) → bool` | | |
+| `SetValue` | `SetValue(string id, double value) → bool` | | |
+| `SetText` | `SetText(string id, string text) → bool` | | |
+| `SetScroll` | `SetScroll(string id, float x, float y) → bool` | | |
+| `Reload` | `Reload(string json) → bool` | | |
+
+`SetData` takes what JSON can carry: `null`, `bool`, any numeric primitive, `string`, arrays
+and lists (any `IEnumerable`), and dictionaries keyed by string (`Dictionary<string, object>`,
+`Dictionary<string, int>`…). `SetData("shop.items", new List<Dictionary<string, object>>
+{ … })` is what makes `{"bind": "shop.items.1.name"}` resolve. Anything else — a
+`GameObject`, a `NaN` — is warned about and **nothing is written**: guessing at a value
+would push the wrong thing in silence. Numbers are written with
+`CultureInfo.InvariantCulture` whatever the player's locale, so a game running on a Spanish
+machine still pushes `0.5`, never `0,5`.
+
+What comes back is typed by shape, not by declaration — the format has no data types, and
+the value arrives as JSON from the core:
+
+| JSON | C# `object` |
+|---|---|
+| `true` / `false` | `bool` |
+| an integer that fits (`1200`) | `long` |
+| any other number (`0.35`, `1e21`) | `double` |
+| a string | `string` |
+| an array | `List<object>` |
+| an object | `Dictionary<string, object>` |
+| `null` | `null` |
+
+`Convert.ToInt32(value)` and `Convert.ToDouble(value)` work on either number type; a game
+that wants the split checks `value is long`.
+
+`ActionContext` is a `readonly struct` with the same three fields as the web's, plus one
+question: `Path` (`string`, or null), `Key` (`object`: a `string`, a `long`/`double` by the
+rule above, or null when the list is positional), `Index` (`int`, `-1` without a context)
+and **`HasContext`** — `false` for an action fired from the document itself, where the
+struct is `default`. It carries the innermost item, and `Path` is an address, so it is also
+what the game writes back through with `SetData`.
+
+`Diagnostic` is a `readonly struct` too: `Code` (the stable code), `Path` (into the
+envelope, or null), `Message`, and `Fatal` — see [Loading](loading.md#in-unity).
+
+**Events are drained after the frame, never raised from inside it.** The core produces no
+callbacks: `ZablooView` reads what a frame produced once the frame is done and raises the
+events then, in the order the frame produced them. A handler therefore never runs in the
+middle of a layout pass, and a game that re-enters from one — a `SetData` in response to an
+action, a `Reload` from a diagnostic — finds the view settled. That drain runs after every
+frame the view paints, including one of pure motion: a toast's `autoCloseMs` fires from
+inside the layout pass, and its `onDismiss` and the `false` it writes reach the game on that
+same frame rather than with the player's next input.
+
+The **loading** half, which the Godot table folds into `load_envelope`/`load_file`:
+
+| Member | What it does |
+|---|---|
+| `LoadEnvelope(string json) → bool` | Loads an envelope and shows the view named in the inspector (or the envelope's first). The one loading path: a manual import, a dev push and a hot-update all arrive here. |
+| `LoadEnvelope(string json, string view) → bool` | The same, showing `view`. An id the envelope lacks is warned about and the first view shows; the load still took. |
+| `Load(TextAsset asset) → bool` | `LoadEnvelope` over an imported `dist/zabloo.ir.json`. Runs on enable for the asset assigned in the inspector, and from its **Reload from asset** context-menu entry. |
+| `ShowView(string id) → bool` | Another view of the loaded envelope. `false`, and a warning, when there is none; nothing changes then. |
+| `Reload(string json) → bool` | `LoadEnvelope` keeping the view on screen — the hot-update path. |
+| `IsLoaded` | Whether a view is on screen. A refused load does not count. |
+| `Diagnostics` | `IReadOnlyList<Diagnostic>`: the last load's, worst first. |
+
+Nothing throws. A refused payload answers `false`, leaves what was on screen exactly where
+it was, and says why on `OnDiagnostic` and in `Diagnostics`. Data the game pushed
+**survives** a swap, because the store lives in the core's document and the component caches
+nothing of its own.
+
+And the **introspection** half: `Snapshot()` is the `ViewSnapshot` as the JSON a golden
+file holds (what the corpus test inside Unity compares against `golden/metrics/`), `Stats`
+is what the last paint cost, and `MarkDirty()` asks for a frame — every operation above
+already calls it, so a game only needs it for something the component cannot see.
+
+The `Slider`'s keyboard wrinkle is the same as Godot's, and it lands on the same side of the
+line: the arrow along a slider's axis adjusts it and `onCommit` belongs to the key coming
+**up**, which the core is never told about — so the keyboard half of the adapter calls the
+runtime's `settle_slider_keys` on the key up. Adapter plumbing, not an operation.
 
 ### The gamepad, and remapping it
 

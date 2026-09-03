@@ -37,10 +37,10 @@ public sealed class Playground : MonoBehaviour
     {
         if (view == null) view = FindFirstObjectByType<ZablooView>();
         view.OnAction += (name, context) =>
-            Debug.Log(context.IsEmpty
+            Debug.Log(!context.HasContext
                 ? $"action: {name}"
                 : $"action: {name}  (item {context.Path}, key {context.Key}, index {context.Index})");
-        view.OnDataChanged += (path, json) => Debug.Log($"{path} = {json}");
+        view.OnDataChanged += (path, value) => Debug.Log($"{path} = {value}");
         view.OnDiagnostic += d => Debug.Log($"{(d.Fatal ? "fatal" : "warn")} {d.Code} at {d.Path}: {d.Message}");
         Load();
     }

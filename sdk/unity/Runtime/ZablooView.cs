@@ -85,6 +85,21 @@ namespace Zabloo
         bool alive;
 
         /// <summary>
+        /// The native document (<c>zb_document *</c>), or zero. Host.cs creates it in
+        /// <see cref="CreateNative"/> and destroys it in <see cref="DestroyNative"/>;
+        /// every other partial only reads it.
+        /// </summary>
+        IntPtr document;
+
+        /// <summary>
+        /// The native view (<c>zb_view *</c>), or zero before the first successful
+        /// load. Stable for the document's life — a load or a show swaps the view
+        /// underneath it, never the handle — so a partial may keep it across frames.
+        /// Host.cs writes it; Render, Pointer, Keyboard and Pad read it.
+        /// </summary>
+        IntPtr view;
+
+        /// <summary>
         /// Asks for a frame. Every mutation of the view ends here — a pushed value,
         /// a pointer move, a resize — so <see cref="Update"/> can stay idle when
         /// nothing did: a still UI costs no frames.

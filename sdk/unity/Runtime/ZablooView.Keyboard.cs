@@ -28,9 +28,10 @@ namespace Zabloo
     /// are eaten before this ever sees them (the phenomenon that kept the Godot
     /// view in <c>FOCUS_NONE</c>).
     ///
-    /// <para>What this file expects of its siblings: <c>NativeViewHandle()</c>
-    /// and <c>InputOwner</c> (UN6; the handle is answered by Host.cs, UN7), and
-    /// <see cref="Paint"/> (Render.cs, UN4) for the caret's repaint.</para>
+    /// <para>What this file expects of its siblings: <c>view</c> (the <c>zb_view*</c>
+    /// shared through ZablooView.cs, written by Host.cs), <c>InputOwner</c>
+    /// (InputOwner.cs, UN6), and <see cref="Paint"/> (Render.cs) for the caret's
+    /// repaint.</para>
     /// </summary>
     public sealed partial class ZablooView
     {
@@ -70,7 +71,7 @@ namespace Zabloo
         partial void PollKeyboard()
         {
             EscapeConsumedThisFrame = false;
-            keyboardView = NativeViewHandle();
+            keyboardView = view;
             if (keyboardView == IntPtr.Zero)
             {
                 DisarmEditing();

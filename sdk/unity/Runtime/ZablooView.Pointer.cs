@@ -21,9 +21,9 @@ namespace Zabloo
     /// raycasts nothing, the same way the Godot adapter reads <c>InputEvent</c>
     /// and never a <c>Control</c>'s focus.
     ///
-    /// <para>What this file expects of its siblings: <c>NativeViewHandle()</c>
-    /// (the <c>zb_view*</c>, <c>IntPtr.Zero</c> until an envelope loads — declared
-    /// in Pad.cs and answered by Host.cs) and <c>InputOwner</c> (both UN6).</para>
+    /// <para>What this file expects of its siblings: <c>view</c> (the <c>zb_view*</c>
+    /// shared through ZablooView.cs, <c>IntPtr.Zero</c> until an envelope loads,
+    /// written by Host.cs) and <c>InputOwner</c> (InputOwner.cs, UN6).</para>
     /// </summary>
     public sealed partial class ZablooView
     {
@@ -51,7 +51,7 @@ namespace Zabloo
 
         partial void PollPointer()
         {
-            var native = NativeViewHandle();
+            var native = view;
             if (native == IntPtr.Zero) return;
 
             var pointer = Pointer.current;
@@ -125,7 +125,7 @@ namespace Zabloo
             pointerOnSurface = false;
             pointerCaptured = false;
             pointerSeen = false;
-            var native = NativeViewHandle();
+            var native = view;
             if (native != IntPtr.Zero && NativeMethods.zb_view_pointer_exit(native) != 0) MarkDirty();
         }
 
@@ -143,7 +143,7 @@ namespace Zabloo
             pointerCaptured = false;
             pointerOnSurface = false;
             pointerSeen = false;
-            var native = NativeViewHandle();
+            var native = view;
             if (native != IntPtr.Zero && NativeMethods.zb_view_pointer_cancel(native) != 0) MarkDirty();
         }
 

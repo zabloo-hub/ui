@@ -41,7 +41,7 @@ namespace Zabloo.Tests
         ZablooView view;
         Keyboard keyboard;
         readonly List<string> actions = new List<string>();
-        readonly List<(string path, string json)> writes = new List<(string, string)>();
+        readonly List<(string path, object value)> writes = new List<(string, object)>();
 
         [SetUp]
         public override void Setup()
@@ -56,7 +56,7 @@ namespace Zabloo.Tests
             ((RectTransform)host.transform).sizeDelta = new Vector2(960, 600);
             view = host.AddComponent<ZablooView>();
             view.OnAction += (name, _) => actions.Add(name);
-            view.OnDataChanged += (path, json) => writes.Add((path, json));
+            view.OnDataChanged += (path, value) => writes.Add((path, value));
             actions.Clear();
             writes.Clear();
         }
@@ -124,7 +124,7 @@ namespace Zabloo.Tests
             yield return null;
 
             Assert.That(writes, Has.Count.EqualTo(2));
-            Assert.That(writes[1], Is.EqualTo(("player.name", "\"Si\"")));
+            Assert.That(writes[1], Is.EqualTo(("player.name", (object)"Si")));
         }
 
         [UnityTest]
@@ -141,7 +141,7 @@ namespace Zabloo.Tests
             yield return null;
 
             Assert.That(writes, Has.Count.EqualTo(1));
-            Assert.That(writes[0], Is.EqualTo(("player.name", "\"Sergi Za\"")));
+            Assert.That(writes[0], Is.EqualTo(("player.name", (object)"Sergi Za")));
         }
 
         [UnityTest]
