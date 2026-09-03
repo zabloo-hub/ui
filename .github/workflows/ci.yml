@@ -141,11 +141,20 @@ jobs:
 
       - run: pip install scons
 
-      # godot-cpp reads the NDK from `ANDROID_HOME`/`ANDROID_NDK_ROOT`, both of
-      # which the runner image already exports.
+      # godot-cpp PINS an NDK version (23.2.8568313 on the 4.4 branch) and builds
+      # the toolchain path out of it, so `$ANDROID_HOME/ndk/<that version>` has to
+      # exist. The runner ships whatever is current instead, and the build dies
+      # before compiling a line. Telling the pin what is actually installed is the
+      # whole fix.
+      - name: Point the build at the NDK the runner has
+        if: matrix.platform == 'android'
+        shell: bash
+        run: echo "SCONS_EXTRA=ndk_version=$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)" >> "$GITHUB_ENV"
+
       - name: Build the extension
         working-directory: sdk/godot
-        run: scons target=template_release platform=${{ matrix.platform }}
+        shell: bash
+        run: scons target=template_release platform=${{ matrix.platform }} $SCONS_EXTRA
 
       - uses: actions/upload-artifact@v4
         with:
