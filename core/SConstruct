@@ -202,6 +202,13 @@ capi_probe = probe_env.StaticObject(
 
 test_env = env.Clone()
 test_env.Append(CPPPATH=["#tests", "#capi"])
+if msvc:
+    # The harness reads the environment (`BENCH`, `ZB_REQUIRE_LOCALE`) through
+    # standard `getenv`, which MSVC's CRT flags as "unsafe" (C4996) and `werror`
+    # turns into a failed build. The Microsoft-only `_dupenv_s` would fix the
+    # warning by making the tests less portable — the opposite of what a
+    # cross-platform test runner is for.
+    test_env.Append(CPPDEFINES=["_CRT_SECURE_NO_WARNINGS"])
 tests = test_env.Program(
     "bin/zabloo-core-tests",
     Glob("tests/*.cpp") + capi_static_objects + capi_probe + library,
