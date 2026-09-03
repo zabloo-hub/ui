@@ -242,7 +242,7 @@ antes — el mismo fenómeno que en Godot obligó a dejar la vista en `FOCUS_NON
 
 | Plataforma | Binario | v1 | Qué significa |
 |---|---|---|---|
-| macOS | `libzabloo.bundle` (universal x64 + arm64) | **soportado** | CI compila; el corpus pasa por el ABI y dentro de Unity; player IL2CPP real (UN9) |
+| macOS | `libzabloo.dylib` (universal x64 + arm64; `.dylib` y no `.bundle`, decidido en ZAB-196) | **soportado** | CI compila; el corpus pasa por el ABI y dentro de Unity; player IL2CPP real (UN9) |
 | Windows x64 | `zabloo.dll` | **soportado** | CI compila; player IL2CPP real (UN9) |
 | Linux x64 | `libzabloo.so` | **soportado** | CI compila; el editor y el corpus corren; player no ejecutado aquí |
 | Android arm64-v8a | `libzabloo.so` (NDK) | **compila, no validado** | CI compila con el NDK del runner; ningún dispositivo |
@@ -293,10 +293,11 @@ cobertura.
   `workflow_dispatch` con `dry-run` y `publish` idempotente (el espejo de
   `godot-addon.yml`). Un `.tgz` es lo que `Packages/manifest.json` acepta por `file:` y lo
   que el Package Manager instala con *Install package from tarball*; el script que lo monta
-  lee la lista de binarios **de los `.meta` de `Plugins/`**, y un binario declarado y
+  lee la lista de binarios **de las plantillas de `.meta` de `sdk/unity/SConstruct`** (los
+  `.meta` de `Plugins/` se generan con el binario y van gitignorados, ZAB-196), y un binario declarado y
   ausente es un error y no un tarball más pequeño — el criterio del `.gdextension` en G17.
 - **Lo que no se hace:** **git URL** (exigiría committear los binarios por plataforma en el
-  repo, y un `.bundle` universal son megabytes por release) y **OpenUPM**, que queda como
+  repo, y un `.dylib` universal son megabytes por release) y **OpenUPM**, que queda como
   paso documentado: un catálogo compra algo cuando hay algo que enseñar, y la primera
   entrada no debería ser un SDK a medio catálogo. Sale de UN11; aquí se decide.
 
@@ -425,7 +426,7 @@ tests PlayMode.
 
 **Lo que en Unity es distinto, y hay que vigilar** — cuatro cosas sin equivalente en Godot:
 
-- **El plugin nativo no se descarga en el editor.** Cambiar el `.bundle` exige reiniciar
+- **El plugin nativo no se descarga en el editor.** Cambiar el `.dylib` exige reiniciar
   Unity, y un handle huérfano tras un domain reload es un crash en el siguiente Play: el
   documento se destruye en `OnDestroy` **y** en `AppDomain.DomainUnload`.
 - **El Canvas habla Y-arriba y el core Y-abajo**: flip en la transform del hijo, nunca por
@@ -458,7 +459,7 @@ ui/
 │       │   ├── ZablooView.Pad.cs             (UN6)
 │       │   ├── ZablooView.Host.cs            partial: Flush() y la API pública (UN7)
 │       │   ├── Render/ · Input/ · Json/ · Shaders/
-│       │   └── Plugins/<plataforma>/         binarios gitignorados + .meta a mano
+│       │   └── Plugins/<plataforma>/         binarios + .meta gitignorados; `scons install` escribe ambos (ZAB-196)
 │       ├── Editor/                           dev mode (UN8)
 │       └── Tests/                            GoldenTests, AbiSizeTests, AllocationTests
 ├── examples/
@@ -544,7 +545,7 @@ mismo desaconseja. Descartado; la casilla de Player Settings es el coste.
 ### Git URL para el paquete
 
 `"com.zabloo.sdk": "https://github.com/…#v0.x"` es cómodo de instalar y exige **committear
-los binarios** de cada plataforma en el repo — un `.bundle` universal, un `.dll`, un `.so`,
+los binarios** de cada plataforma en el repo — un `.dylib` universal, un `.dll`, un `.so`,
 un `.a` de iOS y otro `.so` de Android por release, en un repo público cuya historia los
 acumularía para siempre. Descartado; el `.tgz` de una Release es un artefacto y no un
 commit.
