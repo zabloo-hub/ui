@@ -17,7 +17,9 @@ the shape; the tickets below fill it in.
 | File | Ticket | What it contains |
 |---|---|---|
 | `Runtime/ZablooView.cs` | UN3 (here) | Lifecycle, size, clock, the frame, and the `partial void` hooks the rest implement |
-| `Runtime/ZablooView.Host.cs` | UN7 | `Flush()`, the public API, the native handles — **stubs today**: every call warns and does nothing |
+| `Runtime/ZablooView.Host.cs` | UN7 | `Flush()`, the public API (loading, `SetData`, the id operations, the three events, `Snapshot()`/`Stats`) and the native handles — everything goes through `NativeMethods` |
+| `Runtime/ActionContext.cs`, `Runtime/Diagnostic.cs` | UN7 | The two structs the events carry |
+| `Runtime/Json/` | UN7 | The small JSON writer and reader the data channel speaks (`InvariantCulture`, always); `Tests/Editor/JsonTests.cs` runs them under `es-ES` |
 | `Runtime/Interop/NativeMethods.cs` | UN2 | The `DllImport` transcription of `core/capi/zabloo.h` |
 | `Runtime/ZablooView.Render.cs`, `Runtime/Render/`, `Runtime/Shaders/` | UN4 | `Paint()` — one `CanvasRenderer` per clip group with a submesh per batch, the core's arrays uploaded as `NativeArray` views, glyph atlases and images as textures, and the `Zabloo/Canvas` shader that clips by SDF |
 | `Runtime/ZablooView.Pointer.cs`, `.Keyboard.cs` | UN5 | `PollPointer()`, `PollKeyboard()` |
@@ -59,8 +61,11 @@ Until it is released (UN11 — a `.tgz` on the GitHub Release, versioned with th
 Then add a **Zabloo View** component to a `RectTransform` under a `Canvas`.
 The component's inspector takes the envelope (a `TextAsset`) and the view id;
 the game talks to it through `LoadEnvelope`, `SetData`, `OnAction` and
-`OnDataChanged`, which are declared and documented in `ZablooView.Host.cs` —
-and, today, do nothing but say so.
+`OnDataChanged` — the host channel, spelled for C# in
+[`docs/format/host-channel.md`](../../docs/format/host-channel.md#unity-spelling)
+and documented member by member in `ZablooView.Host.cs`. Nothing renders yet
+(UN4) and no input reaches the core yet (UN5, UN6): today a game can load,
+push data, drive controls by id and hear the actions and values that produces.
 
 ## The playground
 
