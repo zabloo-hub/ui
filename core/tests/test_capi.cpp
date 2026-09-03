@@ -647,11 +647,13 @@ TEST(capi, the_abi_sizes_are_this_builds_sizeof_of_each_struct) {
   CHECK_EQ(sizes.frame_stats, static_cast<uint32_t>(sizeof(zb_frame_stats)));
   CHECK_EQ(sizes.diagnostic, static_cast<uint32_t>(sizeof(zb_diagnostic)));
   CHECK_EQ(sizes.abi_size_table, static_cast<uint32_t>(sizeof(zb_abi_size_table)));
+  CHECK_EQ(sizes.field_info, static_cast<uint32_t>(sizeof(zb_field_info)));
   // The shapes the C# transcription is written against, on every 64-bit target.
   CHECK_EQ(sizes.str, static_cast<uint32_t>(2 * sizeof(void *)));
   CHECK_EQ(sizes.clip, 40u);
   CHECK_EQ(sizes.key_intent, 16u);
   CHECK_EQ(sizes.frame_stats, 40u);
+  CHECK_EQ(sizes.field_info, static_cast<uint32_t>(4 * 8 + 2 * sizeof(void *) + 2 * 8 + 8));
 }
 
 TEST(capi, the_version_is_the_fixed_groups) {
@@ -740,4 +742,52 @@ TEST(capi, text_entry_and_the_focus_go_through_the_header) {
   CHECK(zb_view_set_text(handle.view, "name", 4, "Zamora", 6) == 1);
   handle.frame();
   CHECK(handle.snapshot().find("Zamora") != std::string::npos);
+}
+
+TEST(capi, the_focused_field_is_reported_while_a_text_input_holds_the_focus) {
+  // What the keyboard half of an adapter arms the IME and the caret's blink
+  // from (UN5): the field's rect, its text and the instant of its last edit —
+  // and nothing at all once the focus has moved on.
+  const char *FORM = R"({"v":1,"views":{"form":{"type":"Container","layout":{"padding":10,"gap":10},
+    "children":[
+      {"type":"TextInput","id":"name","autofocus":true,"value":{"bind":"player.name"},
+       "layout":{"width":200,"height":24}},
+      {"type":"Button","id":"ok","layout":{"width":80,"height":24},"onClick":"ok"}]}}})";
+  Handle handle;
+  CHECK(handle.load(FORM));
+  zb_view_set_size(handle.view, 300, 200);
+  handle.advance(1000);
+  handle.frame();
+
+  zb_field_info field{};
+  CHECK(zb_view_focused_field(handle.view, &field) == 1);
+  CHECK_EQ(field.x, 10.0);
+  CHECK_EQ(field.y, 10.0);
+  CHECK_EQ(field.width, 200.0);
+  CHECK_EQ(field.height, 24.0);
+  CHECK_EQ(std::string(sv(field.text)), std::string());
+  CHECK(field.blink_ms > 0.0);
+  CHECK_EQ(field.composing, 0);
+
+  // An edit moves the blink's origin to the view's clock, and the text follows.
+  handle.advance(250);
+  CHECK(zb_view_insert_text(handle.view, "Sergi", 5) == 1);
+  CHECK(zb_view_focused_field(handle.view, &field) == 1);
+  CHECK_EQ(std::string(sv(field.text)), std::string("Sergi"));
+  CHECK_EQ(field.caret_since, 1250.0);
+
+  // A composition in flight says so; ending it says it stopped.
+  CHECK(zb_view_set_composition(handle.view, "こ", 3) == 1);
+  CHECK(zb_view_focused_field(handle.view, &field) == 1);
+  CHECK_EQ(field.composing, 1);
+  CHECK(zb_view_end_composition(handle.view) == 1);
+  CHECK(zb_view_focused_field(handle.view, &field) == 1);
+  CHECK_EQ(field.composing, 0);
+
+  // ↓ hands the focus to the button: no field, and `out` is zeroed.
+  CHECK(zb_view_move_focus(handle.view, 0, 1) == 1);
+  CHECK(zb_view_focused_field(handle.view, &field) == 0);
+  CHECK_EQ(field.width, 0.0);
+  CHECK(field.text.data == nullptr);
+  CHECK(zb_view_focused_field(nullptr, &field) == 0);
 }

@@ -165,6 +165,34 @@ namespace Zabloo.Sdk.Interop
     }
 
     /// <summary>
+    /// `zb_field_info`: the text field holding the focus, as the keyboard half of
+    /// the adapter needs it (UN5) — where the IME's candidate list goes, what a
+    /// phone's on-screen keyboard is handed, and the phase the caret blinks at.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ZbFieldInfo
+    {
+        /// <summary>The field's rect in view space (y down), scroll already applied.</summary>
+        public double X;
+        public double Y;
+        public double Width;
+        public double Height;
+        /// <summary>
+        /// What the field holds, UTF-8. Valid until the next edit of the field, the
+        /// next `zb_view_layout_frame` or the next load — read it, do not keep it.
+        /// </summary>
+        public ZbStr Text;
+        /// <summary>
+        /// When the last edit landed, on the view's clock. The caret is visible for
+        /// the first half of every `BlinkMs` period counted from here.
+        /// </summary>
+        public double CaretSince;
+        public double BlinkMs;
+        /// <summary>An IME composition is in flight.</summary>
+        public int Composing;
+    }
+
+    /// <summary>
     /// `zb_pad_snapshot`: one poll's worth of a gamepad, in the STANDARD MAPPING's
     /// indices (A = 0, B = 1, d-pad = 12..15, left stick = axes 0/1, right stick =
     /// 2/3). Short arrays are fine: a missing index is not pressed / at rest.
@@ -281,6 +309,7 @@ namespace Zabloo.Sdk.Interop
         public uint FrameStats;
         public uint Diagnostic;
         public uint AbiSizeTable;
+        public uint FieldInfo;
     }
 
     /// <summary>
@@ -496,6 +525,17 @@ namespace Zabloo.Sdk.Interop
         /// <summary>The arrow key adjusting a `Slider` was let go: the gesture ends and `onCommit` fires if the value moved.</summary>
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         public static extern int zb_view_settle_slider_keys(IntPtr view);
+
+        #endregion
+
+        #region Input (UN5)
+
+        /// <summary>
+        /// The text field holding the focus, or 0 when the focus is elsewhere or
+        /// nowhere (`field` is then zeroed). See `ZbFieldInfo` for the lifetimes.
+        /// </summary>
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int zb_view_focused_field(IntPtr view, out ZbFieldInfo field);
 
         #endregion
 

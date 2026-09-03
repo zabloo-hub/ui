@@ -6,12 +6,12 @@ corpus deliberately does not cover (the corpus runs the core on a bare CPU, with
 no engine and no GPU). It is the Unity counterpart of
 [`godot-playground`](../godot-playground/README.md).
 
-**Status: host channel and rendering in (F12, UN4 + UN7), gamepad wired (UN6).**
-The scene opens and compiles, the envelopes load into the core and the
-game-facing API works — `SetData`, the id operations,
-`OnAction`/`OnDataChanged`/`OnDiagnostic` — and a controller navigates what is
-on screen. The adapter's pointer and keyboard (UN5) are still to land, adding
-what they can be checked for here.
+**Status: host channel (UN7), rendering (UN4), pointer/keyboard (UN5) and the
+gamepad (UN6) in.** The scene opens and compiles, the envelopes load into the
+core, the game-facing API works — `SetData`, the id operations,
+`OnAction`/`OnDataChanged`/`OnDiagnostic` — and the view can be used with a
+mouse, a finger, a keyboard and a controller. Each ticket adds what it can be
+checked for here.
 
 ## Run it
 
@@ -136,7 +136,56 @@ first four steps are also the first things to look at if nothing draws.
 plugin and settles the two things the shim could not: that the shader compiles on
 this GPU and that a mesh accepts the core's vertex layout.
 
-### Checking UN6 by hand
+## Checking UN5 by hand
+
+Pointer and keyboard (ZAB-198) cannot be arbitrated by the golden corpus — a
+snapshot has no script of keys — and the machine that wrote them had no
+editor, so this is the procedure. It needs UN4 (something on screen), UN6 (an
+input owner) and UN7 (`LoadEnvelope`) merged; until then the view has nothing
+to read into.
+
+On `settings-screen` (the one it opens on), with a mouse and a keyboard:
+
+- **Hover and click**: a button lights on hover and fires on the release
+  (`action: …` in the Console). Press on a button, drag off it, release:
+  nothing fires. Alt-tab away mid-drag and back: nothing stuck in `pressed`.
+- **Arrows** walk the focus ring; **Enter** and **Space** activate on the
+  release. Hold an arrow: nothing for 400 ms, then a step every 90 — the pad's
+  feel, because the Input System repeats nothing but text.
+- **On a slider**, ← and → move the VALUE and ↑/↓ leave it; `…-apply` fires
+  when the arrow comes UP, not on every step. Release it: exactly one commit.
+- **The language dropdown**: Enter opens it, **Escape** closes it — and with
+  nothing open, Escape does nothing at all (`EscapeConsumedThisFrame` stays
+  false: the game's pause menu still gets it).
+- **The name field**: type, and the bound label follows; the placeholder goes
+  on the first character; the caret blinks at two frames per period and the
+  Stats tab shows the flip as a repaint (`repaintOnly`); Shift+arrows select
+  and the caret disappears; Cmd/Ctrl+C/X/V copy, cut and paste through the
+  system clipboard, and a paste of 38 characters stops at `maxLength`; ←/→ at
+  the ends of the text hand the direction back and leave the field; Enter
+  submits (`name-accept`) and presses nothing.
+- **The wheel** over the settings list scrolls it 50 px per notch, in the
+  direction the wheel rolls; over a horizontal-only strip it does nothing,
+  which is deliberate (gap (a) of ZAB-9, kept in every target).
+
+Touch, on `inventory-demo`: enable *Input System › Simulate Touch Input From
+Mouse Or Pen* (Input Debugger › Options) and drag the list — it scrolls with
+the finger, nothing lights on the way, and a tap on a row's button fires
+without the drag stealing it.
+
+IME, on macOS with the Japanese input source: type `ko` in the name field —
+`こ` shows in the field as a composition and the bound label does NOT change;
+press Enter to settle and the label updates once, with the settled text. Cancel
+a composition with Escape: the field is back to what it held, and no dropdown
+closed (the composition ate the key).
+
+The PlayMode suite (`sdk/unity/Tests/PlayMode/KeyboardInputTests.cs`) drives
+the same cascade with a synthetic keyboard — Enter's press and release, two
+taps, typed text, a clipped paste, Escape with and without a modal. Run it from
+Window › General › Test Runner › PlayMode; every case is inconclusive rather
+than red until UN7 lands.
+
+## Checking UN6 by hand
 
 The half of the gamepad that the corpus cannot see (it runs the core with no
 device), and that `Tests/PlayMode/PadTests.cs` covers with a synthetic pad:
@@ -174,8 +223,8 @@ On `settings-screen`:
 
 Two views in one scene (add a second `ZablooView` to the canvas and give it an
 envelope): only the first one enabled moves with the d-pad; click or tap the
-other and the pad follows the touch — the keyboard with it, once UN5 lands (the
-pointer is UN5's too, so until then the touch is `InputOwner.Claim(view)`). The
+other and the pad follows the touch, and the keyboard with it (a press on a
+view's surface is `InputOwner.Claim`, wherever it lands). The
 one that lost the pad drops whatever it was holding: a press cancels, a nudged
 slider commits.
 
