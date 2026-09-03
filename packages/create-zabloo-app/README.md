@@ -45,7 +45,7 @@ my-game-ui/
 ```bash
 pnpm dev        # watch + live web preview
 pnpm dev:godot  # …plus hot-swap each save in the running Godot game
-pnpm dev:unity  # …plus hot-push each save to the Unity editor (menu Zabloo → Dev Mode)
+pnpm dev:unity  # …plus hot-push each save to the Unity SDK's dev mode (SDK under construction — F12)
 pnpm build      # export → dist/zabloo.ir.json
 ```
 
@@ -64,16 +64,8 @@ func _ready() -> void:
     ui.set_data("player.gold", 1250)   # bound Text/visible react live and re-lay out
 ```
 
-In Unity, the same two through the document:
-
-```csharp
-var ui = GetComponent<Zabloo.ZablooDocument>();
-ui.OnAction += action => { if (action == "play") StartGame(); };
-ui.SetData("player.gold", 1250); // bound Text/visible react live and re-lay out
-```
-
-Godot renders the whole catalog today; Unreal comes later, as a thin adapter over the same
-core. The envelope can also be delivered and **hot-updated** from the zabloo platform
+Godot renders the whole catalog today. Unity is being rebuilt as a thin adapter over the
+same core (F12), and Unreal follows the same way. The envelope can also be delivered and **hot-updated** from the zabloo platform
 without recompiling or re-shipping through stores — the dev loop uses that exact path.
 
 ## Usage

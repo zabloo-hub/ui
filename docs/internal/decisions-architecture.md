@@ -4582,6 +4582,134 @@ el adaptador, que es exactamente lo que la regla de oro protege.
 **Sin desglosar todavía:** los tickets de F12 se escriben al abrir la fase, con el mismo
 patrón que F11 (**Zona**, **No toca**, y los casos del corpus que cada uno cierra).
 
+## 2026-09-03 — La forma del SDK de Unity: plugin nativo tras un C ABI, render por UGUI (ZAB-194, F12 UN1)
+
+**Decisión:** Unity entra como **adaptador fino sobre el core C++** — como fijó 2026-08-24 —
+y lo que se fija ahora es la forma de las seis piezas que en Godot no existieron:
+
+1. **El puente es una cabecera C** (`core/capi/zabloo.h`), la segunda puerta del core: handles
+   opacos, UTF-8 con longitud, sin excepciones, un hilo, **valores como JSON en las dos
+   direcciones**, y **ningún callback nativo→managed** — todo lo que el core produce se drena
+   después del frame, que es lo que ya hacía el adaptador de Godot por reentrada y lo que
+   hace el interop AOT-safe bajo IL2CPP. El ABI **envuelve, no edita**: lo que `view.h` no
+   expone se pide al core en un PR aparte. Y el corpus corre por la cabecera sola en CI
+   (UN2) y otra vez desde dentro de Unity (UN10): si el mismo envelope da otra métrica al
+   cruzar la frontera, el culpable está en el puente y no en el core.
+2. **Render por UGUI:** `Canvas` + un `CanvasRenderer` por grupo de clip (un submesh por
+   batch, `SetMaterial(mat, i)`) + un shader propio con `_ClipRect`/`_ClipRadius` (el SDF de
+   ZAB-7 y G6) y `_TextureKind`. Es la traducción literal del canvas item hijo por grupo de
+   Godot; `SetMesh` es "aquí tienes triángulos" y no interpreta nada. Vértices como
+   `NativeArray` **vistas** sobre los punteros del core (sin copia), flip de Y en la
+   transform del hijo y nunca por vértice. El `RectTransform` solo en la raíz; TextMeshPro
+   no se usa.
+3. **Unity 2022.3 LTS mínimo, probado en 6.0 LTS y 6.3 LTS.** Nada del adaptador es
+   posterior a 2019.
+4. **Input System** como dependencia del paquete: mando con mapeo estándar sin configurar
+   nada (la propiedad de ZAB-47/G13), `onTextInput` e IME, `InputTestFixture` para tests.
+5. **Plataformas:** macOS universal, Windows x64 y Linux x64 **soportados**; Android
+   arm64 e iOS (`.a` estática, `__Internal`) **compilan en CI, no validados** (la cesta de
+   ZAB-193); consolas "compila, no validado"; **WebGL fuera**. **IL2CPP es requisito**: el
+   interop se valida con players IL2CPP reales (UN9), no solo en Mono.
+6. **Paquete UPM `com.zabloo.sdk`**, versión = la del grupo `fixed` (la regla de G17), `.tgz`
+   adjunto a la GitHub Release; git URL descartada (binarios committeados), OpenUPM
+   documentado y no hecho.
+
+**Tres correcciones de partida**, que cambian el argumento y no la decisión: (a) **2022.3 LTS
+está fuera de soporte desde mayo de 2025** — sigue siendo el suelo porque los proyectos en
+producción viven en él y porque el propio Input System 1.17+ no soporta nada anterior;
+(b) **UI Toolkit sí tiene shader propio desde Unity 6.3** (UI Shader Graph), así que el
+argumento contra él no es ese sino que su atlas dinámico re-empaqueta y su batcher re-agrupa,
+y "un draw call por batch" deja de poder afirmarse; (c) **el Canvas de UGUI también batchea**
+`CanvasRenderer`s con el mismo material, así que nuestro recuento de draw calls es una **cota
+superior**, no una igualdad — lo mide UN4 con el Frame Debugger.
+
+**Reason:** el criterio de siempre (*¿aguanta en móvil y consola?*) leído para C# se llama
+IL2CPP. Un delegado marshalado a puntero de función bajo IL2CPP tiene que ser estático con
+`[MonoPInvokeCallback]`, no cierra sobre estado y un olvido es un crash en el dispositivo
+que Mono en el editor no enseña; un puente **sin** callbacks no tiene esa clase de fallo, y
+el drenado ya era la forma correcta por reentrada. UGUI porque es el único de los tres
+caminos de render que no hace nada con la geometría — UI Toolkit re-empaqueta y re-agrupa,
+y un `CommandBuffer` en cámara obliga a reconstruir el escalado, el sorting y la
+convivencia con la UI del juego que un Canvas ya tiene. Input System porque el Input Manager
+exige ejes por proyecto — justo el "factory layout sin configurar" que se quiere evitar — y
+no tiene evento de texto ni fixture de test.
+
+**Alternatives considered:** callbacks nativo→managed (crash de consola, y segunda vía
+hacia un dato que ya se drena); C++/CLI (solo Windows, inexistente bajo IL2CPP); UI Toolkit
+(arriba); `MeshRenderer`/`CommandBuffer` (sin Canvas); Input Manager (arriba); los dos
+inputs tras una interfaz (doble superficie y doble test para un caso que Unity desaconseja);
+git URL (binarios committeados); resucitar las ~1.700 líneas de C# del port cancelado (la
+mitad de un port que el core ya hace entero — se borran en UN3).
+
+**Coste aceptado:** una cabecera C espejo de `view.h` y una transcripción `NativeMethods.cs`
+campo a campo (con un test de `sizeof` por struct), un escritor JSON en `capi/`, un
+`GameObject` y un material pooleado por grupo de clip, la casilla del Input System en Player
+Settings, WebGL fuera (la cadena de Emscripten del plugin tiene que coincidir con la del
+editor — la misma que dejó a Godot web en experimental), y que Unity en CI no corre por
+falta de licencia: los tests dentro de Unity corren en el editor y en local, y el README lo
+dice en vez de fingir cobertura.
+
+**Lo que Godot enseñó y aplica**, argumentado en la spec: el pintado es contrato (orden
+sólidos → imágenes → texto, grupos por ordinal y nunca re-entrados, teselar antes de subir
+el atlas); texturas por hash con barrido y sin callback de evicción; reloj inyectado y
+`deltaTime` ignorado, frames bajo demanda por dos motivos, caret como repaint sin layout,
+todo en `double` e `InvariantCulture`; eventos drenados también tras un frame de puro
+movimiento; un dueño del input por proceso y el `EventSystem` sin navegación; el
+`PadController` propiedad del adaptador; texto por `onTextInput` e IME con la base en el
+core; 50 px por muesca; el dev loop en el editor con el transporte fino de G14. Y lo que en
+Unity es distinto: el plugin no se descarga en el editor (destruir también en
+`AppDomain.DomainUnload`), Y-arriba contra Y-abajo, cero copias y un test de cero
+alocaciones por frame.
+
+**Dónde vive:** `specs/2026-09-03-unity-sdk-shape-design.md` (decisiones, correcciones,
+alternativas, tabla de plataformas, layout del repo), `plans/2026-09-03-unity-sdk-f12.md`
+(los learnings con su ticket y el desglose UN1–UN11), y la columna Unity de la tabla
+cross-engine de `ir-context.md`.
+
+## 2026-09-03 — El chasis del SDK de Unity: el C# viejo se borra, y el adaptador nace partido en ficheros (ZAB-196, F12 UN3)
+
+**Decisión:** `sdk/unity` deja de ser el port a C# cancelado (4 de 13 tipos sobre UI Toolkit,
+~1.700 líneas) y pasa a ser el **chasis** del adaptador fino sobre el core C++: un paquete UPM
+`com.zabloo.sdk` (Unity 2022.3, dependencia `com.unity.inputsystem`) con `ZablooView` como
+**`partial class`**, un fichero por concern, para que los cuatro tickets de Wave B (render,
+puntero/teclado, mando, canal de host) no compitan por ninguno. El código viejo queda en el
+historial, como `examples/unity-playground` quedó en b996877; el playground vuelve como proyecto
+mínimo que referencia el paquete **por path**.
+
+**Cuatro convenciones pequeñas que los tickets de Wave B heredan, y su porqué:**
+
+1. **Ocho hooks, no cinco.** Además de `Paint`/`PollPointer`/`PollKeyboard`/`PollPad`/`Flush`,
+   `ZablooView.cs` declara `CreateNative`, `DestroyNative` y `Step(nowMs)` como `partial void`,
+   y los tres son de **Host.cs** (UN7), que es quien posee los handles del documento. El motivo
+   es de compilación: el `NativeMethods.cs` de UN2 no existe aún, y un `partial void` sin
+   implementar compila a nada — así el ciclo de vida, el reloj y el tamaño quedan escritos
+   aquí sin nombrar una función del ABI que todavía no tiene firma.
+2. **Los `.meta` de los plugins se GENERAN, no se committean.** Unity borra un `.meta` cuyo
+   asset falta, así que un juego de cinco committeados perdería cuatro en cada máquina que
+   abriera el playground con solo su plataforma instalada. `scons install` (en
+   `sdk/unity/SConstruct`, espejo del de Godot) escribe binario y `.meta` juntos desde
+   plantillas con GUID fijo; los dos van gitignorados. Las plantillas SON los import settings
+   escritos a mano — un PluginImporter por plataforma, restringido a ella y, en desktop, a su
+   editor.
+3. **macOS lleva `libzabloo.dylib`, no un `.bundle`.** Es lo que sale de `scons capi` tal cual,
+   Unity lo carga igual con `DllImport("zabloo")`, y un bundle obligaría al install a montar
+   `Contents/MacOS/` + `Info.plist` para nada. En Windows el fichero pierde el prefijo
+   (`zabloo.dll`): es el nombre que resuelve bajo Mono **e** IL2CPP.
+4. **Los envelopes del playground van a `StreamingAssets/`, cargados por path.** Un `TextAsset`
+   gitignorado no puede referenciarse desde la escena de forma estable (Unity le pone GUID
+   nuevo), así que `Playground.cs` — el `main.gd` de Unity — los lee de disco y llama a
+   `LoadEnvelope`; el campo `envelope` del inspector queda para juegos reales. Sin
+   `EventSystem` a propósito: el adaptador leerá los dispositivos del Input System
+   directamente, como el de Godot lee `InputEvent`.
+
+**`zabloo dev --unity` y `dev:unity` se quedan.** Los retarga UN8; quitarlos ahora dejaría la CLI
+cambiando de forma dos veces. Las docs públicas dejan de describir el SDK viejo y llevan una nota
+corta ("en construcción, F12") en vez de una página vacía.
+
+**Lo que este ticket no puede verificar:** no hay editor de Unity en la máquina que lo escribió,
+así que "abre en 2022.3 y en Unity 6 sin errores de compilación" es la comprobación que queda para
+quien lo abra — y `ProjectSettings/` es mínimo a propósito, para que Unity 2022.3 lo complete y
+se committee lo que escriba.
 ## 2026-09-03 — El C ABI del core: la segunda puerta, y el corpus pasando por ella (ZAB-195, F12 UN2)
 
 **Decisión:** el core gana una segunda puerta, `core/capi/zabloo.h` — C11, `extern "C"`,
@@ -4637,8 +4765,8 @@ por `$CC` con `-std=c11`), que es la guardia de que siga siendo C.
 `libzabloo.a` (iOS enlaza estático), objetos en `core/obj/capi/` y nunca junto a la
 fuente (G15, hallazgo 5), `-fvisibility=hidden` sobre todo el core; comprobado con `nm`:
 los 57 `zb_*` y nada más. `scons test capi` corre solo la suite del puente (el filtro del
-ticket) y `scons install-unity` copia la biblioteca del host a
-`sdk/unity/Runtime/Plugins/<plataforma>/`. **CI:** `capi-tests` en ubuntu/macos/windows,
+ticket); instalarla en el paquete es cosa del paquete — `cd sdk/unity && scons install`
+(UN3), que además escribe el `.meta` del plugin. **CI:** `capi-tests` en ubuntu/macos/windows,
 que compila la biblioteca y corre la suite ENTERA con `ZB_REQUIRE_LOCALE=1` (en Linux se
 genera `es_ES.UTF-8` antes; en un portátil sin locale español el test lo dice en una nota
 en vez de fallar en falso).
@@ -4649,7 +4777,10 @@ campo a campo — structs `Sequential`, `unsafe` para los arrays, `nuint` por `s
 `zb_abi_sizes()` es lo que UN10 asierta contra `Marshal.SizeOf` para cazar un campo
 desalineado antes que ningún caso del corpus.
 
-**Asunciones dichas en voz alta:** se produce `libzabloo.dylib` (lo que pide el ticket)
-mientras UN3 escribió los `.meta` pensando en `libzabloo.bundle` — a reconciliar al
-fusionar, es un nombre; y que el core compile con MSVC en CI es el riesgo de la matriz
-de Windows, que hasta hoy solo lo había compilado a través de godot-cpp.
+**Lo que la fusión con UN3 cerró:** el nombre en macOS es `libzabloo.dylib` en los dos
+lados (UN3 lo fijó en su spec y sus `.meta`), y el alias `install-unity` que este ticket
+había puesto en `core/SConstruct` se retiró al fusionar, porque `sdk/unity/SConstruct`
+ya trae el `scons install` que copia el binario Y escribe su `.meta` — dos comandos
+para lo mismo son la deriva que este repo evita. **Riesgo que queda:** que el core
+compile con MSVC en CI es lo que prueba la matriz de Windows; hasta hoy solo lo había
+compilado a través de godot-cpp.

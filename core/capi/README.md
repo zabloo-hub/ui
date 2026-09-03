@@ -34,8 +34,11 @@ catches the two drifting apart before any corpus case can.
 ```sh
 scons capi            # core/bin/libzabloo.{dylib,so} / zabloo.dll (+ libzabloo.a)
 scons test capi       # the golden corpus, replayed through the header alone
-scons install-unity   # `capi`, then the host's library into sdk/unity/Runtime/Plugins/
 ```
+
+Installing it into the Unity package is the package's job: `cd sdk/unity && scons
+install` copies the host's library into `Runtime/Plugins/<platform>/` and writes
+its import `.meta` (UN3, `sdk/unity/README.md`).
 
 The shared library is the whole core compiled again with hidden visibility, into
 `core/obj/capi/` — a foreign build leaves nothing next to the core's sources.

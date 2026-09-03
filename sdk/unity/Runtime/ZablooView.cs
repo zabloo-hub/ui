@@ -1,580 +1,218 @@
 using System;
-using System.Text;
-using Newtonsoft.Json.Linq;
+using System.Collections.Generic;
+using System.Diagnostics;
 using UnityEngine;
-using UnityEngine.UIElements;
-using Zabloo.Format;
-using Zabloo.Layouting;
-using Zabloo.Rendering;
 
 namespace Zabloo
 {
     /// <summary>
-    /// Renders one view of an IR envelope. Wires the whole slice together:
-    /// IR tree → LayoutNode tree → SDK flexbox pass → per-node ZablooElements
-    /// (absolute rects, custom geometry) → Button behavior (pressed state owned by
-    /// the SDK, keyed by component type) → named actions surfaced as a C# event.
+    /// Renders one view of a zabloo envelope inside a UGUI <c>Canvas</c>.
+    ///
+    /// This is the Unity half of the adapter and nothing more: the core
+    /// (<c>libzabloo</c>, the same C++ that drives Godot) owns layout, text,
+    /// tessellation, states, bindings and transitions, and this component hands it
+    /// a rect, a clock and the player's input, then draws the triangles it gets
+    /// back. Unity's own layout is deliberately not used inside the view — anchors
+    /// and layout groups would be a second layout system disagreeing with the one
+    /// every other target runs. The <see cref="RectTransform"/> gives the core a
+    /// size; everything inside it is the core's.
+    ///
+    /// The class is split into partials so that each concern lands in its own
+    /// file (F12, Wave B). This file owns the lifecycle and the frame; the
+    /// <c>partial void</c> hooks below are what the other files fill in:
+    ///
+    /// <list type="table">
+    ///   <item><term><c>ZablooView.Render.cs</c></term><description><see cref="Paint"/> — meshes, materials, clip groups.</description></item>
+    ///   <item><term><c>ZablooView.Pointer.cs</c>, <c>ZablooView.Keyboard.cs</c></term><description><see cref="PollPointer"/>, <see cref="PollKeyboard"/>.</description></item>
+    ///   <item><term><c>ZablooView.Pad.cs</c></term><description><see cref="PollPad"/>.</description></item>
+    ///   <item><term><c>ZablooView.Host.cs</c></term><description><see cref="Flush"/>, the public API, and the native handles (<see cref="CreateNative"/>, <see cref="DestroyNative"/>, <see cref="Step"/>).</description></item>
+    /// </list>
+    ///
+    /// A hook that nobody implements compiles to nothing — that is what lets this
+    /// scaffold build before any of them exist.
     /// </summary>
-    public sealed class ZablooView : VisualElement
+    [AddComponentMenu("Zabloo/Zabloo View")]
+    [RequireComponent(typeof(RectTransform))]
+    [DisallowMultipleComponent]
+    public sealed partial class ZablooView : MonoBehaviour
     {
-        /// <summary>Named actions declared in the IR (e.g. onClick: "buy") fire here.</summary>
-        public event Action<string> OnAction;
+        [SerializeField]
+        [Tooltip("The exported envelope (dist/zabloo.ir.json imported as a TextAsset). "
+            + "Leave empty to load one from code with LoadEnvelope.")]
+        TextAsset envelope;
 
-        const int DefaultFontSize = 16;
-        /// <summary>
-        /// The normative ceiling of `fontSize` (ZAB-69) — see docs/format/style.md.
-        /// Rasterizing costs the square of the point size, so an unclamped value
-        /// arriving from a token or a state is a texture nobody meant to ask for.
-        /// </summary>
-        const int MaxFontSize = 512;
+        [SerializeField]
+        [Tooltip("The id of the view to show — the filename of its .tsx in src/views/.")]
+        string viewId = "";
 
-        enum BindingKind { Text, Visible }
+        /// <summary>The envelope assigned in the inspector, if any.</summary>
+        public TextAsset Envelope => envelope;
 
-        struct BoundNode
-        {
-            public LayoutNode Node;
-            public BindingKind Kind;
-        }
-
-        readonly TokenResolver _tokens;
-        readonly FontLibrary _fonts = new FontLibrary();
-        readonly LayoutNode _root;
-        readonly System.Collections.Generic.Dictionary<string, LayoutNode> _byId =
-            new System.Collections.Generic.Dictionary<string, LayoutNode>();
-        readonly System.Collections.Generic.Dictionary<string, object> _data =
-            new System.Collections.Generic.Dictionary<string, object>();
-        readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<BoundNode>> _bindings =
-            new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<BoundNode>>();
-        Vector2 _lastSize;
-        LayoutNode _focused;
-        LayoutNode _autofocus;
-
-        public ZablooView(Envelope envelope, string viewId)
-        {
-            if (!envelope.views.TryGetValue(viewId, out var rootIr))
-            {
-                throw new ZablooContentException(
-                    $"zabloo: view \"{viewId}\" not found (available: {string.Join(", ", envelope.views.Keys)})");
-            }
-
-            _tokens = new TokenResolver(envelope.tokens);
-            style.flexGrow = 1;
-
-            CollectCharsets(rootIr);
-            _root = Build(rootIr, this);
-            if (_autofocus != null) SetFocus(_autofocus);
-
-            RegisterCallback<GeometryChangedEvent>(evt => Relayout(evt.newRect.size));
-        }
-
-        // --- build ---
-
-        LayoutNode Build(Node ir, VisualElement parentElement)
-        {
-            // Forward tolerance: unknown node types render as a plain container.
-            if (ir.type != "Container" && ir.type != "Text" && ir.type != "Button" && ir.type != "Collapse")
-            {
-                Debug.LogWarning($"[zabloo] Unknown node type \"{ir.type}\" — rendering fallback container.");
-            }
-
-            var node = new LayoutNode { Ir = ir };
-            var element = new ZablooElement { name = ir.id ?? ir.type };
-            node.Element = element;
-            parentElement.Add(element);
-            if (!string.IsNullOrEmpty(ir.id)) _byId[ir.id] = node;
-            if (ir.autofocus == true) _autofocus = node;
-
-            // Data-path bindings (decision 2026-08-01: the two dynamic mechanisms).
-            if (ir.type == "Text" && TryGetBind(ir.text, out var textPath))
-            {
-                Register(textPath, node, BindingKind.Text);
-            }
-            if (TryGetBind(ir.visible, out var visiblePath))
-            {
-                Register(visiblePath, node, BindingKind.Visible);
-                node.VisibleFlag = false; // bound visibility: hidden until data says so
-                SyncDisplay(node);
-            }
-
-            ApplyStyle(node);
-
-            if (ir.type == "Button")
-            {
-                WireButton(node, element);
-            }
-
-            if (ir.children != null)
-            {
-                foreach (var child in ir.children)
-                {
-                    if (IsStaticallyHidden(child)) continue; // display:none semantics
-                    var childNode = Build(child, element);
-                    childNode.Parent = node;
-                    node.Children.Add(childNode);
-                }
-            }
-
-            if (ir.type == "Collapse")
-            {
-                WireCollapse(node); // after children exist (header = children[0])
-            }
-            return node;
-        }
-
-        /// <summary>Static `visible: false` prunes the subtree; bindings build normally.</summary>
-        static bool IsStaticallyHidden(Node ir) =>
-            ir.visible != null && ir.visible.Type == JTokenType.Boolean && !(bool)ir.visible;
-
-        // --- data bindings (the game's data API) ---
-
-        static bool TryGetBind(JToken token, out string path)
-        {
-            path = null;
-            if (token is JObject obj && obj["bind"] is JToken bind && bind.Type == JTokenType.String)
-            {
-                path = (string)bind;
-                return !string.IsNullOrEmpty(path);
-            }
-            return false;
-        }
-
-        void Register(string path, LayoutNode node, BindingKind kind)
-        {
-            if (!_bindings.TryGetValue(path, out var list))
-            {
-                list = new System.Collections.Generic.List<BoundNode>();
-                _bindings[path] = list;
-            }
-            list.Add(new BoundNode { Node = node, Kind = kind });
-        }
+        /// <summary>The id of the view this component shows.</summary>
+        public string ViewId => viewId;
 
         /// <summary>
-        /// The game's data entry point: pushes a value at a path ("player.gold").
-        /// Bound Text re-renders (and re-measures — text width changes relayout);
-        /// bound `visible` toggles display:none. One relayout per call.
+        /// A monotonic clock in milliseconds. The core never asks what time it is —
+        /// it is told, once per frame — so this is what it is told. <c>Time.deltaTime</c>
+        /// is ignored on purpose: a dropped frame lands a tween where the wall clock
+        /// says, not where the sum of deltas got to.
         /// </summary>
-        public void SetData(string path, object value)
-        {
-            _data[path] = value;
-            if (!_bindings.TryGetValue(path, out var bound)) return;
+        static readonly Stopwatch Clock = Stopwatch.StartNew();
 
-            bool dirty = false;
-            foreach (var b in bound)
+        /// <summary>
+        /// Every view alive in this process. The native plugin is never unloaded in
+        /// the editor, so a handle that outlives its C# owner is a crash on the next
+        /// Play: the domain-unload handler below walks this list and destroys them.
+        /// </summary>
+        static readonly List<ZablooView> Live = new List<ZablooView>();
+        static bool domainHooked;
+
+        // --- Frame state the partials read and write ------------------------------
+
+        /// <summary>The size last handed to the core, in the RectTransform's units.</summary>
+        Vector2 size;
+
+        /// <summary>Set by <see cref="Step"/>: the core still has motion in flight.</summary>
+        bool animating;
+
+        /// <summary>Set by <see cref="PollPad"/>: a gamepad is connected and being polled.</summary>
+        bool padConnected;
+
+        /// <summary>Something changed since the last frame ran — input, data, content, size.</summary>
+        bool dirty;
+
+        /// <summary>Whether the native document exists (between OnEnable and OnDisable).</summary>
+        bool alive;
+
+        /// <summary>
+        /// Asks for a frame. Every mutation of the view ends here — a pushed value,
+        /// a pointer move, a resize — so <see cref="Update"/> can stay idle when
+        /// nothing did: a still UI costs no frames.
+        /// </summary>
+        public void MarkDirty()
+        {
+            dirty = true;
+        }
+
+        /// <summary>Milliseconds since the clock started. What <c>set_now</c> receives.</summary>
+        public static double NowMs => Clock.Elapsed.TotalMilliseconds;
+
+        // --- Lifecycle ------------------------------------------------------------
+
+        void OnEnable()
+        {
+            if (!domainHooked)
             {
-                if (b.Kind == BindingKind.Text)
-                {
-                    ApplyStyle(b.Node);
-                    dirty = true;
-                }
-                else
-                {
-                    bool visible = IsTruthy(value);
-                    if (b.Node.VisibleFlag != visible)
-                    {
-                        b.Node.VisibleFlag = visible;
-                        SyncDisplay(b.Node);
-                        dirty = true;
-                    }
-                }
+                domainHooked = true;
+                AppDomain.CurrentDomain.DomainUnload += OnDomainUnload;
             }
-            if (dirty) RelayoutNow();
+            Live.Add(this);
+            alive = true;
+            size = Vector2.zero;
+            CreateNative();
+            MarkDirty();
         }
 
-        static bool IsTruthy(object value)
+        void OnDisable()
         {
-            switch (value)
+            Teardown();
+        }
+
+        void OnDestroy()
+        {
+            Teardown();
+        }
+
+        /// <summary>Idempotent: OnDisable and OnDestroy both call it, and so does the domain unload.</summary>
+        void Teardown()
+        {
+            if (!alive) return;
+            alive = false;
+            animating = false;
+            padConnected = false;
+            Live.Remove(this);
+            DestroyNative();
+        }
+
+        static void OnDomainUnload(object sender, EventArgs e)
+        {
+            // Snapshot: Teardown edits the list.
+            foreach (var view in Live.ToArray())
             {
-                case null: return false;
-                case bool b: return b;
-                case int i: return i != 0;
-                case long l: return l != 0;
-                case float f: return f != 0;
-                case double d: return d != 0;
-                case string s: return s.Length > 0;
-                default: return true;
+                view.Teardown();
             }
         }
 
-        static string FormatValue(object value)
+        // --- The frame ------------------------------------------------------------
+
+        void OnRectTransformDimensionsChange()
         {
-            switch (value)
-            {
-                case null: return "";
-                case bool b: return b ? "true" : "false";
-                case float f: return f.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-                case double d: return d.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
-                default: return value.ToString();
-            }
+            MarkDirty();
         }
 
-        void SyncDisplay(LayoutNode node)
+        void Update()
         {
-            ((ZablooElement)node.Element).style.display =
-                node.InLayout ? DisplayStyle.Flex : DisplayStyle.None;
-        }
+            if (!alive) return;
 
-        // --- behavior (SDK-owned, keyed by component type) ---
+            SyncSize();
 
-        void WireButton(LayoutNode node, ZablooElement element)
-        {
-            element.RegisterCallback<PointerDownEvent>(e =>
-            {
-                node.Pressed = true;
-                SetFocus(node); // pointer and directional nav share one focus
-                ApplyStyle(node);
-                element.CapturePointer(e.pointerId);
-            });
-            element.RegisterCallback<PointerUpEvent>(e =>
-            {
-                if (!node.Pressed) return;
-                node.Pressed = false;
-                ApplyStyle(node);
-                element.ReleasePointer(e.pointerId);
-                bool inside = element.worldBound.Contains(new Vector2(e.position.x, e.position.y));
-                if (inside && !string.IsNullOrEmpty(node.Ir.onClick))
-                {
-                    OnAction?.Invoke(node.Ir.onClick);
-                }
-            });
-        }
+            // Input is polled every frame a pad is connected — a device is asked,
+            // never told — and otherwise only when something already asked for a
+            // frame. Pointer and keyboard are event-driven on Unity's side, so
+            // their polls are cheap when idle.
+            PollPointer();
+            PollKeyboard();
+            PollPad();
 
-        void WireCollapse(LayoutNode node)
-        {
-            node.Open = node.Ir.open ?? true;
-            ApplyOpen(node);
-            if (node.Children.Count == 0) return;
+            if (!dirty && !animating && !padConnected) return;
+            dirty = false;
 
-            // The header (children[0], always visible) toggles on tap — default
-            // SDK behavior, keyed by type (the <details>/<summary> model).
-            var headerElement = (ZablooElement)node.Children[0].Element;
-            headerElement.RegisterCallback<PointerUpEvent>(_ =>
-                SetCollapseOpen(node, !node.Open));
+            Step(NowMs);
+            Paint();
+            Flush();
         }
 
         /// <summary>
-        /// The single state-mutation path for Collapse (header tap, `SetOpen`, and
-        /// later `open` bindings all land here). Enforces the parent's declared
-        /// group behavior, then re-runs layout — runtime relayout on state change.
+        /// Reads the RectTransform and remembers it; <see cref="Step"/> hands it to
+        /// the core. A change is a frame: the layout has to run again.
         /// </summary>
-        void SetCollapseOpen(LayoutNode node, bool open)
+        void SyncSize()
         {
-            if (node.Open == open) return;
-            node.Open = open;
-            ApplyOpen(node);
-            if (open) EnforceGroup(node);
-            RelayoutNow();
+            var rect = ((RectTransform)transform).rect;
+            var next = new Vector2(Mathf.Max(0f, rect.width), Mathf.Max(0f, rect.height));
+            if (next == size) return;
+            size = next;
+            dirty = true;
         }
+
+        // --- Hooks the other partials implement ------------------------------------
+
+        /// <summary>Creates the native document and view. Host.cs.</summary>
+        partial void CreateNative();
+
+        /// <summary>Destroys them. Host.cs. Must tolerate being called with nothing created.</summary>
+        partial void DestroyNative();
 
         /// <summary>
-        /// Generic group behaviors declared on the parent Container (decision
-        /// 2026-08-03: composites flatten; cross-child behavior is declared, not a
-        /// type). Unknown behaviors are ignored — forward tolerance.
+        /// One layout frame: <c>set_size(size)</c>, <c>set_now(nowMs)</c>,
+        /// <c>layout_frame()</c>, and <see cref="animating"/> from <c>animating()</c>.
+        /// Host.cs.
         /// </summary>
-        void EnforceGroup(LayoutNode opened)
-        {
-            var parent = opened.Parent;
-            var group = parent?.Ir.group;
-            if (group == null) return;
+        partial void Step(double nowMs);
 
-            if (group != "exclusive-open")
-            {
-                Debug.LogWarning($"[zabloo] Unknown group behavior \"{group}\" — ignoring.");
-                return;
-            }
+        /// <summary>Tessellates and uploads the frame's geometry. Render.cs.</summary>
+        partial void Paint();
 
-            foreach (var sibling in parent.Children)
-            {
-                if (sibling != opened && sibling.Ir.type == "Collapse" && sibling.Open)
-                {
-                    sibling.Open = false;
-                    ApplyOpen(sibling);
-                }
-            }
-        }
+        /// <summary>Turns this frame's pointer state into the core's intentions. Pointer.cs.</summary>
+        partial void PollPointer();
 
-        /// <summary>Content children (index ≥ 1) enter/leave layout — display:none semantics.</summary>
-        void ApplyOpen(LayoutNode node)
-        {
-            for (int i = 1; i < node.Children.Count; i++)
-            {
-                var child = node.Children[i];
-                child.SectionShown = node.Open;
-                SyncDisplay(child); // composes with a bound `visible` on the same node
-            }
-        }
+        /// <summary>Turns this frame's keys and text into the core's intentions. Keyboard.cs.</summary>
+        partial void PollKeyboard();
 
-        /// <summary>
-        /// Programmatic toggle for the game (the other half of the "SDK default vs
-        /// game-driven" split; `open` bindings will ride this same path later).
-        /// </summary>
-        public bool SetOpen(string id, bool open)
-        {
-            if (!_byId.TryGetValue(id, out var node) || node.Ir.type != "Collapse")
-            {
-                Debug.LogWarning($"[zabloo] SetOpen: no Collapse with id \"{id}\".");
-                return false;
-            }
-            SetCollapseOpen(node, open);
-            return true;
-        }
+        /// <summary>Polls the gamepad and sets <see cref="padConnected"/>. Pad.cs.</summary>
+        partial void PollPad();
 
-        // --- style (base + state overrides, resolved via tokens) ---
-
-        void ApplyStyle(LayoutNode node)
-        {
-            var element = (ZablooElement)node.Element;
-            var style = EffectiveStyle(node);
-
-            // Opacity inherits multiplicatively down the subtree (per-vertex alpha;
-            // not render-to-texture group opacity — decision 2026-08-06).
-            float parentOpacity = node.Parent?.PaintOpacity ?? 1f;
-            float opacity = Mathf.Clamp01(style?.opacity ?? 1f) * parentOpacity;
-            bool opacityChanged = !Mathf.Approximately(opacity, node.PaintOpacity);
-            node.PaintOpacity = opacity;
-
-            element.SetPaint(
-                style?.background != null,
-                _tokens.Color(style?.background, Color.magenta),
-                _tokens.Dim(style?.radius),
-                _tokens.Dim(style?.borderWidth),
-                _tokens.Color(style?.borderColor, Color.magenta),
-                opacity);
-
-            if (node.Ir.type == "Text")
-            {
-                int size = FontSize(style);
-                element.SetText(
-                    ResolveText(node.Ir),
-                    _tokens.Color(style?.color, Color.white),
-                    _fonts.Get(size));
-            }
-
-            // A changed product must restyle the subtree (children read our cache).
-            if (opacityChanged)
-            {
-                foreach (var child in node.Children) ApplyStyle(child);
-            }
-        }
-
-        StyleProps EffectiveStyle(LayoutNode node)
-        {
-            // Merge order: base → focused → pressed (pressed wins while held).
-            var style = node.Ir.style;
-            if (node.Focused) style = MergeState(style, node.Ir, "focused");
-            if (node.Pressed) style = MergeState(style, node.Ir, "pressed");
-            return style;
-        }
-
-        static StyleProps MergeState(StyleProps baseStyle, Node ir, string state)
-        {
-            if (ir.states != null && ir.states.TryGetValue(state, out var over) && over?.style != null)
-            {
-                return Merge(baseStyle, over.style);
-            }
-            return baseStyle;
-        }
-
-        static StyleProps Merge(StyleProps a, StyleProps b)
-        {
-            return new StyleProps
-            {
-                background = b?.background ?? a?.background,
-                radius = b?.radius ?? a?.radius,
-                borderWidth = b?.borderWidth ?? a?.borderWidth,
-                borderColor = b?.borderColor ?? a?.borderColor,
-                color = b?.color ?? a?.color,
-                fontSize = b?.fontSize ?? a?.fontSize,
-                opacity = b?.opacity ?? a?.opacity,
-            };
-        }
-
-        int FontSize(StyleProps style) =>
-            Mathf.Clamp(
-                Mathf.RoundToInt(_tokens.Dim(style?.fontSize, DefaultFontSize)),
-                1,
-                MaxFontSize);
-
-        string ResolveText(Node ir)
-        {
-            if (ir.text == null) return "";
-            if (ir.text.Type == JTokenType.String) return (string)ir.text;
-            if (TryGetBind(ir.text, out var path))
-            {
-                // Absent data renders empty until the game pushes a value.
-                return _data.TryGetValue(path, out var value) ? FormatValue(value) : "";
-            }
-            return "";
-        }
-
-        // --- focus & directional navigation (decision 2026-08-03 §7) ---
-        // Automatic spatial navigation from live layout rects: zero authoring cost,
-        // survives relayout/hot-update/Collapse. Focusability derives from component
-        // identity (Button, Collapse header); `states.focused` styles the focused node.
-
-        bool IsFocusable(LayoutNode node) =>
-            node.Ir.type == "Button" ||
-            (node.Parent != null && node.Parent.Ir.type == "Collapse" && node.Parent.Children.Count > 0
-                && node.Parent.Children[0] == node);
-
-        void CollectFocusables(LayoutNode node, System.Collections.Generic.List<LayoutNode> output)
-        {
-            if (!node.InLayout) return; // pruned subtrees have stale rects
-            if (IsFocusable(node)) output.Add(node);
-            foreach (var child in node.Children) CollectFocusables(child, output);
-        }
-
-        void SetFocus(LayoutNode node)
-        {
-            if (_focused == node) return;
-            var previous = _focused;
-            _focused = node;
-            if (previous != null)
-            {
-                previous.Focused = false;
-                ApplyStyle(previous);
-            }
-            if (node != null)
-            {
-                node.Focused = true;
-                ApplyStyle(node);
-            }
-        }
-
-        /// <summary>Moves focus in a direction — the console-UI spatial algorithm.</summary>
-        public void MoveFocus(int dx, int dy)
-        {
-            var candidates = new System.Collections.Generic.List<LayoutNode>();
-            CollectFocusables(_root, candidates);
-            if (candidates.Count == 0) return;
-
-            if (_focused == null || !candidates.Contains(_focused))
-            {
-                SetFocus(_autofocus != null && candidates.Contains(_autofocus) ? _autofocus : candidates[0]);
-                return;
-            }
-
-            var from = _focused.Rect.center;
-            LayoutNode best = null;
-            float bestScore = float.PositiveInfinity;
-            foreach (var candidate in candidates)
-            {
-                if (candidate == _focused) continue;
-                var delta = candidate.Rect.center - from;
-                float projection = delta.x * dx + delta.y * dy;
-                if (projection <= 0.5f) continue; // must lie in the direction of travel
-                float orthogonal = Mathf.Abs(delta.x * dy) + Mathf.Abs(delta.y * dx);
-                float score = projection + orthogonal * 2f;
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    best = candidate;
-                }
-            }
-            if (best != null) SetFocus(best);
-        }
-
-        /// <summary>Press/release the focused node (Enter/Space/gamepad-A semantics).</summary>
-        public void PressFocused(bool down)
-        {
-            var node = _focused;
-            if (node == null || !node.InLayout) return;
-            if (down)
-            {
-                node.Pressed = true;
-                ApplyStyle(node);
-                return;
-            }
-            if (!node.Pressed) return;
-            node.Pressed = false;
-            ApplyStyle(node);
-            if (node.Ir.type == "Button")
-            {
-                if (!string.IsNullOrEmpty(node.Ir.onClick)) OnAction?.Invoke(node.Ir.onClick);
-            }
-            else if (node.Parent != null)
-            {
-                SetCollapseOpen(node.Parent, !node.Parent.Open); // Collapse header
-            }
-        }
-
-        // --- layout (the SDK's own pass; never UI Toolkit's flexbox) ---
-
-        void Relayout(Vector2 viewSize)
-        {
-            if (!(viewSize.x > 0) || !(viewSize.y > 0)) return;
-            _lastSize = viewSize;
-
-            FlexLayout.Measure(_root, _tokens, MeasureLeaf);
-            FlexLayout.Arrange(_root, new Rect(0, 0, viewSize.x, viewSize.y), _tokens);
-            SyncRects(_root, Vector2.zero);
-        }
-
-        /// <summary>Runtime relayout at the current size (state changes, not resizes).</summary>
-        void RelayoutNow() => Relayout(_lastSize);
-
-        Vector2 MeasureLeaf(Node ir)
-        {
-            if (ir.type == "Text")
-            {
-                return _fonts.Get(FontSize(ir.style)).Measure(ResolveText(ir));
-            }
-            return Vector2.zero;
-        }
-
-        void SyncRects(LayoutNode node, Vector2 parentOrigin)
-        {
-            var element = (ZablooElement)node.Element;
-            element.SetRect(new Rect(node.Rect.position - parentOrigin, node.Rect.size));
-            foreach (var child in node.Children)
-            {
-                SyncRects(child, node.Rect.position);
-            }
-        }
-
-        // --- fonts ---
-
-        /// <summary>Printable ASCII — the default charset for bound (dynamic) text.</summary>
-        static readonly string AsciiCharset = BuildAscii();
-
-        static string BuildAscii()
-        {
-            var sb = new StringBuilder(95);
-            for (char c = ' '; c <= '~'; c++) sb.Append(c);
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// Accumulates per-size charsets so atlases contain what the view needs.
-        /// Bound text is dynamic, so it requests printable ASCII (non-ASCII dynamic
-        /// charsets are part of the open text strategy).
-        /// </summary>
-        void CollectCharsets(Node ir)
-        {
-            if (ir.type == "Text")
-            {
-                int size = FontSize(ir.style);
-                if (TryGetBind(ir.text, out _))
-                {
-                    _fonts.Request(size, AsciiCharset);
-                }
-                else
-                {
-                    var text = ResolveText(ir);
-                    if (text.Length > 0)
-                    {
-                        var unique = new StringBuilder();
-                        foreach (char c in text)
-                        {
-                            if (unique.ToString().IndexOf(c) < 0) unique.Append(c);
-                        }
-                        _fonts.Request(size, unique.ToString());
-                    }
-                }
-            }
-            if (ir.children != null)
-            {
-                foreach (var child in ir.children) CollectCharsets(child);
-            }
-        }
+        /// <summary>Drains actions, data changes and diagnostics into the C# events. Host.cs.</summary>
+        partial void Flush();
     }
 }

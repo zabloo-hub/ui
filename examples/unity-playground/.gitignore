@@ -1,0 +1,27 @@
+# Unity's own caches and generated folders.
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]serSettings/
+/MemoryCaptures/
+/[Rr]ecordings/
+
+# IDE / OS
+.vs/
+.idea/
+*.csproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.tmp
+crashlytics-build.properties
+
+# The examples' envelopes are COPIED in by `scons install` from sdk/unity (a
+# TextAsset has to live under Assets/). Committing them would leave the
+# playground rendering a stale build of the very examples it exists to show.
+/Assets/StreamingAssets/*.json
+/Assets/StreamingAssets/*.json.meta

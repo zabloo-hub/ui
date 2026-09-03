@@ -1,0 +1,222 @@
+"""`scons install` — puts the host's native core into the UPM package, and the
+examples' envelopes into the playground.
+
+    cd core && scons capi        # builds core/bin/libzabloo.{dylib,so,dll}  (UN2)
+    cd ../sdk/unity && scons install
+
+Nothing is compiled here. The Unity adapter is C# that Unity itself compiles,
+and the native half is the core's own `capi` target; this file only knows where
+each thing goes. Same shape as `sdk/godot`'s `scons install`, which copies the
+addon into its playground the way a game consumes a release.
+
+Two things it writes next to each binary, and why:
+
+* The binary itself, under `Runtime/Plugins/<platform>/`. Gitignored: it is a
+  build product, and a release (UN11) carries one per platform.
+* Its `.meta`, from the templates below. Also gitignored, and generated rather
+  than committed for a reason that only shows up in the editor: Unity deletes a
+  `.meta` whose asset is missing, so a committed set of five would lose four on
+  every machine that opens the playground with only its own platform installed.
+  The templates ARE the hand-written import settings — one PluginImporter per
+  platform, restricted to that platform and, for desktop, its editor — and
+  their GUIDs are fixed so re-running the install never churns anything.
+
+Only the host platform is installed: a cross-built binary is UN9's, and packing
+all five is UN11's. The envelopes are the current `dist/` of each example,
+copied because a `TextAsset` has to live under `Assets/`; `.gitignore` keeps
+them out of the repo so the playground never shows a stale build.
+"""
+
+import os
+import shutil
+import sys
+
+env = Environment(ENV=os.environ)
+
+ROOT = os.path.abspath(os.path.join("..", ".."))
+CORE_BIN = os.path.join(ROOT, "core", "bin")
+PLUGINS = os.path.join("Runtime", "Plugins")
+PLAYGROUND = os.path.join(ROOT, "examples", "unity-playground")
+STREAMING = os.path.join(PLAYGROUND, "Assets", "StreamingAssets")
+
+EXAMPLES = ["settings-screen", "showcase", "inventory-demo", "hello-button"]
+
+# What `scons capi` names the library, per host, and what the package calls it.
+# Windows loses the `lib` prefix: `[DllImport("zabloo")]` resolves `zabloo.dll`
+# under both Mono and IL2CPP, and `libzabloo.dll` only under Mono.
+HOST = {
+    "darwin": (["libzabloo.dylib"], os.path.join("macOS", "libzabloo.dylib")),
+    "linux": (["libzabloo.so"], os.path.join("Linux", "x86_64", "libzabloo.so")),
+    "win32": (["zabloo.dll", "libzabloo.dll"], os.path.join("Windows", "x86_64", "zabloo.dll")),
+}
+
+META_HEAD = """fileFormatVersion: 2
+guid: {guid}
+PluginImporter:
+  externalObjects: {{}}
+  serializedVersion: 2
+  iconMap: {{}}
+  executionOrder: {{}}
+  defineConstraints: []
+  isPreloaded: 0
+  isOverridable: 0
+  isExplicitlyReferenced: 0
+  validateReferences: 1
+  platformData:
+  - first:
+      : Any
+    second:
+      enabled: 0
+      settings:
+        Exclude Android: {android}
+        Exclude Editor: {editor}
+        Exclude Linux64: {linux}
+        Exclude OSXUniversal: {osx}
+        Exclude Win: 1
+        Exclude Win64: {win}
+        Exclude iOS: {ios}
+  - first:
+      Any: 
+    second:
+      enabled: 0
+      settings: {{}}
+"""
+
+META_TAIL = """  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+"""
+
+
+def desktop_meta(guid, os_name, cpu, standalone, **excludes):
+    """Editor + one standalone target. The editor half is what makes the
+    package usable from the Unity editor at all — a release-only setup is
+    the mistake the Godot addon made once (2026-09-03, G17)."""
+    return (
+        META_HEAD.format(guid=guid, editor=0, **excludes)
+        + """  - first:
+      Editor: Editor
+    second:
+      enabled: 1
+      settings:
+        CPU: {cpu}
+        DefaultValueInitialized: true
+        OS: {os}
+  - first:
+      Standalone: {standalone}
+    second:
+      enabled: 1
+      settings:
+        CPU: {cpu}
+""".format(cpu=cpu, os=os_name, standalone=standalone)
+        + META_TAIL
+    )
+
+
+# GUIDs are fixed per platform (see the module docstring).
+METAS = {
+    os.path.join("macOS", "libzabloo.dylib"): desktop_meta(
+        "f8aba17f1b484f728bcdd7254d7b12af", "OSX", "AnyCPU", "OSXUniversal",
+        android=1, linux=1, osx=0, win=1, ios=1,
+    ),
+    os.path.join("Windows", "x86_64", "zabloo.dll"): desktop_meta(
+        "9550d9cb0d1f4fadad0798819fa9c5d8", "Windows", "x86_64", "Win64",
+        android=1, linux=1, osx=1, win=0, ios=1,
+    ),
+    os.path.join("Linux", "x86_64", "libzabloo.so"): desktop_meta(
+        "b6551561ac0546d0b6ec9c8deef68d45", "Linux", "x86_64", "Linux64",
+        android=1, linux=0, osx=1, win=1, ios=1,
+    ),
+    os.path.join("Android", "arm64-v8a", "libzabloo.so"): (
+        META_HEAD.format(
+            guid="3db2ff7e6af24726bce666ebcab01ba5",
+            editor=1, android=0, linux=1, osx=1, win=1, ios=1,
+        )
+        + """  - first:
+      Android: Android
+    second:
+      enabled: 1
+      settings:
+        CPU: ARM64
+"""
+        + META_TAIL
+    ),
+    # iOS links the core statically (`DllImport("__Internal")`), so what ships
+    # is an archive, not a dylib.
+    os.path.join("iOS", "libzabloo.a"): (
+        META_HEAD.format(
+            guid="2fbde50d87b24d43ad2d343bf36bbb48",
+            editor=1, android=1, linux=1, osx=1, win=1, ios=0,
+        )
+        + """  - first:
+      iPhone: iOS
+    second:
+      enabled: 1
+      settings:
+        AddToEmbeddedBinaries: false
+        CPU: AnyCPU
+        CompileFlags: 
+        FrameworkDependencies: 
+"""
+        + META_TAIL
+    ),
+}
+
+
+def write_meta(relative):
+    """The import settings for one plugin, next to it. Idempotent."""
+    path = os.path.join(PLUGINS, relative + ".meta")
+    content = METAS[relative]
+    if os.path.exists(path) and open(path).read() == content:
+        return
+    with open(path, "w") as out:
+        out.write(content)
+
+
+def install_plugin():
+    """The host's core → the package. Says exactly what is missing when it is."""
+    if sys.platform not in HOST:
+        print("install: no plugin layout for host %r (macOS, Linux and Windows are the hosts)" % sys.platform)
+        return 1
+    candidates, relative = HOST[sys.platform]
+    source = next((os.path.join(CORE_BIN, c) for c in candidates if os.path.exists(os.path.join(CORE_BIN, c))), None)
+    if source is None:
+        print(
+            "install: no native core in core/bin/ (looked for %s).\n"
+            "         Build it first: `cd core && scons capi`." % ", ".join(candidates)
+        )
+        return 1
+    target = os.path.join(PLUGINS, relative)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    shutil.copy2(source, target)
+    write_meta(relative)
+    print("installed %s -> sdk/unity/%s (+ .meta)" % (os.path.relpath(source, ROOT), target))
+    return 0
+
+
+def install_envelopes():
+    """Each example's current export → the playground's StreamingAssets."""
+    os.makedirs(STREAMING, exist_ok=True)
+    copied = 0
+    for name in EXAMPLES:
+        source = os.path.join(ROOT, "examples", name, "dist", "zabloo.ir.json")
+        if not os.path.exists(source):
+            print("install: %s has no dist/ yet — `pnpm --filter %s-example build` (skipped)" % (name, name))
+            continue
+        shutil.copy2(source, os.path.join(STREAMING, name + ".json"))
+        copied += 1
+    print("installed %d envelope(s) into examples/unity-playground/Assets/StreamingAssets" % copied)
+
+
+def install(target, source, env):
+    status = install_plugin()
+    install_envelopes()
+    return status
+
+
+if "install" in COMMAND_LINE_TARGETS:
+    installer = env.Command("install-unity", [], install)
+    env.AlwaysBuild(installer)
+    env.Alias("install", installer)
+else:
+    print("nothing to build here — `scons install` copies the core's plugin and the examples' envelopes (see the SConstruct docstring)")

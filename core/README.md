@@ -22,7 +22,6 @@ scons test validate   # only the cases whose name contains "validate"
 scons target=release bench   # the perf bench — build it optimized or it lies
 scons capi            # the C ABI as a shared library — see capi/README.md
 scons test capi       # the golden corpus, replayed through the C header alone
-scons install-unity   # `capi`, then the host's library into sdk/unity's Plugins/
 ```
 
 Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else — the font

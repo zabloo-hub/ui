@@ -10,8 +10,8 @@ Targets:
     scons test            the above, then run the tests
     scons bench           the perf bench (G15) — wall clock, so build it release
     scons capi            the C ABI as a shared library: core/bin/libzabloo.{dylib,so} / zabloo.dll
-                          (+ core/bin/libzabloo.a for the platforms that link static)
-    scons install-unity   `capi`, then copy the host's library into sdk/unity's Plugins/
+                          (+ core/bin/libzabloo.a for the platforms that link static);
+                          `sdk/unity`'s own `scons install` copies it into the package
     scons target=release  optimized, no assertions
 
 The core links nothing. No Godot, no GPU, no JSON library — that is the whole
@@ -252,36 +252,6 @@ capi_static = env.StaticLibrary(
 env.Alias("capi", [capi_shared, capi_static])
 
 
-def install_unity(target, source, env):
-    """`scons install-unity` — the host's library where the UPM package's .meta expects it.
-
-    One platform per run: the one this build made. The folders are the package's
-    (`sdk/unity/Runtime/Plugins/<platform>/`), whose `.meta` files UN3 writes by
-    hand and git ignores the binaries in. A cross-compile for Android or iOS is
-    UN9's, in CI; this copies what the host produced.
-    """
-    import shutil
-
-    plugins = os.path.join("..", "sdk", "unity", "Runtime", "Plugins")
-    if sys.platform == "darwin":
-        into = os.path.join(plugins, "macOS")
-    elif sys.platform.startswith("win"):
-        into = os.path.join(plugins, "Windows", "x86_64")
-    else:
-        into = os.path.join(plugins, "Linux", "x86_64")
-    os.makedirs(into, exist_ok=True)
-    built = str(capi_shared[0])
-    destination = os.path.join(into, os.path.basename(built))
-    shutil.copy2(built, destination)
-    print("installed %s into %s" % (os.path.basename(built), os.path.normpath(into)))
-    return None
-
-
-if "install-unity" in COMMAND_LINE_TARGETS:
-    installer = env.Command("install-unity-plugin", capi_shared, install_unity)
-    env.AlwaysBuild(installer)
-    env.Alias("install-unity", installer)
-
 
 # `scons bench` — the wall-clock half of the perf work (G15).
 #
@@ -310,9 +280,7 @@ if "bench" in COMMAND_LINE_TARGETS:
 # and runs the cases whose name contains "capi" — the corpus through the C
 # header — which is exactly the command the ticket's exit criterion names.
 test_filters = [
-    name
-    for name in COMMAND_LINE_TARGETS
-    if name not in ("test", "bench", "install-unity") and "/" not in name
+    name for name in COMMAND_LINE_TARGETS if name not in ("test", "bench") and "/" not in name
 ]
 
 
