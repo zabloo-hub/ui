@@ -15,12 +15,12 @@ namespace Zabloo
     /// the player's gesture. Same contract as the web renderer and the Godot node;
     /// only the spelling changes, and that table is written in the docs.
     ///
-    /// This file also owns the native handles: the document
-    /// (<c>zb_document</c>, the game's stable handle — the data store lives in it,
-    /// so what the game pushed survives a content swap) and the view
-    /// (<c>zb_view</c>, stable for the document's life; a load or a show swaps
-    /// the view underneath it). Everything here goes through
-    /// <c>Runtime/Interop/NativeMethods.cs</c> and nothing else does.
+    /// This file also drives the native handles declared in <c>ZablooView.cs</c>
+    /// (ZAB-197): it creates and destroys the document (<c>zb_document</c>, the
+    /// game's stable handle — the data store lives in it, so what the game pushed
+    /// survives a content swap) and writes the view (<c>zb_view</c>, stable for the
+    /// document's life; a load or a show swaps the view underneath it), which
+    /// Render, Pointer, Keyboard and Pad only read.
     ///
     /// Three rules a reader should know before adding to it:
     ///
@@ -47,12 +47,6 @@ namespace Zabloo
 
         /// <summary>The loader had something to say about a payload, on a load and on a reload alike.</summary>
         public event Action<Diagnostic> OnDiagnostic;
-
-        /// <summary>The native document (<c>zb_document*</c>), alive between OnEnable and OnDisable.</summary>
-        IntPtr document;
-
-        /// <summary>The native view (<c>zb_view*</c>): null until the first successful load, stable afterwards.</summary>
-        IntPtr native;
 
         /// <summary>The diagnostics of the last load, worst first — what <see cref="Diagnostics"/> exposes.</summary>
         readonly List<Diagnostic> diagnostics = new List<Diagnostic>();
@@ -98,11 +92,11 @@ namespace Zabloo
         }
 
         /// <summary>
-        /// <see cref="LoadEnvelope(string)"/>, showing <paramref name="view"/>. A view
-        /// id the envelope does not have is warned about and the first view shows —
+        /// <see cref="LoadEnvelope(string)"/>, showing the view with id <paramref name="id"/>.
+        /// An id the envelope does not have is warned about and the first view shows —
         /// the load still took, and answers <c>true</c>.
         /// </summary>
-        public bool LoadEnvelope(string json, string view)
+        public bool LoadEnvelope(string json, string id)
         {
             if (!HasDocument("LoadEnvelope")) return false;
 
@@ -130,10 +124,10 @@ namespace Zabloo
                 return false;
             }
 
-            native = NativeMethods.zb_document_view(document);
-            if (!string.IsNullOrEmpty(view) && !ShowNative(view))
+            view = NativeMethods.zb_document_view(document);
+            if (!string.IsNullOrEmpty(id) && !ShowNative(id))
             {
-                Debug.LogWarning("[zabloo] LoadEnvelope: no view with id \"" + view + "\" in this envelope; showing its first view");
+                Debug.LogWarning("[zabloo] LoadEnvelope: no view with id \"" + id + "\" in this envelope; showing its first view");
             }
             diagnosticsPending = true;
             MarkDirty();
@@ -191,7 +185,7 @@ namespace Zabloo
             }
             if (ok == 0) return false;
             viewId = id;
-            native = NativeMethods.zb_document_view(document);
+            view = NativeMethods.zb_document_view(document);
             return true;
         }
 
@@ -256,7 +250,7 @@ namespace Zabloo
             int found;
             fixed (byte* p = bytes)
             {
-                found = NativeMethods.zb_view_set_open(native, p, (nuint)bytes.Length, open ? 1 : 0);
+                found = NativeMethods.zb_view_set_open(view, p, (nuint)bytes.Length, open ? 1 : 0);
             }
             return Applied("SetOpen", "Collapse", id, found);
         }
@@ -269,7 +263,7 @@ namespace Zabloo
             int found;
             fixed (byte* p = bytes)
             {
-                found = NativeMethods.zb_view_set_selected_tab(native, p, (nuint)bytes.Length, index);
+                found = NativeMethods.zb_view_set_selected_tab(view, p, (nuint)bytes.Length, index);
             }
             return Applied("SetSelectedTab", "exclusive-select group", id, found);
         }
@@ -282,7 +276,7 @@ namespace Zabloo
             int found;
             fixed (byte* p = bytes)
             {
-                found = NativeMethods.zb_view_set_checked(native, p, (nuint)bytes.Length, isChecked ? 1 : 0);
+                found = NativeMethods.zb_view_set_checked(view, p, (nuint)bytes.Length, isChecked ? 1 : 0);
             }
             return Applied("SetChecked", "Toggle", id, found);
         }
@@ -295,7 +289,7 @@ namespace Zabloo
             int found;
             fixed (byte* p = bytes)
             {
-                found = NativeMethods.zb_view_set_value(native, p, (nuint)bytes.Length, value);
+                found = NativeMethods.zb_view_set_value(view, p, (nuint)bytes.Length, value);
             }
             return Applied("SetValue", "Slider", id, found);
         }
@@ -310,7 +304,7 @@ namespace Zabloo
             fixed (byte* p = idBytes)
             fixed (byte* t = textBytes)
             {
-                found = NativeMethods.zb_view_set_text(native, p, (nuint)idBytes.Length, t, (nuint)textBytes.Length);
+                found = NativeMethods.zb_view_set_text(view, p, (nuint)idBytes.Length, t, (nuint)textBytes.Length);
             }
             return Applied("SetText", "TextInput", id, found);
         }
@@ -323,7 +317,7 @@ namespace Zabloo
             int found;
             fixed (byte* p = bytes)
             {
-                found = NativeMethods.zb_view_set_scroll(native, p, (nuint)bytes.Length, x, y);
+                found = NativeMethods.zb_view_set_scroll(view, p, (nuint)bytes.Length, x, y);
             }
             return Applied("SetScroll", "ScrollView", id, found);
         }
@@ -348,8 +342,8 @@ namespace Zabloo
         /// </summary>
         public string Snapshot()
         {
-            if (native == IntPtr.Zero) return null;
-            NativeMethods.zb_view_snapshot_json(native, out var json);
+            if (view == IntPtr.Zero) return null;
+            NativeMethods.zb_view_snapshot_json(view, out var json);
             return Text(json);
         }
 
@@ -358,7 +352,7 @@ namespace Zabloo
         {
             get
             {
-                NativeMethods.zb_view_stats(native, out var stats);
+                NativeMethods.zb_view_stats(view, out var stats);
                 return stats;
             }
         }
@@ -368,7 +362,7 @@ namespace Zabloo
         partial void CreateNative()
         {
             document = NativeMethods.zb_document_create();
-            native = IntPtr.Zero;
+            view = IntPtr.Zero;
             diagnostics.Clear();
             diagnosticsPending = false;
             if (envelope != null) Load(envelope);
@@ -379,7 +373,7 @@ namespace Zabloo
             if (document == IntPtr.Zero) return;
             NativeMethods.zb_document_destroy(document);
             document = IntPtr.Zero;
-            native = IntPtr.Zero;
+            view = IntPtr.Zero;
             diagnosticsPending = false;
             pendingActions.Clear();
             pendingChanges.Clear();
@@ -387,11 +381,11 @@ namespace Zabloo
 
         partial void Step(double nowMs)
         {
-            if (native == IntPtr.Zero) return;
-            NativeMethods.zb_view_set_size(native, size.x, size.y);
-            NativeMethods.zb_view_set_now(native, nowMs);
-            NativeMethods.zb_view_layout_frame(native);
-            animating = NativeMethods.zb_view_animating(native) != 0;
+            if (view == IntPtr.Zero) return;
+            NativeMethods.zb_view_set_size(view, size.x, size.y);
+            NativeMethods.zb_view_set_now(view, nowMs);
+            NativeMethods.zb_view_layout_frame(view);
+            animating = NativeMethods.zb_view_animating(view) != 0;
             if (diagnosticsPending)
             {
                 diagnosticsPending = false;
@@ -409,16 +403,16 @@ namespace Zabloo
         /// </summary>
         partial void Flush()
         {
-            if (native == IntPtr.Zero) return;
+            if (view == IntPtr.Zero) return;
 
-            var actionCount = NativeMethods.zb_view_drain_actions(native, out var actions);
+            var actionCount = NativeMethods.zb_view_drain_actions(view, out var actions);
             for (uint i = 0; i < actionCount; i++)
             {
                 var action = actions[i];
                 pendingActions.Add(new KeyValuePair<string, ActionContext>(Text(action.Name), ContextOf(action)));
             }
 
-            var changeCount = NativeMethods.zb_view_drain_data_changes(native, out var changes);
+            var changeCount = NativeMethods.zb_view_drain_data_changes(view, out var changes);
             for (uint i = 0; i < changeCount; i++)
             {
                 var change = changes[i];
@@ -460,11 +454,11 @@ namespace Zabloo
         /// <summary>What building the view's RUNTIME found. It belongs with the load's own: both are properties of the payload.</summary>
         void CollectViewWarnings()
         {
-            if (native == IntPtr.Zero) return;
-            var count = NativeMethods.zb_view_warning_count(native);
+            if (view == IntPtr.Zero) return;
+            var count = NativeMethods.zb_view_warning_count(view);
             for (uint i = 0; i < count; i++)
             {
-                if (NativeMethods.zb_view_warning(native, i, out var diagnostic) != 0) diagnostics.Add(DiagnosticOf(diagnostic));
+                if (NativeMethods.zb_view_warning(view, i, out var diagnostic) != 0) diagnostics.Add(DiagnosticOf(diagnostic));
             }
         }
 
@@ -521,7 +515,7 @@ namespace Zabloo
 
         bool HasView(string operation)
         {
-            if (native != IntPtr.Zero) return true;
+            if (view != IntPtr.Zero) return true;
             Debug.LogWarning("[zabloo] " + operation + ": nothing is loaded", this);
             return false;
         }
