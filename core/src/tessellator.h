@@ -176,8 +176,17 @@ class GeometryBuilder {
    * a draw call.
    */
   const std::vector<const Batch *> &batches() const;
-  /** Vertices across every batch — what the perf budgets of G15 will read. */
+  /** Vertices across every batch — what the perf budgets of G15 read. */
   uint32_t vertex_count() const;
+  /**
+   * Geometry buffers that had to reallocate during THIS frame (G15).
+   *
+   * Zero once the scene has been painted at its full size: the view holds one
+   * builder for its whole life and `reset()` keeps every capacity, so a steady
+   * frame writes into last frame's arrays. Anything above zero in a steady frame
+   * is the regression that reuse exists to prevent.
+   */
+  uint32_t growths() const;
 
  private:
   /** Everything painted under one region, in one contiguous run of the pass. */
@@ -205,6 +214,8 @@ class GeometryBuilder {
   size_t current_ = 0;
   /** Rebuilt by `batches()`, which keeps its capacity across frames. */
   mutable std::vector<const Batch *> order_;
+  /** The module's growth counter when this frame started — see `growths()`. */
+  uint64_t growths_at_reset_ = 0;
 
   /** Claims the next slot, reusing the batches (and textures) it already holds. */
   void open_group(const Clip *clip);

@@ -103,6 +103,54 @@ struct KeyIntent {
   bool repeat = false;
 };
 
+/**
+ * What the last painted frame cost, in renderer terms (G15, ZAB-148) — the port
+ * of the reference's `FrameStats`.
+ *
+ * Telemetry, NOT the cross-target contract: none of it is in `ViewSnapshot`, for
+ * the same reason the web keeps it out — a draw call is a property of how a
+ * target draws, not of what the envelope says. It is what the performance budgets
+ * are asserted against, and the two targets hold the same numbers wherever they
+ * measure the same thing (`docs/performance.md` names the two places they do not).
+ */
+struct FrameStats {
+  /** Draw calls submitted: batches with geometry in them. */
+  uint32_t draw_calls = 0;
+  /** Vertices across those batches. */
+  uint32_t vertices = 0;
+  /** Indices across those batches. */
+  uint32_t indices = 0;
+  /** Live glyph atlases — one texture each, once the adapter has uploaded them. */
+  uint32_t atlases = 0;
+  /**
+   * Bytes of those atlas bitmaps.
+   *
+   * Half of what the same scene costs on the web, and not a saving to be proud
+   * of: the core's atlases are LA8 (two bytes a pixel) and the reference's are
+   * RGBA (four). Same pixels, same coverage, different upload format.
+   */
+  size_t atlas_bytes = 0;
+  /**
+   * Nodes the resolve pass visited — the size of the frame's CPU work before
+   * layout even starts. Zero on a repaint.
+   */
+  uint32_t resolved = 0;
+  /**
+   * Texts this frame actually broke into lines. A `Text` whose content, atlas and
+   * options did not move reuses its block (ZAB-69), so a steady frame over a
+   * static scene must sit at zero: anything else is a whole re-wrap of the scene,
+   * every frame.
+   */
+  uint32_t text_layouts = 0;
+  /** Geometry buffers that had to grow — see `GeometryBuilder::growths`. */
+  uint32_t buffer_growths = 0;
+  /**
+   * This paint was not preceded by a `layout_frame`: nothing about the tree, its
+   * values or its boxes changed, so only paint ran. What a blinking caret costs.
+   */
+  bool repaint_only = false;
+};
+
 class View {
  public:
   /**
@@ -333,6 +381,11 @@ class View {
    * property of the document, not of the gesture that reads it.
    */
   const std::vector<Diagnostic> &warnings() const { return warnings_; }
+  /**
+   * What the last `paint()` cost. Meaningless before one — nothing has been
+   * drawn yet, and the counters say so by being zero.
+   */
+  const FrameStats &stats() const { return stats_; }
 
  private:
   // The layer reads and writes the view directly rather than through a seam: the
@@ -347,6 +400,16 @@ class View {
   LayoutNode root_;
   Rect viewport_;
   GeometryBuilder geometry_;
+  FrameStats stats_;
+  /** Counted by the resolve pass and by `measure_text`, read by `paint()`. */
+  uint32_t resolved_count_ = 0;
+  uint32_t text_layout_count_ = 0;
+  /**
+   * Whether a `layout_frame` has run since the last `paint`. It is what tells a
+   * repaint from a frame: the adapter calls the two separately, so the core reads
+   * the answer off its own calls instead of being told.
+   */
+  bool laid_out_since_paint_ = false;
   /**
    * One atlas per point size, at a device scale of 1: the corpus measures there,
    * and a HiDPI surface is the adapter telling the view about its scale, which
@@ -705,6 +768,7 @@ class View {
   void forget_anim(LayoutNode &node);
   /** One node's, for the same reason: the next step snaps, like a mount. */
   void forget_tweens(LayoutNode &node);
+  FrameStats frame_stats(bool repaint_only) const;
   void paint_node(LayoutNode &node, double opacity, const Clip *clip);
   /** The `ScrollView`'s own overlay indicator, inside the viewport and over it. */
   void paint_scrollbar(LayoutNode &node, double opacity, const Clip *clip);

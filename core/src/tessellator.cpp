@@ -39,7 +39,30 @@ void fill_perimeter(const Rect &rect, double r, double *xs, double *ys) {
   }
 }
 
+/**
+ * Geometry buffers that had to reallocate, since the process started (G15).
+ *
+ * A counter of the MODULE and not of the builder, which is the reference's shape
+ * too (`growthCount` in `tessellator.ts`): the growth happens inside a vector
+ * that a free function is appending to, and a builder-owned counter would have to
+ * be threaded through all thirty push sites to reach it. `GeometryBuilder`
+ * remembers its value at `reset()` and reports the difference, so what a frame
+ * reads is its own. One UI thread, so no synchronization.
+ */
+uint64_t growth_count = 0;
+
+/**
+ * True when the next `push_back` is the one that reallocates. Checked rather
+ * than inferred afterwards: capacity is what the vector promises, and a full
+ * vector about to be pushed is exactly the moment the promise runs out.
+ */
+bool will_grow(size_t size, size_t capacity) { return size == capacity; }
+
 void push_vertex(Batch &batch, double x, double y, float u, float v, Color color) {
+  // Positions, uvs and colors grow in lockstep (2, 2 and 4 floats a vertex), so
+  // one of them answers for the batch's vertex buffers: counting all three would
+  // report a single reallocation three times.
+  if (will_grow(batch.positions.size(), batch.positions.capacity())) growth_count++;
   batch.positions.push_back(static_cast<float>(x));
   batch.positions.push_back(static_cast<float>(y));
   batch.uvs.push_back(u);
@@ -51,6 +74,7 @@ void push_vertex(Batch &batch, double x, double y, float u, float v, Color color
 }
 
 void push_triangle(Batch &batch, uint32_t a, uint32_t b, uint32_t c) {
+  if (will_grow(batch.indices.size(), batch.indices.capacity())) growth_count++;
   batch.indices.push_back(a);
   batch.indices.push_back(b);
   batch.indices.push_back(c);
@@ -67,6 +91,7 @@ double round_half_up(double value) { return std::floor(value + 0.5); }
 }  // namespace
 
 void GeometryBuilder::reset() {
+  growths_at_reset_ = growth_count;
   // Groups and their batches survive the frame with their capacities, their
   // textures and their positions, so a scene that paints the same regions with
   // the same sizes reuses the very same buffers. Only the contents go.
@@ -135,6 +160,10 @@ const std::vector<const Batch *> &GeometryBuilder::batches() const {
     for (const Batch &batch : groups_[i].batches) order_.push_back(&batch);
   }
   return order_;
+}
+
+uint32_t GeometryBuilder::growths() const {
+  return static_cast<uint32_t>(growth_count - growths_at_reset_);
 }
 
 uint32_t GeometryBuilder::vertex_count() const {
