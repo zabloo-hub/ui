@@ -47,9 +47,11 @@ program
 program
   .command("dev")
   .description(
-    "Watch the project, re-export on change and serve the web preview; add --unity to also push to the Unity editor's dev mode",
+    "Watch the project, re-export on change and serve the web preview; add --godot (or --unity) to also push each save to that engine's dev mode",
   )
   .option("--cwd <dir>", "project root", ".")
+  .option("--godot", "also push each export to the running Godot game's dev mode")
+  .option("--godot-port <port>", "dev-mode port of the Godot game (with --godot)", "5079")
   .option("--unity", "also push each export to the Unity editor's dev mode")
   .option("--port <port>", "dev-mode port of the Unity editor (with --unity)", "5077")
   .option("--preview-port <port>", "port of the web preview", "5078")
@@ -58,6 +60,8 @@ program
   .action(
     async (options: {
       cwd: string;
+      godot?: boolean;
+      godotPort: string;
       unity?: boolean;
       port: string;
       previewPort: string;
@@ -72,7 +76,10 @@ program
         await devLoop(
           resolve(options.cwd),
           Number(options.previewPort),
-          options.unity ? { port: Number(options.port) } : null,
+          {
+            ...(options.godot ? { godot: { port: Number(options.godotPort) } } : {}),
+            ...(options.unity ? { unity: { port: Number(options.port) } } : {}),
+          },
           { open: options.open, allowedHosts: options.allowHost },
         );
       } catch (error) {

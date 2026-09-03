@@ -45,12 +45,44 @@ That is the whole game↔UI coupling surface of v1: **named actions out, data in
 screen exactly where it was, and says why in `get_diagnostics()`. That is what
 makes a corrupt hot-update cost the update and not the session.
 
+## The dev loop
+
+Enable the addon in **Project → Project Settings → Plugins**. That registers the
+`ZablooDevMode` autoload, which is the whole installation — the game wires
+nothing, exactly as it wires nothing for the gamepad. Then, in the authoring
+project:
+
+```sh
+zabloo dev --godot     # or `pnpm dev:godot`
+```
+
+Press Play. Every save re-exports and hot-swaps every `ZablooView` in the running
+scene, through `reload` — the same one loading path a platform hot-update takes,
+so the data the game pushed survives it (the store lives on the document).
+
+The receiver listens on `127.0.0.1:5079` in **debug builds only**: a dev channel a
+shipped game could open is a dev channel a player's machine could be talked to
+through. `zabloo/dev_mode/port` in the project settings moves it, and
+`zabloo dev --godot-port` moves the other end.
+
+The push carries the envelope **without its asset bytes**, plus the address they
+can be fetched from. The game asks for the content hashes it does not already
+hold and keeps them, so a project with megabytes of PNGs still moves a few KB per
+save and an image is transferred exactly once — the transport ZAB-14 built for the
+web preview, with the engine as its second consumer. What reaches the loader is
+always a complete envelope.
+
+Not the editor, on purpose: Godot's `Run` launches a separate process, so the
+thing with a live view to swap is the game. A project that is not running needs no
+syncing either — `load_file` reads the exported JSON off disk when it starts, so
+it already opens on the last export. (That is what Unity had to simulate with
+`AssetDatabase.ImportAsset`.)
+
 ## Status
 
-This is the chassis (G2) plus the text engine (G4). `Container`, `Button`, `Text`
-and implicit paint render — glyphs come from our own rasterizer over the TTF the
-core embeds, never from Godot's `TextServer`, which is what makes a line break in
-the same place here and in the web renderer. The rest of the catalog arrives
-capability by capability and degrades until it does —
-see [the playground's README](../../examples/godot-playground/README.md) for what
-is missing and which ticket closes it.
+Every node type of the catalog renders, and every case of the golden corpus
+reproduces its recorded metrics byte for byte — glyphs come from our own
+rasterizer over the TTF the core embeds, never from Godot's `TextServer`, which is
+what makes a line break in the same place here and in the web renderer. See
+[the playground's README](../../examples/godot-playground/README.md) for how to
+check each capability by hand.

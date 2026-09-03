@@ -24,7 +24,8 @@ catalog — tabs, checkboxes, switches, radios, sliders), `examples/showcase`, w
 `examples/inventory-demo`, the data-driven list of G12. Inside the showcase,
 **1–9** switch view.
 
-**R** reloads, which is the hot-update path (below). **V** and **C** drive a
+**R** reloads, which is the hot-update path (below) — the same swap
+`zabloo dev --godot` performs on every save. **V** and **C** drive a
 control from the game side rather than by touching it — `set_value` on the volume
 slider, `set_open` on the showcase's Collapse — which is how you see that the
 by-id operations really are the player's gesture. **I** and **O** push the
@@ -161,7 +162,7 @@ buttons, a vertical catalogue and a `Collapse` inside it.
 ## Watching a hot-update keep its textures
 
 `R` goes through `load_file` → `load_envelope` → the core's one loader — the same
-swap a platform push performs — so it is how you check the two halves of the
+swap a platform push and the dev loop both perform — so it is how you check the two halves of the
 asset cache by hand:
 
 ```sh
@@ -173,8 +174,38 @@ cd ../showcase && pnpm build     # then re-export,
 
 The new image appears. Textures are keyed by **content hash**, so an image whose
 bytes did not change keeps the texture already decoded for it across that reload,
-and one the new envelope stopped referencing has its texture dropped. Doing all
-that ON SAVE is the dev loop, `zabloo dev --godot`, which is G14 (ZAB-147).
+and one the new envelope stopped referencing has its texture dropped.
+
+## Checking G14 by hand — the dev loop
+
+Doing all of the above ON SAVE is `zabloo dev --godot`. The playground already has
+the addon enabled, so its `ZablooDevMode` autoload is listening the moment you
+press Play — the log says so.
+
+```sh
+cd ../showcase && pnpm dev:godot   # then press Play here
+```
+
+- **Edit a `.tsx`** — change a label in `src/views/media.tsx` — and the view swaps
+  without touching the game. The gold in the corner does **not** reset: what the
+  game pushed with `set_data` lives on the document, so it outlives the content it
+  was feeding. That is production hot-update behavior, not a dev convenience.
+- **Watch both logs.** The CLI prints `pushed to Godot … ✔ (1 view)` and Godot
+  prints `reloaded 1 view(s), no new assets`. Save again: still no new assets,
+  however many times you do it — the tree travels, the bytes do not.
+- **Replace `src/assets/banner.png`** with another picture. Now Godot prints
+  `1 asset(s) fetched`, exactly once, and the saves after it are back to `no new
+  assets`. N reloads, one transfer: the point of the whole transport.
+- **Quit the game and keep saving.** The CLI says the dev mode is not reachable
+  **once** and then goes quiet; press Play again and the next save says `— back`.
+  A game that is not running is the normal state of an afternoon spent in the
+  browser.
+- **Start it with 5079 already taken** by something else. It says
+  `port 5079 is taken — another instance running?` instead of silently listening
+  to nothing.
+
+Note what is NOT here: nothing in `main.gd` mentions the dev loop. Enabling the
+addon is the whole installation.
 
 ## What renders today, and what does not
 
@@ -187,8 +218,5 @@ bound array, virtualized inside a scroller, with per-item state that travels wit
 its `key` — and G13 the gamepad.
 
 **Every node type of the catalog renders**, and every case of the golden corpus
-reproduces its recorded metrics byte for byte. What is left is not a node:
-
-| Not yet | Lands in |
-|---|---|
-| Live reload from `zabloo dev --godot` | G14 (ZAB-147) |
+reproduces its recorded metrics byte for byte. G14 closed the last thing that was
+not a node — live reload from `zabloo dev --godot`.
