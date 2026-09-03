@@ -1,0 +1,101 @@
+{
+  "v": 1,
+  "views": {
+    "main": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "padding": 12,
+        "gap": 8
+      },
+      "style": {
+        "background": "#101218"
+      },
+      "children": [
+        {
+          "type": "Text",
+          "id": "title",
+          "text": "Inventory",
+          "style": {
+            "color": "#e2e8f0",
+            "fontSize": 20
+          }
+        },
+        {
+          "type": "ScrollView",
+          "id": "scroller",
+          "axis": "vertical",
+          "layout": {
+            "direction": "column",
+            "width": 640,
+            "height": 520,
+            "padding": 8,
+            "gap": 6
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 6
+          },
+          "children": [
+            {
+              "type": "Repeat",
+              "id": "rows",
+              "items": {
+                "bind": "list.items"
+              },
+              "as": "item",
+              "key": "id",
+              "layout": {
+                "direction": "column",
+                "gap": 6
+              },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "row",
+                  "layout": {
+                    "direction": "row",
+                    "width": 608,
+                    "padding": 8,
+                    "gap": 8
+                  },
+                  "style": {
+                    "background": "#334155",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Text",
+                      "id": "row-label",
+                      "layout": {
+                        "grow": 1
+                      },
+                      "text": {
+                        "bind": "item.label"
+                      },
+                      "style": {
+                        "color": "#e2e8f0"
+                      }
+                    },
+                    {
+                      "type": "Text",
+                      "id": "row-note",
+                      "text": {
+                        "bind": "item.note"
+                      },
+                      "style": {
+                        "color": "#94a3b8",
+                        "fontSize": 12
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

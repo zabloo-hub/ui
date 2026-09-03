@@ -12,7 +12,8 @@ test suite; here it is a specification of what the IR means.
 golden/
 ├── cases.json        the corpus: one case per capability, and its INPUT
 ├── envelopes/*.json  hand-written IR envelopes
-└── metrics/*.json    what a correct renderer computes from them (generated)
+├── metrics/*.json    what a correct renderer computes from them (generated)
+└── perf/             scenes the performance budgets are measured on — NOT cases
 ```
 
 ## A case is five things
@@ -192,13 +193,10 @@ reproducible, and this one is not. What belongs in a PR is the observation.
 
 ## What does NOT belong here
 
-**Performance scenes.** The corpus documents BEHAVIOR, so its cases are as small
-as the rule they record. The scenes the budgets are asserted against — a
-thousand-row list, a wall of wrapped prose, a panel mid-transition — live in
-`packages/renderer-web/src/perf/scenes.ts` instead (ZAB-73), for two reasons:
-their metrics are `stats()`, which is web-only telemetry and deliberately
-outside `snapshot()` (the cross-target contract), and a thousand rows of
-recorded rects would be a megabyte of golden nobody reads.
+**Performance scenes** are not cases. They sit next door, in `perf/`, which has a
+README of its own — same directory, deliberately different contract: a case here
+records what a frame MEANS and every target must reproduce it byte for byte, while
+a scene there is a load to measure and what it costs is each target's own answer.
 
 ## Adding a capability
 

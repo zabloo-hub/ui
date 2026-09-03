@@ -1,0 +1,1048 @@
+{
+  "v": 1,
+  "views": {
+    "main": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "padding": 12,
+        "gap": 6
+      },
+      "style": {
+        "background": "#101218"
+      },
+      "children": [
+        {
+          "type": "Container",
+          "id": "line-0",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-0",
+              "text": "jugador-0",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-0",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 0 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-1",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-1",
+              "text": "jugador-1",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-1",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 1 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-2",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-2",
+              "text": "jugador-2",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-2",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 2 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-3",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-3",
+              "text": "jugador-3",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-3",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 3 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-4",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-4",
+              "text": "jugador-4",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-4",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 4 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-5",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-5",
+              "text": "jugador-5",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-5",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 5 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-6",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-6",
+              "text": "jugador-6",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-6",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 6 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-7",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-7",
+              "text": "jugador-0",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-7",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 7 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-8",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-8",
+              "text": "jugador-1",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-8",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 8 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-9",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-9",
+              "text": "jugador-2",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-9",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 9 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-10",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-10",
+              "text": "jugador-3",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-10",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 10 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-11",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-11",
+              "text": "jugador-4",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-11",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 11 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-12",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-12",
+              "text": "jugador-5",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-12",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 12 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-13",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-13",
+              "text": "jugador-6",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-13",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 13 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-14",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-14",
+              "text": "jugador-0",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-14",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 14 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-15",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-15",
+              "text": "jugador-1",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-15",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 15 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-16",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-16",
+              "text": "jugador-2",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-16",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 16 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-17",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-17",
+              "text": "jugador-3",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-17",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 17 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-18",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-18",
+              "text": "jugador-4",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-18",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 18 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-19",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-19",
+              "text": "jugador-5",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-19",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 19 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-20",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-20",
+              "text": "jugador-6",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-20",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 20 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-21",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-21",
+              "text": "jugador-0",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-21",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 21 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-22",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-22",
+              "text": "jugador-1",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-22",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 22 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "line-23",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 18,
+            "align": "center",
+            "padding": 4,
+            "gap": 8
+          },
+          "style": {
+            "background": "#334155",
+            "radius": 4
+          },
+          "children": [
+            {
+              "type": "Text",
+              "id": "who-23",
+              "text": "jugador-2",
+              "style": {
+                "color": "#f97316",
+                "fontSize": 12
+              }
+            },
+            {
+              "type": "Text",
+              "id": "what-23",
+              "layout": {
+                "grow": 1
+              },
+              "text": "ha entrado en la sala 23 y saluda a todo el mundo",
+              "style": {
+                "color": "#e2e8f0",
+                "fontSize": 12
+              }
+            }
+          ]
+        },
+        {
+          "type": "Container",
+          "id": "composer",
+          "layout": {
+            "direction": "row",
+            "width": 900,
+            "height": 40,
+            "align": "center",
+            "gap": 8,
+            "padding": 4
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 6
+          },
+          "children": [
+            {
+              "type": "TextInput",
+              "id": "message",
+              "value": {
+                "bind": "chat.draft"
+              },
+              "placeholder": "Escribe algo…",
+              "layout": {
+                "grow": 1,
+                "height": 28,
+                "padding": 6
+              },
+              "style": {
+                "background": "#0f172a",
+                "color": "#e2e8f0",
+                "radius": 4
+              },
+              "states": {
+                "focused": {
+                  "style": {
+                    "borderWidth": 2,
+                    "borderColor": "#f97316"
+                  }
+                }
+              }
+            },
+            {
+              "type": "Spinner",
+              "id": "spin",
+              "period": 900,
+              "layout": {
+                "direction": "row",
+                "gap": 6,
+                "align": "center",
+                "height": 12
+              },
+              "children": [
+                {
+                  "type": "Container",
+                  "id": "bead-0",
+                  "layout": {
+                    "width": 8,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#e2e8f0",
+                    "radius": 4
+                  }
+                },
+                {
+                  "type": "Container",
+                  "id": "bead-1",
+                  "layout": {
+                    "width": 8,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#e2e8f0",
+                    "radius": 4
+                  }
+                },
+                {
+                  "type": "Container",
+                  "id": "bead-2",
+                  "layout": {
+                    "width": 8,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#e2e8f0",
+                    "radius": 4
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
