@@ -4543,3 +4543,41 @@ dos habría pasado una de estas dos pruebas y fallado la otra sin decir por qué
 `docs/releasing.md` › *The Godot addon*, `sdk/godot/README.md` › *Install it in a game*, y
 el barrido de `README.md`, `docs/{README,getting-started,project-structure,troubleshooting}.md`,
 `docs/format/loading.md`, `examples/README.md` y `packages/create-zabloo-app`.
+
+## 2026-09-03 — La próxima versión cubre cuatro targets: Unity vuelve (F12) y Unreal entra detrás (F13)
+
+**Decisión:** la siguiente versión publicada de `@zabloo/*` + SDKs controla **web, Godot,
+Unity y Unreal**. Se abren dos fases, **F12 — SDK de Unity** y **F13 — SDK de Unreal**, en
+ese orden, y el exit review de feature-complete (ZAB-42) deja de leerse "web + Godot" para
+exigir los cuatro. La validación en dispositivo móvil del addon de Godot (Android e iOS)
+**no** es requisito de esto: sale de F11, se queda en el backlog sin milestone (ZAB-193) y
+se hará cuando haya teléfono y NDK delante.
+
+**Esto es alcance, no arquitectura, y por eso es corto.** Cómo entran los dos motores ya
+está decidido desde el 2026-08-24: **adaptadores finos sobre el core C++**, nunca ports —
+Unreal como módulo/plugin de C++ sin puente de lenguaje, Unity por plugin nativo sobre el
+mismo core, y explícitamente **no** el port a C# que se canceló a 4 de 13 tipos. Lo único
+que cambia hoy es *cuándo*: aquella entrada dejaba Unity en "vuelve algún día" y Unreal en
+"diseñado pero no renderiza", y las dos pasan a ser la fase siguiente.
+
+**Por qué Unity primero, con Unreal detrás:** es el orden que retira antes el riesgo que no
+se conoce. Unreal es el adaptador **más barato** — el core es C++ y entra como módulo, así
+que lo específico es superficie de motor (un widget de Slate que recibe la geometría, input,
+acciones y datos a Blueprint) y ningún puente de lenguaje. Unity es el **caro**: la mitad
+que sabe de Unity es C#, así que hay un interop que diseñar y validar (P/Invoke, IL2CPP/AOT,
+consolas), y es justo la parte que ninguna fase anterior ha ejercitado. Hacer primero lo
+barato dejaría lo desconocido para el final de la versión.
+
+**El criterio de salida de las dos es el mismo, y no es negociable:** el corpus golden
+completo pasa con las mismas métricas, y `examples/settings-screen` es navegable con mando
+en un build real. Es la misma prueba que cerró F11, y es lo que convierte "soporta cuatro
+motores" en una afirmación comprobable en vez de una lista en un README.
+
+**Y es la prueba de la tesis del core.** F11 se pagó con el argumento de que **un motor
+nuevo es un adaptador y no otro port**; F12 y F13 son quienes lo cobran. Si alguna de las
+dos acaba pidiendo lógica que ya vive en el core, la señal no es "este motor es raro" sino
+que la frontera core/adaptador se ha movido — y se arregla en el core, no duplicándola en
+el adaptador, que es exactamente lo que la regla de oro protege.
+
+**Sin desglosar todavía:** los tickets de F12 se escriben al abrir la fase, con el mismo
+patrón que F11 (**Zona**, **No toca**, y los casos del corpus que cada uno cierra).

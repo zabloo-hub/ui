@@ -233,7 +233,8 @@ mid-range phone; the machine this was done on had no NDK, no connected device an
 no Xcode. The extension compiles for both in CI, which stops the toolchains
 rotting, and that is all it does — nothing here is evidence about a phone. The
 playground's `--zabloo-bench` is what fills those rows in when a device is to
-hand (on Android it prints to `adb logcat`).
+hand (on Android it prints to `adb logcat`); the gap is tracked by ZAB-193,
+deliberately outside this milestone.
 
 ## The addon's size
 

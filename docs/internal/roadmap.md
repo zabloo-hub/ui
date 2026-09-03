@@ -19,6 +19,11 @@
 > que renderiza**: el batch de Unity (U1–U10) se cancela a 4/13 tipos y el SDK es una
 > **GDExtension en C++ que ES el core compartido** (ZAB-134). Fase actual: **F11**. Ver
 > la fase 11 más abajo y `decisions-architecture.md` (2026-08-24).
+> **Revisado 2026-09-03**: la próxima versión publicada cubre **cuatro targets** — web,
+> Godot, **Unity** y **Unreal** —, así que se abren **F12 — SDK de Unity** y **F13 — SDK de
+> Unreal**, en ese orden, las dos como **adaptadores finos sobre el core C++** que nace en
+> F11. Con ello el exit review de feature-complete (ZAB-42) deja de ser "web + Godot" y
+> pasa a exigir los cuatro. Ver las fases 12 y 13 más abajo.
 
 ## Fase inicial (COMPLETADA) — Rebanada vertical (validar la IR v1 de punta a punta)
 
@@ -221,6 +226,31 @@ camino y se consolida en F8.
     revisiones distintas, y la segunda es la que cierra el criterio de salida
     "`grep -ri unity` solo devuelve menciones históricas".
 
+12. **F12 — SDK de Unity** (planificada 2026-09-03, sin desglosar). Unity vuelve, y
+    vuelve por la vía que dejó escrita la decisión del 2026-08-24: **adaptador fino
+    sobre el core C++** a través de un plugin nativo, nunca el port a C# que se canceló
+    a 4 de 13 tipos: el `sdk/unity` que G17 está retirando de la superficie no es el
+    que vuelve, es el que se borra. El core ya no se reescribe — lo que hay que
+    construir es la mitad que sabe de Unity (subir la geometría teselada, traducir
+    input, exponer acciones y datos idiomáticamente en C#) y el puente de interop que
+    la conecta con el core, que es el riesgo real de la fase (P/Invoke, IL2CPP/AOT,
+    consolas).
+    **Criterio de salida:** el corpus golden completo pasa en Unity con las mismas
+    métricas, `examples/settings-screen` es navegable con mando en un build real, y
+    el paquete se instala por UPM.
+
+13. **F13 — SDK de Unreal** (planificada 2026-09-03, sin desglosar). El core entra
+    como módulo/plugin de C++ **sin puente de lenguaje**, que es lo que lo hace el
+    adaptador más barato de los tres; lo específico es la superficie de motor (widget
+    de Slate que recibe la geometría, input, y exponer acciones/datos a Blueprint).
+    **Criterio de salida:** el mismo — corpus golden en verde, `settings-screen`
+    navegable con mando en un build real, y plugin instalable.
+
+    Las dos fases comparten la tesis que F11 existe para probar: **un motor nuevo es
+    un adaptador, no otro port**. Si alguna de las dos acaba pidiendo lógica que ya
+    vive en el core, eso es la señal de que la frontera core/adaptador se ha movido —
+    y se arregla en el core, no duplicándola.
+
 > Sin fechas: fases ordenadas por dependencias técnicas, cada una con criterio de
 > salida. El ritmo lo marca la disponibilidad (solo founder).
 
@@ -232,8 +262,9 @@ camino y se consolida en F8.
 - **Plataforma** (repo `app`): MVP de creación/gestión de contenido + hosting + entrega de
   hot-update. El **editor visual web** (WYSIWYG con el mismo renderer vía WebGL) viene
   después, sobre la misma IR.
-- Adaptador de **Unreal** sobre el core C++ (Godot ya no está aquí: es F11). Y el regreso
-  de **Unity**, si llega, por la misma vía — plugin nativo sobre el core, nunca un port.
+- ~~Adaptador de **Unreal** sobre el core C++, y el regreso de **Unity** si llega.~~
+  **Planificados 2026-09-03: dejan de ser "por confirmar" y son F12 (Unity) y F13
+  (Unreal)** — la próxima versión publicada controla los tres motores y web.
 - Landing / página de producto de zabloo/ui (en zabloo.com, repo `landing`).
 - Primeros **blocks/templates premium**.
 

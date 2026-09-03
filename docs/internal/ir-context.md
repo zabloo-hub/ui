@@ -397,13 +397,13 @@ unknown nodes/props? render a fallback? refuse?). Capability/version negotiation
 Because we self-render, the relevant question per engine is **"how does it give us a GPU
 canvas / let us submit custom geometry?"** — not "what widgets/layout/theming does it have."
 
-| Concern            | Godot (**renders the whole catalog**) | Unreal                     | Unity (cancelled)             |
+| Concern            | Godot (**renders the whole catalog**) | Unreal (**F13**)           | Unity (**F12**)               |
 |--------------------|------------------------------------|-------------------------------|-------------------------------|
 | Custom geometry    | `RenderingServer.canvas_item_add_triangle_array` | Slate custom widget / RHI | UI Toolkit `generateVisualContent` / Mesh API |
-| How the core gets in | **GDExtension in C++** (`godot-cpp`) — the core *is* the extension | the same C++ core as a module/plugin | a native plugin over the same core, if it comes back |
+| How the core gets in | **GDExtension in C++** (`godot-cpp`) — the core *is* the extension | the same C++ core as a module/plugin | a native plugin over the same core |
 | We provide         | tessellated mesh + texture         | tessellated mesh              | tessellated mesh + material   |
 | Engine provides    | draw call + input plumbing         | draw call + input             | draw call + input             |
-| Text/fonts         | our atlas + our rasterizer (`stb_truetype.h`, decided 2026-08-11) | the same, verbatim | (would have been StbTrueTypeSharp) |
+| Text/fonts         | our atlas + our rasterizer (`stb_truetype.h`, decided 2026-08-11) | the same, verbatim | the same, verbatim (the C# port is off the table with the C# port of the SDK) |
 
 Since 2026-08-24 that table has one column that matters and two that are plans: **the
 core is C++ and it is shared**, so a new engine adds an adapter — a way to hand over

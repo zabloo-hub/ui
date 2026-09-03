@@ -111,7 +111,7 @@ jobs:
   #
   # Android and iOS compile here and have NOT been run on a device: G15 had no
   # NDK-equipped machine and no phone to hand, and that gap is written down in
-  # `docs/performance.md` and carried by ZAB-192 rather than papered over. A job
+  # `docs/performance.md` and carried by ZAB-193 rather than papered over. A job
   # that only compiles is still worth having — it is what stops those toolchains
   # rotting silently in the meantime.
   godot-extension:
