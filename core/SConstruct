@@ -4,10 +4,11 @@ SCons because that is what `godot-cpp` uses and what its documentation assumes
 (2026-08-24, Decision 6) — the adapter's build in `sdk/godot` reuses this one's
 output, so one tool for both is one tool to learn.
 
-Two targets:
+Targets:
 
     scons                 core/bin/libzabloocore.a  +  core/bin/zabloo-core-tests
     scons test            the above, then run the tests
+    scons bench           the perf bench (G15) — wall clock, so build it release
     scons target=release  optimized, no assertions
 
 The core links nothing. No Godot, no GPU, no JSON library — that is the whole
@@ -125,12 +126,32 @@ tests = test_env.Program("bin/zabloo-core-tests", Glob("tests/*.cpp") + library)
 Default(library, standalone, tests)
 
 
+# `scons bench` — the wall-clock half of the perf work (G15).
+#
+# The same binary and the same cases as `scons test`: `tests/bench.cpp` gates
+# itself on `BENCH` in the environment, exactly as the reference bench gates on
+# the same variable, so there is one definition of the scenes and one of the
+# staging. A separate program would have been a second one of each.
+def run_bench(target, source, env):
+    """Runs only the bench cases, with the gate open."""
+    bench_env = dict(os.environ, BENCH="1")
+    return subprocess.call([str(tests[0]), "bench"], env=bench_env)
+
+
+if "bench" in COMMAND_LINE_TARGETS:
+    runner = env.Command("run-bench", tests, run_bench)
+    env.AlwaysBuild(runner)
+    env.Alias("bench", runner)
+
+
 # Anything else on the command line next to `test` is a FILTER for the runner,
 # not a target of its own: `scons test golden` runs the cases whose "suite.name"
 # contains "golden". They are aliased onto the same node, which is what keeps
 # SCons from going off to build a file named after the filter — before this, the
 # command the READMEs documented ran every case and then died on the filter.
-test_filters = [name for name in COMMAND_LINE_TARGETS if name != "test" and "/" not in name]
+test_filters = [
+    name for name in COMMAND_LINE_TARGETS if name not in ("test", "bench") and "/" not in name
+]
 
 
 def run_tests(target, source, env):

@@ -137,6 +137,26 @@ TEST(view, painting_multiplies_opacity_down_the_subtree) {
   CHECK_NEAR(batch.colors[19], 0.25, 0.001);
 }
 
+TEST(view, a_fully_transparent_subtree_paints_no_geometry) {
+  // Alpha zero draws nothing, so skipping it changes no pixel — and it is not a
+  // nicety: a `Toggle` crossfades by keeping BOTH slots in the layout and letting
+  // opacity say which is seen (ZAB-36), so without the cut the hidden half of
+  // every switch on screen is tessellated every frame. The parent below is what
+  // makes it a SUBTREE cut: the child is at full opacity and still must not paint.
+  Document document = loaded(R"({"v":1,"tokens":{},"views":{"a":{
+      "type":"Container","style":{"background":"#ffffff"},
+      "layout":{"direction":"column","width":100,"height":100},
+      "children":[{"type":"Container","style":{"background":"#ffffff","opacity":0},
+                   "layout":{"width":50,"height":50},
+                   "children":[{"type":"Container","style":{"background":"#ffffff"},
+                                "layout":{"width":10,"height":10}}]}]}}})");
+  View *view = document.view();
+  // The root's own quad, and nothing from the branch under it.
+  CHECK_EQ(view->paint().vertex_count(), 4u);
+  // It is still IN the layout: `visible` remains the only way out of a box.
+  CHECK_NEAR(view->root().children[0].rect.width, 50.0, 0.001);
+}
+
 TEST(view, a_label_with_no_style_still_paints_its_glyphs) {
   // An undeclared `color` is the default text color, not "nothing to paint" —
   // unlike a background, where absent means the node paints no box at all. The

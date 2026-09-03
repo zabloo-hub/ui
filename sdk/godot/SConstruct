@@ -27,7 +27,11 @@ env = SConscript("godot-cpp/SConstruct")
 # fallback as `core/SConstruct`, applied to the environment godot-cpp handed back
 # (SCons resolves construction variables at build time, so it reaches its objects
 # as well as ours).
-if sys.platform == "darwin":
+# Guarded on the TARGET and not just the host: a web, Android or iOS build runs on
+# this same Mac with a toolchain that brings its own libc++, and pointing it at the
+# macOS SDK's headers is how a wasm compile ends up failing on macOS availability
+# macros. Only a macOS build wants the macOS SDK.
+if sys.platform == "darwin" and env["platform"] == "macos":
     sdk = subprocess.run(
         ["xcrun", "--show-sdk-path"], capture_output=True, text=True, check=False
     ).stdout.strip()
@@ -45,12 +49,29 @@ if sys.platform == "darwin":
 core = os.path.join("..", "..", "core", "src")
 env.Append(CPPPATH=[core, "src"])
 
+
+def core_object(source, shared=True):
+    """Compiles one of the core's sources INTO THIS DIRECTORY.
+
+    The target path is spelled out rather than left to SCons, which would put the
+    object next to its source — inside `core/src/`, where `core/SConstruct` keeps
+    its own. Most platforms name a shared object `.os` and the two coexist by
+    luck; the web toolchain names it `.o`, so a web build quietly replaced every
+    native object with a wasm one and the next `scons` in `core/` died on
+    "archive member 'assets.o' not a mach-o file" — naming a file that had nothing
+    to do with anything. A foreign build has no business leaving artifacts in
+    another directory, whatever the suffix.
+    """
+    stem = os.path.splitext(os.path.relpath(str(source), core))[0]
+    target = os.path.join("obj", "core", stem)
+    return (env.SharedObject if shared else env.StaticObject)(target=target, source=source)
+
+
 # `core/src/generated/` is the embedded TTF the text engine rasterizes (G4).
-sources = (
-    Glob("src/*.cpp")
-    + Glob(os.path.join(core, "*.cpp"))
-    + Glob(os.path.join(core, "generated", "*.cpp"))
-)
+sources = Glob("src/*.cpp") + [
+    core_object(source)
+    for source in Glob(os.path.join(core, "*.cpp")) + Glob(os.path.join(core, "generated", "*.cpp"))
+]
 
 # The vendored rasterizer, on the same terms `core/SConstruct` gives it: warnings
 # off (it is not ours to keep clean) and hidden visibility (an engine may carry
@@ -62,7 +83,10 @@ if env.get("CC") == "cl":
     vendor_env.Append(CXXFLAGS=["/w"])
 else:
     vendor_env.Append(CXXFLAGS=["-w", "-fvisibility=hidden"])
-sources += vendor_env.SharedObject(os.path.join(core, "vendor", "stb_truetype_impl.cpp"))
+sources += vendor_env.SharedObject(
+    target=os.path.join("obj", "core", "vendor", "stb_truetype_impl"),
+    source=os.path.join(core, "vendor", "stb_truetype_impl.cpp"),
+)
 
 # The name carries the platform and the target because a `.gdextension` lists one
 # library per (platform, target) and loads the one that matches at runtime.

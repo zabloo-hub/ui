@@ -16,11 +16,20 @@ GDExtension is binary-compatible forward inside 4.x, so the same build loads in
 git submodule update --init --recursive   # godot-cpp, pinned to the 4.4 branch
 scons                                     # debug build for this platform
 scons target=template_release
+scons target=template_release platform=web   # experimental — see below
 scons install                             # copy the addon into the playground
 ```
 
 The first build compiles `godot-cpp` and takes a few minutes; the ones after it
-do not.
+do not. Objects land under `obj/`, including the core's: SCons would otherwise
+leave them next to their sources in `core/src/`, where that build keeps its own.
+
+**Web is experimental** (2026-08-24, Decision 4) and needs more than a flag: the
+export has to use Godot's `dlink` templates (Web preset → *Extensions Support*),
+and the extension has to be built with an Emscripten whose libc++ matches the one
+those templates were built with. A newer one links fine and then aborts at load
+on a symbol the main module does not export.
+[`docs/performance.md`](../../docs/performance.md) records what that check found.
 
 ## Use it in a game
 
@@ -86,3 +95,5 @@ rasterizer over the TTF the core embeds, never from Godot's `TextServer`, which 
 what makes a line break in the same place here and in the web renderer. See
 [the playground's README](../../examples/godot-playground/README.md) for how to
 check each capability by hand.
+[`docs/performance.md`](../../docs/performance.md) has what a frame costs, on this
+target and on the web renderer beside it.

@@ -2,16 +2,15 @@
  * Web performance budgets (ZAB-55, widened in ZAB-73) — the DETERMINISTIC half.
  * Draw calls, geometry, atlas memory and the frame's own work counters are exact
  * counts of what the renderer does, so CI can hold the line on them; the
- * wall-clock half (ms per frame) lives in `bench.test.ts` and is documented in
- * `docs/internal/`, because asserting time in CI flakes. ZAB-40 consolidates these numbers
- * with Unity's.
+ * wall-clock half (ms per frame) lives in `bench.test.ts`, because asserting time
+ * in CI flakes. `docs/performance.md` consolidates both targets' numbers.
  *
  * Two layers, and they measure different things:
  *
- * - **The golden corpus**, below, is a floor: fifteen small scenes that must not
- *   start costing more than they do. It is cheap and it catches the crude
- *   regressions (a clip that stops batching, a leak of atlases).
- * - **The realistic scenes** (`perf/scenes.ts`, ZAB-73) are the ones a real
+ * - **The golden corpus**, below, is a floor: every case of it must not start
+ *   costing more than it does. It is cheap and it catches the crude regressions
+ *   (a clip that stops batching, a leak of atlases).
+ * - **The realistic scenes** (`golden/perf/`, ZAB-73) are the ones a real
  *   screen looks like — a thousand-row list, a wall of wrapped prose, a panel
  *   mid-transition, a populated screen with something animating on it — at 960×600
  *   instead of 480×320. The corpus was asserting 17 draw calls against a ceiling
@@ -22,6 +21,12 @@
  * The numbers are budgets, not snapshots: each is comfortably above what the
  * scene uses today (the observed value is next to it), so they fail on a
  * REGRESSION and not on an honest new case.
+ *
+ * Since G15 (ZAB-148) the scenes live in `golden/perf/` and the C++ core budgets
+ * itself against the same files, in `core/tests/test_budgets.cpp`. The two agree
+ * on every count but atlas memory, where the core's LA8 atlases are half the size
+ * of these RGBA ones — same pixels, different upload format.
+ * `docs/performance.md` puts the two columns side by side.
  */
 
 import { describe, expect, it } from "vitest";
@@ -62,9 +67,9 @@ describe("performance budgets per golden scene (ZAB-55)", () => {
  * budget that has to be edited on every honest change stops being read.
  */
 const SCENE_BUDGET: Record<string, { drawCalls: number; vertices: number; resolved: number }> = {
-  // observed: 5 draw calls, 3.157 vertices (3.864 scrolled), 49 nodes resolved (58 scrolled)
+  // observed: 5 draw calls, 3.153 vertices (3.864 scrolled), 49 nodes resolved (58 scrolled)
   list: { drawCalls: 12, vertices: 6000, resolved: 120 },
-  // observed: 4 draw calls, 8.947 vertices, 19 nodes resolved
+  // observed: 4 draw calls, 9.015 vertices, 19 nodes resolved
   text: { drawCalls: 12, vertices: 13000, resolved: 60 },
   // observed: 2 draw calls closed / 3 mid-transition, 90 → 1.826 vertices, 4 → 88 resolved
   motion: { drawCalls: 12, vertices: 3000, resolved: 180 },

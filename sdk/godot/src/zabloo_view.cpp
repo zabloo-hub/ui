@@ -154,6 +154,7 @@ void ZablooView::_bind_methods() {
   ClassDB::bind_method(D_METHOD("show_view", "id"), &ZablooView::show_view);
   ClassDB::bind_method(D_METHOD("get_diagnostics"), &ZablooView::get_diagnostics);
   ClassDB::bind_method(D_METHOD("is_loaded"), &ZablooView::is_loaded);
+  ClassDB::bind_method(D_METHOD("get_stats"), &ZablooView::get_stats);
   ClassDB::bind_method(D_METHOD("set_data", "path", "value"), &ZablooView::set_data);
   ClassDB::bind_method(D_METHOD("set_open", "id", "open"), &ZablooView::set_open);
   ClassDB::bind_method(D_METHOD("set_selected_tab", "id", "index"),
@@ -318,6 +319,28 @@ PackedStringArray ZablooView::get_diagnostics() const {
 }
 
 bool ZablooView::is_loaded() const { return document_.loaded(); }
+
+Dictionary ZablooView::get_stats() const {
+  Dictionary out;
+  const zabloo::View *view = document_.view();
+  if (view == nullptr) return out;
+  const zabloo::FrameStats &stats = view->stats();
+  out["draw_calls"] = static_cast<int64_t>(stats.draw_calls);
+  out["vertices"] = static_cast<int64_t>(stats.vertices);
+  out["indices"] = static_cast<int64_t>(stats.indices);
+  out["atlases"] = static_cast<int64_t>(stats.atlases);
+  out["atlas_bytes"] = static_cast<int64_t>(stats.atlas_bytes);
+  out["resolved"] = static_cast<int64_t>(stats.resolved);
+  out["text_layouts"] = static_cast<int64_t>(stats.text_layouts);
+  out["buffer_growths"] = static_cast<int64_t>(stats.buffer_growths);
+  out["repaint_only"] = stats.repaint_only;
+  // The core counts the geometry it PRODUCED; how many draw calls that geometry
+  // becomes is the adapter's answer, because it is the adapter that groups it
+  // into canvas items. They agree today — one item per clip group, one call per
+  // batch — and a scene where they stop agreeing is the interesting one.
+  out["canvas_items"] = static_cast<int64_t>(used_clip_items_);
+  return out;
+}
 
 void ZablooView::set_data(const String &path, const Variant &value) {
   const CharString utf8 = path.utf8();
@@ -821,6 +844,7 @@ void ZablooView::_draw() {
   for (size_t i = items; i < clip_items_.size(); i++) {
     server->canvas_item_clear(clip_items_[i].item);
   }
+  used_clip_items_ = items;
 }
 
 // --- input ----------------------------------------------------------------

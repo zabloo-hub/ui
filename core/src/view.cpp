@@ -83,6 +83,7 @@ Size View::measure_text(LayoutNode &node, std::optional<double> available) {
     return Size{node.text_block.width, node.text_block.height};
   }
 
+  text_layout_count_++;
   node.text_block = layout_text(content, atlas, options);
   node.has_text_block = true;
   node.text_content = content;
@@ -251,6 +252,9 @@ void View::set_size(double width, double height) {
 void View::layout_frame() {
   if (ir_root_ == nullptr) return;
   frame_++;
+  laid_out_since_paint_ = true;
+  resolved_count_ = 0;
+  text_layout_count_ = 0;
   // Recomputed from scratch every frame: a tween that landed last frame must not
   // keep the adapter asking for more (`animating`).
   animating_ = false;
@@ -407,6 +411,7 @@ void View::resolve(LayoutNode &node, double now) {
     forget_anim(node);
     return;
   }
+  resolved_count_++;
   node.forced_clip = false;
   // Effective `disabled` BEFORE the style resolves, since it is a state the merge
   // has to see this very frame (ZAB-63). It inherits from the parent — one prop
@@ -1706,7 +1711,13 @@ const GeometryBuilder &View::paint() {
   // named them: nothing may hold a `Clip *` across a paint.
   paint_clips_.reset();
   geometry_.reset();
-  if (ir_root_ == nullptr) return geometry_;
+  const bool repaint_only = !laid_out_since_paint_;
+  laid_out_since_paint_ = false;
+  if (ir_root_ == nullptr) {
+    stats_ = FrameStats{};
+    stats_.repaint_only = repaint_only;
+    return geometry_;
+  }
   paint_node(root_, 1.0, nullptr);
   // Then the layer, in `(z, document order)`. Each entry is a PAINT ROOT: it
   // opens a group of its own, because sharing the tree's would put the tree's
@@ -1717,7 +1728,35 @@ const GeometryBuilder &View::paint() {
     geometry_.start_root();
     paint_node(*overlay, overlay->presence, nullptr);
   }
+  stats_ = frame_stats(repaint_only);
   return geometry_;
+}
+
+/**
+ * The frame's cost, read off the batches that are about to be drawn (G15).
+ *
+ * A repaint reports zero resolved nodes and zero wraps rather than last frame's:
+ * it did not run those passes, and repeating their numbers would make a caret
+ * blink look like a full pipeline in the very measurement built to show it is not.
+ */
+FrameStats View::frame_stats(bool repaint_only) const {
+  FrameStats out;
+  for (const Batch *batch : geometry_.batches()) {
+    if (batch->empty()) continue;
+    out.draw_calls++;
+    out.vertices += batch->vertex_count();
+    out.indices += static_cast<uint32_t>(batch->indices.size());
+  }
+  for (const std::unique_ptr<GlyphAtlas> &atlas : fonts_.all()) {
+    out.atlases++;
+    // LA8: luminance and coverage, two bytes a pixel.
+    out.atlas_bytes += static_cast<size_t>(atlas->size()) * static_cast<size_t>(atlas->size()) * 2;
+  }
+  out.resolved = repaint_only ? 0 : resolved_count_;
+  out.text_layouts = repaint_only ? 0 : text_layout_count_;
+  out.buffer_growths = geometry_.growths();
+  out.repaint_only = repaint_only;
+  return out;
 }
 
 /**
@@ -1729,6 +1768,13 @@ const GeometryBuilder &View::paint() {
 void View::paint_node(LayoutNode &node, double opacity, const Clip *clip) {
   if (!shown(node)) return;
   const double own = opacity * node.resolved.opacity;
+  // Fully transparent: the subtree is invisible, and still occupies its layout
+  // (`visible` remains the one way out of a box, 2026-08-06). Skipping it changes
+  // no pixel — alpha zero draws nothing — and it is not a nicety either: a
+  // `Toggle` crossfades by keeping BOTH of its slots in the layout and letting
+  // opacity say which one is seen (ZAB-36), so without this the hidden half of
+  // every switch on screen is tessellated on every frame.
+  if (own <= 0.0) return;
   // Everything below is cut to the region this node's own rect is subject to.
   geometry_.set_clip(clip);
   if (node.resolved.background.has_value()) {

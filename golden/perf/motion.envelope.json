@@ -1,0 +1,1336 @@
+{
+  "v": 1,
+  "views": {
+    "main": {
+      "type": "Container",
+      "id": "root",
+      "layout": {
+        "direction": "column",
+        "padding": 12,
+        "gap": 8
+      },
+      "style": {
+        "background": "#101218"
+      },
+      "children": [
+        {
+          "type": "Collapse",
+          "id": "section",
+          "open": false,
+          "transition": {
+            "duration": 400,
+            "easing": "ease-out"
+          },
+          "layout": {
+            "direction": "column",
+            "width": 900,
+            "padding": 8,
+            "gap": 8
+          },
+          "style": {
+            "background": "#1e293b",
+            "radius": 6
+          },
+          "children": [
+            {
+              "type": "Container",
+              "id": "section-header",
+              "layout": {
+                "direction": "row",
+                "height": 32,
+                "align": "center",
+                "padding": 6
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "section-title",
+                  "text": "Settings",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-0",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-0",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 0",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-0",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-0",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-0",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-0",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-0",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-1",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-1",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 1",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-1",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-1",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-1",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-1",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-1",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-2",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-2",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 2",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-2",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-2",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-2",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-2",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-2",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-3",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-3",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 3",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-3",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-3",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-3",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-3",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-3",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-4",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-4",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 4",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-4",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-4",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-4",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-4",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-4",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-5",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-5",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 5",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-5",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-5",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-5",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-5",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-5",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-6",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-6",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 6",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-6",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-6",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-6",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-6",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-6",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-7",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-7",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 7",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-7",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-7",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-7",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-7",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-7",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-8",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-8",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 8",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-8",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-8",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-8",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-8",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-8",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-9",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-9",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 9",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-9",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-9",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-9",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-9",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-9",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-10",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-10",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 10",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-10",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-10",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-10",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-10",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-10",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "Container",
+              "id": "row-11",
+              "layout": {
+                "direction": "row",
+                "width": 868,
+                "height": 36,
+                "align": "center",
+                "gap": 12
+              },
+              "style": {
+                "background": "#334155",
+                "radius": 4
+              },
+              "transition": {
+                "duration": 400,
+                "easing": "ease-out"
+              },
+              "children": [
+                {
+                  "type": "Text",
+                  "id": "row-label-11",
+                  "layout": {
+                    "grow": 1
+                  },
+                  "text": "Option 11",
+                  "style": {
+                    "color": "#e2e8f0"
+                  }
+                },
+                {
+                  "type": "ProgressBar",
+                  "id": "bar-11",
+                  "value": {
+                    "bind": "job.progress"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "linear"
+                  },
+                  "layout": {
+                    "width": 160,
+                    "height": 8
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 4
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "fill-11",
+                      "style": {
+                        "background": "#f97316",
+                        "radius": 4
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "Toggle",
+                  "id": "toggle-11",
+                  "checked": {
+                    "bind": "ui.armed"
+                  },
+                  "transition": {
+                    "duration": 400,
+                    "easing": "ease-out"
+                  },
+                  "layout": {
+                    "width": 44,
+                    "height": 24,
+                    "padding": 2
+                  },
+                  "style": {
+                    "background": "#0f172a",
+                    "radius": 12
+                  },
+                  "states": {
+                    "checked": {
+                      "style": {
+                        "background": "#f97316"
+                      }
+                    }
+                  },
+                  "children": [
+                    {
+                      "type": "Container",
+                      "id": "on-11",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    },
+                    {
+                      "type": "Container",
+                      "id": "off-11",
+                      "layout": {
+                        "width": 20,
+                        "height": 20
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

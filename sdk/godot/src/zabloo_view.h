@@ -23,6 +23,7 @@
 #include <godot_cpp/classes/shader_material.hpp>
 #include <godot_cpp/variant/packed_color_array.hpp>
 #include <godot_cpp/variant/packed_int32_array.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 
 #include <cstdint>
@@ -77,6 +78,21 @@ class ZablooView : public Control {
   PackedStringArray get_diagnostics() const;
   /** True once an envelope has loaded — a refused one does not count. */
   bool is_loaded() const;
+
+  /**
+   * What the last painted frame cost, as the core counted it (G15, ZAB-148).
+   *
+   * Telemetry and NOT the host channel: nothing here changes what the UI does,
+   * and none of it is in the `ViewSnapshot` that the corpus compares — a draw
+   * call is a property of how a target draws, not of what the envelope says. It
+   * is here so a bench scene can put the core's own numbers next to the engine's
+   * (`RenderingServer.get_rendering_info`), which is the only place the two can
+   * be read against each other.
+   *
+   * The keys are the fields of `zabloo::FrameStats`, in snake_case like the rest
+   * of this class. Empty before the first frame.
+   */
+  Dictionary get_stats() const;
 
   // --- the host channel (`docs/format/host-channel.md`) ---
   // The operations, their arguments and their effects are the contract; only the
@@ -223,6 +239,8 @@ class ZablooView : public Control {
     Ref<ShaderMaterial> material;
   };
   std::vector<ClipItem> clip_items_;
+  /** How many of them the last `_draw` actually used — reported by `get_stats`. */
+  size_t used_clip_items_ = 0;
   /**
    * The rounded half of clipping, shared by every rounded group: the scissor has
    * already cut everything outside the rect, so all that is left is discarding

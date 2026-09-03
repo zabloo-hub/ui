@@ -6,3 +6,11 @@ export_presets.cfg
 # consumes a release zip. Committing it would mean committing binaries and
 # keeping two copies of the addon in sync.
 addons/
+
+# Envelopes packed INTO the project for an export (G15). Outside one, the
+# playground reads the examples' `dist/` directly — copying them in permanently
+# would leave it rendering a stale build of the very examples it exists to show.
+envelopes/
+
+# Exported builds.
+build/

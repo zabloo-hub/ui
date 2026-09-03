@@ -1,0 +1,39 @@
+{
+  "motionMs": 400,
+  "scenes": {
+    "list": {
+      "about": "1.000 unequal rows virtualized inside a scroller — the biggest list a real screen shows.",
+      "envelope": "list.envelope.json",
+      "width": 960,
+      "height": 600,
+      "data": "list.data.json"
+    },
+    "text": {
+      "about": "Three columns of wrapped prose at three point sizes, one of them capped and ellipsized.",
+      "envelope": "text.envelope.json",
+      "width": 960,
+      "height": 600
+    },
+    "motion": {
+      "about": "Twelve rows of toggles, bars and a Collapse, measured MID-transition instead of at rest.",
+      "envelope": "motion.envelope.json",
+      "width": 960,
+      "height": 600,
+      "data": "motion.data.json"
+    },
+    "dense-loop": {
+      "about": "A populated screen with a Spinner running — the steady animation frame.",
+      "envelope": "dense-loop.envelope.json",
+      "width": 960,
+      "height": 600,
+      "data": "dense-loop.data.json"
+    },
+    "dense-caret": {
+      "about": "The same screen with nothing looping, so a focused field's caret owns the clock alone.",
+      "envelope": "dense-caret.envelope.json",
+      "width": 960,
+      "height": 600,
+      "data": "dense-caret.data.json"
+    }
+  }
+}

@@ -23,3 +23,10 @@ android.debug.arm64 = "res://addons/zabloo/bin/libzabloo.android.template_debug.
 android.release.arm64 = "res://addons/zabloo/bin/libzabloo.android.template_release.arm64.so"
 ios.debug = "res://addons/zabloo/bin/libzabloo.ios.template_debug.arm64.dylib"
 ios.release = "res://addons/zabloo/bin/libzabloo.ios.template_release.arm64.dylib"
+; Web is EXPERIMENTAL (2026-08-24, Decision 4) and needs two things nothing else
+; does: the extension compiled to a wasm side module, and an export that uses the
+; `dlink` templates (Web preset → "Extensions Support"). A plain web export has no
+; dynamic linker in it at all, so it does not fail to find this library — it
+; cannot load one in the first place.
+web.debug.wasm32 = "res://addons/zabloo/bin/libzabloo.web.template_debug.wasm32.wasm"
+web.release.wasm32 = "res://addons/zabloo/bin/libzabloo.web.template_release.wasm32.wasm"

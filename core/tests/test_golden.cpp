@@ -28,7 +28,6 @@
 
 #include "corpus.h"
 #include "json.h"
-#include "pad.h"
 #include "snapshot.h"
 #include "testing.h"
 #include "view.h"
@@ -37,15 +36,12 @@ using namespace zabloo;
 
 namespace {
 
-/** Viewport every case is measured at unless it asks for another. */
-constexpr double DEFAULT_WIDTH = 480.0;
-constexpr double DEFAULT_HEIGHT = 320.0;
-
 /** Differences printed before a diff starts repeating itself. */
 constexpr size_t MAX_DIFFS = 20;
 
 using zabloo::testing::corpus_file;
-using zabloo::testing::to_data_value;
+using zabloo::testing::Staged;
+using zabloo::testing::stage_corpus_case;
 
 /**
  * The skip list, parsed once and held by value for the life of the process: a
@@ -69,112 +65,13 @@ JsonRef skip_reason(std::string_view name) { return skipped().get(name); }
 bool is_refusal(JsonRef spec) { return spec.get("refuses").exists(); }
 
 /**
- * Replays a case's `pad` script against the view.
- *
- * A pad is POLLED, never pushed: a `press` only becomes an intention on a frame
- * that reads it, so a step that changes the state does nothing until an
- * `advanceMs` gives the loop one. That is the whole reason the corpus can carry
- * a gamepad at all — a declarative script of a STATE replays anywhere, while a
- * stream of one platform's events would not.
- *
- * `clock` arrives at the instant the case's own `advanceMs` left it and leaves
- * where the script ends, because the frame that gets measured is the last one
- * this ran.
- */
-void replay_pad(View &view, JsonRef steps, double &clock) {
-  // Shaped the way a standard-mapping pad reports itself — 17 buttons and 4 axes,
-  // all at rest — exactly as the reference harness plugs one in.
-  PadSnapshot pad;
-  pad.buttons.assign(17, false);
-  pad.axes.assign(4, 0.0);
-  PadController controller;
-  controller.connect(clock);
-
-  const auto button = [&pad](JsonRef index, bool down) {
-    const size_t at = static_cast<size_t>(index.as_number(0.0));
-    if (at >= pad.buttons.size()) pad.buttons.resize(at + 1, false);
-    pad.buttons[at] = down;
-  };
-
-  for (uint32_t i = 0; i < steps.size(); i++) {
-    const JsonRef step = steps.at(i);
-    if (step.get("press").exists()) {
-      button(step.get("press"), true);
-    } else if (step.get("release").exists()) {
-      button(step.get("release"), false);
-    } else if (step.get("axis").exists()) {
-      const size_t at = static_cast<size_t>(step.get("axis").as_number(0.0));
-      if (at >= pad.axes.size()) pad.axes.resize(at + 1, 0.0);
-      pad.axes[at] = step.get("value").as_number(0.0);
-    } else {
-      clock += step.get("advanceMs").as_number(0.0);
-      view.set_now(clock);
-      controller.poll(view, pad, clock);
-      view.layout_frame();
-    }
-  }
-}
-
-/**
  * Replays one case and gives back the frame it measured, or an empty string with
  * `failure` saying why there is none.
  */
 std::string replay(JsonRef spec, std::string &failure) {
-  const std::string file = std::string(spec.get("envelope").as_string());
-  const std::string envelope_text = corpus_file("envelopes/" + file);
-  if (envelope_text.empty()) {
-    failure = "envelopes/" + file + " is missing or empty";
-    return {};
-  }
-
-  Document document;
-  if (!document.load(envelope_text)) {
-    failure = "the envelope was refused";
-    for (const Diagnostic &diagnostic : document.diagnostics()) {
-      if (diagnostic.level == DiagnosticLevel::Fatal) {
-        failure += std::string(" (") + diagnostic_code_name(diagnostic.code) + ")";
-        break;
-      }
-    }
-    return {};
-  }
-  View *view = document.view();
-  if (view == nullptr) {
-    failure = "the envelope loaded but showed no view";
-    return {};
-  }
-
-  view->set_size(spec.get("width").as_number(DEFAULT_WIDTH),
-                 spec.get("height").as_number(DEFAULT_HEIGHT));
-
-  const JsonRef data = spec.get("data");
-  for (uint32_t i = 0; i < data.size(); i++) {
-    document.set_data(data.key_at(i), to_data_value(data.at(i)));
-  }
-
-  // Two frames, and the second is part of the contract rather than a rig detail:
-  // it is the settling frame `golden/README.md` requires after the data.
-  view->layout_frame();
-  view->layout_frame();
-
-  // Then the clock, in one jump, exactly as the reference harness runs it: the
-  // record is of the frame at that instant, not of the frames on the way there.
-  // Both settling frames happen at time 0, which is what makes them a mount — and
-  // a mount snaps, so nothing has started moving before the clock does.
-  double clock = 0.0;
-  const double advance = spec.get("advanceMs").as_number(0.0);
-  if (advance > 0.0) {
-    clock = advance;
-    view->set_now(clock);
-    view->layout_frame();
-  }
-
-  // And last the pad, which moves the clock the rest of the way in the steps its
-  // own script asks for: a poll is a frame, so the spans between them are where
-  // a held direction repeats and where the scroll stick covers ground.
-  const JsonRef pad = spec.get("pad");
-  if (pad.exists()) replay_pad(*view, pad, clock);
-  return snapshot_view(*view);
+  Staged staged = stage_corpus_case(spec, failure);
+  if (staged.view == nullptr) return {};
+  return snapshot_view(*staged.view);
 }
 
 // --- diffing --------------------------------------------------------------

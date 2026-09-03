@@ -159,6 +159,51 @@ buttons, a vertical catalogue and a `Collapse` inside it.
 - **Rounded corners** — the catalogue's content is cut by the panel's radius, not
   by its bounding box.
 
+## Exporting it, and benching a real one
+
+Everything the core measures about a frame it measures with no engine at all
+(`scons bench` in `core/`). What only a running export can answer — does the
+geometry reach a draw call, does a screen hold its frame rate, what does the GPU
+hold — is what this is for.
+
+```sh
+# The examples' envelopes, packed INTO the project. Outside an export the
+# playground reads them from `../<example>/dist/` directly, but `res://` inside a
+# bundle has no repo around it, so an export carries its content the way a shipped
+# game does. `envelopes/` is gitignored, like `addons/`.
+mkdir -p envelopes
+for e in settings-screen showcase inventory-demo hello-button; do
+  cp "../$e/dist/zabloo.ir.json" "envelopes/$e.ir.json"
+done
+
+# Open the project in Godot once and add an export preset (Project → Export).
+# There is no committed `export_presets.cfg`: it holds absolute paths and
+# per-machine signing settings.
+godot --headless --export-release "macOS" build/macos/playground.app
+
+# Walks every example, dwells on each, prints a line per screen and quits.
+"build/macos/playground.app/Contents/MacOS/Zabloo Playground" -- --zabloo-bench
+```
+
+```
+[zabloo-bench] macOS, 960x600, Intel(R) Iris(TM) Plus Graphics 645, vsync off
+[zabloo-bench] settings-screen/settings   120.0 fps   6 draw calls (engine 7)   1032 vertices   5 atlases   13.7 MiB textures
+```
+
+Two things worth knowing before reading a line of it. The **first frames of an
+example are startup** — window creation, Vulkan pipelines, every glyph reaching an
+atlas for the first time — so each example is warmed up before it is measured;
+folded in, they made the first example look half as fast as the rest. And the
+**fps figure is capped by the display** on any machine that keeps up, so a row
+reading 120 means "the renderer was not the limit" and not "120 was the limit".
+
+Without the flag, **B** toggles the same numbers as a HUD, live. Read them in an
+export rather than in the editor: the editor draws its own viewport around this
+one, and its numbers include work no player pays for.
+
+The whole table, both targets, and what each number means:
+[`docs/performance.md`](../../docs/performance.md).
+
 ## Watching a hot-update keep its textures
 
 `R` goes through `load_file` → `load_envelope` → the core's one loader — the same
