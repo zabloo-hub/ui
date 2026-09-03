@@ -213,6 +213,37 @@ typedef struct zb_key_intent {
 } zb_key_intent;
 
 /**
+ * The text field holding the focus, as an adapter's keyboard half needs it
+ * (UN5, ZAB-198): where to put the IME's candidate list, what to hand a phone's
+ * on-screen keyboard, and the phase the caret blinks at. Nothing here is an
+ * intention — the field's state stays the core's — which is why it is a
+ * struct to read and not a set of calls.
+ */
+typedef struct zb_field_info {
+  /** The field's rect in view space (y down), scroll already applied. */
+  double x;
+  double y;
+  double width;
+  double height;
+  /**
+   * What the field holds right now, UTF-8. Valid until the next edit of the
+   * field — a key, a paste, a composition, `zb_view_set_text` — or the next
+   * `zb_view_layout_frame` or load. Read it, do not keep it.
+   */
+  zb_str text;
+  /**
+   * When the last edit landed, on the view's clock (`zb_view_set_now`). The
+   * blink is a closed form of the time since: the caret is visible for the
+   * first half of every `blink_ms` period, so the only frames a blink needs are
+   * the two per period on which that answer changes (ZAB-73, ZAB-144).
+   */
+  double caret_since;
+  double blink_ms;
+  /** An IME composition is in flight. */
+  int32_t composing;
+} zb_field_info;
+
+/**
  * One poll's worth of a gamepad, in the STANDARD MAPPING's indices
  * (https://w3c.github.io/gamepad/#remapping): A = 0, B = 1, d-pad = 12..15,
  * left stick = axes 0/1, right stick = 2/3. An engine numbers its buttons its
@@ -326,6 +357,7 @@ typedef struct zb_abi_size_table {
   uint32_t frame_stats;
   uint32_t diagnostic;
   uint32_t abi_size_table;
+  uint32_t field_info;
 } zb_abi_size_table;
 
 /* --- the library ----------------------------------------------------------- */
@@ -477,6 +509,12 @@ ZB_EXPORT int zb_view_end_composition(zb_view *view);
  * view, or the next load. Returns 1 when there is a selection, 0 for none.
  */
 ZB_EXPORT int zb_view_field_selection_text(zb_view *view, zb_str *out);
+/**
+ * The text field holding the focus, or 0 when the focus is elsewhere or
+ * nowhere (`out` is then zeroed). What an adapter arms the IME, the on-screen
+ * keyboard and the caret's blink from — see `zb_field_info` for the lifetimes.
+ */
+ZB_EXPORT int zb_view_focused_field(const zb_view *view, zb_field_info *out);
 
 /** Moves the focus along a unit axis. 0 when nothing moved. */
 ZB_EXPORT int zb_view_move_focus(zb_view *view, double dx, double dy);
