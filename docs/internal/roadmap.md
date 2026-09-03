@@ -226,7 +226,7 @@ camino y se consolida en F8.
     revisiones distintas, y la segunda es la que cierra el criterio de salida
     "`grep -ri unity` solo devuelve menciones históricas".
 
-12. **F12 — SDK de Unity** (planificada 2026-09-03, sin desglosar). Unity vuelve, y
+12. **F12 — SDK de Unity** (abierta 2026-09-03, ZAB-194…204, tickets `[UN#]`). Unity vuelve, y
     vuelve por la vía que dejó escrita la decisión del 2026-08-24: **adaptador fino
     sobre el core C++** a través de un plugin nativo, nunca el port a C# que se canceló
     a 4 de 13 tipos: el `sdk/unity` que G17 está retirando de la superficie no es el
@@ -235,9 +235,22 @@ camino y se consolida en F8.
     input, exponer acciones y datos idiomáticamente en C#) y el puente de interop que
     la conecta con el core, que es el riesgo real de la fase (P/Invoke, IL2CPP/AOT,
     consolas).
-    **Criterio de salida:** el corpus golden completo pasa en Unity con las mismas
-    métricas, `examples/settings-screen` es navegable con mando en un build real, y
-    el paquete se instala por UPM.
+    **Tres decisiones tomadas al abrirla:** render por **UGUI** (`Canvas` + un
+    `CanvasRenderer` por grupo de clip + shader propio — la traducción literal del
+    adaptador de Godot, y el número de draw calls sigue siendo el nuestro), **Unity
+    2022.3 LTS mínimo** probado en Unity 6, e **Input System** como dependencia del
+    paquete. El puente es un **C ABI** (`core/capi/`) con valores como JSON y eventos
+    drenados en vez de callbacks — lo que hace el interop AOT-safe bajo IL2CPP, y lo que
+    permite correr el corpus **por el ABI** en CI sin Unity. Desglose en cuatro waves
+    (label = grupo paralelo, zonas disjuntas): A decisión/spec + C ABI + chasis UPM; B
+    render, puntero/teclado, mando, canal de host; C dev loop, builds/IL2CPP/perf, golden
+    en Unity; D docs y distribución. Los learnings de F11 que aplican, y el mapa, en
+    `plans/2026-09-03-unity-sdk-f12.md`.
+    **Criterio de salida:** el corpus golden completo reproduce sus métricas byte a byte a
+    través del C ABI **y** dentro de Unity, `examples/settings-screen` es 100 % navegable
+    con mando en un player real (IL2CPP), `zabloo dev --unity` recarga en vivo, y el
+    paquete se instala desde un `.tgz` en un proyecto limpio. Fuera, a propósito: móvil en
+    dispositivo y la revisión final de los cuatro targets (misma cesta que ZAB-193).
 
 13. **F13 — SDK de Unreal** (planificada 2026-09-03, sin desglosar). El core entra
     como módulo/plugin de C++ **sin puente de lenguaje**, que es lo que lo hace el
