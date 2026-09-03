@@ -1768,6 +1768,13 @@ FrameStats View::frame_stats(bool repaint_only) const {
 void View::paint_node(LayoutNode &node, double opacity, const Clip *clip) {
   if (!shown(node)) return;
   const double own = opacity * node.resolved.opacity;
+  // Fully transparent: the subtree is invisible, and still occupies its layout
+  // (`visible` remains the one way out of a box, 2026-08-06). Skipping it changes
+  // no pixel — alpha zero draws nothing — and it is not a nicety either: a
+  // `Toggle` crossfades by keeping BOTH of its slots in the layout and letting
+  // opacity say which one is seen (ZAB-36), so without this the hidden half of
+  // every switch on screen is tessellated on every frame.
+  if (own <= 0.0) return;
   // Everything below is cut to the region this node's own rect is subject to.
   geometry_.set_clip(clip);
   if (node.resolved.background.has_value()) {
