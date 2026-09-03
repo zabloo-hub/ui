@@ -31,6 +31,7 @@
 #include "pad.h"
 #include "snapshot.h"
 #include "tessellator.h"
+#include "textinput.h"
 #include "view.h"
 
 // Written by `core/SConstruct` from `packages/format/package.json` — a header
@@ -149,6 +150,7 @@ ZB_EXPORT void zb_abi_sizes(zb_abi_size_table *out) {
   out->frame_stats = static_cast<uint32_t>(sizeof(zb_frame_stats));
   out->diagnostic = static_cast<uint32_t>(sizeof(zb_diagnostic));
   out->abi_size_table = static_cast<uint32_t>(sizeof(zb_abi_size_table));
+  out->field_info = static_cast<uint32_t>(sizeof(zb_field_info));
 }
 
 // --- the document -----------------------------------------------------------
@@ -434,6 +436,30 @@ ZB_EXPORT int zb_view_field_selection_text(zb_view *view, zb_str *out) {
   view->selection = view->view->field_selection_text();
   if (out != nullptr) *out = str_of(view->selection);
   return view->selection.empty() ? 0 : 1;
+}
+
+ZB_EXPORT int zb_view_focused_field(const zb_view *view, zb_field_info *out) {
+  if (out != nullptr) *out = zb_field_info{};
+  ZB_VIEW_OR(view, 0);
+  // The same test the Godot adapter runs on `focus()`: a `TextInput` whose
+  // runtime state exists. A field the focus has left is not reported, and
+  // neither is a focused node of any other type.
+  const LayoutNode *focus = view->view->focus();
+  if (focus == nullptr || focus->ir->type != NodeType::TextInput || focus->field == nullptr) {
+    return 0;
+  }
+  if (out != nullptr) {
+    const FieldState &field = *focus->field;
+    out->x = focus->rect.x;
+    out->y = focus->rect.y;
+    out->width = focus->rect.width;
+    out->height = focus->rect.height;
+    out->text = str_of(field.text);
+    out->caret_since = field.caret_since;
+    out->blink_ms = CARET.blink_ms;
+    out->composing = field.composing ? 1 : 0;
+  }
+  return 1;
 }
 
 ZB_EXPORT int zb_view_move_focus(zb_view *view, double dx, double dy) {

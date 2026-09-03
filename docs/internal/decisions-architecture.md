@@ -4865,3 +4865,96 @@ y su batch se salta (queda el `background`, ZAB-13); y `GetStats()` devuelve los
 `ImageTextures`, `FrameStats`), `Runtime/Shaders/Resources/ZablooCanvas.shader`,
 `Runtime/AssemblyInfo.cs` (`InternalsVisibleTo` para los tests), `Tests/RenderTests.cs`,
 y las dos secciones nuevas de `sdk/unity/README.md` y del README del playground.
+
+## 2026-09-03 — Puntero y teclado en Unity: el Input System como intenciones del core, y lo que el motor no da (ZAB-198, F12 UN5)
+
+**Decisión:** el input de puntero y teclado del adaptador de Unity es una traducción del de
+Godot leída del **Input System**, en dos `partial` (`ZablooView.Pointer.cs`,
+`ZablooView.Keyboard.cs`) y dos ayudantes (`Runtime/Input/Keys.cs`, `Wheel.cs`). Toda regla
+sobre lo que un gesto o una tecla SIGNIFICA sigue en el core y la arbitra el corpus; el C#
+lee el dispositivo y entrega `pointer_move/down/up/wheel/exit/cancel`, la cascada de
+teclado y las intenciones del campo. Cinco cosas que en Godot no existían y aquí hubo que
+decidir:
+
+1. **El C ABI cuenta qué campo tiene el foco.** Godot lee `view.focus()->field` para armar
+   el IME, enseñar el teclado en pantalla y calcular el parpadeo; un adaptador que entra por
+   C no podía. Entra `zb_view_focused_field` con `zb_field_info` (rect, texto,
+   `caret_since`, `blink_ms`, composición en vuelo), envolviendo `view.h` sin tocarlo, con
+   su fila en `zb_abi_size_table` y su caso en `test_capi.cpp`. Es el primer añadido al ABI
+   después de UN2, y sigue su regla: envuelve, no edita.
+
+2. **El texto y la composición llegan por un sumidero ESTÁTICO.** El Input System entrega
+   `onTextInput` y `onIMECompositionChange` como eventos y la vista lee su input una vez por
+   frame, así que algo tiene que guardarlos entre medias. Es estático y se suscribe una vez
+   por proceso porque el teclado ES del proceso —un dueño a la vez (UN6)—, una vista es
+   desechable, y un `partial` no puede añadir un `OnDisable` del que desuscribirse: una
+   suscripción por instancia sobreviviría a la instancia. El dueño drena; sin dueño se
+   descarta.
+
+3. **La repetición de teclas es del adaptador.** Godot recibe el `is_echo` del OS; el Input
+   System no repite nada salvo texto, así que un Backspace o una flecha mantenidos serían una
+   sola pulsación. `Keys.Repeat` repite flechas, Home/End, Backspace y Delete con las
+   constantes del pad (400 ms de pausa, luego cada 90) y marca `repeat` en el intent — la
+   misma sensación desde un d-pad y una flecha, que ya comparten handlers (ZAB-47). Enter,
+   Espacio, Tab y Escape no repiten: un Enter mantenido no es un segundo envío.
+
+4. **La rueda se normaliza por magnitud, no leyendo el ajuste.** El Input System reporta
+   ±120 por muesca en Windows con 1.7 (el mínimo del paquete) y ±1 donde existe
+   `scrollDeltaBehavior` y normaliza; leer ese ajuste pediría un `versionDefines` en el
+   asmdef. En Windows, un delta mayor que 10 es crudo y se divide por 120 — ningún frame
+   normalizado acumula diez muescas y ninguna muesca cruda baja de 30. Después, **50 px por
+   muesca**, la constante de Godot, con los ejes 1:1 con la referencia: el hueco (a) de ZAB-9
+   se queda igual en los tres targets a propósito.
+
+5. **Escape consumido es una propiedad, no un evento.** Godot acepta el evento solo si
+   `dismiss_top_modal` cerró algo, y lo demás cae al menú de pausa del juego. Unity no tiene
+   evento que aceptar ni dejar pasar, así que `EscapeConsumedThisFrame` responde la misma
+   pregunta un frame a la vez, para leerla en `LateUpdate`.
+
+**Lo que se traduce sin cambiar:** captura del puntero (un gesto que empezó dentro recibe
+`move` y `up` fuera del rect, y `OnApplicationFocus(false)` con gesto en vuelo es un
+`pointer_cancel`), `mouse` solo para un `Mouse` (el hover es estado de ratón, un dedo que
+toca y se va no puede dejar un control encendido), la cascada en el orden de Godot
+—portapapeles → composición → texto → `edit_key` → navegación— devolviendo lo que no puede
+usar, `settle_slider_keys` al soltar una flecha, el shortcut como Cmd en macOS y Ctrl en el
+resto, el IME por flanco al entrar y salir del campo, y el caret como dos frames por
+periodo con un repaint sin pasada de layout. Aquí el instante del flip se comprueba por
+frame en vez de con un timer: `Update` corre siempre en Unity, así que no hay timer rancio
+que invalidar ni generación que contar.
+
+**Perder el teclado cierra como perder el cable:** cuando otra vista se lo lleva (el jugador
+la tocó) o el dispositivo desaparece, una flecha mantenida sobre un slider ASIENTA —su valor
+está en pantalla y se escribió en cada paso— y un Enter mantenido se suelta SIN activar: su
+release aterrizará en otro sitio. Son las reglas de cierre del pad (ZAB-47), aplicadas a las
+teclas; Godot no las necesitaba porque un `Control` que pierde el foco deja de recibir
+teclas del motor.
+
+**IME: la composición vacía es el fin, y el texto asentado llega como texto.** El Input
+System, como el `Input.inputString` antiguo, entrega el texto de una composición asentada
+por `onTextInput`, así que al vaciarse la composición el campo vuelve a su base
+(`set_composition("")` + `end_composition()`, que avisa al juego una vez como el
+`compositionend` de la web) y el texto entra después por `insert_text` como cualquier
+tecla. Es el supuesto que verifica el criterio de salida con el teclado japonés; si Unity no
+reenviara el texto asentado, el cambio es una línea. Godot no tiene el problema porque su
+`ime_get_text()` es la única fuente.
+
+**El contrato entre partials.** El handle del `zb_view*` es el campo `view` que UN4
+movió a `ZablooView.cs` para que los partials lo compartan (`IntPtr.Zero` hasta la
+primera carga; Host.cs lo escribe, los demás lo leen), y la propiedad del input es
+`InputOwner.Register/Owns/Claim` (UN6, leído de su worktree antes de que aterrizara). Los
+`.meta` de las carpetas compartidas con UN6 (`Runtime/Input`, `Tests/PlayMode`) llevan su
+mismo GUID para que la fusión no los pelee.
+
+**Verificado:** el C ABI, con `scons test capi` (16 casos, corpus incluido) y la suite
+entera del core (516). El C# solo por tipos, con un shim de Unity y del Input System bajo
+`dotnet build` (LangVersion 9, la de 2022.3): esta máquina no tiene Unity. Lo que necesita
+motor —`settings-screen` con ratón y teclado, el drag táctil en `inventory-demo`, el IME
+japonés en macOS y la suite PlayMode con `InputTestFixture`— queda escrito en
+`examples/unity-playground/README.md` § *Checking UN5 by hand*, y la suite entera es
+inconclusiva en vez de roja hasta que UN7 aterrice `LoadEnvelope`.
+
+**Dónde vive:** `core/capi/zabloo.{h,cpp}` y `core/tests/test_capi.cpp` (el campo enfocado),
+`sdk/unity/Runtime/ZablooView.Pointer.cs`, `ZablooView.Keyboard.cs`,
+`Runtime/Input/Keys.cs`, `Runtime/Input/Wheel.cs`, `Runtime/Interop/NativeMethods.cs`
+(`#region Input`), `sdk/unity/Tests/PlayMode/KeyboardInputTests.cs`, `sdk/unity/README.md`
+§ *Input* y el README del playground.
