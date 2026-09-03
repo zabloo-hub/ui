@@ -6,11 +6,11 @@ corpus deliberately does not cover (the corpus runs the core on a bare CPU, with
 no engine and no GPU). It is the Unity counterpart of
 [`godot-playground`](../godot-playground/README.md).
 
-**Status: host channel (UN7), rendering (UN4) and pointer/keyboard (UN5) in;
-the gamepad (UN6) is still to land.** The scene opens and compiles, the
-envelopes load into the core, the game-facing API works — `SetData`, the id
-operations, `OnAction`/`OnDataChanged`/`OnDiagnostic` — and the view can be
-used with a mouse, a finger and a keyboard. Each ticket adds what it can be
+**Status: host channel (UN7), rendering (UN4), pointer/keyboard (UN5) and the
+gamepad (UN6) in.** The scene opens and compiles, the envelopes load into the
+core, the game-facing API works — `SetData`, the id operations,
+`OnAction`/`OnDataChanged`/`OnDiagnostic` — and the view can be used with a
+mouse, a finger, a keyboard and a controller. Each ticket adds what it can be
 checked for here.
 
 ## Run it
@@ -184,6 +184,63 @@ the same cascade with a synthetic keyboard — Enter's press and release, two
 taps, typed text, a clipped paste, Escape with and without a modal. Run it from
 Window › General › Test Runner › PlayMode; every case is inconclusive rather
 than red until UN7 lands.
+
+## Checking UN6 by hand
+
+The half of the gamepad that the corpus cannot see (it runs the core with no
+device), and that `Tests/PlayMode/PadTests.cs` covers with a synthetic pad:
+which device, which button, when to look, and who owns the input. Plug a
+controller in — nothing has to be wired: the adapter reads `Gamepad.current`
+through the Input System's standard layout, and everything it produces goes
+through the handlers the keyboard already uses.
+
+On `settings-screen`:
+
+- **D-pad or left stick**: one push is one step of focus, the same spatial step
+  the arrows take. **Hold one**: nothing for 400 ms, then a step every 90 ms — a
+  second held is 8 steps, not a slide. Up is up: the Input System reports a stick
+  pushed up as +1 and the core reads down as positive, and the adapter flips it
+  once, on the way in.
+- **A** (south) presses the focused control and activates it when you LET GO,
+  exactly where Enter does; the action lands in the log. Unplug the pad mid-press
+  and it cancels instead: pulling a cable is not how a player buys something.
+- **On a slider**, the directions along its axis move the VALUE and the cross ones
+  move the focus off it; `brightness-apply` (its `onCommit`) lands when you
+  release the direction, not on every step — and when you unplug mid-hold, since
+  the value you left there is the one on screen.
+- **On the name field**, ←/→ walk the caret and hand the direction back at the end
+  of the text, so you leave the field with the d-pad instead of being trapped in
+  it. ↑/↓ always navigate.
+- **B** (east) closes the language dropdown — the popover writes its binding — and
+  the modal on the showcase's `overlays` view: it is the Escape key. With nothing
+  up it does nothing at all, so a game's own pause menu still gets its B.
+- **Right stick** scrolls the `ScrollView` the focus is in, at a speed that
+  depends on how far you push it. On `inventory-demo`, scroll the focused row OUT
+  of the window with the stick and keep pushing: the list keeps scrolling, because
+  the focus is remembered as the item, not as the row that was recycled (ZAB-70,
+  G12). Walking the focus down the list with the d-pad drags the list along, so
+  the focus ring is never off screen.
+
+Two views in one scene (add a second `ZablooView` to the canvas and give it an
+envelope): only the first one enabled moves with the d-pad; click or tap the
+other and the pad follows the touch, and the keyboard with it (a press on a
+view's surface is `InputOwner.Claim`, wherever it lands). The
+one that lost the pad drops whatever it was holding: a press cancels, a nudged
+slider commits.
+
+Remapping, from the game side (`Playground.cs` does none of this — the defaults
+are meant to need nothing):
+
+```csharp
+view.SetPadButton("a", GamepadButton.East);      // swap A and B
+view.SetPadAction("a", acceptActionReference);   // or follow an Input System action the game rebound
+view.SetPadAxis("scroll_y", PadMapping.AxisLeftY);
+view.SetPadAxis("scroll_x", PadMapping.AxisOff);
+```
+
+Slots are `a`, `b`, `dpad_up/down/left/right`, `nav_x/y`, `scroll_x/y`; an
+unknown one answers `false` with a warning. An action has to be enabled by the
+game — the adapter only asks it whether it is pressed.
 
 ## Two Unity versions
 
