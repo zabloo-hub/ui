@@ -115,6 +115,26 @@ succeeds they are reported **after** the first layout pass rather than before it
 some findings — an overlay anchored to a node that turns out not to take input — are only
 knowable once the view has resolved once.
 
+### In Unity
+
+Nothing throws here either. `LoadEnvelope`, `Load(TextAsset)` and `Reload` return a
+**`bool`** — `false` when a fatal diagnostic stopped the load, and the view keeps rendering
+whatever it already had. On top of that:
+
+| | |
+|---|---|
+| `OnDiagnostic` | A C# `event Action<Diagnostic>`, one invocation per finding, on a load and on a hot-update alike. Subscribe to route them into a game's own dev overlay. |
+| `Diagnostics` | The last load's findings as an `IReadOnlyList<Diagnostic>`, worst first — `Code`, `Path` (or null for the envelope itself), `Message`, `Fatal`. |
+| `IsLoaded` | Whether there is a view on screen at all. |
+
+They also reach the Unity console: a fatal through `Debug.LogError`, a warning through
+`Debug.LogWarning`, each prefixed `[zabloo]` and named by its stable code, with the
+component as the log's context so clicking the line selects it. On a load that succeeds they
+are reported **after** the first layout frame rather than before it — the same rule as
+Godot's, and for the same finding: an overlay anchored to a node that turns out not to take
+input is only knowable once the view has resolved once. A refused load has no frame to wait
+for and reports at once.
+
 ## Running the contract yourself
 
 `zabloo validate [file]` applies exactly this policy to an envelope on disk and reports it

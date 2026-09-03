@@ -27,28 +27,9 @@ namespace Zabloo
     /// </summary>
     public sealed partial class ZablooView
     {
-        // --- the contract with Host.cs ------------------------------------------
-
-        /// <summary>
-        /// The native view (<c>zb_view *</c>) this component drives, or
-        /// <see cref="IntPtr.Zero"/> while there is none.
-        ///
-        /// Host.cs owns the handle (UN7) and implements this in one line:
-        /// <c>partial void NativeView(ref IntPtr handle) { handle = view; }</c>. It
-        /// MUST answer <see cref="IntPtr.Zero"/> whenever the native view does not
-        /// exist — before <c>CreateNative</c>, after <c>DestroyNative</c>, while no
-        /// envelope is loaded — because that is what tells this file not to poll.
-        /// Unimplemented, it compiles to nothing and the argument keeps its zero,
-        /// which is what lets this file build ahead of Host.cs.
-        /// </summary>
-        partial void NativeView(ref IntPtr handle);
-
-        IntPtr NativeViewHandle()
-        {
-            var handle = IntPtr.Zero;
-            NativeView(ref handle);
-            return handle;
-        }
+        // The native view (`zb_view *`) is the `view` field ZablooView.cs shares with
+        // every partial: zero before the first successful load and after the document
+        // is destroyed, which is exactly what tells this file not to poll.
 
         // --- what this view reads each slot from --------------------------------
 
@@ -141,7 +122,7 @@ namespace Zabloo
             // as close to "enabled" as a partial without a lifecycle hook gets.
             InputOwner.Register(this);
 
-            var handle = NativeViewHandle();
+            var handle = view;
             var pad = CurrentPad();
             var now = NowMs;
             var wants = handle != IntPtr.Zero && pad != null && InputOwner.Owns(this);
@@ -234,9 +215,9 @@ namespace Zabloo
                 poller = null;
             }
 
-            public static bool PolledBy(ZablooView view)
+            public static bool PolledBy(ZablooView candidate)
             {
-                return poller != null && poller == view;
+                return poller != null && poller == candidate;
             }
 
             /// <summary>
@@ -246,11 +227,11 @@ namespace Zabloo
             /// instant, because the scroll stick moves px per SECOND and the first
             /// poll has to measure its frame against something.
             /// </summary>
-            public static void Adopt(ZablooView view, double now)
+            public static void Adopt(ZablooView next, double now)
             {
-                if (PolledBy(view)) return;
+                if (PolledBy(next)) return;
                 if (poller != null) Drop(poller);
-                poller = view;
+                poller = next;
                 NativeMethods.zb_pad_connect(Handle(), now);
             }
 
@@ -259,10 +240,10 @@ namespace Zabloo
             /// more, or the input handed to another view. A no-op for a view that was
             /// not reading it.
             /// </summary>
-            public static void Release(ZablooView view)
+            public static void Release(ZablooView holder)
             {
-                if (!PolledBy(view)) return;
-                Drop(view);
+                if (!PolledBy(holder)) return;
+                Drop(holder);
                 poller = null;
             }
 
@@ -273,11 +254,12 @@ namespace Zabloo
             /// them. A view whose native side is already gone gets a null: nothing
             /// left to tell.
             /// </summary>
-            static void Drop(ZablooView view)
+            static void Drop(ZablooView holder)
             {
-                var handle = view != null ? view.NativeViewHandle() : IntPtr.Zero;
+                // A destroyed component is Unity-null: nothing left to tell.
+                var handle = holder != null ? holder.view : IntPtr.Zero;
                 NativeMethods.zb_pad_disconnect(Handle(), handle);
-                if (view != null) view.MarkDirty();
+                if (holder != null) holder.MarkDirty();
             }
 
             /// <summary>
@@ -285,9 +267,9 @@ namespace Zabloo
             /// over it. The arrays are pinned for the call and nothing is allocated —
             /// reading a pad every frame must not.
             /// </summary>
-            public static unsafe bool Poll(ZablooView view, IntPtr viewHandle, Gamepad device, double now)
+            public static unsafe bool Poll(ZablooView reader, IntPtr viewHandle, Gamepad device, double now)
             {
-                view.ReadPad(device, Buttons, Axes);
+                reader.ReadPad(device, Buttons, Axes);
                 fixed (byte* buttons = Buttons)
                 fixed (double* axes = Axes)
                 {

@@ -4785,6 +4785,87 @@ para lo mismo son la deriva que este repo evita. **Riesgo que queda:** que el co
 compile con MSVC en CI es lo que prueba la matriz de Windows; hasta hoy solo lo había
 compilado a través de godot-cpp.
 
+## 2026-09-03 — El render de Unity: un `CanvasRenderer` por grupo, materiales por slot y el clip en el espacio del Canvas raíz (ZAB-197, F12 UN4)
+
+**Decisión:** la mitad del adaptador que sube triángulos es la traducción a UGUI de
+`_draw()` + `sync_atlases()` + `sync_images()` + `clip_item()` de `sdk/godot`, con la
+forma que UN1 fijó — un `GameObject` con `CanvasRenderer` **por grupo de clip**, un
+`Mesh` con **un submesh por batch**, los arrays del core subidos como vistas `NativeArray`
+sin copia, el flip de Y en una transform y nunca por vértice, el atlas en un canal, las
+imágenes por hash — y **cinco cosas que se decidieron al escribirla**, porque UGUI no es
+`RenderingServer`:
+
+1. **Un material por SLOT de submesh, no por grupo.** En UGUI la textura vive en el
+   material y `SetMaterial(material, index)` es por submesh, así que un grupo con
+   sólidos, una imagen y un run de glifos son tres instancias. Se poolean con el slot y
+   se reutilizan frame a frame; el clip (`_ClipRect`/`_ClipRadius`) es el mismo en todas
+   las del grupo y `_MainTex`/`_TextureKind` cambian por slot. Un draw por batch se
+   mantiene, y el recuento del Frame Debugger sigue siendo el nuestro como cota superior
+   (el Canvas puede fusionar hacia abajo, nunca partir hacia arriba).
+2. **El rect de clip viaja en el espacio del Canvas RAÍZ, no en el de la vista.** El
+   Canvas batchea los meshes de sus `CanvasRenderer`s en CPU y transforma los vértices al
+   espacio de su raíz antes de que el shader los vea, así que un `v.vertex.xy` en el
+   fragment no es la posición local del grupo. Es exactamente por lo que `RectMask2D`
+   expresa su rect en `rootCanvas` (su `rootCanvasRect`), y se hace igual: el adaptador
+   lleva las esquinas de la región del core por `rootCanvas.worldToLocal ×
+   surface.localToWorld` y escala el radio con la misma matriz. Consecuencia que conviene
+   tener escrita: **no hay scissor**. En Godot el rect lo corta `canvas_item_set_clip` y
+   el SDF solo quita esquinas; aquí el SDF corta también el rect (con `radius = 0` es
+   exacto) y un `clip()` descarta lo que quedó fuera. Se paga en fill rate lo que un
+   scissor ahorraría; UGUI no ofrece uno por renderer sin `RectMask2D`, que es lo que UN1
+   descartó.
+3. **El shader va bajo `Runtime/Shaders/Resources/`**, y no solo en `Runtime/Shaders/`
+   como decía el ticket: un shader que ninguna escena referencia se **strippea** del
+   player, y `Shader.Find` devolvería null justo en el build que importa. `Resources/`
+   es la única forma de un paquete de decir "esto viaja siempre" sin tocar los Player
+   Settings del juego.
+4. **Los objetos de GPU los posee un hijo, `RenderSurface`.** Un `partial` no puede
+   tener su propio `OnDestroy` y `ZablooView.cs` es de UN3, así que meshes, materiales
+   y texturas cuelgan de un `GameObject` hijo con un componente cuyo `OnDestroy` los
+   libera: un hijo muere con su padre sin hook nuevo. Ese mismo `RectTransform` es el
+   flip de Y (anclado arriba-izquierda, escala `(1, −1, 1)`); el shader lleva `Cull Off`
+   porque una escala negativa invierte el winding.
+5. **Los handles nativos van en `ZablooView.cs`, en un PR aparte (#123).** Los cuatro
+   tickets de la Wave B necesitan el mismo `zb_view *` y cada uno lo había resuelto a su
+   manera en su rama (`nativeView`, `native`, un `partial void NativeView(ref IntPtr)`).
+   Dos campos, `document` y `view`, en el fichero del ciclo de vida — la cláusula "un PR
+   de una línea aparte" que UN3 dejó escrita — y las ramas se rebasan sobre él.
+
+**Lo que este ticket NO pudo verificar, dicho en voz alta.** La máquina que lo escribió
+no tiene Unity: el C# se compiló contra un shim de `UnityEngine` (sintaxis y tipos, en
+los dos layouts de vértice) y nada más. Todo el criterio de salida es en motor —Overlay y
+Camera, la lista de 400 filas con esquinas antialiaseadas, el Frame Debugger, el `Reload`
+que no re-decodifica, el frame que no aloca, la captura de `text-wrap` contra Godot— y
+queda escrito como procedimiento en `examples/unity-playground/README.md` › *Checking
+UN4 by hand*, que es lo que el corpus no puede arbitrar y lo que UN9/UN10 heredan.
+
+**La incertidumbre que se aísla en vez de resolverse a ciegas:** una posición de **dos**
+componentes en su propio stream y el color como `float4` son atributos de mesh legales,
+pero el que decide si los acepta es el batcher del Canvas, que lee los vértices de vuelta
+en CPU. `VertexLayout.cs` es el único sitio que lo sabe: con el define
+`ZABLOO_STANDARD_VERTICES` las posiciones se copian a un scratch `float3` persistente (un
+bucle por vértice, sin alocar una vez crecido) y nada más cambia. `RenderTests` afirma en
+EditMode que un `Mesh` toma el layout, para que la respuesta sea un test y no una
+pantalla negra.
+
+**Detalles que son contrato y no estilo:** el orden por frame es `paint()` → barrido de
+atlas → barrido de imágenes → subida (G11: un `TextInput` rasteriza al pintar); un grupo
+cuyos batches cayeron todos no reclama renderer, pero el ORDEN de los que quedan es el del
+core; del LA8 del core se sube solo el byte de alfa con una copia a stride 2 a un
+`Texture2D` `R8` (o `Alpha8`, decidido una vez con `SupportsTextureFormat`), y el canal
+que lleva la cobertura se dice al shader con un vector global (`_ZablooCoverage`) en vez
+de con dos variantes; la identidad de una imagen es su **hash** y el handle solo un
+atajo que se verifica byte a byte, porque un reload libera los handles viejos y un
+allocator puede dar a una imagen nueva la dirección de otra; un decode fallido se recuerda
+y su batch se salta (queda el `background`, ZAB-13); y `GetStats()` devuelve los campos de
+`zb_frame_stats` más `ClipGroups`, el `used_clip_items` de Godot.
+
+**Dónde vive:** `sdk/unity/Runtime/ZablooView.Render.cs` (`Paint()`, `GetStats()`),
+`Runtime/Render/` (`VertexLayout`, `ClipGroup`, `RenderSurface`, `GlyphAtlases`,
+`ImageTextures`, `FrameStats`), `Runtime/Shaders/Resources/ZablooCanvas.shader`,
+`Runtime/AssemblyInfo.cs` (`InternalsVisibleTo` para los tests), `Tests/RenderTests.cs`,
+y las dos secciones nuevas de `sdk/unity/README.md` y del README del playground.
+
 ## 2026-09-03 — El mando en Unity: el `zb_pad` es del proceso, el dueño se poda en vez de darse de baja, y la Y se voltea a la entrada (ZAB-199, F12 UN6)
 
 **Decisión:** el mando entra en el adaptador de Unity como la traducción literal del bloque
@@ -4831,18 +4912,18 @@ cosas que aquí son decisión y no copia:
    destapa, y que el test cazó: un dueño **destruido** ES `== null` para Unity, así que
    podarlo con `owner != null` es saltarse justo al que hay que sustituir.
 
-**El contrato entre partials es un `partial void` con `ref`.** Pad.cs necesita el `zb_view*`
-que Host.cs (UN7) posee y aún no existe: `partial void NativeView(ref IntPtr handle)` sin
-implementar compila a nada y deja el cero, con lo que el pad no pollea; UN7 lo implementa en
-una línea, y el contrato es que devuelva cero siempre que la vista nativa no exista. Es la
-misma técnica con la que UN3 dejó `CreateNative`/`Step` declarados sin firma del ABI.
+**El handle nativo se lee del campo compartido, no de un hook.** Pad.cs necesita el `zb_view*`
+y lo lee de `ZablooView.cs`, donde UN4 lo dejó para que lo compartan todos los partials:
+cero antes de la primera carga y tras destruir el documento, que es exactamente lo que le
+dice al pad que no pollee. (La rama arrancó con un `partial void NativeView(ref IntPtr)`
+como contrato con Host.cs; al fusionar con UN4 y UN7 el campo ya existía y el hook sobraba.)
 
 **Lo que no se puede afirmar desde esta máquina:** no hay Unity ni mando. El C# se compiló
 con dotnet 8 contra un shim del Input System (solo sintaxis y tipos), los tests puros
 (`PadMappingTests`, `InputOwnerTests`) pasan con NUnit real, y el test PlayMode
 (`PadTests`, con `InputTestFixture`: una pulsación = un paso, un segundo = 8, desenchufar
 cancela y asienta, dos vistas y solo el dueño se mueve) queda escrito contra la API pública
-y pasa cuando UN7 haya mergeado y alguien lo corra en el editor. El procedimiento con mando
+del canal de host (UN7) y pasa cuando alguien lo corra en el editor con el plugin instalado. El procedimiento con mando
 real está en `examples/unity-playground/README.md` › *Checking UN6 by hand*.
 
 **Dónde vive:** `sdk/unity/Runtime/ZablooView.Pad.cs`, `Runtime/Input/PadMapping.cs`,

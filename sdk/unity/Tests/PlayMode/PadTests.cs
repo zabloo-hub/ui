@@ -18,8 +18,9 @@ namespace Zabloo.Tests
     ///
     /// Everything is observed through <see cref="ZablooView.OnAction"/>: a menu of
     /// twelve buttons whose actions are their ids, so "press A" says which one the
-    /// focus reached. That needs the host channel (UN7) — until it lands,
-    /// <c>LoadEnvelope</c> is a stub and every test here fails at its first assert.
+    /// focus reached. Needs the native plugin in <c>Runtime/Plugins/</c>
+    /// (<c>scons install</c> in <c>sdk/unity</c>), or <c>LoadEnvelope</c> cannot
+    /// reach the core and every test here fails at its first assert.
     ///
     /// PlayMode only: the pad is polled from <c>Update</c>, and a frame is a
     /// <c>yield return null</c>.
@@ -87,7 +88,7 @@ namespace Zabloo.Tests
             var log = new List<string>();
             actions[view] = log;
             view.OnAction += (action, context) => log.Add(action);
-            Assert.IsTrue(view.LoadEnvelope(envelope, viewId), "the envelope loads (needs UN7)");
+            Assert.IsTrue(view.LoadEnvelope(envelope, viewId), "the envelope loads (needs the native plugin installed)");
             return view;
         }
 
