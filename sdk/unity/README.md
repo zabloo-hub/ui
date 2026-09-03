@@ -19,13 +19,19 @@ the shape; the tickets below fill it in.
 | `Runtime/ZablooView.cs` | UN3 (here) | Lifecycle, size, clock, the frame, and the `partial void` hooks the rest implement |
 | `Runtime/ZablooView.Host.cs` | UN7 | `Flush()`, the public API, the native handles — **stubs today**: every call warns and does nothing |
 | `Runtime/Interop/NativeMethods.cs` | UN2 | The `DllImport` transcription of `core/capi/zabloo.h` |
-| `Runtime/ZablooView.Render.cs` | UN4 | `Paint()` — one `CanvasRenderer` per clip group, our own shader |
+| `Runtime/ZablooView.Render.cs`, `Runtime/Render/`, `Runtime/Shaders/` | UN4 | `Paint()` — one `CanvasRenderer` per clip group with a submesh per batch, the core's arrays uploaded as `NativeArray` views, glyph atlases and images as textures, and the `Zabloo/Canvas` shader that clips by SDF |
 | `Runtime/ZablooView.Pointer.cs`, `.Keyboard.cs` | UN5 | `PollPointer()`, `PollKeyboard()` |
 | `Runtime/ZablooView.Pad.cs` | UN6 | `PollPad()` |
 
 **Unity 2022.3 LTS or newer**, with the Input System package (a dependency of
 this one). It has to open in Unity 6 unchanged as well — that is the rule the
 playground checks.
+
+`Tests/` holds the EditMode tests (`Window › General › Test Runner`). The
+ones that need no native plugin — `RenderTests` — are the first thing to run
+on a machine with Unity: the adapter is written and type-checked on one
+without it, and those tests settle what a shim cannot (the shader compiles,
+a mesh takes the core's vertex layout).
 
 ## Build locally
 
