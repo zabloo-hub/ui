@@ -104,6 +104,57 @@ jobs:
         working-directory: core
         run: scons werror=true test
 
+  # The C ABI (UN2, ZAB-195): the same core compiled into `libzabloo.*` with
+  # only the `ZB_EXPORT` symbols visible, and the golden corpus replayed through
+  # the C header alone. Three platforms, because each is somewhere a
+  # `DllImport("zabloo")` has to load it — and the test that says the frontier
+  # does not change the answer is cheap enough to run everywhere it is built.
+  # Two invocations on purpose: `capi` next to `test` is a FILTER (the ticket's
+  # `scons test capi`), and this job wants the whole suite on every platform.
+  capi-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      # The locale test arms its trap with a Spanish locale — `strtod` and
+      # `printf` reading `0,5` — and `ZB_REQUIRE_LOCALE` below turns "none on
+      # this machine" from a note into a failure. macOS and Windows ship one;
+      # the Linux runner has to generate it.
+      - name: A Spanish locale, so the locale test is real
+        if: runner.os == 'Linux'
+        run: sudo locale-gen es_ES.UTF-8
+
+      - name: Build the C ABI library
+        working-directory: core
+        shell: bash
+        run: scons werror=true capi
+
+      - name: Run the core's tests, the corpus through the C header included
+        working-directory: core
+        shell: bash
+        env:
+          ZB_REQUIRE_LOCALE: "1"
+        run: scons werror=true test
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zabloo-capi-${{ matrix.os }}
+          path: |
+            core/bin/libzabloo.dylib
+            core/bin/libzabloo.so
+            core/bin/zabloo.dll
+          if-no-files-found: error
+
   # Compiles the GDExtension for every platform the addon ships for, and keeps the
   # artifacts. It does not RUN anything: what needs a real engine — geometry
   # reaching a draw call, input arriving, an export booting — is verified by hand

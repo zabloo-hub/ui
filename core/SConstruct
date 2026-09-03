@@ -9,6 +9,9 @@ Targets:
     scons                 core/bin/libzabloocore.a  +  core/bin/zabloo-core-tests
     scons test            the above, then run the tests
     scons bench           the perf bench (G15) — wall clock, so build it release
+    scons capi            the C ABI as a shared library: core/bin/libzabloo.{dylib,so} / zabloo.dll
+                          (+ core/bin/libzabloo.a for the platforms that link static)
+    scons install-unity   `capi`, then copy the host's library into sdk/unity's Plugins/
     scons target=release  optimized, no assertions
 
 The core links nothing. No Godot, no GPU, no JSON library — that is the whole
@@ -119,11 +122,165 @@ for header in headers:
     probes.append(probe)
 standalone = env.StaticLibrary("bin/zabloo-headers-alone", probes)
 
+# --- the C ABI (UN2, ZAB-195) -------------------------------------------------
+#
+# `capi/zabloo.h` is the second door into the core: Godot and Unreal enter
+# through C++, Unity (and anything with an FFI) through this. It is built two
+# ways from the same sources, and the split is the point:
+#
+#   * as a SHARED LIBRARY, `bin/libzabloo.*`, with every symbol hidden except
+#     the `ZB_EXPORT` ones — what a `DllImport("zabloo")` loads;
+#   * as STATIC objects linked into the test runner, so `tests/test_capi.cpp`
+#     replays the golden corpus through the header alone, in the same binary
+#     and the same `scons test` as everything else.
+#
+# The version the library reports is the npm `fixed` group's, read from the
+# format package at build time — one number answers "which SDK goes with the
+# packages I installed" (2026-09-03, G17). A checkout without `packages/` gets a
+# version that says so instead of a wrong one.
+
+
+def fixed_group_version():
+    """`packages/format/package.json`'s version, or a stand-in for a partial checkout."""
+    import json
+
+    manifest = os.path.join("..", "packages", "format", "package.json")
+    try:
+        with open(manifest) as handle:
+            return str(json.load(handle)["version"])
+    except (OSError, KeyError, ValueError):
+        return "0.0.0-dev"
+
+
+ZB_VERSION = fixed_group_version()
+
+# The version reaches the code as a GENERATED HEADER, not a `-D`: a quoted
+# string on the command line has to survive whichever shell SCons spawns the
+# compiler through, and cmd.exe and sh disagree about how. A file does not.
+version_dir = os.path.join("obj", "capi")
+if not os.path.isdir(version_dir):
+    os.makedirs(version_dir)
+version_header = os.path.join(version_dir, "zb_version.h")
+version_contents = '#define ZB_VERSION "%s"\n' % ZB_VERSION
+if not os.path.exists(version_header) or open(version_header).read() != version_contents:
+    with open(version_header, "w") as out:
+        out.write(version_contents)
+
+capi_sources = sorted(Glob("capi/*.cpp"), key=str)
+
+# The static half: compiled ONCE, into the test runner and into the `.a`. No
+# `ZB_BUILDING` — the `.cpp` defines it for its own export attribute, and in a
+# static link that attribute is inert.
+capi_static_env = env.Clone()
+capi_static_env.Append(CPPPATH=["#" + version_dir])
+capi_static_objects = [
+    capi_static_env.StaticObject(
+        target=os.path.join("obj", "capi-static", os.path.splitext(os.path.basename(str(source)))[0]),
+        source=source,
+    )
+    for source in capi_sources
+]
+
+# The probe: the header compiled AS C. `tests/capi_header_alone.c` includes
+# `zabloo.h` and nothing else, through the C compiler (`$CC`, not `$CXX`) — a
+# C++ construct creeping into the header fails here, at the moment it is
+# written, instead of in the first binding that tries to read it.
+probe_env = env.Clone()
+if msvc:
+    probe_env.Append(CFLAGS=["/W4", "/permissive-"])
+    if env["werror"]:
+        probe_env.Append(CFLAGS=["/WX"])
+else:
+    probe_env.Append(CFLAGS=["-std=c11", "-Wall", "-Wextra", "-Wpedantic"])
+    if env["werror"]:
+        probe_env.Append(CFLAGS=["-Werror"])
+probe_env.Append(CPPPATH=["#capi"])
+capi_probe = probe_env.StaticObject(
+    target=os.path.join("obj", "capi-static", "capi_header_alone"),
+    source="tests/capi_header_alone.c",
+)
+
 test_env = env.Clone()
-test_env.Append(CPPPATH=["#tests"])
-tests = test_env.Program("bin/zabloo-core-tests", Glob("tests/*.cpp") + library)
+test_env.Append(CPPPATH=["#tests", "#capi"])
+tests = test_env.Program(
+    "bin/zabloo-core-tests",
+    Glob("tests/*.cpp") + capi_static_objects + capi_probe + library,
+)
 
 Default(library, standalone, tests)
+
+
+# The shared half. Everything — core, vendor, capi — is compiled again as
+# position-independent objects with hidden visibility, into `obj/capi/`: a
+# foreign build has no business leaving artifacts next to the core's sources,
+# whatever their suffix (G15, finding 5), and `-fvisibility=hidden` on the whole
+# library is what makes `ZB_EXPORT` the ONLY thing a loader can see.
+capi_env = env.Clone()
+capi_env.Append(CPPPATH=["#" + version_dir])
+if not msvc:
+    capi_env.Append(CXXFLAGS=["-fvisibility=hidden"])
+if sys.platform == "darwin" and not msvc:
+    # Loaded by path, so the install name only has to not point at the build tree.
+    capi_env.Append(LINKFLAGS=["-Wl,-install_name,@rpath/libzabloo.dylib"])
+
+capi_vendor_env = vendor_env.Clone()
+
+
+def capi_object(builder_env, source, stem):
+    return builder_env.SharedObject(target=os.path.join("obj", "capi", stem), source=source)
+
+
+capi_shared_objects = []
+for source in sources:
+    stem = os.path.splitext(os.path.relpath(str(source), "src"))[0]
+    capi_shared_objects.append(capi_object(capi_env, source, os.path.join("core", stem)))
+capi_shared_objects.append(
+    capi_object(capi_vendor_env, "src/vendor/stb_truetype_impl.cpp", os.path.join("core", "vendor", "stb_truetype_impl"))
+)
+for source in capi_sources:
+    stem = os.path.splitext(os.path.basename(str(source)))[0]
+    capi_shared_objects.append(capi_object(capi_env, source, stem))
+
+capi_shared = capi_env.SharedLibrary("bin/zabloo", capi_shared_objects)
+# The static archive is the same code as `libzabloocore.a` plus the bridge — for
+# the platforms that link it in (iOS: `DllImport("__Internal")`).
+# `zabloo_static` under MSVC, where the DLL's import library already took
+# `zabloo.lib`; everywhere else the suffixes tell `libzabloo.a` and `libzabloo.so` apart.
+capi_static = env.StaticLibrary(
+    "bin/zabloo_static" if msvc else "bin/zabloo", sources + vendor + capi_static_objects
+)
+env.Alias("capi", [capi_shared, capi_static])
+
+
+def install_unity(target, source, env):
+    """`scons install-unity` — the host's library where the UPM package's .meta expects it.
+
+    One platform per run: the one this build made. The folders are the package's
+    (`sdk/unity/Runtime/Plugins/<platform>/`), whose `.meta` files UN3 writes by
+    hand and git ignores the binaries in. A cross-compile for Android or iOS is
+    UN9's, in CI; this copies what the host produced.
+    """
+    import shutil
+
+    plugins = os.path.join("..", "sdk", "unity", "Runtime", "Plugins")
+    if sys.platform == "darwin":
+        into = os.path.join(plugins, "macOS")
+    elif sys.platform.startswith("win"):
+        into = os.path.join(plugins, "Windows", "x86_64")
+    else:
+        into = os.path.join(plugins, "Linux", "x86_64")
+    os.makedirs(into, exist_ok=True)
+    built = str(capi_shared[0])
+    destination = os.path.join(into, os.path.basename(built))
+    shutil.copy2(built, destination)
+    print("installed %s into %s" % (os.path.basename(built), os.path.normpath(into)))
+    return None
+
+
+if "install-unity" in COMMAND_LINE_TARGETS:
+    installer = env.Command("install-unity-plugin", capi_shared, install_unity)
+    env.AlwaysBuild(installer)
+    env.Alias("install-unity", installer)
 
 
 # `scons bench` — the wall-clock half of the perf work (G15).
@@ -149,8 +306,13 @@ if "bench" in COMMAND_LINE_TARGETS:
 # contains "golden". They are aliased onto the same node, which is what keeps
 # SCons from going off to build a file named after the filter — before this, the
 # command the READMEs documented ran every case and then died on the filter.
+# `capi` is BOTH: `scons test capi` builds the shared library (the alias above)
+# and runs the cases whose name contains "capi" — the corpus through the C
+# header — which is exactly the command the ticket's exit criterion names.
 test_filters = [
-    name for name in COMMAND_LINE_TARGETS if name not in ("test", "bench") and "/" not in name
+    name
+    for name in COMMAND_LINE_TARGETS
+    if name not in ("test", "bench", "install-unity") and "/" not in name
 ]
 
 

@@ -4581,3 +4581,75 @@ el adaptador, que es exactamente lo que la regla de oro protege.
 
 **Sin desglosar todavía:** los tickets de F12 se escriben al abrir la fase, con el mismo
 patrón que F11 (**Zona**, **No toca**, y los casos del corpus que cada uno cierra).
+
+## 2026-09-03 — El C ABI del core: la segunda puerta, y el corpus pasando por ella (ZAB-195, F12 UN2)
+
+**Decisión:** el core gana una segunda puerta, `core/capi/zabloo.h` — C11, `extern "C"`,
+solo símbolos `ZB_EXPORT` visibles — por la que entra Unity (y cualquier cosa con FFI,
+incluido algún día el canvas WASM del editor). **Envuelve `view.h`, no lo edita**: lo
+que un binding necesite y el C++ no exponga es un cambio pequeño y aparte al core, nunca
+un parche dentro de `capi/`. Y lleva la misma red que el core: `test_capi.cpp` reproduce
+los **17 casos de métricas del corpus byte a byte usando solo la cabecera C** y rechaza
+`future-major` con su código. Si un envelope da otra métrica al cruzar la frontera, el
+culpable está en el puente, y ese test es quien lo dice antes de que exista Unity.
+
+**El contrato, tal y como quedó escrito (UN1 lo decide, esto lo fija en código):**
+handles opacos, strings UTF-8 con longitud explícita en las dos direcciones, **ningún
+callback nativo→managed** (acciones, escrituras y diagnósticos se **drenan** tras el
+frame, que es lo que ya hace `flush_events` en Godot y lo que un puente AOT-safe bajo
+IL2CPP necesita), sin excepciones, `bool` como `int`, un hilo, y **valores como JSON en
+las dos direcciones** — una sola regla de marshalling en vez de una API visitor de ~20
+funciones. La vida de cada puntero está escrita función a función: lo de `paint` hasta
+el siguiente `paint`, los píxeles de un atlas hasta el siguiente `layout_frame`, un
+diagnóstico hasta el siguiente `load`, un drain hasta el siguiente drain. Es lo que deja
+a C# leer los arrays como `NativeArray` sin copiar.
+
+**Tres cosas que se decidieron al escribirlo, y no antes:**
+
+1. **El escritor de JSON vive en `capi/`, y `core/src` sigue sin tener uno.** El core
+   lee JSON (el lector del envelope) y escribe números sin locale (`number_to_text`),
+   y a propósito no reserializa nada (G14). El puente es lo primero que tiene que
+   devolver un valor como texto — la escritura de un control drenada por un binding
+   que solo habla C —, así que el escritor es suyo y no se acerca más al core. Reusa
+   `number_to_text`, es decir `String(number)` de ECMA-262: un juego en español recibe
+   `0.5`, y el test lo comprueba con `setlocale` armado y un control positivo (que
+   `printf` sí escribe `0,5` en ese momento).
+2. **El handle de vista es estable para toda la vida del documento.** `zb_document_view`
+   devuelve siempre la misma dirección, y un `load` o un `show` cambian la vista **por
+   debajo**; lo que caduca son las cachés colgadas de él, con las vidas de arriba. Un
+   `load` rechazado no toca ni la vista ni sus cachés — el mismo "cuesta la actualización,
+   no la sesión" de ZAB-37, ahora también para los punteros que un adaptador tenga en la
+   mano.
+3. **`zb_version()` es la del grupo `fixed`, estampada en build.** El `SConstruct` lee
+   `packages/format/package.json` y la pasa como define; sin `packages/` (un checkout
+   parcial) reporta `0.0.0-dev` en vez de un número equivocado. Es la regla de G17
+   aplicada al binario: un número contesta "qué SDK va con los paquetes que instalé".
+
+**Detalles que son contrato y no estilo:** los batches vacíos **no se listan** (el core
+los produce y sus llamantes los saltan; saltarlos aquí ahorra la comprobación a cada
+binding y hace que `stats.draw_calls == batch_count`); la región de clip de un batch
+conserva **identidad** (dos batches de un grupo apuntan al mismo `zb_clip*`) y el grupo
+va por **ordinal**, como en G6; y `set_data_json` con un texto que no es JSON **devuelve
+0 y no escribe nada**. La cabecera se compila además **como C** (`capi_header_alone.c`,
+por `$CC` con `-std=c11`), que es la guardia de que siga siendo C.
+
+**Build:** target `capi` → `core/bin/libzabloo.{dylib,so}` / `zabloo.dll` más
+`libzabloo.a` (iOS enlaza estático), objetos en `core/obj/capi/` y nunca junto a la
+fuente (G15, hallazgo 5), `-fvisibility=hidden` sobre todo el core; comprobado con `nm`:
+los 57 `zb_*` y nada más. `scons test capi` corre solo la suite del puente (el filtro del
+ticket) y `scons install-unity` copia la biblioteca del host a
+`sdk/unity/Runtime/Plugins/<plataforma>/`. **CI:** `capi-tests` en ubuntu/macos/windows,
+que compila la biblioteca y corre la suite ENTERA con `ZB_REQUIRE_LOCALE=1` (en Linux se
+genera `es_ES.UTF-8` antes; en un portátil sin locale español el test lo dice en una nota
+en vez de fallar en falso).
+
+**Binding C#:** `sdk/unity/Runtime/Interop/NativeMethods.cs` es la cabecera transcrita
+campo a campo — structs `Sequential`, `unsafe` para los arrays, `nuint` por `size_t`,
+`DllImport("zabloo")` y `"__Internal"` bajo iOS — sin una línea de lógica, y
+`zb_abi_sizes()` es lo que UN10 asierta contra `Marshal.SizeOf` para cazar un campo
+desalineado antes que ningún caso del corpus.
+
+**Asunciones dichas en voz alta:** se produce `libzabloo.dylib` (lo que pide el ticket)
+mientras UN3 escribió los `.meta` pensando en `libzabloo.bundle` — a reconciliar al
+fusionar, es un nombre; y que el core compile con MSVC en CI es el riesgo de la matriz
+de Windows, que hasta hoy solo lo había compilado a través de godot-cpp.
