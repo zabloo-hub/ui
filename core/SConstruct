@@ -213,6 +213,14 @@ if msvc:
     # warning by making the tests less portable — the opposite of what a
     # cross-platform test runner is for.
     test_env.Append(CPPDEFINES=["_CRT_SECURE_NO_WARNINGS"])
+    # 8 MB of stack, which is what macOS and Linux give a thread by default and
+    # Windows does not (1 MB). The JSON depth-cap test nests 1,034 levels deep
+    # and the parser recurses once per level: on the default Windows stack the
+    # runner dies with 0xC00000FD before the cap can answer. The cap's job is
+    # to answer INSTEAD of crashing, so a 1 MB main thread — a Unity player on
+    # Windows has one — is a finding for the core, not for this flag; this flag
+    # just makes the runner measure the same thing on every platform.
+    test_env.Append(LINKFLAGS=["/STACK:8388608"])
 tests = test_env.Program(
     "bin/zabloo-core-tests",
     Glob("tests/*.cpp") + capi_static_objects + capi_probe + library,
