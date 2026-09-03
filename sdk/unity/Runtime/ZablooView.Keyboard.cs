@@ -28,9 +28,9 @@ namespace Zabloo
     /// are eaten before this ever sees them (the phenomenon that kept the Godot
     /// view in <c>FOCUS_NONE</c>).
     ///
-    /// <para>What this file expects of its siblings: <c>nativeView</c> (Host.cs,
-    /// UN7), <c>InputOwner.Owns</c> (InputOwner.cs, UN6), and <see cref="Paint"/>
-    /// (Render.cs, UN4) for the caret's repaint.</para>
+    /// <para>What this file expects of its siblings: <c>NativeViewHandle()</c>
+    /// and <c>InputOwner</c> (UN6; the handle is answered by Host.cs, UN7), and
+    /// <see cref="Paint"/> (Render.cs, UN4) for the caret's repaint.</para>
     /// </summary>
     public sealed partial class ZablooView
     {
@@ -41,6 +41,9 @@ namespace Zabloo
         /// read it in <c>LateUpdate</c>, after the view's <c>Update</c> has run.
         /// </summary>
         public bool EscapeConsumedThisFrame { get; private set; }
+
+        /// <summary>The native view this poll is talking to: read once per frame from the host.</summary>
+        IntPtr keyboardView;
 
         /// <summary>This view read the keyboard last frame — an edge on losing it.</summary>
         bool keyboardOwned;
@@ -67,12 +70,16 @@ namespace Zabloo
         partial void PollKeyboard()
         {
             EscapeConsumedThisFrame = false;
-            if (nativeView == IntPtr.Zero)
+            keyboardView = NativeViewHandle();
+            if (keyboardView == IntPtr.Zero)
             {
                 DisarmEditing();
                 return;
             }
 
+            // Registering is idempotent and UN6's pad poll does it too; doing it here
+            // as well is what makes the first frame's keys reach the first view.
+            InputOwner.Register(this);
             var keyboard = Keyboard.current;
             if (keyboard == null || !InputOwner.Owns(this))
             {
@@ -100,8 +107,8 @@ namespace Zabloo
         {
             keyboardOwned = false;
             keyRepeat.Clear();
-            var changed = NativeMethods.zb_view_settle_slider_keys(nativeView) != 0;
-            changed |= NativeMethods.zb_view_cancel_focused_press(nativeView) != 0;
+            var changed = NativeMethods.zb_view_settle_slider_keys(keyboardView) != 0;
+            changed |= NativeMethods.zb_view_cancel_focused_press(keyboardView) != 0;
             if (changed) MarkDirty();
         }
 
@@ -122,13 +129,13 @@ namespace Zabloo
             {
                 var copy = Keys.WasPressed(keyboard, Keys.Slot.C);
                 var cut = Keys.WasPressed(keyboard, Keys.Slot.X);
-                if ((copy || cut) && NativeMethods.zb_view_field_selection_text(nativeView, out var selected) != 0)
+                if ((copy || cut) && NativeMethods.zb_view_field_selection_text(keyboardView, out var selected) != 0)
                 {
                     GUIUtility.systemCopyBuffer = Utf8Of(selected);
                     if (cut)
                     {
                         var remove = new ZbKeyIntent { Key = ZbEditKey.Backspace };
-                        changed |= NativeMethods.zb_view_edit_key(nativeView, in remove) != 0;
+                        changed |= NativeMethods.zb_view_edit_key(keyboardView, in remove) != 0;
                     }
                 }
                 if (Keys.WasPressed(keyboard, Keys.Slot.V))
@@ -153,7 +160,7 @@ namespace Zabloo
                 else
                 {
                     changed |= SendText("", composition: true);
-                    changed |= NativeMethods.zb_view_end_composition(nativeView) != 0;
+                    changed |= NativeMethods.zb_view_end_composition(keyboardView) != 0;
                 }
             }
 
@@ -188,7 +195,7 @@ namespace Zabloo
                     Shortcut = shortcut ? 1 : 0,
                     Repeat = repeat ? 1 : 0,
                 };
-                if (NativeMethods.zb_view_edit_key(nativeView, in intent) == 0) continue;
+                if (NativeMethods.zb_view_edit_key(keyboardView, in intent) == 0) continue;
                 keyConsumed[(int)slot] = true;
                 changed = true;
             }
@@ -204,7 +211,7 @@ namespace Zabloo
             // A dismiss request for the modal that owns the input — the keyboard's
             // B button. With nothing up it is NOT ours, and `EscapeConsumedThisFrame`
             // stays false so the game's own pause menu can have it.
-            if (Keys.WasPressed(keyboard, Keys.Slot.Escape) && NativeMethods.zb_view_dismiss_top_modal(nativeView) != 0)
+            if (Keys.WasPressed(keyboard, Keys.Slot.Escape) && NativeMethods.zb_view_dismiss_top_modal(keyboardView) != 0)
             {
                 EscapeConsumedThisFrame = true;
                 changed = true;
@@ -226,11 +233,11 @@ namespace Zabloo
             var fires = Keys.WasPressed(keyboard, slot) || repeating == slot;
             if (fires && !keyConsumed[(int)slot])
             {
-                changed = NativeMethods.zb_view_move_focus(nativeView, dx, dy) != 0;
+                changed = NativeMethods.zb_view_move_focus(keyboardView, dx, dy) != 0;
             }
             if (Keys.WasReleased(keyboard, slot))
             {
-                changed |= NativeMethods.zb_view_settle_slider_keys(nativeView) != 0;
+                changed |= NativeMethods.zb_view_settle_slider_keys(keyboardView) != 0;
             }
             return changed;
         }
@@ -245,11 +252,11 @@ namespace Zabloo
             var changed = false;
             if (Keys.WasPressed(keyboard, slot) && !keyConsumed[(int)slot])
             {
-                changed = NativeMethods.zb_view_press_focused(nativeView, 1) != 0;
+                changed = NativeMethods.zb_view_press_focused(keyboardView, 1) != 0;
             }
             if (Keys.WasReleased(keyboard, slot))
             {
-                changed |= NativeMethods.zb_view_press_focused(nativeView, 0) != 0;
+                changed |= NativeMethods.zb_view_press_focused(keyboardView, 0) != 0;
             }
             return changed;
         }
@@ -268,8 +275,8 @@ namespace Zabloo
             {
                 var length = (nuint)bytes.Length;
                 return (composition
-                    ? NativeMethods.zb_view_set_composition(nativeView, p, length)
-                    : NativeMethods.zb_view_insert_text(nativeView, p, length)) != 0;
+                    ? NativeMethods.zb_view_set_composition(keyboardView, p, length)
+                    : NativeMethods.zb_view_insert_text(keyboardView, p, length)) != 0;
             }
         }
 
@@ -285,7 +292,7 @@ namespace Zabloo
         /// </summary>
         void SyncEditing(double now)
         {
-            if (NativeMethods.zb_view_focused_field(nativeView, out var field) == 0)
+            if (NativeMethods.zb_view_focused_field(keyboardView, out var field) == 0)
             {
                 DisarmEditing();
                 return;
@@ -336,7 +343,7 @@ namespace Zabloo
                 // A full frame is on its way anyway: it repaints with the clock.
                 if (!dirty && !animating)
                 {
-                    NativeMethods.zb_view_set_now(nativeView, now);
+                    NativeMethods.zb_view_set_now(keyboardView, now);
                     Paint();
                 }
             }
@@ -368,11 +375,11 @@ namespace Zabloo
                 if (text == touchMirror) return;
                 touchMirror = text;
                 var all = new ZbKeyIntent { Key = ZbEditKey.SelectAll, Shortcut = 1 };
-                NativeMethods.zb_view_edit_key(nativeView, in all);
+                NativeMethods.zb_view_edit_key(keyboardView, in all);
                 if (text.Length == 0)
                 {
                     var remove = new ZbKeyIntent { Key = ZbEditKey.Backspace };
-                    NativeMethods.zb_view_edit_key(nativeView, in remove);
+                    NativeMethods.zb_view_edit_key(keyboardView, in remove);
                 }
                 else
                 {
@@ -384,7 +391,7 @@ namespace Zabloo
             if (status == TouchScreenKeyboard.Status.Done)
             {
                 var submit = new ZbKeyIntent { Key = ZbEditKey.Submit };
-                if (NativeMethods.zb_view_edit_key(nativeView, in submit) != 0) MarkDirty();
+                if (NativeMethods.zb_view_edit_key(keyboardView, in submit) != 0) MarkDirty();
             }
             touchKeyboard = null;
         }

@@ -21,9 +21,9 @@ namespace Zabloo
     /// raycasts nothing, the same way the Godot adapter reads <c>InputEvent</c>
     /// and never a <c>Control</c>'s focus.
     ///
-    /// <para>What this file expects of its siblings: <c>nativeView</c> (the
-    /// <c>zb_view*</c>, <c>IntPtr.Zero</c> until an envelope loads — Host.cs, UN7)
-    /// and <c>InputOwner.Claim</c> (InputOwner.cs, UN6).</para>
+    /// <para>What this file expects of its siblings: <c>NativeViewHandle()</c>
+    /// (the <c>zb_view*</c>, <c>IntPtr.Zero</c> until an envelope loads — declared
+    /// in Pad.cs and answered by Host.cs) and <c>InputOwner</c> (both UN6).</para>
     /// </summary>
     public sealed partial class ZablooView
     {
@@ -51,7 +51,8 @@ namespace Zabloo
 
         partial void PollPointer()
         {
-            if (nativeView == IntPtr.Zero) return;
+            var native = NativeViewHandle();
+            if (native == IntPtr.Zero) return;
 
             var pointer = Pointer.current;
             if (pointer == null)
@@ -74,7 +75,7 @@ namespace Zabloo
             {
                 pointerSeen = true;
                 pointerLast = at;
-                changed |= NativeMethods.zb_view_pointer_move(nativeView, at.x, at.y, mouse) != 0;
+                changed |= NativeMethods.zb_view_pointer_move(native, at.x, at.y, mouse) != 0;
             }
 
             if (pointer.press.wasPressedThisFrame && inside)
@@ -84,13 +85,13 @@ namespace Zabloo
                 // focuses (ZAB-70, UN6).
                 InputOwner.Claim(this);
                 pointerCaptured = true;
-                changed |= NativeMethods.zb_view_pointer_down(nativeView, at.x, at.y, mouse) != 0;
+                changed |= NativeMethods.zb_view_pointer_down(native, at.x, at.y, mouse) != 0;
             }
 
             if (pointer.press.wasReleasedThisFrame && pointerCaptured)
             {
                 pointerCaptured = false;
-                changed |= NativeMethods.zb_view_pointer_up(nativeView, at.x, at.y, mouse) != 0;
+                changed |= NativeMethods.zb_view_pointer_up(native, at.x, at.y, mouse) != 0;
             }
 
             if (mouse != 0 && inside)
@@ -99,7 +100,7 @@ namespace Zabloo
                 if (scroll != Vector2.zero)
                 {
                     Wheel.Pixels(scroll, out var dx, out var dy);
-                    changed |= NativeMethods.zb_view_pointer_wheel(nativeView, at.x, at.y, dx, dy) != 0;
+                    changed |= NativeMethods.zb_view_pointer_wheel(native, at.x, at.y, dx, dy) != 0;
                 }
             }
 
@@ -108,7 +109,7 @@ namespace Zabloo
             {
                 // Left without a gesture in flight (or the gesture just ended out
                 // there): the hover goes, nothing fires.
-                changed |= NativeMethods.zb_view_pointer_exit(nativeView) != 0;
+                changed |= NativeMethods.zb_view_pointer_exit(native) != 0;
                 pointerSeen = false;
             }
             pointerOnSurface = onSurface;
@@ -124,7 +125,8 @@ namespace Zabloo
             pointerOnSurface = false;
             pointerCaptured = false;
             pointerSeen = false;
-            if (NativeMethods.zb_view_pointer_exit(nativeView) != 0) MarkDirty();
+            var native = NativeViewHandle();
+            if (native != IntPtr.Zero && NativeMethods.zb_view_pointer_exit(native) != 0) MarkDirty();
         }
 
         /// <summary>
@@ -137,17 +139,35 @@ namespace Zabloo
         /// </summary>
         void OnApplicationFocus(bool hasFocus)
         {
-            if (hasFocus || !pointerCaptured || nativeView == IntPtr.Zero) return;
+            if (hasFocus || !pointerCaptured) return;
             pointerCaptured = false;
             pointerOnSurface = false;
             pointerSeen = false;
-            if (NativeMethods.zb_view_pointer_cancel(nativeView) != 0) MarkDirty();
+            var native = NativeViewHandle();
+            if (native != IntPtr.Zero && NativeMethods.zb_view_pointer_cancel(native) != 0) MarkDirty();
         }
 
         /// <summary>The canvas can change under a reparent; the camera is read from it again.</summary>
         void OnTransformParentChanged()
         {
             pointerCanvas = null;
+        }
+
+        /// <summary>
+        /// The camera that maps screen points onto this view — a camera-space
+        /// canvas needs its camera to undo the projection; an overlay canvas is
+        /// already in screen pixels and wants null. Cached from the root canvas.
+        /// </summary>
+        Camera CanvasCamera()
+        {
+            if (pointerCanvas == null)
+            {
+                var canvas = GetComponentInParent<Canvas>();
+                pointerCanvas = canvas != null ? canvas.rootCanvas : null;
+            }
+            return pointerCanvas != null && pointerCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? pointerCanvas.worldCamera
+                : null;
         }
 
         /// <summary>
@@ -159,17 +179,7 @@ namespace Zabloo
         bool ToViewSpace(Vector2 screen, out Vector2 at)
         {
             var rect = (RectTransform)transform;
-            // A camera-space canvas needs its camera to undo the projection; an
-            // overlay canvas is already in screen pixels and wants null.
-            if (pointerCanvas == null)
-            {
-                var canvas = GetComponentInParent<Canvas>();
-                pointerCanvas = canvas != null ? canvas.rootCanvas : null;
-            }
-            var camera = pointerCanvas != null && pointerCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? pointerCanvas.worldCamera
-                : null;
-            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screen, camera, out var local))
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screen, CanvasCamera(), out var local))
             {
                 // The view's plane is behind the camera: nowhere the pointer can be.
                 at = Vector2.zero;
