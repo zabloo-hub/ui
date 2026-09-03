@@ -213,6 +213,14 @@ camino y se consolida en F8.
     motor. Ver `decisions-architecture.md` (2026-08-24) y
     `specs/2026-08-24-godot-sdk-language-design.md`.
 
+    **Nota sobre G17 (2026-09-03):** el ticket llevaba tres cosas y se entrega con
+    dos — docs públicas con Godot delante, y distribución del addon (zip por
+    release, versión del grupo `fixed`, Asset Library documentado). La **retirada de
+    Unity de la superficie** (`sdk/unity`, `zabloo dev --unity`, `dev:unity`) sale a
+    su propio ticket inmediatamente detrás: borrar código y reescribir prosa son dos
+    revisiones distintas, y la segunda es la que cierra el criterio de salida
+    "`grep -ri unity` solo devuelve menciones históricas".
+
 > Sin fechas: fases ordenadas por dependencias técnicas, cada una con criterio de
 > salida. El ritmo lo marca la disponibilidad (solo founder).
 

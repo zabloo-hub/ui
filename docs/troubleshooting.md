@@ -192,12 +192,61 @@ Each one carries a stable `code` and a `path` into the envelope
 
 | Symptom | Likely cause |
 |---|---|
-| `setChecked` / `setOpen` / `setValue` returns `false` | No node of that type carries that id — a typo, or the node is out of the tree. Nothing was applied; the web target also logs the miss. |
+| `setChecked` / `setOpen` / `setValue` returns `false` | No node of that type carries that id — a typo, or the node is out of the tree. Nothing was applied; the web renderer and Godot both log the miss. |
 | Bound text stays empty | The path is not the one being written. Writes are cached and replayed, so pushing *before* mount is fine — a path mismatch is not. |
 | `onDataChanged` never fires | It fires only when the **UI** writes: a control with a read/write binding. It deliberately never echoes `SetData`. |
 | An action does not fire | The node (or an ancestor) is `disabled`, or a modal `Overlay` above it is capturing input. |
 | A hot-update did nothing | `reload` never throws: a refused payload is reported through `onDiagnostic` and discarded. Check the diagnostics. |
 | The view picker lists old views | `viewIds` is read from the envelope loaded **now** — re-read it after every `reload`. |
+
+## In Godot
+
+### `ZablooView` is not in the Add Node dialog
+
+The addon is not enabled. Unzipping `addons/zabloo/` into the project is only half of it —
+**Project → Project Settings → Plugins → Zabloo UI** is what loads the extension and
+registers the node. If it is enabled and the node still is not there, the editor could not
+load the library: the output panel says which file it looked for, and the answer is almost
+always that `addons/zabloo/bin/` has no binary for this platform (a release zip carries all
+of them; a `scons` build carries only the one you built).
+
+### Nothing renders and the output says `[zabloo] no envelope at res://…`
+
+`Envelope Path` points at a file that is not in the project. The exported
+`dist/zabloo.ir.json` has to be *copied into* the Godot project — `res://` cannot reach
+outside it. A path that exists but holds a payload the loader refuses is a different
+symptom: the node stays blank and says why through
+[the diagnostics](format/loading.md#in-godot), and `load_file` returned `false`.
+
+### The view renders, but ignores the `Control` I put it in
+
+That is deliberate. Godot's own layout stops at the `ZablooView`'s rect: anchors and
+`Container` nodes are a second layout system, and letting it reach inside would mean the
+same envelope laying out differently here than on every other target. Size and place the
+`ZablooView` itself with Godot; everything inside it is the core's.
+
+### `zabloo dev --godot` says nothing arrives
+
+Four things, in the order worth checking:
+
+| Check | Why |
+|---|---|
+| The game is **running** | Godot's `Run` launches a separate process, and that process is the receiver — not the editor. A project that is not running needs no push: `load_file` reads the last export off disk when it starts. |
+| It is a **debug** build | The receiver listens on loopback in debug builds only. A dev channel a shipped game could open is a dev channel a player's machine could be talked to through. |
+| The plugin is enabled | It is what installs the `ZablooDevMode` autoload. The game wires nothing else. |
+| Nothing else holds the port | `5079` by default. A second instance of the game finds it taken and says so; `zabloo/dev_mode/port` in the project settings moves one end, `--godot-port` the other. |
+
+If nothing is listening the export still succeeds, and the CLI says so **once** rather than
+on every save.
+
+### A web export loads nothing
+
+A GDExtension on the web needs the `dlink` export templates — **Web preset → Extensions
+Support** — because a plain web export has no dynamic linker in it at all. It also needs the
+extension built with an Emscripten whose libc++ matches the one Godot's own templates were
+built with; a newer one links fine and then aborts at load on a symbol the main module does
+not export. Web is experimental for exactly these two reasons, neither of which is ours to
+pin. [`docs/performance.md`](performance.md) records what that check found.
 
 ## The dev preview
 
@@ -272,7 +321,8 @@ view, because the glyph atlases are rasterized at that scale.
 
 ## Related
 
-- [The host channel](format/host-channel.md) — the operations, their return values and the callbacks.
+- [The host channel](format/host-channel.md) — the operations, their return values and the
+  callbacks, with the Godot spelling of each.
 - [Loading](format/loading.md) — the validation policy and every diagnostic code.
 - [`@zabloo/react` reference](react-api.md) — the API these errors are thrown from.
 - [Project structure & CLI](project-structure.md) — where the export looks for things.

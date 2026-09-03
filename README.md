@@ -1,8 +1,8 @@
 # zabloo/ui
 
 > **Build your game's UI once — render it identically in any engine.**
-> Author in React, ship a compact IR, and a lightweight SDK draws it inside Unity,
-> Godot or Unreal. Learn one framework, target every engine.
+> Author in React, ship a compact IR, and a lightweight SDK draws it inside Godot,
+> Unity or Unreal. Learn one framework, target every engine.
 
 `zabloo/ui` is the open-source core of the zabloo platform: an engine-agnostic UI
 system for videogames that **draws its own pixels** (the Flutter model) instead of
@@ -22,7 +22,7 @@ authoring (React/JSX + tokens) → IR (tree + styles + events) → per-engine SD
   the same UI looks and behaves exactly the same everywhere — consoles included (no
   Chromium required).
 - **Golden rule:** the shared core never knows about any specific engine. Each SDK is a
-  thin adapter (mesh submission, input, idiomatic events: C# events / signals /
+  thin adapter (mesh submission, input, idiomatic events: Godot signals / C# events /
   Blueprints).
 
 ## Why not native widgets or a webview?
@@ -38,28 +38,39 @@ authoring (React/JSX + tokens) → IR (tree + styles + events) → per-engine SD
 ## Status
 
 **On npm since 0.2.0, pre-1.0.** `@zabloo/format`, `@zabloo/react`, `@zabloo/renderer-web`,
-`@zabloo/cli` and `create-zabloo-app` are published; the Unity SDK is not released yet.
-The IR v1 is validated in code across **two render targets** — the Unity SDK (UI Toolkit custom geometry:
-`generateVisualContent` / Mesh API) and a WebGL2 renderer — both running the same
-self-render pipeline: own Flexbox layout pass, own tessellator, own glyph atlases.
+`@zabloo/cli` and `create-zabloo-app` are published; the Godot addon ships as a zip on the
+[Releases](https://github.com/zabloo-hub/ui/releases) page — an engine SDK is not an npm
+package — and the Unity SDK is not released yet. The IR v1 is validated in code across **three render
+targets** — a WebGL2 renderer, the Godot SDK, and the Unity SDK (UI Toolkit custom
+geometry: `generateVisualContent` / Mesh API) — all running the same self-render
+pipeline: own Flexbox layout pass, own tessellator, own glyph atlases.
+
+**Godot is the engine that renders.** Its SDK is a **GDExtension in C++**, and that C++
+*is* the shared core: layout, text, tessellation and the state/binding/transition runtime
+all live in [`core/`](core), with [`sdk/godot`](sdk/godot) as a thin adapter that uploads
+triangles and translates input. Because the core can produce a full view snapshot with no
+engine at all, the [golden corpus](golden/README.md) runs against it on a bare CPU in CI —
+which is why "the same envelope renders the same" is a test here and not a promise.
 
 ### Where each target stands
 
 The IR vocabulary is a closed set of **13 node types**, and `@zabloo/react` exports **28
 authoring components** on top of it (composites like `<Tabs>` or `<Select>` are flattened
-at authoring time and never reach the IR). The two targets are **not** at the same point,
-and it matters if you are picking this up today:
+at authoring time and never reach the IR). The targets are **not** at the same point, and
+it matters if you are picking this up today:
 
 | Target | Node types | Where it is |
 |---|---|---|
 | **Web renderer** (`@zabloo/renderer-web`) | **13 / 13** | Runs the whole catalog: this is where every capability lands first, and what the `zabloo dev` preview and the future visual editor render with. |
+| **Godot SDK** (`sdk/godot` + `core/`) | **13 / 13** | Renders the whole catalog, and every case of the golden corpus reproduces its recorded metrics **byte for byte** against the web renderer. Godot 4.4+. Desktop is measured; Android and iOS build in CI but have not been run on a device; web is experimental; consoles compile and are not validated. [What a frame costs](docs/performance.md). |
 | **Unity SDK** (`sdk/unity`) | **4 / 13** — `Container`, `Text`, `Button`, `Collapse` | Catching up. Everything else degrades through the format's normative rule for unknown types: **rendered as a `Container` keeping its layout, style and children**, with a warning. Content never disappears; it loses the behavior. |
 
-Godot and Unreal render nothing yet — they are *designed* in parallel (every IR decision
-is validated against all three) rather than implemented.
+Unreal renders nothing yet — it is *designed* in parallel (every IR decision is validated
+against all three engines) rather than implemented, and lands as a thin adapter over the
+same core rather than another port.
 
-What the system does today — all of it in the web renderer, and in the Unity SDK as far
-as the table above goes:
+What the system does today — all of it in the web renderer and the Godot SDK, and in the
+Unity SDK as far as the table above goes:
 
 - **The full node vocabulary** — `Container`, `Text`, `Button`, `Collapse`, `ScrollView`,
   `Image`, `Overlay`, `Toggle`, `Slider`, `TextInput`, `Repeat`, `ProgressBar`, `Spinner`
@@ -94,10 +105,11 @@ as the table above goes:
   and the v1 style set: `background`, `radius`, `borderWidth`, `borderColor` (inset
   border), `color`, `fontSize`, `opacity` (inherits multiplicatively), plus the text
   set — `wrap`, `textAlign`, `textAlignY`, `lineHeight`, `overflow`, `maxLines`.
-- **Multiline text** in the web renderer: word wrap to the width the layout pass
-  offers, hard breaks, alignment on both axes, and `clip`/`ellipsis` truncation, with
-  every width kerned like the painted run — one normative algorithm, so both targets
-  break in the same places (Unity porting it).
+- **Multiline text**: word wrap to the width the layout pass offers, hard breaks,
+  alignment on both axes, and `clip`/`ellipsis` truncation, with every width kerned like
+  the painted run. One normative algorithm over one rasterizer we own (`stb_truetype`,
+  the same TTF on every target), so a line breaks in the same place in the browser and
+  in Godot — never through the engine's own text server (Unity porting it).
 - **Scrolling and clipping**: a `ScrollView` measures its children unconstrained on the
   scrolled axis and clips to its own rect (wheel, drag, and a scroll call from the game);
   `clip` is a paint prop any node can carry, and it cuts paint and hit-testing alike.
@@ -109,31 +121,29 @@ as the table above goes:
   the bound path and tells the game through one callback, instead of every control
   inventing its own event.
 - **Interactivity**: SDK-owned behavior keyed by component type, named actions surfaced
-  as C# events, data-path bindings (`SetData("player.gold", …)` re-lays out live), and
-  automatic spatial focus/navigation computed from the live layout rects. In the web
-  renderer that navigation is driven by **keyboard and gamepad alike** — d-pad/stick move
-  the focus, A activates, B dismisses the top modal, the right stick scrolls, and moving
-  the focus drags the scroll along to reveal it. The Unity SDK is on arrows/Enter today.
+  idiomatically (a Godot signal, a C# event), data-path bindings (`set_data("player.gold", …)`
+  re-lays out live), and automatic spatial focus/navigation computed from the live layout
+  rects. In the web renderer and in Godot that navigation is driven by **keyboard and
+  gamepad alike** — d-pad/stick move the focus, A activates, B dismisses the top modal,
+  the right stick scrolls, and moving the focus drags the scroll along to reveal it. The
+  Unity SDK is on arrows/Enter today.
 - **Dev loop**: save a `.tsx` → `zabloo dev` re-exports into a live browser preview;
-  add `--unity` to also hot-push each save to the Unity editor — through the same
-  loading path as production hot-update.
-
-**Unity is the reference SDK for v1** — the one engine adapter that gets built out, and
-the one every IR decision is checked against on the engine side. Packages are not yet
-published to npm.
+  add `--godot` to also hot-push each save to the running Godot game (or `--unity` to the
+  Unity editor) — through the same loading path as production hot-update.
 
 ## How it works
 
 ```bash
 npx create-zabloo-app my-game-ui   # scaffold a React authoring project
 pnpm dev                            # watch → live web preview
-pnpm dev:unity                      # …plus hot-push each save to the Unity editor
+pnpm dev:godot                      # …plus hot-push each save to the running Godot game
 pnpm build                          # = zabloo export → versioned IR envelope in dist/
 ```
 
-Then import the envelope with the engine SDK (Unity first) and it renders in-game.
-Content can also be delivered and **hot-updated** from the zabloo platform without
-recompiling or re-shipping through stores — the dev loop uses that exact path.
+Then load the envelope with the engine SDK and it renders in-game — in Godot, drop
+[`addons/zabloo/`](sdk/godot) into the project, add a `ZablooView` to a scene and point it
+at the file. Content can also be delivered and **hot-updated** from the zabloo platform
+without recompiling or re-shipping through stores — the dev loop uses that exact path.
 
 ## Documentation
 
@@ -151,12 +161,15 @@ The reference for the IR and the component catalog lives in [`docs/`](docs/READM
 
 To see it running rather than written down, [`examples/`](examples/README.md) has the
 `showcase` project: nine views, one per capability, live in the web preview
-(`pnpm --filter showcase-example dev`).
+(`pnpm --filter showcase-example dev`), and
+[`godot-playground`](examples/godot-playground/README.md), the Godot project that loads
+those same envelopes in-engine.
 
 ## Repository layout
 
 ```
 ui/
+├── core/                  the shared C++ core: layout · text · tessellation · runtime
 ├── packages/
 │   ├── format/            @zabloo/format — IR types + envelope validation
 │   ├── react/             @zabloo/react — React bindings (custom reconciler → IR)
@@ -164,21 +177,27 @@ ui/
 │   ├── renderer-web/      @zabloo/renderer-web — WebGL2 self-renderer (preview/editor)
 │   └── create-zabloo-app/ project scaffolder
 ├── sdk/
+│   ├── godot/             the GDExtension adapter + the installable addons/zabloo/
 │   └── unity/             com.zabloo.sdk — UPM package (UI Toolkit custom geometry)
 ├── docs/                  the format spec + the component catalog
 ├── golden/                golden envelopes: the same input must render the same on every target
 └── examples/              see examples/README.md for which one to open
     ├── showcase/          the whole catalog, one view per capability, nine views
-    ├── hello-button/      the vertical slice: one pressable Button, React → IR → Unity
+    ├── hello-button/      the vertical slice: one pressable Button, React → IR → engine
     ├── inventory-demo/    a shop with real overflow — list, category strip, nested Collapse
-    └── settings-screen/   the whole form catalog composed as one real screen
+    ├── settings-screen/   the whole form catalog composed as one real screen
+    └── godot-playground/  the Godot project that loads them, capability by capability
 ```
 
-Every example is a runnable authoring project: `pnpm --filter <name>-example dev` opens
-it in the web preview.
+`core/` sits at the root, a sibling of `sdk/` and `packages/`, on purpose: `packages/*`
+means *pnpm workspace package*, and putting the core under `sdk/` would blur the very line
+the golden rule protects — the `sdk/*` know about their engine, the core knows about none.
 
-Planned next: the Unity SDK catching up to the full catalog, npm publication, extraction
-of the shared core (tessellator + IR runtime), and the Godot/Unreal adapters.
+Every authoring example is a runnable project: `pnpm --filter <name>-example dev` opens it
+in the web preview.
+
+Planned next: the Unreal adapter over the same core, the Godot addon on the Asset Library,
+and the visual editor rendering the same IR on the same core compiled to WASM.
 
 Tooling: pnpm workspaces · TypeScript (ESM) · tsup · Vitest · Biome · Changesets.
 

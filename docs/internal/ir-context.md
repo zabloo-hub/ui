@@ -397,7 +397,7 @@ unknown nodes/props? render a fallback? refuse?). Capability/version negotiation
 Because we self-render, the relevant question per engine is **"how does it give us a GPU
 canvas / let us submit custom geometry?"** — not "what widgets/layout/theming does it have."
 
-| Concern            | Godot (**first, in progress**)     | Unreal                        | Unity (cancelled)             |
+| Concern            | Godot (**renders the whole catalog**) | Unreal                     | Unity (cancelled)             |
 |--------------------|------------------------------------|-------------------------------|-------------------------------|
 | Custom geometry    | `RenderingServer.canvas_item_add_triangle_array` | Slate custom widget / RHI | UI Toolkit `generateVisualContent` / Mesh API |
 | How the core gets in | **GDExtension in C++** (`godot-cpp`) — the core *is* the extension | the same C++ core as a module/plugin | a native plugin over the same core, if it comes back |

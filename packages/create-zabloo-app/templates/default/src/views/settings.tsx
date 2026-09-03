@@ -1,5 +1,5 @@
 // A second view — the preview's view picker (top bar) switches between them,
-// and in Unity the one a `ZablooDocument` loads is its **View** field.
+// and in Godot the one a `ZablooView` shows is its **View Id** property.
 //
 // A settings screen is where the form controls earn their keep: tabs that swap
 // panels, a switch, a slider, a dropdown and a text field, all reachable with

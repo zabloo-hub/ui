@@ -1,8 +1,9 @@
 # Examples
 
-Four zabloo projects and one Unity project. Each of the four is a normal `create-zabloo-app`
+Four zabloo projects and one Godot project. Each of the four is a normal `create-zabloo-app`
 layout — `src/views/*.tsx` (one file, one view), `src/theme.ts` (tokens + variants), a
-`zabloo.config.ts` — so anything you read here works the same in a project of your own.
+`zabloo.config.ts` — so anything you read here works the same in a project of your own. The
+fifth is the engine end: it loads the envelopes the other four export.
 
 Run any of them from the repo root:
 
@@ -15,8 +16,9 @@ pnpm --filter showcase-example build    # dist/zabloo.ir.json — the IR itself
 the **game**: it fills its bindings panel from the envelope's bindings, logs the named
 actions your UI fires in the console's **Actions** tab, and exposes the live handle as
 `window.zabloo`, so the browser console can push data
-(`zabloo.setData("player.gold", 900)`) exactly the way a game's C# would. Add `--unity` to
-push each save to the Unity editor as well.
+(`zabloo.setData("player.gold", 900)`) exactly the way a game's own code would. Add
+`--godot` to push each save to a running Godot game as well (or `--unity`, to the Unity
+editor).
 
 ## Which one to open
 
@@ -26,6 +28,7 @@ push each save to the Unity editor as well.
 | [`hello-button`](hello-button/README.md) | The smallest whole project: one screen, one bound value, one action. Start here to read one. |
 | [`inventory-demo`](inventory-demo/README.md) | A real screen built on data: hundreds of virtualized rows, a horizontal strip, a Collapse inside a scroller. |
 | [`settings-screen`](settings-screen/README.md) | A real screen built on controls: tabs, toggles, sliders, a dropdown and a text field, all bound. |
+| [`godot-playground`](godot-playground/README.md) | **The engine end.** A Godot project that loads the four above, one at a time, so every capability can be checked where it actually ships. |
 
 The showcase is exhaustive and the other two zabloo projects are realistic; they are
 different questions. "How does `maxLines` behave?" is a showcase question. "How do I lay a
