@@ -19,6 +19,7 @@ scons                 # core/bin/libzabloocore.a + core/bin/zabloo-core-tests
 scons test            # the above, then run them
 scons target=release  # optimized
 scons test validate   # only the cases whose name contains "validate"
+scons target=release bench   # the perf bench — build it optimized or it lies
 ```
 
 Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else — the font
@@ -28,6 +29,15 @@ only if `assets/fonts/` ever changes, and commit what it writes.
 
 `scons test golden` runs the corpus — see
 [`golden/README.md`](../golden/README.md#running-the-corpus-against-the-c-core).
+
+`scons bench` runs the perf cases and nothing else. They are ordinary cases in the
+same binary, gated on `BENCH` in the environment (the same variable, and the same
+reason, as the reference's `pnpm bench`): their output is for a human comparing a
+before and an after on one machine, so they must not run in CI, where wall clock
+flakes. What CI *does* hold is the deterministic half — draw calls, geometry,
+atlas memory, and the counters of a steady frame — in `tests/test_budgets.cpp`.
+Both read the scenes of [`golden/perf/`](../golden/perf/README.md), and
+[`docs/performance.md`](../docs/performance.md) puts the numbers next to the web's.
 
 ## What is in here
 
