@@ -33,7 +33,11 @@ Help(opts.GenerateHelpText(env))
 msvc = env["CC"] == "cl"
 
 if msvc:
-    env.Append(CXXFLAGS=["/std:c++17", "/EHsc", "/W4", "/permissive-"])
+    # `/utf-8`: the sources are UTF-8 and carry non-ASCII literals — a `'é'` in
+    # the text tests, a `"Poción"` in an inline envelope. Without it MSVC reads
+    # them in the system code page: the char literal fails to compile (C2015),
+    # and the string ones silently become other bytes.
+    env.Append(CXXFLAGS=["/std:c++17", "/EHsc", "/W4", "/permissive-", "/utf-8"])
     env.Append(CXXFLAGS=["/Zi", "/Od"] if env["target"] == "debug" else ["/O2", "/DNDEBUG"])
     if env["werror"]:
         env.Append(CXXFLAGS=["/WX"])
