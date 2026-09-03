@@ -132,4 +132,5 @@ template, a `ProgressBar` becomes its track with an unsized fill, a `Spinner` be
 beads at rest.
 
 See [Versioning](versioning.md) for which changes are allowed to rely on this and which
-ones are not.
+ones are not, and [Degradation](degradation.md) for what each rule actually draws — one row
+per capability, measured on a real screen with that capability withdrawn.

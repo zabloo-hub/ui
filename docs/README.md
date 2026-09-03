@@ -10,8 +10,8 @@ authoring (React/JSX + tokens) → IR envelope (JSON) → engine SDK
 
 The IR is a **payload consumed at runtime**, not build-time source. It is delivered to
 live games and can be hot-updated, so an SDK older than the content it receives is a
-normal situation the format is designed for — see [Versioning](format/versioning.md) and
-[Loading](format/loading.md).
+normal situation the format is designed for — see [Versioning](format/versioning.md),
+[Loading](format/loading.md) and [Degradation](format/degradation.md).
 
 ## Start here
 
@@ -36,6 +36,7 @@ as reference.
 | [Motion](format/motion.md) | Per-node transitions, what animates and what snaps, the easing curves. |
 | [Loading](format/loading.md) | Validation policy, diagnostics, and how unknown content degrades. |
 | [Versioning](format/versioning.md) | What is additive, what breaks, and what an older SDK does about it. |
+| [Degradation](format/degradation.md) | What a player sees when the SDK is older than its content, capability by capability. |
 | [The host channel](format/host-channel.md) | How the game drives the UI: the operations in, the callbacks back. |
 
 ## The catalog

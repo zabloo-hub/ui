@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "corpus.h"
 #include "json.h"
 #include "pad.h"
 #include "snapshot.h"
@@ -43,35 +44,23 @@ constexpr double DEFAULT_HEIGHT = 320.0;
 /** Differences printed before a diff starts repeating itself. */
 constexpr size_t MAX_DIFFS = 20;
 
-std::string corpus_file(const std::string &relative) {
-  return zabloo::testing::read_file(zabloo::testing::repo_root() + "/golden/" + relative);
-}
+using zabloo::testing::corpus_file;
+using zabloo::testing::to_data_value;
 
 /**
- * The corpus and the skip list, parsed once.
- *
- * Both are held by value for the life of the process: a `JsonRef` is a cursor
- * into its document, so every ref handed around below would dangle the moment
- * either was rebuilt.
+ * The skip list, parsed once and held by value for the life of the process: a
+ * `JsonRef` is a cursor into its document, so every ref handed around below
+ * would dangle the moment it was rebuilt. (The cases live in `corpus.h`, which
+ * this suite shares with the forward-compat one.)
  */
-struct Corpus {
-  JsonParse cases;
-  JsonParse skip;
-};
-
-const Corpus &corpus() {
-  static const Corpus parsed = [] {
-    Corpus out;
-    out.cases = JsonDoc::parse(corpus_file("cases.json"));
-    out.skip = JsonDoc::parse(
-        zabloo::testing::read_file(zabloo::testing::repo_root() + "/core/tests/golden-skip.json"));
-    return out;
-  }();
+const JsonParse &skip_list() {
+  static const JsonParse parsed = JsonDoc::parse(
+      zabloo::testing::read_file(zabloo::testing::repo_root() + "/core/tests/golden-skip.json"));
   return parsed;
 }
 
-JsonRef cases() { return corpus().cases.doc.root(); }
-JsonRef skipped() { return corpus().skip.doc.root().get("cases"); }
+JsonRef cases() { return zabloo::testing::corpus_cases(); }
+JsonRef skipped() { return skip_list().doc.root().get("cases"); }
 
 /** The reason this case is skipped, or an absent ref if it is not. */
 JsonRef skip_reason(std::string_view name) { return skipped().get(name); }
@@ -124,32 +113,6 @@ void replay_pad(View &view, JsonRef steps, double &clock) {
       view.layout_frame();
     }
   }
-}
-
-/**
- * A corpus `data` entry as the channel carries it.
- *
- * Arrays and objects included: a path is an ADDRESS into what the game pushed
- * (`shop.items.1.name` is one push and two segments of walking), so a channel
- * that only carried scalars could not express the corpus at all.
- */
-DataValue to_data_value(JsonRef value) {
-  if (value.is_bool()) return DataValue::of_bool(value.as_bool());
-  if (value.is_number()) return DataValue::of_number(value.as_number());
-  if (value.is_string()) return DataValue::of_text(std::string(value.as_string()));
-  if (value.is_array()) {
-    DataValue out = DataValue::array();
-    for (uint32_t i = 0; i < value.size(); i++) out.push(to_data_value(value.at(i)));
-    return out;
-  }
-  if (value.is_object()) {
-    DataValue out = DataValue::object();
-    for (uint32_t i = 0; i < value.size(); i++) {
-      out.insert(std::string(value.key_at(i)), to_data_value(value.at(i)));
-    }
-    return out;
-  }
-  return DataValue();
 }
 
 /**
@@ -368,8 +331,8 @@ bool reproduces(const std::string &name, JsonRef spec, std::string &why) {
 }  // namespace
 
 TEST(golden, the_corpus_reproduces_the_metrics_it_recorded) {
-  CHECK(corpus().cases.ok);
-  CHECK(corpus().skip.ok);
+  CHECK(cases().is_object());
+  CHECK(skip_list().ok);
 
   int compared = 0;
   for (const auto &entry : metric_cases()) {

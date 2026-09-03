@@ -46,6 +46,9 @@ already defines what an older SDK does with them:
 - **A new group behavior.** Ignored, so the children lay out as ordinary siblings.
 - **A new token in the dictionary**, a new asset entry field, a new diagnostic code.
 
+What each of these actually looks like in a build that lacks it — measured, not argued — is
+the matrix in [Degradation](degradation.md).
+
 A new capability is additive **only if its absence is a reasonable picture of the UI**. That
 is a design constraint on every new primitive, not a property that comes for free: a
 `Repeat` degrades to one static copy of its template, a `ProgressBar` to its track with an
