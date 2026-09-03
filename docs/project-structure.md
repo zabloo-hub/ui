@@ -20,7 +20,7 @@ components are ordinary imports), and `src/assets/`, `src/theme.ts` and `zabloo.
 are each optional.
 
 Scaffold one with `npx create-zabloo-app my-game-ui`, which writes exactly the tree above
-plus the `dev` / `dev:unity` / `build` scripts.
+plus the `dev` / `dev:godot` / `dev:unity` / `build` scripts.
 
 ## `src/views/` — one file, one view
 

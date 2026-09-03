@@ -1,14 +1,14 @@
 # Getting started
 
-Build a shop screen, bind it to game data, wire a button to C#, and load the result in
-Unity. Roughly twenty minutes, no engine needed until the last step.
+Build a shop screen, bind it to game data, wire a button to game code, and load the result
+in Godot. Roughly twenty minutes, no engine needed until the last step.
 
 This is the tutorial. The rest of `docs/` is the **reference** — normative pages that say
 exactly what every SDK must do. This page instead builds one screen from nothing, and links
 out whenever a concept has a page of its own.
 
-**You need** Node 22+ and pnpm. Unity (2022.3 LTS or newer) only for step 6 — the first five
-steps run entirely in the browser preview.
+**You need** Node 22+ and pnpm. An engine — Godot 4.4+, or Unity 2022.3 LTS or newer — only
+for step 6; the first five steps run entirely in the browser preview.
 
 > **Working on zabloo/ui itself?** From a clone of this repository you can scaffold into
 > the workspace instead of installing from npm — `--workspace` wires the project to the
@@ -61,7 +61,7 @@ my-game-ui/
 │   ├── assets/       images; the export inlines them in the envelope
 │   └── theme.ts      tokens, variants and motion
 ├── zabloo.config.ts
-└── package.json      dev · dev:unity · build
+└── package.json      dev · dev:godot · dev:unity · build
 ```
 
 ## 2. Your first screen
@@ -259,7 +259,8 @@ That suffix is the **action context**: an action fired from inside a repeated it
 embeds every enclosing index, so nested lists work from the innermost item alone.
 
 > **Status.** The action context is in the format ([`ActionContext`](format/bindings.md#action-context)
-> in `@zabloo/format`) and the web preview logs it, as above. The Unity SDK's `OnAction` is
+> in `@zabloo/format`), the web preview logs it as above, and Godot delivers it as the
+> second argument of the `action` signal (a `Dictionary`). The Unity SDK's `OnAction` is
 > `Action<string>` today — it delivers the action **name** only, and surfacing the context in
 > C# comes later. Until then, a Unity game that needs to know which row was pressed reads
 > the selection from its own state.
@@ -352,6 +353,78 @@ One file, and it is the whole deliverable — [the envelope](format/envelope.md)
   "assets": { "logo.png": { "hash": "…", "data": "iVBOR…" } }  // omitted when there are none
 }
 ```
+
+### Godot
+
+Godot is the engine that renders the whole catalog, so this is the shortest way to see the
+screen you just built running in a game.
+
+**1. Install the addon.** Download `zabloo-godot-addon-<version>.zip` from the
+[latest release](https://github.com/zabloo-hub/ui/releases) and unzip it into the project,
+so that `addons/zabloo/` sits next to `project.godot`. Then enable **Zabloo UI** in
+**Project → Project Settings → Plugins**. That is the whole installation — it registers the
+`ZablooView` node and the `ZablooDevMode` autoload, and the game wires nothing else.
+
+> **Godot 4.4 or newer.** The extension is compiled against the 4.4 API, and GDExtension is
+> binary-compatible *forward* inside 4.x, so the same build loads in 4.5, 4.6 and 4.7.
+> Building it yourself instead: [`sdk/godot`](https://github.com/zabloo-hub/ui/tree/main/sdk/godot).
+
+**2. Add a `ZablooView` to the scene.** It is a `Control`, so it lives wherever a `Control`
+lives — give it a full-rect anchor and it fills the viewport. Two properties in the
+inspector:
+
+| Property | What it is |
+|---|---|
+| **Envelope Path** | `res://ui/zabloo.ir.json` — copy `dist/zabloo.ir.json` into the project. Loaded on `_ready`. |
+| **View Id** | `main-menu`, the view id you want. Empty means the envelope's first view; across a `reload`, whichever view was on screen keeps its place if the new envelope still has it. |
+
+Godot's own layout is deliberately not used inside the view: anchors and `Container` nodes
+would be a second layout system disagreeing with the one every other target runs. The node
+gives the core a rect; everything inside it is the core's.
+
+**3. Talk to it.** The whole game↔UI coupling surface of v1 is **named actions out, data
+in** — two signals and `set_data`:
+
+```gdscript
+extends Node
+
+@onready var ui: ZablooView = $ZablooView
+
+var gold := 1000
+
+func _ready() -> void:
+    ui.action.connect(_on_action)
+    ui.data_changed.connect(_on_data_changed)
+    ui.set_data("player.gold", gold)
+
+func _on_action(name: String, context: Dictionary) -> void:
+    if name != "buy":
+        return
+    gold -= 100
+    ui.set_data("player.gold", gold)     # the bound Text updates and re-lays out
+    ui.set_data("shop.thanked", true)    # the bound `visible` reveals the row
+
+# A control wrote its own value back into a bound path — a Toggle checked, a
+# Slider dropped, a TextInput typed in. The same signal fires whether the player
+# moved it or the game did.
+func _on_data_changed(path: String, value: Variant) -> void:
+    print("%s = %s" % [path, value])
+```
+
+`context` carries the path, key and index of the item an action fired from inside a
+[`Repeat`](components/repeat.md), and is empty for one fired from the document itself — so a
+button in a row knows *which* row without a line of wiring. `set_data` is cached on the
+node, so pushing a value before a bound node exists applies as soon as it does, and it
+survives a content swap.
+
+Beyond those, the node exposes `reload(json)` for hot-swapping content and the per-node
+operations of the [host channel](format/host-channel.md) — `set_open`, `set_checked`,
+`set_value`, `set_text`, `set_scroll`, `set_selected_tab`.
+
+**4. What if the envelope is broken?** `load_file` never fails loudly: a payload the core
+refuses leaves whatever is on screen exactly where it was, and says why through the
+`diagnostic` signal and `get_diagnostics()`. That is what makes a corrupt hot-update cost
+the update and not the session — see [Loading](format/loading.md).
 
 ### Unity
 

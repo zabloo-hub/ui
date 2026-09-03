@@ -19,7 +19,7 @@ New to zabloo? Everything below is normative reference — precise, and the wron
 begin. Build a screen first:
 
 → **[Getting started](getting-started.md)** — scaffold a project, author a shop screen, bind
-it to game data, wire a button to C#, and load the envelope in Unity.
+it to game data, wire a button to game code, and load the envelope in Godot.
 
 Already have a project? [Project structure & CLI](project-structure.md) is the same ground
 as reference.
@@ -58,6 +58,18 @@ author and the tooling.
 | [`@zabloo/react` reference](react-api.md) | `renderToIR`, `ThemeProvider`, the shared prop types and the item-template types. |
 | [Theming](theming.md) | Tokens, variants and motion defaults: one file, three resolution times. |
 | [Troubleshooting](troubleshooting.md) | The sharp edges, every authoring error, and what to check when nothing happens. |
+
+## Engines
+
+Godot is the engine that renders the whole catalog. Its SDK is a GDExtension in C++, and
+that C++ *is* the shared core — so what the format pages above call "the SDK" is, there,
+[`core/`](https://github.com/zabloo-hub/ui/tree/main/core) with a thin adapter on top.
+
+| Page | What it covers |
+|---|---|
+| [The host channel](format/host-channel.md) | Every operation and callback, with its Godot spelling beside the web one. |
+| [`sdk/godot`](https://github.com/zabloo-hub/ui/tree/main/sdk/godot#readme) | Installing the addon, building it from source, and the in-engine dev loop. |
+| [Getting started §6](getting-started.md#6-export-and-load-it-in-the-game) | The five-minute version: install, add a `ZablooView`, connect two signals. |
 
 ## For maintainers
 

@@ -5,9 +5,10 @@ will eventually be handed a payload it was not built for — newer, older, trunc
 download, or simply wrong. **A corrupt envelope must never take the game down.**
 
 The policy below is one policy, implemented once in `@zabloo/format` (`readEnvelope`) and
-ported literally by every SDK. Both targets degrade the same way in front of the same
-bytes, and a consumer that loaded an envelope can trust its shape instead of defending
-itself at every node, every frame.
+ported literally by every SDK — in the C++ core the same codes, paths and order come out
+of `validate.cpp`, asserted against the TypeScript reader case by case. Every target
+degrades the same way in front of the same bytes, and a consumer that loaded an envelope
+can trust its shape instead of defending itself at every node, every frame.
 
 ## Three levels
 
@@ -95,6 +96,24 @@ since that would pay the cost twice.
   where the author is looking. With no callback they go to the console.
 
 Warnings are emitted **once, at load**, not per frame.
+
+### In Godot
+
+Nothing throws, because Godot has no exception to throw at a game. `load_envelope`,
+`load_file` and `reload` return a **`bool`** — `false` when a fatal diagnostic stopped the
+load, and the view keeps rendering whatever it already had. On top of that:
+
+| | |
+|---|---|
+| `diagnostic(code, message, fatal)` | A signal, one emission per finding, on an import and on a hot-update alike. Connect it to route them into a game's own dev overlay. |
+| `get_diagnostics()` | The messages of the last load, as a `PackedStringArray`. |
+| `is_loaded()` | Whether there is a view on screen at all. |
+
+They also reach Godot's own output: a fatal through `push_error`, a warning through
+`push_warning`, each prefixed `[zabloo]` and named by its stable code. On a load that
+succeeds they are reported **after** the first layout pass rather than before it, because
+some findings — an overlay anchored to a node that turns out not to take input — are only
+knowable once the view has resolved once.
 
 ## Running the contract yourself
 
