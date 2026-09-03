@@ -1,6 +1,7 @@
 # Releasing
 
-How a version of the `@zabloo/*` packages gets from a merged PR to npm. This page is
+How a version of the `@zabloo/*` packages gets from a merged PR to npm, and how the
+[Godot addon](#the-godot-addon) gets from the same commit to a GitHub Release. This page is
 for maintainers; nothing here is needed to *use* zabloo/ui.
 
 > **First release shipped 2026-08-22** — `@zabloo/*@0.2.0` and `create-zabloo-app@0.1.1`,
@@ -73,6 +74,68 @@ changesets as written, and a merged changelog is history. Before merging it:
       half-landed feature that should wait for the next one?
 - [ ] `pnpm verify:pack` and `pnpm smoke:external` green on `main`.
 - [ ] Merge. Then **dry-run**, then **publish** — steps 4 and 5 of [The flow](#the-flow).
+
+## The Godot addon
+
+The engine SDK does not go to npm — a Godot game installs an addon, not a package. It ships
+as **`zabloo-godot-addon-<version>.zip`** attached to a GitHub Release: `addons/zabloo/` with
+`plugin.cfg`, the GDScript of the editor plugin and the dev-mode autoload, the
+`.gdextension`, and `bin/` with a binary per platform. Unzipping it at the root of a Godot
+project is the whole installation.
+
+### Its version is the `fixed` group's
+
+The zip carries the same number as `@zabloo/format` and the rest of the
+[fixed group](#the-packages) — read from `packages/format/package.json` at pack time and
+stamped into `plugin.cfg`.
+
+It is not an npm package and `changeset publish` never sees it, so this is a convention
+rather than a mechanism. The reason to keep it is that **the addon and the packages agree on
+one thing, and that thing is the format**: the `zabloo export` that wrote an envelope and the
+core that reads it have to implement the same version of it, and the dev loop's transport is
+a second contract between the same two halves. One number answers "which addon goes with the
+packages I installed"; two numbers would mean maintaining a compatibility table for a
+question that has one answer.
+
+> This **amends** the 2026-08-24 decision, which gave the addon "its own cycle, its own
+> audience". Its own *cycle* survives — the addon is released when the addon changes, not on
+> every npm publish — but the version it carries is the group's.
+
+### Releasing it
+
+The **Godot addon** workflow, dispatched by hand like every other release here. It compiles
+the extension for every platform (`template_debug` **and** `template_release` — Godot's
+editor is a debug build, so a release-only zip installs and then has no `ZablooView`), packs
+them with [`scripts/pack-addon.mjs`](../scripts/pack-addon.mjs), and either uploads the zip as
+a workflow artifact (`dry-run`) or attaches it to the Release `godot-addon@<version>`
+(`publish`).
+
+What has to be in `bin/` is read from `zabloo.gdextension`, not from a list in the script: a
+library Godot will look for and not find is a platform that silently has no addon, so a
+missing one fails the pack. **Web is the exception** — experimental, its build never blocks,
+and it ships when it built.
+
+Add to [Before you merge Version Packages](#before-you-merge-version-packages), when the
+release touches `core/` or `sdk/godot/`:
+
+- [ ] Bump `version=` in `sdk/godot/addons/zabloo/plugin.cfg` to the group's new version.
+      The pack stamps it anyway; the committed value is what a developer sees in the Plugins
+      panel of a source install, and it should not be a number from three releases ago.
+- [ ] After the npm publish, dispatch **Godot addon** in `dry-run`, download the artifact and
+      install it in a clean Godot project. Then dispatch it in `publish`.
+
+### The Asset Library
+
+Godot's [Asset Library](https://godotengine.org/asset-library/asset) is the second
+distribution channel and deliberately not the first: it is a catalog, and a catalog entry is
+worth submitting once there is something to show. When that happens, the submission is a form
+on the site (Godot account required) with the repository URL, a `4.x` version, the MIT
+license, and a **download commit or a release tarball** — the Asset Library serves what the
+form points at, so point it at the Release tag, never at `main`. Each version is reviewed by
+hand before it appears, and an update is the same form again on the existing entry.
+
+Nothing about the zip changes for it: the addon is already laid out the way the Asset Library
+expects (`addons/<name>/` at the archive root).
 
 ## A hotfix to a published version
 

@@ -44,14 +44,27 @@ my-game-ui/
 
 ```bash
 pnpm dev        # watch + live web preview
+pnpm dev:godot  # …plus hot-swap each save in the running Godot game
 pnpm dev:unity  # …plus hot-push each save to the Unity editor (menu Zabloo → Dev Mode)
 pnpm build      # export → dist/zabloo.ir.json
 ```
 
-## Wiring the game (Unity)
+## Wiring the game
 
 Two things cross from the UI into your game, and only these two — named **actions** and
-data-path **bindings**:
+data-path **bindings**. In Godot, both are signals on the `ZablooView` node the addon
+registers:
+
+```gdscript
+@onready var ui: ZablooView = $ZablooView
+
+func _ready() -> void:
+    ui.action.connect(func(name: String, _context: Dictionary):
+        if name == "play": start_game())
+    ui.set_data("player.gold", 1250)   # bound Text/visible react live and re-lay out
+```
+
+In Unity, the same two through the document:
 
 ```csharp
 var ui = GetComponent<Zabloo.ZablooDocument>();
@@ -59,9 +72,9 @@ ui.OnAction += action => { if (action == "play") StartGame(); };
 ui.SetData("player.gold", 1250); // bound Text/visible react live and re-lay out
 ```
 
-Unity is the reference SDK for v1; Godot and Unreal come later. The envelope can also be
-delivered and **hot-updated** from the zabloo platform without recompiling or re-shipping
-through stores — the dev loop uses that exact path.
+Godot renders the whole catalog today; Unreal comes later, as a thin adapter over the same
+core. The envelope can also be delivered and **hot-updated** from the zabloo platform
+without recompiling or re-shipping through stores — the dev loop uses that exact path.
 
 ## Usage
 

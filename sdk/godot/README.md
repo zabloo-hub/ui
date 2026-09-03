@@ -24,6 +24,13 @@ The first build compiles `godot-cpp` and takes a few minutes; the ones after it
 do not. Objects land under `obj/`, including the core's: SCons would otherwise
 leave them next to their sources in `core/src/`, where that build keeps its own.
 
+`node ../../scripts/pack-addon.mjs --allow-partial` zips what is in
+`addons/zabloo/` the way a release does, so a local build can be installed as
+an addon rather than only run from the playground. Without the flag it refuses
+to pack a zip missing any platform the `.gdextension` names — which is what a
+real release wants and a local build never has. How one is published:
+[`docs/releasing.md`](../../docs/releasing.md#the-godot-addon).
+
 **Web is experimental** (2026-08-24, Decision 4) and needs more than a flag: the
 export has to use Godot's `dlink` templates (Web preset → *Extensions Support*),
 and the extension has to be built with an Emscripten whose libc++ matches the one
@@ -31,9 +38,22 @@ those templates were built with. A newer one links fine and then aborts at load
 on a symbol the main module does not export.
 [`docs/performance.md`](../../docs/performance.md) records what that check found.
 
-## Use it in a game
+## Install it in a game
 
-Drop `addons/zabloo/` into your project, then:
+Download **`zabloo-godot-addon-<version>.zip`** from the
+[latest release](https://github.com/zabloo-hub/ui/releases) and unzip it at
+the root of the project, so that `addons/zabloo/` sits next to
+`project.godot`. Then enable **Zabloo UI** in **Project → Project Settings →
+Plugins**: that is what loads the extension, registers the `ZablooView` node
+and installs the `ZablooDevMode` autoload. The game wires nothing else.
+
+The zip carries a binary for every supported platform and **both** build
+targets — the editor is a debug build, so a release-only install has no
+`ZablooView` in the Add Node dialog. A `scons` build of your own carries only
+the one you asked for, which is why a source install can show the node in one
+configuration and not in another.
+
+## Use it in a game
 
 ```gdscript
 @onready var ui: ZablooView = $ZablooView
@@ -56,10 +76,9 @@ makes a corrupt hot-update cost the update and not the session.
 
 ## The dev loop
 
-Enable the addon in **Project → Project Settings → Plugins**. That registers the
-`ZablooDevMode` autoload, which is the whole installation — the game wires
-nothing, exactly as it wires nothing for the gamepad. Then, in the authoring
-project:
+Enabling the addon registered the `ZablooDevMode` autoload, and that is the
+whole installation — the game wires nothing, exactly as it wires nothing for
+the gamepad. Then, in the authoring project:
 
 ```sh
 zabloo dev --godot     # or `pnpm dev:godot`

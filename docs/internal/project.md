@@ -42,13 +42,18 @@ The IR is the **keystone** of the whole system. Its full design context is in
 - **The core is extracted now, not later.** The 2026-07-06 open question ("when to extract
   the tessellator into a shared C++ core") is closed for one reason: the first engine that
   renders needs it, so writing it inside an adapter would mean writing it twice. Every
-  further engine — Unreal, and Unity when it comes back — is a **thin adapter** on the same
+  further engine — Unity (F12) and Unreal (F13) — is a **thin adapter** on the same
   core, never another port.
 - **The core must be able to produce a `ViewSnapshot` with no engine at all.** That is what
   draws the core/adapter line, and it is what lets the `golden/` corpus run against a
   native binary in CI on a bare CPU — no engine, no GPU.
-- **The Unity SDK is cancelled** at 4 of 13 node types (`sdk/unity` is deleted in F11's
-  G17). Unity returns some day as a thin adapter over this core, not as a C# port.
+- **The Unity SDK is cancelled** at 4 of 13 node types. G17 took Unity out of the public
+  docs' *foreground* — Godot is what they describe — and deleting `sdk/unity`,
+  `zabloo dev --unity` and `dev:unity` is its own ticket right behind it. Unity returns
+  as a thin adapter over this core, not as a C# port — and "some day" now has a date:
+  **F12 is the Unity SDK and F13 the Unreal one** (decided 2026-09-03), because the
+  release we ship has to drive all three engines plus web. The `sdk/unity` being deleted
+  is not the one that comes back.
 - **Content lives on the platform** and is delivered to the SDK, enabling hot-update.
 
 ## Authoring (decided 2026-07-09: React bindings first)

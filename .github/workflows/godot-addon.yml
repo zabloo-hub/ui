@@ -1,0 +1,176 @@
+# The Godot addon's release artifact: `addons/zabloo/` with a binary for every
+# platform, zipped, attached to a GitHub Release. Unzipping it at the root of a
+# Godot project is the whole installation.
+#
+# Nothing here runs on a push. The addon is not an npm package and does not ride
+# `changeset publish` — but it carries the npm `fixed` group's version anyway, so
+# one number answers "which addon goes with the packages I installed". Publishing
+# it is a decision, like every other release in this repo: dispatch it after the
+# Version Packages PR has landed. See docs/releasing.md.
+name: Godot addon
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run packs the zip as a workflow artifact; publish attaches it to a Release"
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - publish
+
+concurrency:
+  group: godot-addon-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Both targets, not just release: Godot's EDITOR is a debug build, so a zip
+  # carrying only `template_release` installs and then has no ZablooView in the
+  # Add Node dialog. `pack-addon.mjs` reads the .gdextension and fails on exactly
+  # that, but failing three minutes earlier is better than failing at the pack.
+  # One entry per library the .gdextension names, not per platform: Linux declares
+  # x86_64 AND arm64, and a zip missing one of them is a Linux the addon does not
+  # load on. arm64 is a NATIVE runner rather than a cross toolchain — free for
+  # public repositories, and one less thing between a build and its target.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: android
+          - os: macos-latest
+            platform: ios
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      # godot-cpp pins an NDK version and builds the toolchain path out of it;
+      # the runner ships whatever is current instead. Same fix as ci.yml.
+      - name: Point the build at the NDK the runner has
+        if: matrix.platform == 'android'
+        shell: bash
+        run: echo "SCONS_EXTRA=ndk_version=$(ls "$ANDROID_HOME/ndk" | sort -V | tail -1)" >> "$GITHUB_ENV"
+
+      - name: Build the extension
+        working-directory: sdk/godot
+        shell: bash
+        env:
+          # Empty for the platforms whose default arch is the only one declared:
+          # macOS builds universal, Android and iOS arm64, web wasm32.
+          ARCH: ${{ matrix.arch && format('arch={0}', matrix.arch) || '' }}
+        run: |
+          scons target=template_debug platform=${{ matrix.platform }} $ARCH $SCONS_EXTRA
+          scons target=template_release platform=${{ matrix.platform }} $ARCH $SCONS_EXTRA
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: addon-bin-${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) || '' }}
+          path: sdk/godot/addons/zabloo/bin/
+          if-no-files-found: error
+
+  # Web is EXPERIMENTAL and never blocks (2026-08-24, Decision 4): it needs
+  # `dlink` export templates and an Emscripten whose ABI matches the one Godot's
+  # own templates were built with, and neither is ours to pin. When it builds it
+  # ships; when it does not, `pack-addon.mjs` reports it as skipped and packs the
+  # rest.
+  build-web:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.10
+
+      - name: Build the extension
+        working-directory: sdk/godot
+        run: |
+          scons target=template_debug platform=web
+          scons target=template_release platform=web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: addon-bin-web
+          path: sdk/godot/addons/zabloo/bin/
+          if-no-files-found: error
+
+  pack:
+    needs: [build, build-web]
+    # `build-web` is allowed to fail, and a failed job still "completes" — but a
+    # skipped or cancelled `build` must not reach here with a half-built zip.
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the Release and its tag.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No name: every `addon-bin-*` artifact lands under one directory, and the
+      # pack finds the libraries by file name — which is what the .gdextension
+      # resolves against anyway.
+      - uses: actions/download-artifact@v4
+        with:
+          path: bin
+          pattern: addon-bin-*
+
+      - name: Pack the addon
+        run: node scripts/pack-addon.mjs --bin bin --out dist
+
+      - name: The version this is
+        id: version
+        run: echo "value=$(node -p "require('./packages/format/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'dry-run'
+        with:
+          name: zabloo-godot-addon
+          path: dist/zabloo-godot-addon-*.zip
+          if-no-files-found: error
+
+      # Idempotent the same way `github-releases.mjs` is: an existing Release for
+      # this version gets the zip uploaded into it, a new one is created.
+      - name: Attach it to the Release
+        if: inputs.mode == 'publish'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: godot-addon@${{ steps.version.outputs.value }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" \
+              --notes "The Godot addon for zabloo/ui ${{ steps.version.outputs.value }}. Unzip \`addons/zabloo/\` at the root of a Godot 4.4+ project and enable **Zabloo UI** in Project Settings → Plugins."
+          fi
+          gh release upload "$TAG" dist/zabloo-godot-addon-*.zip --clobber

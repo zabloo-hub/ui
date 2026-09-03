@@ -4454,6 +4454,96 @@ significa un dato" son dos respuestas a una pregunta esperando a discrepar.
 `loading.md` y el índice), `core/tests/test_forward_compat.cpp` (los 17 casos) y
 `core/tests/corpus.h`/`.cpp` (el helper compartido).
 
+## 2026-09-03 — Distribución del addon de Godot: la versión es la del grupo `fixed`, y lo que va dentro lo dice el `.gdextension` (ZAB-150, F11 G17)
+
+**Decisión:** el addon se distribuye como **`zabloo-godot-addon-<version>.zip`** adjunto a
+una GitHub Release, y ese `<version>` es **el del grupo `fixed` de npm**
+(`@zabloo/format` y compañía), leído de `packages/format/package.json` al empaquetar y
+estampado en `plugin.cfg`. El Asset Library de Godot queda como **paso documentado**, no
+como pipeline: es un catálogo, y una entrada de catálogo vale la pena cuando hay algo que
+enseñar.
+
+**Esto ENMIENDA la decisión del 2026-08-24**, que dijo del addon "no entra en el grupo
+`fixed`: es un artefacto de otra plataforma, con su propio ciclo y su propia audiencia".
+Su **ciclo** propio sobrevive intacto — el addon se publica cuando el addon cambia, con su
+propio workflow y su propia dispatch, no en cada publish de npm —; lo que cambia es el
+**número que lleva**. El motivo es que el addon y los paquetes se ponen de acuerdo en
+exactamente una cosa, y esa cosa es **el formato**: el `zabloo export` que escribió un
+envelope y el core que lo lee tienen que implementar la misma versión de él, y el
+transporte del dev loop (2026-09-03, G14) es un segundo contrato entre las mismas dos
+mitades. Un número contesta "qué addon va con los paquetes que instalé"; dos números son
+una tabla de compatibilidad para una pregunta que tiene una sola respuesta. El coste
+aceptado es que un release del addon que solo toca `sdk/godot` salta a la versión del
+grupo aunque los paquetes no hayan cambiado — barato mientras estemos en 0.x, y honesto:
+lo que el número identifica es el par.
+
+**Lo que va dentro del zip NO es una lista en el script: se lee del `.gdextension`.** Es el
+mismo fichero contra el que Godot resuelve al cargar, así que una librería que él va a
+buscar y no encontrar es una plataforma que **silenciosamente no tiene addon** — de ahí que
+falte una sea un error del empaquetado y no un zip más pequeño. Web es la única excepción
+(experimental desde 2026-08-24, su job nunca bloquea): viaja cuando se construyó y se
+reporta como *skipped* cuando no. Un binario que el `.gdextension` no nombra se reporta como
+*extra* y no se empaqueta, para que un artifact rancio no se cuele.
+
+**Dos huecos que solo aparecieron al empaquetar de verdad, y los dos eran reales:**
+
+1. **Faltaban TODOS los binarios de debug.** CI compilaba `target=template_release` y nada
+   más, y **el editor de Godot es un build de debug**: un zip release-only se instala, se
+   habilita el plugin, y `ZablooView` no aparece en el diálogo de Add Node. El workflow del
+   addon compila los dos targets por plataforma, y el test que lo fija ("un build
+   release-only echa en falta cada librería de debug") es la regresión que impide que
+   vuelva.
+2. **Faltaba Linux arm64.** El `.gdextension` lo declara desde G1 y ninguna matriz lo
+   compilaba nunca — ni la de CI ni, al principio, la del release. Entra como **runner
+   nativo** (`ubuntu-24.04-arm`, gratis en repos públicos) en vez de un toolchain cruzado, y
+   entra **también en `ci.yml`**: era exactamente la clase de plataforma que se pudre sin
+   que nadie lo note hasta el día en que tiene que funcionar, que es lo que el comentario de
+   ese job dice que existe para evitar.
+
+**El workflow es `workflow_dispatch`, como todo lo que publica aquí.** `dry-run` sube el zip
+como artifact del run; `publish` lo adjunta a la Release `godot-addon@<version>`, creándola
+si no existe — idempotente como `github-releases.mjs`, así que reintentar tras un fallo
+parcial no duplica nada. Una release sigue siendo una decisión, no una consecuencia de
+mergear (2026-08-22).
+
+**Docs públicas: Godot pasa al frente, y las frases sobre Unity NO se tocan.** `README.md`
+gana su fila 13/13 y el párrafo del core; `getting-started.md` gana un §6 "Godot" completo
+(instalar el addon, `ZablooView` en la escena, las dos señales, qué pasa con un envelope
+roto) **delante** del bloque de Unity, que se queda como estaba; `loading.md` gana la
+ortografía Godot de los diagnósticos (nada lanza: `bool` de vuelta, señal `diagnostic`,
+`get_diagnostics()`); `troubleshooting.md` gana los cinco filos reales del addon; y
+`examples/README.md` deja de decir "cuatro proyectos y uno de Unity" sin listar el
+playground. La única frase de Unity que se borra es **"Unity is the reference SDK for
+v1 … Packages are not yet published to npm"**: contradecía de frente cualquier párrafo de
+Godot, y su segunda mitad era falsa desde F9.
+
+**La retirada de Unity de la superficie sale de este ticket a uno propio** (`sdk/unity`,
+`examples`, `zabloo dev --unity`, `dev:unity`). Borrar código y reescribir prosa son dos
+revisiones distintas, y separarlas deja esta legible; el criterio de salida
+"`grep -ri unity docs README.md packages/create-zabloo-app` solo devuelve menciones
+históricas" lo cierra el siguiente, no este.
+
+**Verificado a mano, que es lo único que puede verificar esto:** el corpus golden no sabe
+nada de zips. Compilados debug y release de macOS, empaquetados con el script real, el zip
+descomprimido en un proyecto Godot **limpio** (4.6.2, addon habilitado, un `ZablooView` con
+`envelope_path` y `view_id` en el inspector) renderiza `hello-button` entero — oro bindeado
+a 1200, la barra al 0,7, el spinner, el anillo de foco en el `autofocus`, el Collapse y el
+badge — y responde a las dos vías de activación: Enter dispara `action buy` y un clic
+dispara `action quit`, los dos con el contexto vacío que corresponde a una acción que no
+nace dentro de un `Repeat`. `plugin.cfg` sale del zip estampado a `0.2.0`.
+
+Y **las dos mitades del zip están probadas por separado**, que es justo lo que el hueco de
+arriba pedía comprobar: el editor carga la de debug, y un **export release de verdad** de
+ese mismo proyecto se lleva `libzabloo.macos.template_release.universal.dylib` a
+`Contents/Frameworks/` y arranca cargando y disparando igual. Un zip con una sola de las
+dos habría pasado una de estas dos pruebas y fallado la otra sin decir por qué.
+
+**Dónde vive:** `scripts/pack-addon.mjs` (+ `.test.mjs`),
+`.github/workflows/godot-addon.yml`, la matriz de `ci.yml`,
+`docs/releasing.md` › *The Godot addon*, `sdk/godot/README.md` › *Install it in a game*, y
+el barrido de `README.md`, `docs/{README,getting-started,project-structure,troubleshooting}.md`,
+`docs/format/loading.md`, `examples/README.md` y `packages/create-zabloo-app`.
+
 ## 2026-09-03 — La próxima versión cubre cuatro targets: Unity vuelve (F12) y Unreal entra detrás (F13)
 
 **Decisión:** la siguiente versión publicada de `@zabloo/*` + SDKs controla **web, Godot,

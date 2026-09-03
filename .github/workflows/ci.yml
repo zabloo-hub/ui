@@ -121,6 +121,13 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            arch: x86_64
+          # The .gdextension declares Linux arm64 too, so the release zip carries
+          # it (godot-addon.yml) — and this is the entry that keeps it from being
+          # a toolchain nobody compiles until the day it has to work.
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
           - os: macos-latest
             platform: macos
           - os: windows-latest
@@ -154,11 +161,13 @@ jobs:
       - name: Build the extension
         working-directory: sdk/godot
         shell: bash
-        run: scons target=template_release platform=${{ matrix.platform }} $SCONS_EXTRA
+        env:
+          ARCH: ${{ matrix.arch && format('arch={0}', matrix.arch) || '' }}
+        run: scons target=template_release platform=${{ matrix.platform }} $ARCH $SCONS_EXTRA
 
       - uses: actions/upload-artifact@v4
         with:
-          name: zabloo-addon-${{ matrix.platform }}
+          name: zabloo-addon-${{ matrix.platform }}${{ matrix.arch && format('-{0}', matrix.arch) || '' }}
           path: sdk/godot/addons/zabloo/bin/
           if-no-files-found: error
 

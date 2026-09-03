@@ -218,13 +218,23 @@ camino y se consolida en F8.
     motor. Ver `decisions-architecture.md` (2026-08-24) y
     `specs/2026-08-24-godot-sdk-language-design.md`.
 
+    **Nota sobre G17 (2026-09-03):** el ticket llevaba tres cosas y se entrega con
+    dos — docs públicas con Godot delante, y distribución del addon (zip por
+    release, versión del grupo `fixed`, Asset Library documentado). La **retirada de
+    Unity de la superficie** (`sdk/unity`, `zabloo dev --unity`, `dev:unity`) sale a
+    su propio ticket inmediatamente detrás: borrar código y reescribir prosa son dos
+    revisiones distintas, y la segunda es la que cierra el criterio de salida
+    "`grep -ri unity` solo devuelve menciones históricas".
+
 12. **F12 — SDK de Unity** (planificada 2026-09-03, sin desglosar). Unity vuelve, y
     vuelve por la vía que dejó escrita la decisión del 2026-08-24: **adaptador fino
-    sobre el core C++** a través de un plugin nativo — nunca el port a C# que se
-    canceló a 4 de 13 tipos. El core ya no se reescribe: lo que hay que construir es
-    la mitad que sabe de Unity (subir la geometría teselada, traducir input, exponer
-    acciones y datos idiomáticamente en C#) y el puente de interop que la conecta con
-    el core, que es el riesgo real de la fase (P/Invoke, IL2CPP/AOT, consolas).
+    sobre el core C++** a través de un plugin nativo, nunca el port a C# que se canceló
+    a 4 de 13 tipos: el `sdk/unity` que G17 está retirando de la superficie no es el
+    que vuelve, es el que se borra. El core ya no se reescribe — lo que hay que
+    construir es la mitad que sabe de Unity (subir la geometría teselada, traducir
+    input, exponer acciones y datos idiomáticamente en C#) y el puente de interop que
+    la conecta con el core, que es el riesgo real de la fase (P/Invoke, IL2CPP/AOT,
+    consolas).
     **Criterio de salida:** el corpus golden completo pasa en Unity con las mismas
     métricas, `examples/settings-screen` es navegable con mando en un build real, y
     el paquete se instala por UPM.

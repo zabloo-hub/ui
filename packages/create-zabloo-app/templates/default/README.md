@@ -18,7 +18,7 @@ pnpm build      # export the envelope to dist/zabloo.ir.json
 
 ## Project layout
 
-- `src/views/` — every `.tsx` here is one view of the envelope (filename = view ID). Two come with the project: `main-menu` and `settings` (tabs, a switch, a slider, a dropdown and a text field, all bound). The preview's view selector switches between them; in Unity, the one a document loads is its **View** field.
+- `src/views/` — every `.tsx` here is one view of the envelope (filename = view ID). Two come with the project: `main-menu` and `settings` (tabs, a switch, a slider, a dropdown and a text field, all bound). The preview's view selector switches between them; in Godot the one a `ZablooView` shows is its **View Id** property, and in Unity the one a document loads is its **View** field.
 - `src/components/` — your React components; they run at export time and emit zabloo primitives (they never reach the IR).
 - `src/assets/` — images (`.png`, `.jpg`); `<Image src="logo.png">` references them by path relative to this folder, and the export inlines them in the envelope.
 - `src/theme.ts` — design tokens (flat dictionary, hot-updatable) and component variants (resolved at export time).
@@ -26,12 +26,27 @@ pnpm build      # export the envelope to dist/zabloo.ir.json
 
 ## Learn more
 
-- [Getting started](https://github.com/zabloo-hub/ui/blob/main/docs/getting-started.md) — the same project built from an empty folder, step by step, through to loading the envelope in Unity.
+- [Getting started](https://github.com/zabloo-hub/ui/blob/main/docs/getting-started.md) — the same project built from an empty folder, step by step, through to loading the envelope in Godot.
 - [Project structure & CLI](https://github.com/zabloo-hub/ui/blob/main/docs/project-structure.md) — what each folder here is for, and what `zabloo dev` / `zabloo export` do.
 - [Component catalog](https://github.com/zabloo-hub/ui/blob/main/docs/components/README.md) — one page per node type, with the `@zabloo/react` components that emit it.
 - [Format reference](https://github.com/zabloo-hub/ui/blob/main/docs/format/envelope.md) — the envelope, layout, style, bindings, motion, and the rules a loader follows.
 - [Examples](https://github.com/zabloo-hub/ui/blob/main/examples/README.md) — runnable projects, from a one-button screen to the whole catalog.
 - [Troubleshooting](https://github.com/zabloo-hub/ui/blob/main/docs/troubleshooting.md) — export errors, loader warnings, and "it rendered but not like that".
+
+## Wiring the game (Godot)
+
+Named actions out, data in — that is the whole coupling surface.
+
+```gdscript
+@onready var ui: ZablooView = $ZablooView
+
+func _ready() -> void:
+    ui.action.connect(func(name: String, _context: Dictionary):
+        if name == "play": start_game())
+    ui.data_changed.connect(func(path: String, value: Variant):
+        print("%s = %s" % [path, value]))   # a control wrote its own value back
+    ui.set_data("player.gold", 1250)        # bound Text/visible react live
+```
 
 ## Wiring the game (Unity)
 
