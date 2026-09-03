@@ -397,13 +397,13 @@ unknown nodes/props? render a fallback? refuse?). Capability/version negotiation
 Because we self-render, the relevant question per engine is **"how does it give us a GPU
 canvas / let us submit custom geometry?"** — not "what widgets/layout/theming does it have."
 
-| Concern            | Godot (**renders the whole catalog**) | Unreal (**F13**)           | Unity (**F12**)               |
+| Concern            | Godot (**renders the whole catalog**) | Unreal (**F13**)           | Unity (**F12**, decided 2026-09-03) |
 |--------------------|------------------------------------|-------------------------------|-------------------------------|
-| Custom geometry    | `RenderingServer.canvas_item_add_triangle_array` | Slate custom widget / RHI | UI Toolkit `generateVisualContent` / Mesh API |
-| How the core gets in | **GDExtension in C++** (`godot-cpp`) — the core *is* the extension | the same C++ core as a module/plugin | a native plugin over the same core |
+| Custom geometry    | `RenderingServer.canvas_item_add_triangle_array` | Slate custom widget / RHI | UGUI: `CanvasRenderer.SetMesh`, one renderer per clip group + our own shader |
+| How the core gets in | **GDExtension in C++** (`godot-cpp`) — the core *is* the extension | the same C++ core as a module/plugin, no language bridge | the same core as a **native plugin** (`libzabloo`) behind a **C ABI**; the adapter is C# only |
 | We provide         | tessellated mesh + texture         | tessellated mesh              | tessellated mesh + material   |
-| Engine provides    | draw call + input plumbing         | draw call + input             | draw call + input             |
-| Text/fonts         | our atlas + our rasterizer (`stb_truetype.h`, decided 2026-08-11) | the same, verbatim | the same, verbatim (the C# port is off the table with the C# port of the SDK) |
+| Engine provides    | draw call + input plumbing         | draw call + input             | draw call + input (Input System) |
+| Text/fonts         | our atlas + our rasterizer (`stb_truetype.h`, decided 2026-08-11) | the same, verbatim | the same, verbatim — it runs in the native plugin, so nothing is ported to C# |
 
 Since 2026-08-24 that table has one column that matters and two that are plans: **the
 core is C++ and it is shared**, so a new engine adds an adapter — a way to hand over

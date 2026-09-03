@@ -4581,3 +4581,87 @@ el adaptador, que es exactamente lo que la regla de oro protege.
 
 **Sin desglosar todavía:** los tickets de F12 se escriben al abrir la fase, con el mismo
 patrón que F11 (**Zona**, **No toca**, y los casos del corpus que cada uno cierra).
+
+## 2026-09-03 — La forma del SDK de Unity: plugin nativo tras un C ABI, render por UGUI (ZAB-194, F12 UN1)
+
+**Decisión:** Unity entra como **adaptador fino sobre el core C++** — como fijó 2026-08-24 —
+y lo que se fija ahora es la forma de las seis piezas que en Godot no existieron:
+
+1. **El puente es una cabecera C** (`core/capi/zabloo.h`), la segunda puerta del core: handles
+   opacos, UTF-8 con longitud, sin excepciones, un hilo, **valores como JSON en las dos
+   direcciones**, y **ningún callback nativo→managed** — todo lo que el core produce se drena
+   después del frame, que es lo que ya hacía el adaptador de Godot por reentrada y lo que
+   hace el interop AOT-safe bajo IL2CPP. El ABI **envuelve, no edita**: lo que `view.h` no
+   expone se pide al core en un PR aparte. Y el corpus corre por la cabecera sola en CI
+   (UN2) y otra vez desde dentro de Unity (UN10): si el mismo envelope da otra métrica al
+   cruzar la frontera, el culpable está en el puente y no en el core.
+2. **Render por UGUI:** `Canvas` + un `CanvasRenderer` por grupo de clip (un submesh por
+   batch, `SetMaterial(mat, i)`) + un shader propio con `_ClipRect`/`_ClipRadius` (el SDF de
+   ZAB-7 y G6) y `_TextureKind`. Es la traducción literal del canvas item hijo por grupo de
+   Godot; `SetMesh` es "aquí tienes triángulos" y no interpreta nada. Vértices como
+   `NativeArray` **vistas** sobre los punteros del core (sin copia), flip de Y en la
+   transform del hijo y nunca por vértice. El `RectTransform` solo en la raíz; TextMeshPro
+   no se usa.
+3. **Unity 2022.3 LTS mínimo, probado en 6.0 LTS y 6.3 LTS.** Nada del adaptador es
+   posterior a 2019.
+4. **Input System** como dependencia del paquete: mando con mapeo estándar sin configurar
+   nada (la propiedad de ZAB-47/G13), `onTextInput` e IME, `InputTestFixture` para tests.
+5. **Plataformas:** macOS universal, Windows x64 y Linux x64 **soportados**; Android
+   arm64 e iOS (`.a` estática, `__Internal`) **compilan en CI, no validados** (la cesta de
+   ZAB-193); consolas "compila, no validado"; **WebGL fuera**. **IL2CPP es requisito**: el
+   interop se valida con players IL2CPP reales (UN9), no solo en Mono.
+6. **Paquete UPM `com.zabloo.sdk`**, versión = la del grupo `fixed` (la regla de G17), `.tgz`
+   adjunto a la GitHub Release; git URL descartada (binarios committeados), OpenUPM
+   documentado y no hecho.
+
+**Tres correcciones de partida**, que cambian el argumento y no la decisión: (a) **2022.3 LTS
+está fuera de soporte desde mayo de 2025** — sigue siendo el suelo porque los proyectos en
+producción viven en él y porque el propio Input System 1.17+ no soporta nada anterior;
+(b) **UI Toolkit sí tiene shader propio desde Unity 6.3** (UI Shader Graph), así que el
+argumento contra él no es ese sino que su atlas dinámico re-empaqueta y su batcher re-agrupa,
+y "un draw call por batch" deja de poder afirmarse; (c) **el Canvas de UGUI también batchea**
+`CanvasRenderer`s con el mismo material, así que nuestro recuento de draw calls es una **cota
+superior**, no una igualdad — lo mide UN4 con el Frame Debugger.
+
+**Reason:** el criterio de siempre (*¿aguanta en móvil y consola?*) leído para C# se llama
+IL2CPP. Un delegado marshalado a puntero de función bajo IL2CPP tiene que ser estático con
+`[MonoPInvokeCallback]`, no cierra sobre estado y un olvido es un crash en el dispositivo
+que Mono en el editor no enseña; un puente **sin** callbacks no tiene esa clase de fallo, y
+el drenado ya era la forma correcta por reentrada. UGUI porque es el único de los tres
+caminos de render que no hace nada con la geometría — UI Toolkit re-empaqueta y re-agrupa,
+y un `CommandBuffer` en cámara obliga a reconstruir el escalado, el sorting y la
+convivencia con la UI del juego que un Canvas ya tiene. Input System porque el Input Manager
+exige ejes por proyecto — justo el "factory layout sin configurar" que se quiere evitar — y
+no tiene evento de texto ni fixture de test.
+
+**Alternatives considered:** callbacks nativo→managed (crash de consola, y segunda vía
+hacia un dato que ya se drena); C++/CLI (solo Windows, inexistente bajo IL2CPP); UI Toolkit
+(arriba); `MeshRenderer`/`CommandBuffer` (sin Canvas); Input Manager (arriba); los dos
+inputs tras una interfaz (doble superficie y doble test para un caso que Unity desaconseja);
+git URL (binarios committeados); resucitar las ~1.700 líneas de C# del port cancelado (la
+mitad de un port que el core ya hace entero — se borran en UN3).
+
+**Coste aceptado:** una cabecera C espejo de `view.h` y una transcripción `NativeMethods.cs`
+campo a campo (con un test de `sizeof` por struct), un escritor JSON en `capi/`, un
+`GameObject` y un material pooleado por grupo de clip, la casilla del Input System en Player
+Settings, WebGL fuera (la cadena de Emscripten del plugin tiene que coincidir con la del
+editor — la misma que dejó a Godot web en experimental), y que Unity en CI no corre por
+falta de licencia: los tests dentro de Unity corren en el editor y en local, y el README lo
+dice en vez de fingir cobertura.
+
+**Lo que Godot enseñó y aplica**, argumentado en la spec: el pintado es contrato (orden
+sólidos → imágenes → texto, grupos por ordinal y nunca re-entrados, teselar antes de subir
+el atlas); texturas por hash con barrido y sin callback de evicción; reloj inyectado y
+`deltaTime` ignorado, frames bajo demanda por dos motivos, caret como repaint sin layout,
+todo en `double` e `InvariantCulture`; eventos drenados también tras un frame de puro
+movimiento; un dueño del input por proceso y el `EventSystem` sin navegación; el
+`PadController` propiedad del adaptador; texto por `onTextInput` e IME con la base en el
+core; 50 px por muesca; el dev loop en el editor con el transporte fino de G14. Y lo que en
+Unity es distinto: el plugin no se descarga en el editor (destruir también en
+`AppDomain.DomainUnload`), Y-arriba contra Y-abajo, cero copias y un test de cero
+alocaciones por frame.
+
+**Dónde vive:** `specs/2026-09-03-unity-sdk-shape-design.md` (decisiones, correcciones,
+alternativas, tabla de plataformas, layout del repo), `plans/2026-09-03-unity-sdk-f12.md`
+(los learnings con su ticket y el desglose UN1–UN11), y la columna Unity de la tabla
+cross-engine de `ir-context.md`.
