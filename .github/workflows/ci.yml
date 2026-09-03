@@ -104,17 +104,31 @@ jobs:
         working-directory: core
         run: scons werror=true test
 
-  # Compiles the GDExtension for the desktop platforms and keeps the artifact.
-  # It does not RUN anything: what needs a real engine — geometry reaching a draw
-  # call, input arriving, an export booting — is verified by hand against the
-  # playground and, at the end of the milestone, by G15 (ZAB-148). Mobile and web
-  # join the matrix there; web is experimental by decision and never blocks
-  # (2026-08-24, Decision 4).
+  # Compiles the GDExtension for every platform the addon ships for, and keeps the
+  # artifacts. It does not RUN anything: what needs a real engine — geometry
+  # reaching a draw call, input arriving, an export booting — is verified by hand
+  # against the playground and, for the desktop and web exports, in G15 (ZAB-148).
+  #
+  # Android and iOS compile here and have NOT been run on a device: G15 had no
+  # NDK-equipped machine and no phone to hand, and that gap is written down in
+  # `docs/performance.md` and carried by ZAB-192 rather than papered over. A job
+  # that only compiles is still worth having — it is what stops those toolchains
+  # rotting silently in the meantime.
   godot-extension:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+          - os: ubuntu-latest
+            platform: android
+          - os: macos-latest
+            platform: ios
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -127,12 +141,47 @@ jobs:
 
       - run: pip install scons
 
+      # godot-cpp reads the NDK from `ANDROID_HOME`/`ANDROID_NDK_ROOT`, both of
+      # which the runner image already exports.
       - name: Build the extension
         working-directory: sdk/godot
-        run: scons target=template_release
+        run: scons target=template_release platform=${{ matrix.platform }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: zabloo-addon-${{ matrix.os }}
+          name: zabloo-addon-${{ matrix.platform }}
+          path: sdk/godot/addons/zabloo/bin/
+          if-no-files-found: error
+
+  # Web, on its own and NEVER blocking (2026-08-24, Decision 4): a GDExtension on
+  # the web needs `dlink` export templates and an Emscripten whose ABI matches the
+  # one Godot's own templates were built with, and neither is ours to pin. The
+  # criterion for web is that it LOADS, which is checked by hand against a real
+  # export — `docs/performance.md` records what that check found.
+  godot-extension-web:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.10
+
+      - name: Build the extension
+        working-directory: sdk/godot
+        run: scons target=template_release platform=web
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zabloo-addon-web
           path: sdk/godot/addons/zabloo/bin/
           if-no-files-found: error

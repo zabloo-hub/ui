@@ -63,6 +63,9 @@ author and the tooling.
 → [Releasing](releasing.md) — how a version reaches npm, and the gate that keeps it from
 happening by accident.
 
+→ [Performance](performance.md) — what a frame costs on each target, the budgets CI holds
+it to, and how to measure it yourself.
+
 ## How to read these pages
 
 **Types.** The IR is JSON. The types used throughout:

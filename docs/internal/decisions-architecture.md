@@ -4170,3 +4170,125 @@ snapshot no tiene guion de botones.
 `core/tests/test_gamepad.cpp` y `core/tests/test_pad.cpp`. Docs:
 `docs/format/host-channel.md` (§ *The gamepad, and remapping it*), `docs/format/input.md` y
 `golden/README.md`. Corpus: `gamepad-nav` fuera de `core/tests/golden-skip.json`.
+
+## 2026-09-03 — Presupuestos de rendimiento en Godot: las escenas se comparten, y medirlas destapó geometría invisible (ZAB-148, F11 G15)
+
+**Decisión:** el core estrena la mitad determinista de los presupuestos —el port de
+`FrameStats`, asertado en CI dentro de `scons test`— y las escenas sobre las que se mide
+**salen de `packages/renderer-web/` a `golden/perf/`**, donde las leen los dos targets. El
+bench de reloj de pared vive en el mismo binario de tests, abierto por `BENCH` en el
+entorno, que es la misma puerta (y el mismo nombre) que usa `pnpm bench`.
+
+**Por qué las escenas se comparten y por qué NO son corpus.** ZAB-73 las escribió en
+TypeScript, que estaba bien mientras hubo un solo renderer; en cuanto el core tuvo
+presupuestos propios, ese módulo habría que transcribirlo a fixtures de C++, y dos
+definiciones de "mil filas desiguales" divergen la primera vez que una aprende algo. Pero
+tampoco son casos del corpus, y la diferencia es de contrato, no de sitio: un caso graba
+lo que un frame **significa** y todos los targets lo reproducen byte a byte; una escena de
+perf es una carga, y lo que **cuesta** es respuesta de cada target. Los atlas del core son
+LA8 y los del navegador RGBA, así que los mismos tres atlas son 6 MiB aquí y 12 MiB allí, y
+ninguno de los dos está mal. Por eso `golden/perf/` no graba nada: cada target guarda sus
+techos, y `docs/performance.md` pone las dos columnas al lado.
+
+**Lo que medir destapó, que es el motivo por el que este ticket valía la pena:**
+
+1. **El core pintaba geometría totalmente transparente.** La referencia corta el subárbol
+   cuando la opacidad acumulada llega a cero (`opacity <= 0`, 2026-08-06) y el port no se
+   trajo esa línea. No se ve —alfa cero no dibuja nada— y se paga en cada frame: un
+   `Toggle` hace crossfade **manteniendo sus dos slots en el layout** y dejando que la
+   opacidad diga cuál se ve (ZAB-36), así que sin ese corte la mitad oculta de cada switch
+   de la pantalla se teselaba siempre. Cinco casos del corpus tenían más vértices que en
+   web; con la línea puesta, **dieciséis de diecisiete cuadran al vértice** y las cinco
+   escenas realistas cuadran enteras. Es exactamente la clase de fallo que solo aparece
+   contando, porque no cambia un píxel.
+2. **`assets-image` es la única divergencia que queda, y es del target.** La web decodifica
+   una imagen de forma **asíncrona** (`createImageBitmap`), así que un frame medido justo
+   tras el montaje no ha pintado ninguna; el core no decodifica en absoluto —emite el batch
+   y le pasa los bytes a su adaptador, que es lo que quiere un motor con decodificador
+   síncrono—. El layout no se entera: una imagen reserva su caja con las dimensiones del
+   manifest, que es para lo que el manifest las guarda, así que las métricas del corpus
+   siguen comparando byte a byte.
+3. **Nuestro `SConstruct` de `sdk/godot` metía el SDK de macOS en cualquier build.** El
+   fallback de libc++ (el husk de las Command Line Tools) estaba guardado solo por el
+   **host**, así que un build de web —emscripten, con su propia libc++— aterrizaba en las
+   cabeceras de macOS y moría en sus macros de availability. Guardado ahora también por el
+   **target**: solo un build de macOS quiere el SDK de macOS. El mismo agujero habría
+   pillado a Android y a iOS.
+4. **El `.gdextension` no declaraba web.** Sin esas dos líneas el addon no puede cargar en
+   un export HTML5, y el fallo no se parece a lo que es.
+5. **La extensión dejaba sus objetos dentro de `core/src/`.** SCons los pone al lado de su
+   fuente si no le dices otra cosa, y en la mayoría de plataformas un objeto compartido se
+   llama `.os` y convive con el `.o` nativo por suerte. La toolchain de web lo llama `.o`:
+   un build de web sustituía en silencio cada objeto del core por uno de wasm, y el
+   siguiente `scons` en `core/` moría con *"archive member 'assets.o' not a mach-o file"*,
+   nombrando un fichero que no tenía nada que ver. Ahora los objetos del core se compilan a
+   `sdk/godot/obj/`: un build ajeno no tiene por qué dejar artefactos en otro directorio,
+   se llamen como se llamen.
+
+**Reloj de pared (misma máquina, misma sesión, en reposo — un MacBook Pro Intel de 2019):**
+el core va entre 1,2× y 5,6× más rápido que la referencia, que es aproximadamente lo que
+debe ir un port a C++ de un renderer en JavaScript y vale exactamente eso: dice que el port
+no perdió nada, no que haya pasado nada ingenioso. La fila que sí se relee: un repaint de
+caret **ahorra menos** en el core (92 % de un frame completo, contra 61 % en web), y no
+porque su repaint sea lento sino porque las pasadas que se salta son tan baratas que el
+teselado es casi todo el frame — resolve, measure y arrange juntos cuestan ~0,02 ms donde
+el navegador gasta 0,20.
+
+**Web carga, y lo que costó saberlo es la nota que importa.** El export con
+*Extensions Support* arranca en el navegador, pinta `settings-screen` y responde al input
+—cambiar de pestaña rehace el panel y mueve el anillo de foco—, con el HUD dando los
+contadores del core desde wasm. Pero **la extensión hay que compilarla con un Emscripten
+cuya libc++ sea la de las templates de Godot**: con una más nueva enlaza bien y **aborta al
+cargar** por `_ZNSt3__213__hash_memoryEPKvm` — el hash de strings de libc++, que busca
+cualquier `unordered_map<std::string, …>` del core; un side module lo espera del main, y el
+main de 4.6.2 se compiló antes de que ese símbolo existiera. Emscripten **4.0.20** para
+Godot **4.6.2**, y no hay nada que tocar en nuestro código. Es exactamente la percha de la
+que colgaba el "experimental" de 2026-08-24: la cadena `dlink` no es nuestra. Los fps **no
+se midieron**: el navegador se condujo en remoto y una pestaña que no está al frente va
+frenada, así que el número habría hablado del scheduler de Chrome y no del renderer.
+
+**Builds reales.** Desktop **medido**: export release de macOS, los cuatro ejemplos al tope
+del display (120 fps) en una **Intel Iris Plus 645 integrada de 2019**, con 6–27 draw calls
+por pantalla — el motor añade exactamente **uno** sobre lo que cuenta el core, el del propio
+viewport, que es lo que dice que el adaptador agrupa la geometría tal y como se la dan.
+Windows y Linux compilan en CI y no se han ejecutado aquí. **Móvil es un hueco declarado, no
+un hallazgo**: la máquina no tenía NDK, ni dispositivo, ni Xcode; android e ios entran en la
+matriz de CI **solo compilando**, que es lo que impide que las toolchains se pudran, y el
+criterio de salida móvil se lo lleva ZAB-192 con el bench desatendido ya escrito para poder
+cumplirlo.
+
+**Para que un export se pueda medir de verdad**, el playground gana dos cosas: un HUD
+(tecla **B**) con lo que solo sabe el motor —fps, `RenderingServer.get_rendering_info`,
+memoria de texturas— junto a `ZablooView.get_stats()`, y un **bench desatendido**
+(`-- --zabloo-bench`) que recorre los ejemplos, calienta cada uno y escribe una línea por
+pantalla. El calentamiento no es cortesía: los primeros frames de un ejemplo son creación de
+ventana, pipelines de Vulkan y todos sus glifos entrando por primera vez en un atlas, y
+metidos en la media hacían que el **primer** ejemplo pareciera la mitad de rápido que el
+resto. Y **no hay columna de CPU a propósito**: el `TIME_PROCESS` de Godot cuenta el frame
+entero, espera de vsync incluida, así que bajo un techo de display marca ~16 ms en todos y no
+dice nada — lo que cuesta un frame en CPU se mide donde ningún motor lo puede difuminar.
+
+**Lo que NO se hizo, y por qué:** el bench del core no reporta alocaciones. La referencia lee
+el sampling heap profiler de V8; en C++ no hay contador igual de honesto, y un hook de malloc
+mediría el allocator y no el renderer. Lo que ocupa su sitio es `buffer_growths`, que en un
+frame estacionario es cero por construcción y se asierta como tal — junto a los otros dos
+ceros que un frame quieto debe dar (ningún texto re-roto en líneas) y al frame de caret, que
+tiene que ser un repaint con cero nodos resueltos.
+
+**Refactor que esto obligó y conviene tener escrito:** montar un caso pasa a vivir en
+`core/tests/staging.{h,cpp}`, compartido por el corpus y por los presupuestos. Una segunda
+copia del montaje habría sido una segunda definición de "el frame que el corpus graba", y
+las dos habrían derivado en cuanto una aprendiera algo. Una asimetría que aparece ahí y que
+hay que conocer para leer las dos suites en paralelo: **el handle de la web renderiza en cada
+escritura por su cuenta y el core deja los frames a su adaptador**, así que donde la
+referencia escribe `setOpen(...)` y sigue, el test del core escribe y luego pide el frame — y
+importa, porque un nodo que entra en el layout **salta**, y sin ese frame no quedaría nada en
+vuelo que medir.
+
+**Dónde vive:** `core/src/view.{h,cpp}` (`FrameStats`, los contadores, el corte de opacidad),
+`core/src/tessellator.{h,cpp}` (`growths()`), `core/tests/test_budgets.cpp`,
+`core/tests/bench.cpp`, `core/tests/staging.{h,cpp}`, `golden/perf/` (+ su README),
+`sdk/godot/src/zabloo_view.{h,cpp}` (`get_stats()`), `examples/godot-playground/`,
+`.github/workflows/ci.yml` (móvil y web en la matriz; web nunca bloquea) y
+`docs/performance.md`, que es la tabla consolidada que ZAB-40 pedía para Unity y que ahora
+consolida web y Godot.
