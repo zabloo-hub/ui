@@ -119,6 +119,7 @@ describe("scaffold", () => {
 
     expect((await readPkg(dir)).scripts).toEqual({
       dev: "zabloo dev",
+      "dev:godot": "zabloo dev --godot",
       "dev:unity": "zabloo dev --unity",
       build: "zabloo export",
       typecheck: "tsc --noEmit",

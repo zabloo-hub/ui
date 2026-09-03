@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "json.h"
-#include "staging.h"
+#include "corpus.h"
 #include "testing.h"
 #include "view.h"
 

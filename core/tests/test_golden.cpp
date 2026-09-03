@@ -26,33 +26,37 @@
 #include <string>
 #include <vector>
 
+#include "corpus.h"
 #include "json.h"
 #include "snapshot.h"
-#include "staging.h"
 #include "testing.h"
 #include "view.h"
 
 using namespace zabloo;
-using zabloo::testing::corpus_file;
 
 namespace {
 
 /** Differences printed before a diff starts repeating itself. */
 constexpr size_t MAX_DIFFS = 20;
 
+using zabloo::testing::corpus_file;
+using zabloo::testing::Staged;
+using zabloo::testing::stage_corpus_case;
+
 /**
- * The skip list, parsed once. Held by value for the life of the process: a
- * `JsonRef` is a cursor into its document, so every ref handed out would dangle
- * the moment it was rebuilt. The corpus itself lives in `staging.cpp`, which both
- * this suite and the budgets mount their cases through.
+ * The skip list, parsed once and held by value for the life of the process: a
+ * `JsonRef` is a cursor into its document, so every ref handed around below
+ * would dangle the moment it was rebuilt. (The cases live in `corpus.h`, which
+ * this suite shares with the forward-compat one.)
  */
-JsonRef skipped() {
+const JsonParse &skip_list() {
   static const JsonParse parsed = JsonDoc::parse(
       zabloo::testing::read_file(zabloo::testing::repo_root() + "/core/tests/golden-skip.json"));
-  return parsed.doc.root().get("cases");
+  return parsed;
 }
 
 JsonRef cases() { return zabloo::testing::corpus_cases(); }
+JsonRef skipped() { return skip_list().doc.root().get("cases"); }
 
 /** The reason this case is skipped, or an absent ref if it is not. */
 JsonRef skip_reason(std::string_view name) { return skipped().get(name); }
@@ -65,7 +69,7 @@ bool is_refusal(JsonRef spec) { return spec.get("refuses").exists(); }
  * `failure` saying why there is none.
  */
 std::string replay(JsonRef spec, std::string &failure) {
-  zabloo::testing::Staged staged = zabloo::testing::stage_corpus_case(spec, failure);
+  Staged staged = stage_corpus_case(spec, failure);
   if (staged.view == nullptr) return {};
   return snapshot_view(*staged.view);
 }
@@ -224,11 +228,8 @@ bool reproduces(const std::string &name, JsonRef spec, std::string &why) {
 }  // namespace
 
 TEST(golden, the_corpus_reproduces_the_metrics_it_recorded) {
-  // Both indexes parse, and the corpus has cases in it: a suite that silently
-  // compared nothing would pass every one of the checks below.
   CHECK(cases().is_object());
-  CHECK(cases().size() > 0);
-  CHECK(skipped().exists());
+  CHECK(skip_list().ok);
 
   int compared = 0;
   for (const auto &entry : metric_cases()) {

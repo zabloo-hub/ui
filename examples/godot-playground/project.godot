@@ -13,6 +13,17 @@ config/name="Zabloo Playground"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
 
+[autoload]
+
+; What enabling the addon writes. Committed so that opening the playground does
+; not dirty this file, and so `zabloo dev --godot` works on a fresh clone the
+; moment `scons install` has put the addon in (G14).
+ZablooDevMode="*res://addons/zabloo/zabloo_dev_mode.gd"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/zabloo/plugin.cfg")
+
 [display]
 
 window/size/viewport_width=960

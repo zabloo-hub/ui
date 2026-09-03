@@ -291,8 +291,9 @@ func _inventory(offset: int = 0) -> Array:
 ## the core's one loader), so pressing R after re-exporting an example is the
 ## same swap a platform push performs — which is what makes it worth having
 ## here: it is how you watch an image survive a reload by its content hash, and
-## a removed one release its texture. Doing it ON SAVE is `zabloo dev --godot`,
-## which is G14 (ZAB-147).
+## a removed one release its texture. `zabloo dev --godot` does the same thing on
+## every save, through the addon's autoload — which is why nothing about the dev
+## loop appears in this file.
 func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.is_pressed() and not event.is_echo()):
 		return

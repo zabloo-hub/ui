@@ -1,17 +1,23 @@
-// Staging a view for a test: the corpus's cases and the perf scenes, mounted the
-// same way.
+// The pieces of `golden/` that more than one suite reads.
 //
-// It exists because two suites need the very same setup for different reasons.
-// `test_golden.cpp` mounts a corpus case to compare its `ViewSnapshot` against
-// `golden/metrics/`; `test_budgets.cpp` mounts one — and the realistic scenes of
-// `golden/perf/` — to read what the frame COST. A second copy of the mount would
-// be a second definition of "the frame the corpus records", and the two would
-// drift the first time one of them learnt something.
+// `test_golden.cpp` replays the corpus against its records; `test_forward_compat.cpp`
+// replays the same envelopes against a build that is missing a capability. Both
+// need the same three things — the files, the case list, and a `data` entry as
+// the channel carries it — and two copies of "what a corpus datum means" is two
+// answers to one question waiting to disagree.
+//
+// Since G15 that is three suites and one more thing: `test_budgets.cpp` mounts the
+// same cases to read what the frame COST, so MOUNTING one moved in here too — pad
+// replay included. A case is `(envelope, data, viewport, clock, pad)`, and a
+// second copy of that sequence would be a second definition of "the frame the
+// corpus records", drifting the first time one of them learnt something.
+//
+// What is NOT here is deliberate: the diff and the skip list are the golden
+// harness's own, and belong to it.
 
 #pragma once
 
 #include <string>
-#include <string_view>
 #include <vector>
 
 #include "data.h"
@@ -20,6 +26,21 @@
 #include "view.h"
 
 namespace zabloo::testing {
+
+/** A file under `golden/`, by path relative to it. Empty if it is missing. */
+std::string corpus_file(const std::string &relative);
+
+/** `golden/cases.json`, parsed once and held for the life of the process. */
+JsonRef corpus_cases();
+
+/**
+ * A corpus `data` entry as the channel carries it.
+ *
+ * Arrays and objects included: a path is an ADDRESS into what the game pushed
+ * (`shop.items.1.name` is one push and two segments of walking), so a channel
+ * that only carried scalars could not express the corpus at all.
+ */
+DataValue to_data_value(JsonRef value);
 
 /**
  * A mounted view and the document that owns it.
@@ -39,21 +60,6 @@ struct Staged {
   void advance(double ms);
 };
 
-/** File contents under `golden/`, or an empty string. */
-std::string corpus_file(const std::string &relative);
-
-/** `golden/cases.json`, parsed once for the life of the process. */
-JsonRef corpus_cases();
-
-/**
- * A corpus `data` entry as the channel carries it.
- *
- * Arrays and objects included: a path is an ADDRESS into what the game pushed
- * (`shop.items.1.name` is one push and two segments of walking), so a channel
- * that only carried scalars could not express the corpus at all.
- */
-DataValue to_data_value(JsonRef value);
-
 /**
  * Mounts one corpus case: envelope, seed data, viewport, clock and pad, in the
  * order `golden/README.md` fixes. The view it hands back is sitting on the frame
@@ -71,6 +77,8 @@ double perf_motion_ms();
  * Mounts one realistic scene from `golden/perf/`, settled — the same two frames
  * a corpus case gets, because a `Repeat` measures its instances on the frame the
  * data arrives and windows them on the next.
+ *
+ * They are not corpus cases: `golden/perf/README.md` draws that line.
  */
 Staged stage_perf_scene(const std::string &name, std::string &failure);
 

@@ -4171,6 +4171,73 @@ snapshot no tiene guion de botones.
 `docs/format/host-channel.md` (§ *The gamepad, and remapping it*), `docs/format/input.md` y
 `golden/README.md`. Corpus: `gamepad-nav` fuera de `core/tests/golden-skip.json`.
 
+## 2026-09-03 — El dev loop de Godot: el receptor vive en el JUEGO, y el envelope viaja fino (ZAB-147, F11 G14)
+
+**Decisión:** `zabloo dev --godot` empuja cada guardado al **proceso del juego**, no al
+editor, y lo que empuja es el envelope **sin bytes de assets**. El receptor es un autoload
+que registra el propio addon, así que habilitar el plugin ES la instalación completa: el
+juego no cablea nada, igual que no cablea nada para el mando (2026-08-12, ZAB-47).
+
+**Dónde vive, y por qué no en el editor.** En Unity el dev server vivía en el EDITOR porque
+el juego corre dentro de él (Play mode). El `Run` de Godot lanza **otro proceso**, así que
+lo único que tiene una vista viva que intercambiar es el juego — de ahí `TCPServer` + parseo
+HTTP mínimo en el runtime (la stdlib de Godot no trae servidor HTTP; `HTTPClient` es solo
+cliente). Se descarta la "opción a evaluar" del ticket —que el `EditorPlugin` escuchara
+también y escribiera el `.json` importado— por dos motivos: en Godot el envelope **no es un
+asset importado**, `load_file` lo lee de disco al arrancar, así que un proyecto parado ya
+abre sobre el último export sin que nadie escriba nada (eso es justo lo que Unity tenía que
+simular con `AssetDatabase.ImportAsset`); y editor y juego pelearían por el mismo puerto.
+
+**GDScript, y por tanto cero C++.** Es la misma frontera que `zabloo_plugin.gd` ya declaraba:
+GDScript para lo que no tiene bucle caliente, C++ para lo que corre por frame sobre cada
+nodo. Un `TCPServer` consultado una vez por frame y una reescritura de JSON por guardado no
+es trabajo del core — y las dos piezas que hacen falta, `JSON` y `HTTPRequest`, son de Godot:
+el core tiene **lector** de JSON y ningún escritor, a propósito. El adaptador no cambia ni
+una línea, porque `reload()` ya existía, el store de datos ya vivía en el `Document`
+(2026-08-03) y las texturas ya se cachean por hash (2026-09-02, G5).
+
+**Solo en builds debug**, y en **loopback**. Un canal de dev que un juego publicado pudiera
+abrir es un canal por el que se podría hablar con la máquina de un jugador; y escuchar más
+allá de `127.0.0.1` pondría el juego en la red en la que se desarrolla. Un segundo proceso
+encuentra el puerto ocupado y lo dice, en vez de escuchar en silencio a nadie.
+
+**El transporte es el de ZAB-14, con el motor como su segundo consumidor.** El push lleva el
+envelope fino y una cabecera `x-zabloo-assets` con la ruta `/asset/<hash>` que el preview
+server ya servía; el juego pide **solo los hashes que no tiene**, los guarda, y suelta los
+que el envelope nuevo dejó de referenciar — la misma regla que la cache de texturas
+(2026-08-11, ZAB-12). Un guardado en un proyecto con megabytes de PNGs mueve kilobytes, y
+una imagen se transfiere **una vez** por más recargas que vengan detrás. La rehidratación
+ocurre **antes** de `reload()`, así que el loader sigue recibiendo SIEMPRE un envelope
+completo: se parte el transporte, nunca el camino de carga (invariante de 2026-08-01, y
+literalmente lo que hace la página del preview desde 2026-08-11).
+
+Corolario que lo hace barato de verdad: como el adaptador cachea texturas **por hash**, un
+hash que ya se decodificó ni siquiera vuelve a decodificarse tras el swap. La deduplicación
+tiene dos pisos —bytes que no viajan y píxeles que no se decodifican— y ninguno de los dos
+sabe del otro.
+
+**El aviso de "no alcanzable" se dice UNA vez.** Hasta ahora el push imprimía una línea por
+guardado mientras el receptor no contestara — el ruido exacto que hizo opt-in el push a
+motor (2026-08-10), reaparecido en el caso normal de una tarde entera trabajando en el
+navegador. Ahora el pusher recuerda si el otro extremo estaba vivo: avisa al perderlo, calla
+hasta que conteste, y dice `— back` cuando vuelve. Un silencio permanente tampoco valdría:
+dejaría "he dado a Play" indistinguible de "se ha roto".
+
+**Detalles pequeños que son contrato:** el push responde `{"views": n}` **antes** de
+rehidratar (un fetch puede tardar y el CLI no tiene por qué esperarlo), y el CLI lo imprime
+— un juego que aceptó el push en cero vistas se parece demasiado a uno que lo aceptó en
+tres; dos guardados dentro de un mismo fetch **colapsan en uno**, el último, que es la misma
+regla que el propio `dev` aplica a los exports; y un asset que no llega cuesta sus píxeles y
+nunca la recarga (el nodo pinta su `background`, que es el placeholder autorado de ZAB-13).
+
+**`--unity` se queda intacto** y sigue mandando el envelope entero: su receptor no sabe nada
+de bytes diferidos. Se irá con el barrido de G17, como fija la decisión de 2026-08-24.
+
+**Verificación:** por definición no la puede arbitrar el corpus golden (corre el core sin
+motor y sin proceso). Está en `examples/godot-playground/README.md` § *Checking G14 by
+hand*, con la medida que el criterio de salida pedía: N recargas → 1 transferencia del
+asset, leída en el log de los dos lados.
+
 ## 2026-09-03 — Presupuestos de rendimiento en Godot: las escenas se comparten, y medirlas destapó geometría invisible (ZAB-148, F11 G15)
 
 **Decisión:** el core estrena la mitad determinista de los presupuestos —el port de
@@ -4292,3 +4359,97 @@ vuelo que medir.
 `.github/workflows/ci.yml` (móvil y web en la matriz; web nunca bloquea) y
 `docs/performance.md`, que es la tabla consolidada que ZAB-40 pedía para Unity y que ahora
 consolida web y Godot.
+
+## 2026-09-03 — Forward-compat: un SDK viejo no tiene un flag, tiene menos vocabulario (ZAB-149, F11 G16)
+
+**Decisión:** la promesa forward-tolerant deja de ser una tabla de reglas y pasa a tener
+**evidencia sobre pantallas reales**: `docs/format/degradation.md` (la matriz observada,
+capacidad × qué ve el jugador) y `core/tests/test_forward_compat.cpp` (17 casos que la
+mantienen cierta, en el job `core-tests` de cada PR).
+
+**Cómo se sintetiza el SDK viejo, que es la decisión de fondo.** El enunciado pedía "feature
+flags del core". No se hace así: **un lector antiguo no lleva un interruptor que apaga una
+capacidad, lleva un vocabulario más pequeño**. Así que cada corte es *una reescritura del
+payload* — un identificador escrito de una forma que este build no ha oído nunca:
+
+```
+un tipo    "type": "Overlay"      ->  "type": "Overlay@next"
+una prop   "transition": { … }    ->  "transition@next": { … }
+un valor   "easing": "ease-out"   ->  "easing": "ease-out@next"
+```
+
+Renombrar y no borrar es lo que lo hace fiel: el payload conserva su forma, sigue siendo JSON
+válido, y recorre **exactamente** los caminos que recorrería un SDK viejo de verdad —
+`node_type_from` devolviendo `Unknown`, una clave que nadie lee ignorada en silencio,
+`enum_from` cayendo al default. Un flag en el loader habría probado una **segunda** vía hacia
+esos mismos estados y habría metido superficie de producción que solo usan los tests. Los
+sujetos salen del corpus: las 13 capacidades y las props aditivas están ejercitadas por algún
+envelope de `golden/`, así que ninguna fila es un fixture escrito para darse la razón.
+
+**El guardia, que es lo que impide que esto se pudra.** Un corte es una sustitución de texto
+sobre un envelope del corpus, así que un id renombrado o un fixture reformateado haría que no
+encajara con **nada** — y una capacidad que nunca se retiró degrada perfectamente. El modo de
+fallo de un test que no hace nada es el silencio, así que hay un caso aparte que comprueba que
+cada corte cambia de verdad el payload que dice cambiar. Misma forma que el guardia de la
+skip-list de ZAB-136, y por la misma razón.
+
+**Lo que la matriz destapa, y que la spec decía a medias.** De los 13 tipos, **cuatro pierden
+contenido**, y ninguno por accidente:
+
+* `Text`, `Image` y `TextInput` son los nodos cuyo **contenido es una prop**, así que un
+  fallback que preserva *hijos* no tiene nada que preservar. El `Text` degradado pierde sus 9
+  claves de texto enteras; el `TextInput` se queda en caja vacía.
+* El `Image` **se parte en dos**, y el matiz importa: donde el autor dio tamaño al nodo
+  conserva su caja y pinta su `background` — que es justo el placeholder que ZAB-13 mandó
+  autorar en vez de inventar un estado `loading` —, y donde el tamaño venía del manifest
+  **colapsa a 0 × 0**.
+* El `Repeat` degrada a **su template Y su estado vacío a la vez**, no a uno de los dos:
+  `children[1..]` es el slot del array vacío y un `Container` no tiene por qué elegir entre
+  sus hijos. `versioning.md` decía "una copia estática de su template", que era la mitad.
+
+Eso es la regla del 2026-08-13 en su lectura más afilada: **una hoja nueva que lleve contenido
+tiene que ganarse un dibujo razonable con su propia caja**, porque nada más se lo va a dibujar.
+
+**Tres observaciones más que no estaban escritas en ninguna parte:**
+
+1. **Un `Button` degradado no es alcanzable.** La focusabilidad deriva de la identidad
+   (2026-08-04), así que un menú entero de botones desconocidos se queda **sin nada
+   enfocado** — ni siquiera el `autofocus`, que nombra un nodo pero no lo vuelve focusable.
+   Es la degradación honesta y no un descuido: una caja que tomara el foco sin disparar nada
+   sería un control que *parece* operable, que es exactamente lo que la regla aditiva prohíbe.
+2. **Un `Toggle` degradado ensancha.** Sus dos slots indicadores comparten caja y hacen
+   crossfade (ZAB-36); sin el tipo no hay motivo para superponerlos, así que pasan a ser
+   hermanos flex uno al lado del otro — medido: `switch-on` y `switch-off` en x=8 los dos con
+   el off a opacidad 0, contra x=8 y x=52 ambos opacos, y el control de 93,82 a 137,82 px.
+3. **Sin `ScrollView` no hay virtualización**, porque la ventana se mide contra un viewport:
+   la misma lista pasa de 24 a 42 nodos realizados. Cuesta trabajo, no corrección — no se
+   pierde nada, simplemente hay más.
+
+**La frontera se dice, no se rodea.** Un `ViewSnapshot` graba **un frame**, y cuatro
+capacidades no dejan rastro en uno: `transition` (el movimiento, no el destino), `autoCloseMs`
+(el toast yéndose), `onChange` (una llamada al juego no es una métrica) e `ImageFit`
+(`contain` y `cover` difieren en UVs, y las UVs no son rects). Sus frames degradados son
+**byte-idénticos** al completo. Eso queda como un caso propio del fichero de tests —que además
+comprueba que el payload sí cambió, o la invisibilidad se demostraría gratis— en vez de
+taparse con una aserción falsa. Es también por lo que las imágenes golden siguen siendo un
+paso manual aparte.
+
+**El titular, que es lo que un lector de la matriz más quiere:** `settings.json` es el
+catálogo entero de F5 compuesto en una pantalla, y con **nueve de los trece tipos
+desconocidos a la vez** sigue cargando, sigue haciendo layout y sigue enseñando todos los ids
+que su autor escribió.
+
+**Lo que NO se toca, y por qué.** `future-major` (rechazo) y `unknown-type` (fallback) ya
+están fijados byte a byte en `test_golden.cpp`; aquí se **revisan y se citan**, no se vuelven
+a afirmar — afirmar el mismo hecho dos veces con dos mensajes distintos es cómo se pierde de
+vista cuál es el que manda (ZAB-136). Y el core **descarta** las props desconocidas por
+diseño (2026-08-24, IR tipada), así que la mitad "sobrevive a un round-trip" de la regla es de
+`@zabloo/format` y se prueba allí; la página lo dice en vez de fingir cobertura.
+
+**De paso:** `core/tests/corpus.h` extrae lo que las dos suites del corpus comparten —los
+ficheros, la lista de casos y qué significa un dato del corpus—, porque dos copias de "qué
+significa un dato" son dos respuestas a una pregunta esperando a discrepar.
+
+**Dónde vive:** `docs/format/degradation.md` (la matriz, enlazada desde `versioning.md`,
+`loading.md` y el índice), `core/tests/test_forward_compat.cpp` (los 17 casos) y
+`core/tests/corpus.h`/`.cpp` (el helper compartido).

@@ -25,7 +25,7 @@
 #include <cstdlib>
 #include <string>
 
-#include "staging.h"
+#include "corpus.h"
 #include "testing.h"
 #include "view.h"
 
