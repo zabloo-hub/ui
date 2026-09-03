@@ -56,7 +56,7 @@ async function main(): Promise<void> {
     cd ${target}
     pnpm install
     pnpm dev        # web preview → http://localhost:5078
-    pnpm dev:unity  # + push each save to the Unity editor (menu Zabloo → Dev Mode)
+    pnpm dev:godot  # + hot-swap each save in the running Godot game
     pnpm build      # export → dist/zabloo.ir.json
 `);
 }

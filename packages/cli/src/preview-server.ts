@@ -9,6 +9,10 @@
  * only re-transfers what actually changed. The page re-inserts the bytes before
  * mounting — the renderer always receives a complete envelope.
  *
+ * Since G14 the browser is not the only client of that route: `zabloo dev --godot`
+ * pushes the same thin envelope to the running game, which fetches the hashes it
+ * lacks from here. One asset store, two consumers.
+ *
  * This is the server half only. The page itself is `@zabloo/preview`, a private
  * React app built by Vite and copied into `dist/preview/` at build time (ZAB-99);
  * everything below is routes. The renderer no longer has a route of its own — the
@@ -39,8 +43,12 @@ interface PreviewServer {
    * per-envelope memory (the remembered view) by it, so it travels with the
    * envelope rather than being fixed when the server starts: `dev` learns it from
    * the export that just finished.
+   *
+   * Returns the THIN envelope it is now serving — the same text `/envelope` hands
+   * a browser. The engine dev mode pushes that one too (G14), and handing it back
+   * is what keeps a save from splitting the same megabytes twice.
    */
-  setEnvelope(json: string, name?: string): void;
+  setEnvelope(json: string, name?: string): string;
   /** Notifies connected browsers that a new envelope is available. */
   notify(): void;
   /**
@@ -277,6 +285,7 @@ async function startPreviewServer(
       served.blobs = split.blobs;
       served.name = name ?? null;
       served.failure = null;
+      return split.thin;
     },
     notify() {
       for (const client of clients) client.write(frame({ kind: "reload" }));

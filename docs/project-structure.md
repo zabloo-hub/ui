@@ -144,14 +144,16 @@ parts that have names, and the rest of these docs use them: see
 ```bash
 zabloo dev                     # → http://localhost:5078
 zabloo dev --open              # …and open it in the browser
-zabloo dev --unity             # …and push each save to the Unity editor's dev mode
+zabloo dev --godot             # …and hot-swap each save in the running Godot game
 zabloo dev --preview-port 8080 # port of the web preview
-zabloo dev --port 5077         # dev-mode port of the Unity editor (with --unity)
+zabloo dev --godot-port 5079   # dev-mode port of the Godot game (with --godot)
 ```
 
 | Flag | Default | What it does |
 |---|---|---|
 | `--cwd <dir>` | `"."` | Project root. |
+| `--godot` | off | Also pushes each export to the running Godot game's dev mode. |
+| `--godot-port <port>` | `5079` | The Godot game's dev-mode port (only with `--godot`). |
 | `--unity` | off | Also POSTs each export to the Unity editor's dev mode. |
 | `--port <port>` | `5077` | The Unity editor's dev-mode port (only with `--unity`). |
 | `--preview-port <port>` | `5078` | The web preview's port. |
@@ -165,9 +167,25 @@ exports at once (a save during an export queues exactly one more).
 the URL it prints is always the server it actually bound. If all 10 are taken it refuses to
 start rather than print a URL serving another project's preview.
 
-With `--unity`, every save hot-swaps the running view in the editor (Play mode included)
-through the same loading path production hot-updates use. If the editor is not listening,
-the export still succeeds and the CLI says the dev mode is unreachable.
+One flag per engine, combinable — the React Native model. Either way the save reaches the
+engine through the same loading path a manual import and a production hot-update take, and
+the data the game pushed survives the swap: it is cached on the document, not on the view.
+If nothing is listening the export still succeeds, and the CLI says so **once**, holding the
+line until the receiver answers again.
+
+**With `--godot`**, the receiver is the addon's `ZablooDevMode` autoload, which enabling the
+Zabloo plugin installs — a game wires nothing. It listens on loopback in **debug builds
+only**, and reloads every `ZablooView` in the running scene. What travels is the envelope
+**without its asset bytes**, plus the address of the preview's `/asset/<hash>` route: the
+game fetches only the content hashes it does not already hold, so a project with megabytes
+of PNGs still moves a few KB per save, and an image is transferred once no matter how many
+reloads follow. The rehydrated envelope is what reaches the loader — always a complete one.
+A second instance of the game finds the port taken and says so; `zabloo/dev_mode/port` in
+the project settings moves it.
+
+**With `--unity`**, every save hot-swaps the running view in the editor (Play mode
+included). That push carries the whole envelope: its receiver knows nothing about deferred
+bytes.
 
 ### The preview
 

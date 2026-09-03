@@ -414,16 +414,26 @@ for hot-swapping content, and `View` for the operations that drive a specific no
 
 ### The dev loop, in-engine
 
-You do not have to re-export and re-import by hand. Enable **Zabloo → Dev Mode (listen on
-localhost:5077)** in the Unity editor and run:
+You do not have to re-export and re-import by hand.
+
+**Godot.** Enable the Zabloo plugin (**Project → Project Settings → Plugins**) — that
+installs the `ZablooDevMode` autoload, which listens on `localhost:5079` in debug builds —
+then run:
 
 ```bash
-pnpm dev:unity
+pnpm dev:godot
 ```
 
-Every save now hot-swaps the running view in the editor, Play mode included — through the
-exact loading path a production hot-update uses. One loading mechanism, three ways in: a
-manual import, a dev push, a platform hot-update.
+Press Play, and every save hot-swaps the running view. What the game pushed with `set_data`
+survives it: the store lives on the document, not on the view it feeds. The push carries
+the tree without its asset bytes, and the game fetches only the content hashes it does not
+already hold, so replacing one image transfers one image and saving a `.tsx` transfers none.
+
+**Unity.** Enable **Zabloo → Dev Mode (listen on localhost:5077)** in the editor and run
+`pnpm dev:unity`; every save hot-swaps the running view there, Play mode included.
+
+Either way it is the exact loading path a production hot-update uses. One loading mechanism,
+three ways in: a manual import, a dev push, a platform hot-update.
 
 ## 7. Where to go next
 

@@ -6,13 +6,14 @@ Game UI authored in React, exported as a versioned [zabloo](https://github.com/z
 
 ```bash
 pnpm dev        # watch + live web preview at http://localhost:5078
-pnpm dev:unity  # same, plus push each save to the Unity editor's dev mode
+pnpm dev:godot  # same, plus hot-swap each save in the running Godot game
 pnpm build      # export the envelope to dist/zabloo.ir.json
 ```
 
 ## Dev loop
 
 - **Web preview (no engine needed):** `pnpm dev` and open http://localhost:5078 — it live-reloads on save, gives you a typed field per bound path in its bindings panel, logs every action in its console, and drives the UI with the keyboard *or* a gamepad: arrows and the d-pad/left stick move the focus, Enter, Space and A activate, Escape and B dismiss the top overlay, and the right stick scrolls.
+- **Godot:** drop the `addons/zabloo/` addon into your project, enable it in **Project → Project Settings → Plugins**, add a `ZablooView` node, and run `pnpm dev:godot` — press Play and every save hot-swaps the running view, keeping whatever the game has pushed with `set_data`. For a manual load, point the node at `dist/zabloo.ir.json`.
 - **Unity:** install the zabloo SDK package, enable **Zabloo → Dev Mode** in the editor, and run `pnpm dev:unity` — every save hot-swaps the running view (even in Play mode). For a manual import, copy `dist/zabloo.ir.json` into your project and assign it to a `ZablooDocument`.
 
 ## Project layout
