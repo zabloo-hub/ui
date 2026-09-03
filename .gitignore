@@ -46,6 +46,7 @@ packages/renderer-web/native/*.wasm
 # --- Build nativo (core C++ + GDExtension de Godot) ---
 # Los binarios se compilan; el addon publicable se arma en release (2026-08-24).
 core/bin/
+core/obj/
 sdk/godot/bin/
 sdk/godot/addons/zabloo/bin/
 # El plugin nativo del paquete de Unity lo copia `scons install` (sdk/unity) desde

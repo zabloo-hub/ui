@@ -51,7 +51,7 @@ void compare_styles(const LayoutNode &node, JsonRef expected, const std::string 
   number("opacity", node.resolved.opacity);
 
   const JsonRef children = expected.get("children");
-  for (uint32_t i = 0; i < std::min<uint32_t>(children.size(), node.children.size()); i++) {
+  for (uint32_t i = 0; i < std::min(children.size(), static_cast<uint32_t>(node.children.size())); i++) {
     compare_styles(node.children[i], children.at(i), where + "." + std::to_string(i));
   }
 }

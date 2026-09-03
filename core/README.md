@@ -20,6 +20,8 @@ scons test            # the above, then run them
 scons target=release  # optimized
 scons test validate   # only the cases whose name contains "validate"
 scons target=release bench   # the perf bench — build it optimized or it lies
+scons capi            # the C ABI as a shared library — see capi/README.md
+scons test capi       # the golden corpus, replayed through the C header alone
 ```
 
 Needs SCons (`pip install scons`) and a C++17 compiler. Nothing else — the font
@@ -73,6 +75,7 @@ Both read the scenes of [`golden/perf/`](../golden/perf/README.md), and
 | `snapshot.{h,cpp}` | The `ViewSnapshot`: one frame's metrics as the bytes a golden file holds |
 | `vendor/` | stb_truetype, verbatim — see [its README](src/vendor/README.md) |
 | `generated/` | The embedded TTF, written by `scripts/embed_font.py` and committed |
+| `capi/` (beside `src/`) | The **C ABI** over all of the above (`zabloo.h`): the door Unity — and anything with an FFI — comes in by. Wraps `view.h`, never edits it. See [`capi/README.md`](capi/README.md) |
 
 ## The rule this directory lives by
 
