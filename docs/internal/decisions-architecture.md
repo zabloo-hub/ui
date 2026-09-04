@@ -5024,6 +5024,66 @@ real está en `examples/unity-playground/README.md` › *Checking UN6 by hand*.
 La fila de Unity en `docs/format/host-channel.md` (§ *The gamepad, and remapping it*) es de
 UN7/UN11, que tienen esa zona.
 
+## 2026-09-04 — El dev loop de Unity: el receptor vive en el EDITOR, sincroniza dos cosas y habla el transporte fino (ZAB-201, F12 UN8)
+
+**Decisión:** `zabloo dev --unity` empuja cada guardado a un receptor nuevo en el
+**editor** (`sdk/unity/Editor/ZablooDevServer.cs`, menú **Zabloo → Dev Mode**,
+recordado en `EditorPrefs`), con el **transporte de G14**: envelope sin bytes de
+assets + `x-zabloo-assets`, y el editor pide **solo los hashes que no tiene**. El
+`ZablooDevServer` del port cancelado se reescribe, no se rescata — el protocolo es
+otro —, y `--port` pasa a llamarse `--unity-port` por simetría con `--godot-port`
+(breaking de CLI en 0.x, changeset `minor`).
+
+**Dónde vive, y por qué al revés que en Godot.** El `Run` de Godot lanza otro
+proceso, así que su receptor tuvo que ir al juego (2026-09-03, G14). En Unity el juego
+corre **dentro** del editor (Play mode), y además el envelope SÍ es un asset importado
+(un `TextAsset`), así que un push tiene **dos** cosas que sincronizar y las dos son
+del editor: (a) las vistas vivas en Play, con `Reload()` — el camino del hot-update,
+así que lo que el juego empujó con `SetData` sobrevive —, y (b) el `.json` que
+referencian los `ZablooView` de la escena, reescrito e importado con
+`AssetDatabase.ImportAsset` para que el modo edición y el siguiente Play abran sobre
+el último export sin que nadie reimporte a mano. Una vista sin `TextAsset` (el
+playground carga por path desde `StreamingAssets/`) solo recibe la mitad (a).
+
+**Un solo pusher en la CLI.** Con los dos receptores hablando el mismo protocolo,
+`createPusher(url, engine, assetsBase)` deja de tener un modo «cuerpo entero»: un
+motor es un nombre y un puerto. El aviso de «no alcanzable» se dice una vez y `— back`
+al volver, la regla de G14, ahora para los dos.
+
+**Lo que en Unity es distinto, y se decide aquí:**
+
+1. **La respuesta `{"views": n}` se da en el hilo del editor, no en el del listener.**
+   `HttpListener` acepta en un hilo del pool y contar los `ZablooView` es API de Unity,
+   así que la petición se encola con su contexto abierto y `EditorApplication.update`
+   cuenta, responde y **después** empieza a rehidratar — la respuesta sigue llegando
+   antes de los fetches, que es lo que la CLI espera (G14).
+2. **Los fetches son `UnityWebRequest` polleados desde `update`**, en paralelo, con
+   timeout de 15 s; una pendiente que llega con fetches en vuelo **colapsa** en un
+   solo slot (la última gana, el mismo colapso que hace la CLI con los guardados).
+   Un domain reload o el cierre del editor paran el listener y **abandonan** lo que
+   estuviera en vuelo: aplicar un push contra objetos que ya no existen no es
+   recuperación, y el siguiente guardado manda el proyecto entero otra vez.
+3. **La mitad pura vive aparte y se testa sin Unity.** `DevPush` (qué hashes faltan,
+   cómo vuelven los bytes al manifest, qué conserva la cache, poda de lo no
+   referenciado como la cache de texturas de ZAB-12) corre con NUnit en
+   `Tests/Editor/DevPushTests.cs`; el listener, `EditorPrefs` y el reimport son el
+   procedimiento del README del playground, como en UN4–UN7.
+4. **`runInBackground` al entrar en Play con dev mode activo**, y unos ticks de
+   `QueuePlayerLoopUpdate` + repaint tras aplicar: es la lección de 2026-08-03
+   (con el editor sin foco el player loop se suspende y el push queda sin pintar
+   hasta el refocus), conservada tal cual.
+
+**Lo que este ticket no puede verificar:** la máquina que lo escribió no tiene Unity.
+El C# se compiló contra un shim de `UnityEditor`/`UnityWebRequest` (sintaxis y tipos)
+y los tests puros pasan con NUnit real; hot-swap en Play, reimport con el editor
+parado, la medida «N recargas → 1 transferencia» y `--godot --unity` a la vez están
+en `examples/unity-playground/README.md` › *Checking UN8 by hand*.
+
+**Dónde vive:** `sdk/unity/Editor/{ZablooDevServer,DevPush,AssemblyInfo}.cs`,
+`sdk/unity/Tests/Editor/DevPushTests.cs`, `packages/cli/src/{dev,cli}.ts`,
+`docs/project-structure.md` (tabla de flags), `docs/getting-started.md` y
+`sdk/unity/README.md` › *Dev mode*.
+
 ## 2026-09-04 — Builds, IL2CPP y perf de Unity: el cross-compile es del `SConstruct` del core, y lo que un player mide queda escrito antes de medirse (ZAB-202, F12 UN9)
 
 **Decisión:** el G15 de Unity, con la pieza que Godot no tenía — **IL2CPP** —, y con una

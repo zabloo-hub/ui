@@ -45,7 +45,7 @@ my-game-ui/
 ```bash
 pnpm dev        # watch + live web preview
 pnpm dev:godot  # …plus hot-swap each save in the running Godot game
-pnpm dev:unity  # …plus hot-push each save to the Unity SDK's dev mode (SDK under construction — F12)
+pnpm dev:unity  # …plus hot-swap each save in the Unity editor (Zabloo → Dev Mode)
 pnpm build      # export → dist/zabloo.ir.json
 ```
 

@@ -14,7 +14,7 @@ pnpm build      # export the envelope to dist/zabloo.ir.json
 
 - **Web preview (no engine needed):** `pnpm dev` and open http://localhost:5078 — it live-reloads on save, gives you a typed field per bound path in its bindings panel, logs every action in its console, and drives the UI with the keyboard *or* a gamepad: arrows and the d-pad/left stick move the focus, Enter, Space and A activate, Escape and B dismiss the top overlay, and the right stick scrolls.
 - **Godot:** drop the `addons/zabloo/` addon into your project, enable it in **Project → Project Settings → Plugins**, add a `ZablooView` node, and run `pnpm dev:godot` — press Play and every save hot-swaps the running view, keeping whatever the game has pushed with `set_data`. For a manual load, point the node at `dist/zabloo.ir.json`.
-- **Unity:** under construction — the SDK is being rebuilt as a thin adapter over the same core Godot runs (F12). `pnpm dev:unity` pushes each save to its dev mode once it exists.
+- **Unity:** install the `com.zabloo.sdk` package, add a `ZablooView` to a Canvas with `dist/zabloo.ir.json` as its envelope, turn on **Zabloo → Dev Mode** in the editor menu, and run `pnpm dev:unity` — every save rewrites the imported envelope and, in Play, hot-swaps the running view.
 
 ## Project layout
 

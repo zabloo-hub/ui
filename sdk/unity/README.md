@@ -217,6 +217,33 @@ typed), IME composition through `onIMECompositionChange`, and a phone's
 on-screen keyboard through `TouchScreenKeyboard` while a text field has the
 focus.
 
+## Dev mode
+
+**Zabloo → Dev Mode** in the editor's menu makes the editor listen on
+`127.0.0.1:5077` for what `zabloo dev --unity` (or `pnpm dev:unity` in a
+scaffolded project) pushes on every save. The setting is remembered across
+sessions; the listener is not — a domain reload or quitting stops it, and the
+next load starts it again if the box is checked.
+
+It lives in the editor, the opposite of the Godot addon, and for the mirror
+reason: Godot's Run launches another process, so its receiver had to be in the
+game; here the game runs inside the editor, and the envelope is an imported
+asset besides. So a push brings two things up to date — the `.json` asset each
+`ZablooView` in the scene references (rewritten and reimported, so edit mode
+and the next Play open on the last export) and, while playing, every live view
+(`Reload`, the hot-update path: data the game pushed with `SetData` survives).
+Entering Play with dev mode on turns `Application.runInBackground` on, or the
+push would wait for the editor to regain focus before painting.
+
+The push is thin — the tree without its asset bytes — and the editor fetches
+only the content hashes it does not already hold from the CLI's preview
+server, so an image is transferred once however many saves follow. A second
+editor with dev mode on finds the port taken and says so; the
+`Zabloo.DevMode.Port` editor pref moves it, together with `--unity-port` on
+the CLI side. The rules that decide what is fetched and what is kept
+(`Editor/DevPush.cs`) run in `Tests/Editor/DevPushTests.cs` without the
+listener around them.
+
 ## The playground
 
 [`examples/unity-playground`](../../examples/unity-playground) references this

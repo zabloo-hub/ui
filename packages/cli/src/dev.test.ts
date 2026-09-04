@@ -31,43 +31,31 @@ describe("createPusher", () => {
     vi.unstubAllGlobals();
   });
 
+  const assets = "http://localhost:5078/asset/";
+
   it("never touches the network without a target url", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
-    await createPusher(null, "Godot")('{"v":1}');
+    await createPusher(null, "Godot", assets)('{"v":1}');
 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("POSTs the envelope to the target url", async () => {
+  // The ZAB-14 transport, for every engine: the body the CLI sends has no `data`
+  // in it, so what it carries instead is where the bytes are. Unity's receiver
+  // speaks it since UN8, so there is no "whole envelope" mode left to test.
+  it("POSTs the thin envelope and says where its assets live", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(ok());
     vi.stubGlobal("fetch", fetchSpy);
     vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await createPusher("http://127.0.0.1:5077/zabloo/envelope", "Unity")('{"v":1}');
+    await createPusher("http://127.0.0.1:5077/zabloo/envelope", "Unity", assets)('{"v":1}');
 
     expect(fetchSpy).toHaveBeenCalledWith("http://127.0.0.1:5077/zabloo/envelope", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "x-zabloo-assets": assets },
       body: '{"v":1}',
-    });
-  });
-
-  // The half of ZAB-14's transport the engine was missing: the body the CLI sends
-  // has no `data` in it, so what it has to carry instead is where the bytes are.
-  it("tells a deferred-bytes receiver where its assets live", async () => {
-    const fetchSpy = vi.fn().mockResolvedValue(ok());
-    vi.stubGlobal("fetch", fetchSpy);
-    vi.spyOn(console, "log").mockImplementation(() => {});
-
-    await createPusher("http://127.0.0.1:5079/zabloo/envelope", "Godot", {
-      assetsBase: "http://localhost:5078/asset/",
-    })('{"v":1}');
-
-    expect(fetchSpy.mock.calls[0][1].headers).toEqual({
-      "content-type": "application/json",
-      "x-zabloo-assets": "http://localhost:5078/asset/",
     });
   });
 
@@ -75,7 +63,7 @@ describe("createPusher", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok('{"views":2}')));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    await createPusher("http://127.0.0.1:5079/zabloo/envelope", "Godot")('{"v":1}');
+    await createPusher("http://127.0.0.1:5079/zabloo/envelope", "Godot", assets)('{"v":1}');
 
     expect(log.mock.calls[0][0]).toMatch(/pushed to Godot .* \(2 views\)/);
   });
@@ -88,7 +76,7 @@ describe("createPusher", () => {
     vi.stubGlobal("fetch", fetchSpy);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    const push = createPusher("http://127.0.0.1:5079/zabloo/envelope", "Godot");
+    const push = createPusher("http://127.0.0.1:5079/zabloo/envelope", "Godot", assets);
 
     await push('{"v":1}');
     await push('{"v":1}');
