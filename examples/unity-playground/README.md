@@ -42,7 +42,8 @@ has nothing to do here.
 what you see is never a stale build). **E** swaps between them —
 `settings-screen`, the showcase's `motion` and `overlays` views, `inventory-demo`
 and `hello-button` — and **R** reloads the current one, which is the hot-update
-path. The log line says whether the load took.
+path. The log line says whether the load took. **B** toggles the bench HUD
+(`Assets/Bench/`): the engine's frame next to the core's counters.
 
 ## Checking UN7 by hand
 
@@ -286,6 +287,38 @@ cd ../settings-screen && pnpm dev --unity   # then press Play here
   --unity` prints one `pushed to` line per engine per save.
 - **Port taken.** Turn dev mode on in a second editor: it says `port 5077 is
   taken — another editor listening?` instead of silently listening to nothing.
+
+## Checking UN9 by hand
+
+Builds, IL2CPP and the bench (ZAB-202) are the half of the milestone the golden
+corpus cannot see at all — it runs the core with no engine, no player and no
+GPU — and the machine that wrote them had no Unity, so all of it is a
+procedure. The five native binaries are CI's (`unity-plugin`); what follows
+needs the editor **with the IL2CPP module** for macOS and Windows.
+
+1. **The IL2CPP players.** `scons capi arch=universal target=release` in
+   `core/`, `scons install` here, then *File › Build Settings › Build* for
+   macOS and for Windows: the project already selects IL2CPP and *High*
+   stripping for Standalone. The checklist each player has to pass — starts on
+   `settings-screen`, cycles the examples, logs actions and values, takes a
+   controller — is the table in `sdk/unity/README.md` › *IL2CPP*. A
+   `MissingMethodException` in the player's log names a member stripping took;
+   `Runtime/link.xml` is where it is kept.
+2. **The bench.** Launch the macOS player from a terminal with
+   `-zabloo-bench -logFile -`: it walks the five entries of `Playground.Sources`,
+   warms each one up for 1,5 s, measures 4 s, prints a header and one line per
+   screen, and quits. Copy the four example rows into `docs/performance.md` ›
+   *In a real engine* › *Unity*, with the header's GPU and Unity version.
+   (Windows: `-zabloo-bench -logFile bench.log`.)
+3. **The HUD.** Without the flag, **B** shows the same numbers live, in the
+   player and in the editor — but read them in the player: the editor's
+   numbers include its own windows.
+4. **A steady frame allocates nothing.** *Window › General › Test Runner ›
+   PlayMode › AllocationTests*: two cases, an idle frame and a frame that runs
+   the whole pipeline, both must report 0 bytes. It needs the plugin installed
+   (inconclusive otherwise). A failure names which of the two, and the *GC
+   Alloc* column of the Profiler's CPU module, filtered to
+   `ZablooView.Update`, says where.
 
 ## Two Unity versions
 
