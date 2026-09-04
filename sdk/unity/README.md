@@ -25,16 +25,55 @@ the shape; the tickets below fill it in.
 | `Runtime/ZablooView.Pointer.cs`, `.Keyboard.cs` | UN5 | `PollPointer()`, `PollKeyboard()` — the Input System as the core's intentions; IME, on-screen keyboard, caret blink |
 | `Runtime/Input/Keys.cs`, `Wheel.cs` | UN5 | The keyboard's vocabulary (slots, shortcut, hold-to-repeat, the text sink) and the wheel's 50 px per notch |
 | `Runtime/ZablooView.Pad.cs` | UN6 | `PollPad()` |
+| `Tests/Golden/` | UN10 | The golden corpus replayed from inside Unity: `GoldenTests` (PlayMode), the case reader and the diff |
+| `Tests/AbiSizeTests.cs` | UN10 | `zb_abi_sizes` against `Marshal.SizeOf` of every struct in `NativeMethods.cs` |
 
 **Unity 2022.3 LTS or newer**, with the Input System package (a dependency of
 this one). It has to open in Unity 6 unchanged as well — that is the rule the
 playground checks.
 
-`Tests/` holds the EditMode tests (`Window › General › Test Runner`). The
-ones that need no native plugin — `RenderTests` — are the first thing to run
-on a machine with Unity: the adapter is written and type-checked on one
-without it, and those tests settle what a shim cannot (the shader compiles,
-a mesh takes the core's vertex layout).
+## Tests
+
+`Tests/` is one test assembly (`Zabloo.Sdk.Tests`, both tabs of
+`Window › General › Test Runner`) plus an EditMode-only one for the JSON
+round trip. What runs where, and what each needs:
+
+| Suite | Tab | Needs the plugin | What it settles |
+|---|---|---|---|
+| `RenderTests` | EditMode | no | The shader compiles on this GPU; a mesh takes the core's vertex layout |
+| `Tests/Editor/JsonTests` | EditMode | no | The data channel's JSON under `es-ES` |
+| `GoldenDiffTests`, `PadMappingTests`, `InputOwnerTests` | either | no | Pure rules: the diff's format, the pad's translation table, who owns input |
+| `AbiSizeTests` | either | **yes** | `zb_abi_sizes` against `Marshal.SizeOf` of every struct in `NativeMethods.cs` — the first thing to run against a freshly built plugin: a field missing, mistyped or misaligned on either side of the C ABI changes a struct's size before it changes any corpus metric |
+| `GoldenTests` | PlayMode | **yes** | The **golden corpus from inside Unity** (UN10): every case of `golden/cases.json` staged through a real `ZablooView` on a `Canvas` — the viewport, `SetData` through the public API, the clock planted, the pad script replayed on an `InputTestFixture` gamepad — and its `Snapshot()` compared **byte for byte** with `golden/metrics/`; `future-major` refused with its code |
+| `KeyboardInputTests`, `PadTests` | PlayMode | **yes** | Sequences a snapshot cannot record: a press and its release, a clipped paste, a held direction, an unplugged pad |
+
+The corpus already passes in the core (`scons test golden`) and through the C
+ABI alone (`scons test capi`); `GoldenTests` is the third run of the same
+contract, and the only one that sees the adapter's plumbing — the size it hands
+the core, the clock, how a value is marshalled, how the pad snapshot is filled.
+A case that reproduces there means the boundary did not change the answer; one
+that does not names the path inside the snapshot, the `ref` of the node and both
+values, the same report the core's runner prints:
+
+```
+flex-layout does not reproduce golden/metrics/flex-layout.json
+    tree.children[1].rect.width (ref "row-gap"): expected 128, actual 132
+```
+
+A suite that needs the plugin is **ignored**, with the command to install it,
+when it is missing — never red for a `DllImport` that could not resolve. From
+the command line, against the playground:
+
+```sh
+cd core && scons capi && cd ../sdk/unity && scons install
+Unity -batchmode -projectPath examples/unity-playground \
+      -runTests -testPlatform PlayMode -testResults results.xml
+```
+
+**Not in CI.** Running tests inside Unity needs a licensed editor on the runner;
+CI compiles the plugin per platform and runs the corpus through the C ABI
+instead. These suites run in the editor and locally, and this table says so
+rather than pretending coverage that is not there.
 
 ## Build locally
 

@@ -128,6 +128,26 @@ flex-layout does not reproduce golden/metrics/flex-layout.json
     tree.children[1].children[0].style.radius (ref "chip"): expected 6, actual (absent)
 ```
 
+### Unity: the same corpus, twice more
+
+The Unity adapter reaches the core through its C ABI (`core/capi/`), so the
+corpus runs **through the ABI alone** in CI, with no Unity at all — the same
+seventeen cases and the refusal, marshalled as C strings and JSON and polled
+through `zb_pad_poll`, so that a metric which changes on crossing the boundary
+is blamed on the boundary and not on the core:
+
+```sh
+cd core && scons test capi
+```
+
+And it runs **from inside Unity**, through a real `ZablooView` on a `Canvas`
+(`sdk/unity/Tests/Golden/GoldenTests.cs`), which is the only run that sees the
+adapter's own plumbing — the size it hands the core, the clock, the JSON writer
+a `SetData` goes through, the pad snapshot filled from a synthetic gamepad. Same
+byte-for-byte comparison, same diff format. It needs an editor, so it is not in
+CI: `sdk/unity/README.md` › *Tests* says how to run it from the Test Runner and
+from the command line against `examples/unity-playground`.
+
 ### The skip list
 
 `core/tests/golden-skip.json` names the cases the core cannot reproduce **yet**,
@@ -157,7 +177,7 @@ everything downstream of the metrics — the coverage a rasterized bitmap lands
 with, the filtering an engine samples it through, the blend the canvas composites
 it with — which is exactly the part no snapshot describes.
 
-**The procedure.** One envelope, both targets, the same viewport, one image each:
+**The procedure.** One envelope, every target, the same viewport, one image each:
 
 1. `pnpm zabloo preview golden/envelopes/text-wrap.json` — it serves any envelope
    on disk, no project needed. Set the viewport to **480×320** and the DPR to
@@ -165,7 +185,18 @@ it with — which is exactly the part no snapshot describes.
 2. `cd sdk/godot && scons install`, open `examples/godot-playground`, point the
    `ZablooView` at `golden/envelopes/text-wrap.json`, size the control to
    **480×320** and capture the viewport.
-3. Compare the two at 1:1. They are not committed — see below.
+3. `cd sdk/unity && scons install`, open `examples/unity-playground` and run
+   **Zabloo › Verify › Golden capture** from the menu bar: it builds a scene
+   with a `ZablooView` of exactly **480×320** on a constant-pixel-size canvas
+   (one canvas unit is one device pixel, whatever the Game view's size) and
+   reads the envelope straight from this directory. Set the Game view's Scale
+   slider to 1, press Play, then **C**: the rig reads back the view's rect at
+   the end of the frame with `Texture2D.ReadPixels` — the canvas alone, no
+   post-processing, no camera in between (the canvas is Screen Space – Overlay)
+   — and writes `Captures/text-wrap-unity.png` next to the project, where it is
+   gitignored. Do not use a supersized `ScreenCapture`: any scale but 1 resamples
+   the glyphs you are about to compare.
+4. Compare the three at 1:1. They are not committed — see below.
 
 **The tolerance.** A glyph's *placement* must match exactly — same line breaks,
 same left edges, same baselines to the pixel — because both sides snap the glyph

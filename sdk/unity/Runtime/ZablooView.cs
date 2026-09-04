@@ -109,8 +109,17 @@ namespace Zabloo
             dirty = true;
         }
 
+        /// <summary>
+        /// Where <see cref="NowMs"/> reads the time from: the stopwatch, unless a test
+        /// plants one. The golden runner (UN10) needs the frame it measures to be
+        /// the frame the corpus records, and a Spinner's wave or a stick's scroll
+        /// are functions of the clock — so it sets this, drives the frames it wants
+        /// at the instants it wants, and puts the stopwatch back.
+        /// </summary>
+        internal static Func<double> NowSource = () => Clock.Elapsed.TotalMilliseconds;
+
         /// <summary>Milliseconds since the clock started. What <c>set_now</c> receives.</summary>
-        public static double NowMs => Clock.Elapsed.TotalMilliseconds;
+        public static double NowMs => NowSource();
 
         // --- Lifecycle ------------------------------------------------------------
 

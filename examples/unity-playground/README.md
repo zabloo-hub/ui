@@ -6,12 +6,15 @@ corpus deliberately does not cover (the corpus runs the core on a bare CPU, with
 no engine and no GPU). It is the Unity counterpart of
 [`godot-playground`](../godot-playground/README.md).
 
-**Status: host channel (UN7), rendering (UN4), pointer/keyboard (UN5) and the
-gamepad (UN6) in.** The scene opens and compiles, the envelopes load into the
-core, the game-facing API works — `SetData`, the id operations,
-`OnAction`/`OnDataChanged`/`OnDiagnostic` — and the view can be used with a
-mouse, a finger, a keyboard and a controller. Each ticket adds what it can be
-checked for here.
+**Status: host channel (UN7), rendering (UN4), pointer/keyboard (UN5), the
+gamepad (UN6) and the golden corpus (UN10) in.** The scene opens and compiles,
+the envelopes load into the core, the game-facing API works — `SetData`, the id
+operations, `OnAction`/`OnDataChanged`/`OnDiagnostic` — the view can be used
+with a mouse, a finger, a keyboard and a controller, and the corpus replays
+byte for byte through a real `ZablooView` (§ *Running the corpus inside
+Unity*). Each ticket adds what it can be checked for here; the throwaway
+scenes for checking each capability are built from the **Zabloo › Verify**
+menu (§ *Checking UN10 by hand*).
 
 ## Run it
 
@@ -241,6 +244,125 @@ view.SetPadAxis("scroll_x", PadMapping.AxisOff);
 Slots are `a`, `b`, `dpad_up/down/left/right`, `nav_x/y`, `scroll_x/y`; an
 unknown one answers `false` with a warning. An action has to be enabled by the
 game — the adapter only asks it whether it is pressed.
+
+## Running the corpus inside Unity
+
+The golden corpus already passes in the core (`scons test golden`) and through
+the C ABI alone (`scons test capi`). `sdk/unity/Tests/Golden/GoldenTests.cs`
+runs it a third time, **from inside Unity**, through this project: every case
+of `golden/cases.json` is staged on a real `ZablooView` on a `Canvas` — the
+case's viewport, its `data` pushed through the public `SetData` (so the JSON
+writer of UN7 is on trial too), the clock planted, the `pad` script replayed on
+an `InputTestFixture` gamepad by standard-mapping index (so the translation
+table and the Y flip of UN6 are on trial too) — and its `Snapshot()` is
+compared **byte for byte** with `golden/metrics/<case>.json`. `future-major`
+has to be refused with `unsupported-version`. Nothing softens the comparison;
+a case that does not reproduce prints the path inside the snapshot, the `ref`
+of the node and both values, the same report as `core/tests/test_golden.cpp`.
+
+```sh
+cd ../../core && scons capi && cd ../sdk/unity && scons install   # the plugin, once
+```
+
+Then either **Window › General › Test Runner › PlayMode › Zabloo.Sdk.Tests ›
+GoldenTests** (the package is in `manifest.json`'s `testables`, so its suites
+show up here), or from the command line, which is what a CI with a licence
+would run — and what to run before opening a PR that touches `sdk/unity`:
+
+```sh
+Unity -batchmode -projectPath . -runTests -testPlatform PlayMode -testResults results.xml
+```
+
+`AbiSizeTests` (`zb_abi_sizes` against `Marshal.SizeOf` of every struct of
+`NativeMethods.cs`) is in the same assembly and runs in either tab; it is the
+first thing to run against a freshly built plugin, because a field that
+drifted on one side of the C ABI changes a struct's size before it changes
+any metric. Suites that need the plugin are **ignored, with the command to
+install it**, when it is missing. None of this runs in CI — there is no Unity
+licence on the runners — and the SDK's README says so instead of pretending.
+
+## Checking UN10 by hand
+
+What the corpus cannot see is pixels, a real pointer, a real pad, an event
+reaching a handler and a push arriving from the CLI. That is checked from
+throwaway scenes built by the **Zabloo › Verify** menu
+(`Assets/Verify/Editor/VerifyMenu.cs`): each item saves whatever is open,
+creates a new scene with the playground's shape — a Screen Space – Overlay
+`Canvas`, a `ZablooView` stretched over it, no `EventSystem` — and a
+`VerifyRig` (`Assets/Verify/VerifyRig.cs`) standing in for the game, then
+leaves it open for Play. The scenes are built rather than stored: a `.unity`
+authored by hand is a YAML document Unity may reject on open, and one authored
+by Unity is a diff nobody can review; ten lines of C# are both.
+
+On Play the rig loads the envelope, logs every action, data change and
+diagnostic, and prints its checklist to the Console — the short form of the
+sections above (§ UN4, UN5, UN6, UN7), which stay the reference for *why*:
+
+| Menu item | Envelope | What it runs |
+|---|---|---|
+| Render (UN4) | `settings-screen` | the seven steps of § *Checking UN4 by hand*; **R** reloads for the texture-retention step |
+| Pointer & keyboard (UN5) | `settings-screen` | § *Checking UN5 by hand* |
+| Gamepad (UN6) | `settings-screen` | § *Checking UN6 by hand* — and the milestone's exit criterion below |
+| Host channel (UN7) | `settings-screen` (set `source` for the others) | § *Checking UN7 by hand* as **`[ContextMenu]` items** on the rig: right-click the component (Inspector › ⋮) for *Host 1 … Host 6*; each logs what to expect |
+| Dev loop (UN8) | `showcase` / `media` | the five checks of the dev loop, once UN8's editor receiver is in |
+| Golden capture (UN10) | `golden/envelopes/text-wrap.json` | the 480×320 capture below |
+
+`Stats · what the last paint cost` on the same context menu prints
+`GetStats()` for the draw-call step.
+
+### The milestone's exit criterion: `settings-screen` on a pad, in a player
+
+F12 closes on one sentence: *`examples/settings-screen` is 100 % navigable with
+a gamepad in a real player, IL2CPP*. The player is UN9's (`docs/performance.md`
+says how it is built); the run is this list — the gestures of G13/UN6, in this
+order, on that player, with a controller plugged in and nothing configured:
+
+1. **D-pad down, four times**: the focus walks the settings column one control
+   per push, the ring never leaves the screen (the list scrolls to keep it).
+   Hold down for a second: exactly 8 steps, not a slide.
+2. **Left stick** does the same walk; up is up.
+3. **A on the `sfx` toggle**: `sfx-changed` then `settings.sfx = …` in the log,
+   and the switch crossfades. Press A, unplug, plug back in: nothing fired.
+4. **On the brightness slider**: ← and → move the value in steps; the label
+   follows; `brightness-apply` lands when the direction is RELEASED, once.
+   ↑/↓ leave the slider.
+5. **On the language dropdown**: A opens it, the focus lands on the selected
+   option, d-pad walks the options, A picks one — the popover closes and the
+   binding is written; open it again and **B** closes it without changing
+   anything. With nothing open, B does nothing.
+6. **On the name field**: ←/→ walk the caret and hand the direction back at the
+   ends, so ↓ leaves the field; ↑/↓ always navigate.
+7. **Right stick** scrolls the settings list at a speed that follows the push;
+   walking the focus with the d-pad drags the list along.
+8. **Tabs**: d-pad across the tab bar, A selects — the panel swaps, the other
+   tab's controls leave the layout (the log stays quiet: a tab change has no
+   hook).
+
+**Evidence** goes in the PR, not in the repo: a short screen recording (or a
+capture per step) of that run on the IL2CPP player, with the player's log next
+to it. Nothing is committed — the run is dated evidence of one build on one
+machine, the rule the corpus lives by.
+
+### The golden capture: `text-wrap` at 480×320, three targets
+
+**Zabloo › Verify › Golden capture** builds a `ZablooView` of exactly 480×320
+on a **constant-pixel-size** canvas (factor 1: one canvas unit is one device
+pixel, whatever the Game view's size) reading `golden/envelopes/text-wrap.json`
+straight from the repository. Set the Game view's **Scale** slider to 1, press
+Play, then **C**: the rig reads back the view's rect at the end of the frame
+(`Texture2D.ReadPixels` — the canvas alone, no post-processing, no camera in
+between) and writes `Captures/text-wrap-unity.png` next to the project,
+gitignored. Do not use a supersized `ScreenCapture`: any scale but 1 resamples
+the glyphs you are about to compare.
+
+Capture the same envelope in the web preview (`pnpm zabloo preview
+golden/envelopes/text-wrap.json`, viewport 480×320, DPR 1) and in the Godot
+playground, and compare the three at 1:1 under the tolerance of
+[`golden/README.md`](../../golden/README.md#golden-images): a glyph's
+*placement* must match exactly — same line breaks, same left edges, same
+baselines to the pixel — and only antialiased edges may differ, by ≤ 2/255 per
+channel. A line breaking elsewhere, a run drifting sideways, a baseline off by
+a pixel or a solid interior that differs is a bug, not tolerance.
 
 ## Two Unity versions
 
