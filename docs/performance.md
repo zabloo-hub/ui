@@ -220,8 +220,8 @@ splitting what the core handed over, which is the reading the column is for.
 |---|---|---|---|
 | macOS (universal) | yes | yes | yes — the table above |
 | Web (wasm side module) | yes | **yes, and it is interactive** | no — see below |
-| Linux, Windows | in CI | not here | no |
-| Android, iOS | in CI | **no** | **no** |
+| Linux, Windows | in CI (Linux per PR; all in the weekly prerelease) | not here | no |
+| Android, iOS | in CI (weekly prerelease) | **no** | **no** |
 
 And the Unity package (its native core is a plugin, built per platform by CI's
 `unity-plugin` job; the players are built by hand because Unity does not run
@@ -232,7 +232,7 @@ in CI):
 | macOS (universal dylib) | in CI | **not yet** — the IL2CPP procedure is written, not run | no |
 | Windows x64 | in CI | **not yet** — same | no |
 | Linux x64 | in CI | no | no |
-| Android arm64-v8a, iOS arm64 | in CI | **no** | **no** |
+| Android arm64-v8a, iOS arm64 | in CI (weekly prerelease) | **no** | **no** |
 
 ### Web
 

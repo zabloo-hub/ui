@@ -26,6 +26,19 @@ in [`.changeset/config.json`](../.changeset/config.json) — their own `"private
 name list. The config used to carry `ignore: ["hello-button-example"]`, which named exactly one
 of the four examples and read as if it were what kept them all out; it never was.
 
+## What CI runs, and when
+
+A PR runs only what it touched (the `changes` job in `ci.yml` sorts the diff into four
+zones — TypeScript, core, Godot, Unity): the TS matrix for TS changes, `core-tests` and a
+**Linux-only** build of the C ABI, the Godot extension and the Unity plugin for engine
+changes. A docs-only PR runs nothing heavy.
+
+The full platform matrices — the C ABI on macOS and Windows, the Godot addon for its six
+targets plus web, the Unity plugin for its five — are **`prerelease.yml`**: every Monday,
+and on demand (Actions → Prerelease → *Run workflow*). It calls the two artifact workflows
+in `dry-run`, so a green prerelease means both SDKs would build and pack. **Run it before
+cutting a release**, and treat a red Monday as a toolchain that rotted, not as noise.
+
 ## The flow
 
 1. **Every change that touches a package carries a changeset**: `pnpm changeset`, pick the
@@ -195,8 +208,8 @@ pattern, and nothing about the package layout changes.
 
 ## Unity in CI
 
-The Unity package's **native core** is built in CI for all five platforms on every PR
-(`unity-plugin` in `ci.yml`, one artifact per platform with the binary in its
+The Unity package's **native core** is built in CI for all five platforms in the weekly **prerelease** and on demand
+(`unity-sdk.yml` in `dry-run`, called by `prerelease.yml`; a PR builds the Linux host only — one artifact per platform with the binary in its
 `Runtime/Plugins/` slot and its `.meta`). **Unity itself does not run in CI**: the editor
 needs a license activated on the runner, and the way to get one — [GameCI](https://game.ci/)'s
 `unity-builder` and `unity-test-runner` actions with a `UNITY_LICENSE` secret (a personal
@@ -208,7 +221,7 @@ hour per build.
 It is documented here rather than done, for the same reason the Asset Library is: it is
 added when it buys something. What it would buy is running the PlayMode suites
 (`sdk/unity/Tests/PlayMode/`: the golden corpus inside Unity, the input tests, the
-allocation test) and building the IL2CPP players on every PR instead of by hand. What it
+allocation test) and building the IL2CPP players in CI instead of by hand. What it
 costs is above. Until then the suites run in the editor, the players are built by hand
 (`sdk/unity/README.md` › *IL2CPP*), and the README says so instead of pretending coverage.
 

@@ -1,0 +1,55 @@
+# Everything a PR no longer runs: the C ABI on all three OSes, the Godot addon
+# for its six targets plus web, the Unity plugin for its five — and both SDK
+# artifacts packed as they would be released. Weekly, so a toolchain nobody
+# touched cannot rot silently between releases; on demand, before cutting one.
+#
+# It is the same two workflows a release dispatches, called in `dry-run`, so a
+# green prerelease means "the release would build". `docs/releasing.md` › Before
+# a release.
+name: Prerelease
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 04:00 UTC, an hour before the npm smoke test.
+    - cron: "0 4 * * 1"
+
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The C ABI on the two OSes `ci.yml` skips per PR. Same steps as its
+  # `capi-tests`; the Linux run is the PR's.
+  capi-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install scons
+      - name: Build the C ABI library
+        working-directory: core
+        shell: bash
+        run: scons werror=true capi
+      - name: Run the core's tests, the corpus through the C header included
+        working-directory: core
+        shell: bash
+        env:
+          ZB_REQUIRE_LOCALE: "1"
+        run: scons werror=true test
+
+  godot-addon:
+    uses: ./.github/workflows/godot-addon.yml
+    with:
+      mode: dry-run
+
+  unity-sdk:
+    uses: ./.github/workflows/unity-sdk.yml
+    with:
+      mode: dry-run

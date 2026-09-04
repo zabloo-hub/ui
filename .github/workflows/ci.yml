@@ -13,7 +13,54 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # What this PR actually touched, so a docs-only change runs nothing heavy and a
+  # core change does not compile the TypeScript workspace twice. Four zones, and
+  # a change to the workflows themselves means "everything". The full platform
+  # matrices — six Godot targets, five Unity ones, three OSes for the C ABI — do
+  # NOT run per PR any more: they are `prerelease.yml`, weekly and on demand,
+  # which is also what packs both SDK artifacts. What a PR gets is the cheapest
+  # build that proves the code compiles and the corpus still passes.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ts: ${{ steps.zones.outputs.ts }}
+      core: ${{ steps.zones.outputs.core }}
+      godot: ${{ steps.zones.outputs.godot }}
+      unity: ${{ steps.zones.outputs.unity }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: zones
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            files="EVERYTHING"
+          else
+            files="$(git diff --name-only "$base" HEAD)"
+          fi
+          echo "$files"
+          zone() { echo "$files" | grep -Eq "$1" && echo true || echo false; }
+          all=$(zone '^(EVERYTHING|\.github/workflows/)')
+          core=$(zone '^(core/|golden/)')
+          godot=$(zone '^(sdk/godot/|examples/godot-playground/)')
+          unity=$(zone '^(sdk/unity/|examples/unity-playground/)')
+          # TypeScript is everything that is not one of the three engine zones
+          # and not prose. `.changeset/` counts: the gate in `ci` reads it.
+          ts=$(echo "$files" | grep -Ev '^(core/|golden/|sdk/|examples/godot-playground/|examples/unity-playground/|docs/)' | grep -Ev '\.md$' | grep -q . && echo true || echo false)
+          for z in ts core godot unity; do
+            v=$(eval echo \$$z); [ "$all" = true ] && v=true
+            echo "$z=$v" >> "$GITHUB_OUTPUT"; echo "$z=$v"
+          done
+
   ci:
+    needs: changes
+    if: needs.changes.outputs.ts == 'true'
     # Game studios are mostly on Windows, and the critical path is full of things
     # that differ there: recursive `fs.watch`, jiti's `pathToFileURL` resolution
     # base, path separators, bin shims and shebangs. The code already anticipates
@@ -87,6 +134,8 @@ jobs:
   # the core produces a ViewSnapshot with no engine, so the golden corpus can be
   # its test (G3, ZAB-136).
   core-tests:
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.godot == 'true' || needs.changes.outputs.unity == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,11 +160,16 @@ jobs:
   # does not change the answer is cheap enough to run everywhere it is built.
   # Two invocations on purpose: `capi` next to `test` is a FILTER (the ticket's
   # `scons test capi`), and this job wants the whole suite on every platform.
+  # Linux only per PR; macOS and Windows run in `prerelease.yml`. The corpus
+  # through the C header is the same on all three — what differs is the
+  # toolchain, and that is the prerelease's question.
   capi-tests:
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.unity == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -155,8 +209,8 @@ jobs:
             core/bin/zabloo.dll
           if-no-files-found: error
 
-  # Compiles the GDExtension for every platform the addon ships for, and keeps the
-  # artifacts. It does not RUN anything: what needs a real engine — geometry
+  # Compiles the GDExtension and keeps the artifact — per PR the host platform,
+  # every platform in the prerelease. It does not RUN anything: what needs a real engine — geometry
   # reaching a draw call, input arriving, an export booting — is verified by hand
   # against the playground and, for the desktop and web exports, in G15 (ZAB-148).
   #
@@ -166,27 +220,17 @@ jobs:
   # that only compiles is still worth having — it is what stops those toolchains
   # rotting silently in the meantime.
   godot-extension:
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.godot == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
+          # The host build only. The other five targets (Linux arm64, macOS,
+          # Windows, Android, iOS) and web are `prerelease.yml`'s.
           - os: ubuntu-latest
             platform: linux
             arch: x86_64
-          # The .gdextension declares Linux arm64 too, so the release zip carries
-          # it (godot-addon.yml) — and this is the entry that keeps it from being
-          # a toolchain nobody compiles until the day it has to work.
-          - os: ubuntu-24.04-arm
-            platform: linux
-            arch: arm64
-          - os: macos-latest
-            platform: macos
-          - os: windows-latest
-            platform: windows
-          - os: ubuntu-latest
-            platform: android
-          - os: macos-latest
-            platform: ios
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -222,40 +266,7 @@ jobs:
           path: sdk/godot/addons/zabloo/bin/
           if-no-files-found: error
 
-  # Web, on its own and NEVER blocking (2026-08-24, Decision 4): a GDExtension on
-  # the web needs `dlink` export templates and an Emscripten whose ABI matches the
-  # one Godot's own templates were built with, and neither is ours to pin. The
-  # criterion for web is that it LOADS, which is checked by hand against a real
-  # export — `docs/performance.md` records what that check found.
-  godot-extension-web:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - run: pip install scons
-
-      - uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: 4.0.10
-
-      - name: Build the extension
-        working-directory: sdk/godot
-        run: scons target=template_release platform=web
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: zabloo-addon-web
-          path: sdk/godot/addons/zabloo/bin/
-          if-no-files-found: error
-
-  # The native core for every platform the Unity package ships on (UN9,
+  # The native core for the Unity package (UN9,
   # ZAB-202): `scons capi` in `core/` — `platform=` for the two cross-compiles —
   # then `scons install platform=…` in `sdk/unity`, which is what puts the
   # binary in its `Runtime/Plugins/<platform>/` slot AND writes the `.meta` next
@@ -269,30 +280,17 @@ jobs:
   # clang bring their own warning sets, and the extension job makes the same
   # allowance.
   unity-plugin:
+    needs: changes
+    if: needs.changes.outputs.core == 'true' || needs.changes.outputs.unity == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            platform: macos
-            flags: werror=true arch=universal
-            slot: macOS/libzabloo.dylib
-          - os: windows-latest
-            platform: windows
-            flags: werror=true
-            slot: Windows/x86_64/zabloo.dll
+          # The host build only; macOS, Windows, Android and iOS are `prerelease.yml`'s.
           - os: ubuntu-latest
             platform: linux
             flags: werror=true
             slot: Linux/x86_64/libzabloo.so
-          - os: ubuntu-latest
-            platform: android
-            flags: ""
-            slot: Android/arm64-v8a/libzabloo.so
-          - os: macos-latest
-            platform: ios
-            flags: ""
-            slot: iOS/libzabloo.a
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
