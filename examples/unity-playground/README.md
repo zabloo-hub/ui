@@ -6,8 +6,8 @@ corpus deliberately does not cover (the corpus runs the core on a bare CPU, with
 no engine and no GPU). It is the Unity counterpart of
 [`godot-playground`](../godot-playground/README.md).
 
-**Status: host channel (UN7), rendering (UN4), pointer/keyboard (UN5) and the
-gamepad (UN6) in.** The scene opens and compiles, the envelopes load into the
+**Status: host channel (UN7), rendering (UN4), pointer/keyboard (UN5), the
+gamepad (UN6) and the dev loop (UN8) in.** The scene opens and compiles, the envelopes load into the
 core, the game-facing API works — `SetData`, the id operations,
 `OnAction`/`OnDataChanged`/`OnDiagnostic` — and the view can be used with a
 mouse, a finger, a keyboard and a controller. Each ticket adds what it can be
@@ -241,6 +241,51 @@ view.SetPadAxis("scroll_x", PadMapping.AxisOff);
 Slots are `a`, `b`, `dpad_up/down/left/right`, `nav_x/y`, `scroll_x/y`; an
 unknown one answers `false` with a warning. An action has to be enabled by the
 game — the adapter only asks it whether it is pressed.
+
+## Checking UN8 by hand — the dev loop
+
+Doing the reload ON SAVE is `zabloo dev --unity`. The receiver
+(`sdk/unity/Editor/ZablooDevServer.cs`) was written on a machine without
+Unity — its pure half runs in `Tests/Editor/DevPushTests.cs`, the listener
+does not — so this is its exit criterion as a procedure. Turn on **Zabloo →
+Dev Mode** in the menu: the Console says `dev mode listening on
+127.0.0.1:5077`.
+
+`Playground.cs` loads its envelopes from `StreamingAssets/` by path, which is
+not a `TextAsset`, so for the reimport half give the view an asset to keep in
+sync: copy `examples/settings-screen/dist/zabloo.ir.json` into `Assets/`,
+drag it onto the `Zabloo` object's **Envelope** field and set **View Id** to
+`settings` (the `Playground` component's own `Load()` would replace it on
+Play; disable that component for this check). Then:
+
+```sh
+cd ../settings-screen && pnpm dev --unity   # then press Play here
+```
+
+- **Edit a `.tsx`** — change a label in `src/views/settings.tsx` — and the view
+  swaps in Play without touching the editor. What the game pushed with `SetData`
+  does **not** reset: the store lives on the document, so it outlives the content
+  it was feeding. `Assets/zabloo.ir.json` now holds the new label too (open it),
+  and stopping and pressing Play again opens on it — no reimport by hand.
+- **Stop Play and keep saving.** The Console says `1 view(s) in the scene, not
+  playing, no new assets` and the asset keeps updating: edit mode is in sync too.
+- **Watch both logs.** The CLI prints `pushed to Unity … ✔ (1 view)` and the
+  Console `reloaded 1 view(s), no new assets`. Save again: still `no new
+  assets`, however many times — the tree travels, the bytes do not.
+- **Replace an image** — do the same in `examples/showcase` with
+  `src/assets/banner.png` and its `media` view. The Console prints
+  `1 asset(s) fetched`, exactly once, and the saves after it are back to `no new
+  assets`. N reloads, one transfer: the point of the transport, and the number
+  the exit criterion is measured with.
+- **Unfocused editor.** Push with Unity behind your code editor: the swap is
+  painted before you alt-tab back (`runInBackground` was turned on when Play
+  started with dev mode on; the Console said so).
+- **Dev mode off, keep saving.** The CLI says the Unity dev mode is not reachable
+  **once** and then goes quiet; turn it back on and the next save says `— back`.
+- **Both engines.** With the Godot playground playing too, `pnpm dev --godot
+  --unity` prints one `pushed to` line per engine per save.
+- **Port taken.** Turn dev mode on in a second editor: it says `port 5077 is
+  taken — another editor listening?` instead of silently listening to nothing.
 
 ## Two Unity versions
 
