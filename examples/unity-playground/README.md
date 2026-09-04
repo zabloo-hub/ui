@@ -19,7 +19,7 @@ scenes for checking each capability are built from the **Zabloo › Verify** men
 ## Run it
 
 ```sh
-# 1. Build the native core and put it into the package (once UN2 has landed).
+# 1. Build the native core (its C ABI is what the package loads).
 cd ../../core && scons capi
 
 # 2. Copy it into sdk/unity, and the examples' envelopes into this project.

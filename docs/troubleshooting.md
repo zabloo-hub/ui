@@ -248,6 +248,75 @@ built with; a newer one links fine and then aborts at load on a symbol the main 
 not export. Web is experimental for exactly these two reasons, neither of which is ours to
 pin. [`docs/performance.md`](performance.md) records what that check found.
 
+## In Unity
+
+### `DllNotFoundException: zabloo`
+
+The native core is not where Unity looks, or is there without its import settings. Three
+causes, in the order worth checking:
+
+| Check | Why |
+|---|---|
+| `Runtime/Plugins/<platform>/` has the binary | A release `.tgz` carries one per platform; a source checkout carries none until `cd core && scons capi && cd ../sdk/unity && scons install`. |
+| Its `.meta` sits beside it | The `.meta` is what tells Unity which platform and which editor the file is for. Without it the file is imported with defaults, and the editor may load a `.so` on macOS. `scons install` writes the two together; never copy the binary alone. |
+| The file is named right | `libzabloo.dylib` on macOS, `libzabloo.so` on Linux and Android, **`zabloo.dll`** (no `lib`) on Windows — that is the name `[DllImport("zabloo")]` resolves under both Mono and IL2CPP. |
+
+### I replaced the native plugin and nothing changed
+
+**Unity never unloads a native plugin.** Once a `DllImport` has resolved, the editor keeps
+that library until it quits, whatever you do to the file — a rebuilt `libzabloo.*` is picked
+up on the **next editor launch**, not on the next Play or domain reload. Quit Unity, replace
+(or `scons install`), reopen.
+
+### The view sees no input
+
+**Active Input Handling** in *Player Settings → Other Settings* has to be *Input System
+Package* or *Both*. The view reads `Keyboard.current`, `Pointer.current` and
+`Gamepad.current` directly, and with only the legacy Input Manager active those are `null`
+— the view renders and ignores everything. Unity asks to restart the editor when the setting
+changes; say yes.
+
+### The arrows move the focus of the wrong thing, or nothing
+
+The project's `EventSystem` is sending navigation events, and UGUI handles the arrows before
+the view sees them. The view is not a `Selectable` and needs no `EventSystem`; if the scene
+has one for the game's own UI, stop it from navigating while a view owns the keyboard:
+
+```csharp
+EventSystem.current.sendNavigationEvents = false;
+```
+
+With two views on screen, only one owns the keyboard and the gamepad — the first one enabled,
+until the player touches another. That is the rule, not a bug.
+
+### It works in the editor and crashes (or does nothing) in an IL2CPP player
+
+Two things a Mono editor never exercises:
+
+- **Managed stripping** can remove the interop types the `DllImport` stubs need, and the
+  first call then throws `MissingMethodException`. The package ships a `link.xml` that keeps
+  `Zabloo.Sdk.Interop` whole; a project `link.xml` that overrides stripping for the whole
+  `Zabloo.Sdk` assembly must keep that namespace too.
+- **iOS links the core statically** — `libzabloo.a`, resolved as `__Internal` — and Xcode
+  has to be the one building the player. A build that reports an undefined `zb_*` symbol at
+  link time has the archive missing from `Runtime/Plugins/iOS/`.
+
+The playground's `ProjectSettings` already say IL2CPP + *High* stripping for Standalone, and
+[`sdk/unity/README.md`](https://github.com/zabloo-hub/ui/tree/main/sdk/unity#readme) › *IL2CPP*
+is the procedure for building one.
+
+### `zabloo dev --unity` says nothing arrives
+
+| Check | Why |
+|---|---|
+| **Zabloo → Dev Mode** is ticked in the editor's menu | It is the receiver, and it lives in the **editor** — not in the player — because that is where Play mode runs and where the imported envelope lives. |
+| The editor is the one you think | The setting is per project (`EditorPrefs`); a second editor with dev mode on finds the port taken and says so. |
+| Nothing else holds the port | `5077` by default; `Zabloo.DevMode.Port` in the editor prefs moves one end, `--unity-port` the other. |
+| The `ZablooView` references a `TextAsset` | A push rewrites the asset each view in the scene references. A view loading from code (`LoadEnvelope`) only gets the live half — the hot-swap while playing. |
+
+If nothing is listening the export still succeeds, and the CLI says so **once** rather than
+on every save.
+
 ## The dev preview
 
 The chrome `zabloo dev` serves — topbar, stage, console, statusbar and the floating bindings
@@ -322,7 +391,7 @@ view, because the glyph atlases are rasterized at that scale.
 ## Related
 
 - [The host channel](format/host-channel.md) — the operations, their return values and the
-  callbacks, with the Godot spelling of each.
+  callbacks, with the Godot and Unity spellings of each.
 - [Loading](format/loading.md) — the validation policy and every diagnostic code.
 - [`@zabloo/react` reference](react-api.md) — the API these errors are thrown from.
 - [Project structure & CLI](project-structure.md) — where the export looks for things.

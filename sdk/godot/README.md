@@ -103,8 +103,8 @@ always a complete envelope.
 Not the editor, on purpose: Godot's `Run` launches a separate process, so the
 thing with a live view to swap is the game. A project that is not running needs no
 syncing either — `load_file` reads the exported JSON off disk when it starts, so
-it already opens on the last export. (That is what Unity had to simulate with
-`AssetDatabase.ImportAsset`.)
+it already opens on the last export. (That is what the [Unity SDK](../unity/README.md)
+has to do explicitly — its receiver lives in the editor and reimports the asset.)
 
 ## Status
 

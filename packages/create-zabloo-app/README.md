@@ -64,8 +64,21 @@ func _ready() -> void:
     ui.set_data("player.gold", 1250)   # bound Text/visible react live and re-lay out
 ```
 
-Godot renders the whole catalog today. Unity is being rebuilt as a thin adapter over the
-same core (F12), and Unreal follows the same way. The envelope can also be delivered and **hot-updated** from the zabloo platform
+In Unity, both are C# events on the `ZablooView` component the `com.zabloo.sdk` package
+adds:
+
+```csharp
+[SerializeField] ZablooView ui;
+
+void OnEnable()
+{
+    ui.OnAction += (name, context) => { if (name == "play") StartGame(); };
+    ui.SetData("player.gold", 1250);   // bound Text/visible react live and re-lay out
+}
+```
+
+Godot and Unity render the whole catalog today, from one shared core; Unreal follows the
+same way. The envelope can also be delivered and **hot-updated** from the zabloo platform
 without recompiling or re-shipping through stores — the dev loop uses that exact path.
 
 ## Usage
