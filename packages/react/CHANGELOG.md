@@ -1,5 +1,12 @@
 # @zabloo/react
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @zabloo/format@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

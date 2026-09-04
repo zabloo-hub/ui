@@ -1,6 +1,6 @@
 {
   "name": "create-zabloo-app",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Scaffold a zabloo/ui project: author game UI in React, export versioned IR, render it in-engine",
   "license": "MIT",
   "keywords": [
