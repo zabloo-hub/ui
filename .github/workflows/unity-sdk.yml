@@ -11,6 +11,12 @@
 name: Unity SDK
 
 on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "dry-run packs the artifact; publish attaches it to a Release"
+        type: string
+        default: dry-run
   workflow_dispatch:
     inputs:
       mode:

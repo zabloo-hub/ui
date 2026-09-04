@@ -26,6 +26,19 @@ in [`.changeset/config.json`](../.changeset/config.json) — their own `"private
 name list. The config used to carry `ignore: ["hello-button-example"]`, which named exactly one
 of the four examples and read as if it were what kept them all out; it never was.
 
+## What CI runs, and when
+
+A PR runs only what it touched (the `changes` job in `ci.yml` sorts the diff into four
+zones — TypeScript, core, Godot, Unity): the TS matrix for TS changes, `core-tests` and a
+**Linux-only** build of the C ABI, the Godot extension and the Unity plugin for engine
+changes. A docs-only PR runs nothing heavy.
+
+The full platform matrices — the C ABI on macOS and Windows, the Godot addon for its six
+targets plus web, the Unity plugin for its five — are **`prerelease.yml`**: every Monday,
+and on demand (Actions → Prerelease → *Run workflow*). It calls the two artifact workflows
+in `dry-run`, so a green prerelease means both SDKs would build and pack. **Run it before
+cutting a release**, and treat a red Monday as a toolchain that rotted, not as noise.
+
 ## The flow
 
 1. **Every change that touches a package carries a changeset**: `pnpm changeset`, pick the
