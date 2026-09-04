@@ -5308,3 +5308,20 @@ aplicada esta vez a un motor entero.
 *Status*, `docs/getting-started.md` §6 *Unity*, `docs/troubleshooting.md` › *In Unity*, y el
 barrido de `README.md`, `docs/README.md`, `docs/format/host-channel.md`, `examples/README.md`
 y `packages/create-zabloo-app`.
+
+## 2026-09-04 — La release que se prepara ahora lleva tres targets: web, Godot y Unity; Unreal va detrás
+
+**Decisión:** la versión que se publica a continuación cubre **web, Godot y Unity**.
+**Unreal (F13) sale de su alcance** y se hace después de publicarla. Enmienda la entrada
+del 2026-09-03 ("la próxima versión cubre cuatro targets"): el *qué* y el *cómo* de Unreal
+no cambian —adaptador fino sobre el core C++, módulo de C++ sin puente de lenguaje—, solo
+el *cuándo*.
+
+**Motivo:** F11 y F12 han cerrado (corpus byte a byte en Godot, por el C ABI y desde un
+`ZablooView` real; los dos SDKs distribuidos), y esperar a un tercer motor para publicar lo
+que ya funciona repetiría la retención que el 2026-08-22 ya decidió no hacer con la parte
+web. Lo que sí falta antes de publicar es la **pasada de revisión** de los tres targets
+(ZAB-42 y lo que salga de ella), no otro motor.
+
+**Consecuencias:** `roadmap.md` (nota de revisión y fase 13), `project.md` y `README.md`
+dejan de decir "tres motores en esta versión"; F13 sigue planificada y sin desglosar.

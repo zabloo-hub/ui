@@ -49,7 +49,7 @@ own glyph atlases.
 and the state/binding/transition runtime all live in [`core/`](core) — and every engine is a
 thin adapter over it: [`sdk/godot`](sdk/godot) is a GDExtension whose C++ *is* the core;
 [`sdk/unity`](sdk/unity) is a UPM package whose C# reaches the same core through its C ABI,
-as a native plugin; Unreal (F13) takes it as a C++ module. Each adapter uploads triangles
+as a native plugin; Unreal takes it as a C++ module, after this release (F13). Each adapter uploads triangles
 and translates input, and nothing else. Because the core can produce a full view snapshot
 with no engine at all, the [golden corpus](golden/README.md) runs against it on a bare CPU
 in CI — and again through the C ABI, and again from inside Unity — which is why "the same
@@ -70,7 +70,7 @@ it matters if you are picking this up today:
 
 Unreal renders nothing yet — it is *designed* in parallel (every IR decision is validated
 against all three engines) rather than implemented, and lands as a thin adapter over the
-same core rather than another port (F13).
+same core rather than another port (F13, after the current release).
 
 What the system does today — all of it in the web renderer, the Godot SDK and the Unity SDK:
 

@@ -23,6 +23,10 @@
 > como adaptador fino sobre el core C++, el corpus pasa por el C ABI y por un `ZablooView`
 > real, y el SDK se distribuye como `.tgz` de UPM adjunto a una Release. La verificación en
 > un editor de verdad queda como procedimiento — ver la fase 12. Siguiente: **F13**.
+> **Revisado 2026-09-04 (alcance de la release):** la versión que se publica ahora cubre
+> **tres targets — web, Godot y Unity**. **Unreal (F13) queda para después de esta
+> versión**, no dentro de ella: enmienda a la nota del 2026-09-03 de abajo. Falta una
+> pasada de revisión de los tres (ZAB-42 y sucesores) antes de publicar.
 > **Revisado 2026-09-03**: la próxima versión publicada cubre **cuatro targets** — web,
 > Godot, **Unity** y **Unreal** —, así que se abren **F12 — SDK de Unity** y **F13 — SDK de
 > Unreal**, en ese orden, las dos como **adaptadores finos sobre el core C++** que nace en
@@ -276,7 +280,8 @@ camino y se consolida en F8.
     Es una tarde con el editor, convertida en checklist a propósito; hasta que se corra, la
     fila de Unity del README lo dice tal cual.
 
-13. **F13 — SDK de Unreal** (planificada 2026-09-03, sin desglosar). El core entra
+13. **F13 — SDK de Unreal** (planificada 2026-09-03, sin desglosar; **fuera de la
+    release actual** desde 2026-09-04 — va después de publicar web + Godot + Unity). El core entra
     como módulo/plugin de C++ **sin puente de lenguaje**, que es lo que lo hace el
     adaptador más barato de los tres; lo específico es la superficie de motor (widget
     de Slate que recibe la geometría, input, y exponer acciones/datos a Blueprint).
@@ -301,7 +306,7 @@ camino y se consolida en F8.
   después, sobre la misma IR.
 - ~~Adaptador de **Unreal** sobre el core C++, y el regreso de **Unity** si llega.~~
   **Planificados 2026-09-03: dejan de ser "por confirmar" y son F12 (Unity) y F13
-  (Unreal)** — la próxima versión publicada controla los tres motores y web.
+  (Unreal)**. La versión que se publica ahora lleva web + Godot + Unity; Unreal va detrás.
 - Landing / página de producto de zabloo/ui (en zabloo.com, repo `landing`).
 - Primeros **blocks/templates premium**.
 
