@@ -47,13 +47,14 @@ The IR is the **keystone** of the whole system. Its full design context is in
 - **The core must be able to produce a `ViewSnapshot` with no engine at all.** That is what
   draws the core/adapter line, and it is what lets the `golden/` corpus run against a
   native binary in CI on a bare CPU — no engine, no GPU.
-- **The Unity SDK is cancelled** at 4 of 13 node types. G17 took Unity out of the public
-  docs' *foreground* — Godot is what they describe — and deleting `sdk/unity`,
-  `zabloo dev --unity` and `dev:unity` is its own ticket right behind it. Unity returns
-  as a thin adapter over this core, not as a C# port — and "some day" now has a date:
-  **F12 is the Unity SDK and F13 the Unreal one** (decided 2026-09-03), because the
-  release we ship has to drive all three engines plus web. The `sdk/unity` being deleted
-  is not the one that comes back.
+- **Unity renders too, as a thin adapter (F12, closed 2026-09-04).** The C# port that was
+  cancelled at 4 of 13 node types (2026-08-24) was deleted, and `sdk/unity` is now a UPM
+  package (`com.zabloo.sdk`) whose C# reaches the **same core** as a native plugin through
+  a **C ABI** (`core/capi/`), renders through UGUI, and reads the Input System. The golden
+  corpus passes through that ABI in CI and through a real `ZablooView` in the editor's
+  test runner; the SDK ships as a `.tgz` on the Releases page. What has not yet been run
+  on a machine with Unity is listed in the roadmap's phase 12. **F13 is the Unreal one**,
+  by the same recipe, because the release we ship has to drive all three engines plus web.
 - **Content lives on the platform** and is delivered to the SDK, enabling hot-update.
 
 ## Authoring (decided 2026-07-09: React bindings first)

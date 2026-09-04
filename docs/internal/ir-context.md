@@ -397,7 +397,7 @@ unknown nodes/props? render a fallback? refuse?). Capability/version negotiation
 Because we self-render, the relevant question per engine is **"how does it give us a GPU
 canvas / let us submit custom geometry?"** — not "what widgets/layout/theming does it have."
 
-| Concern            | Godot (**renders the whole catalog**) | Unreal (**F13**)           | Unity (**F12**, decided 2026-09-03) |
+| Concern            | Godot (**renders the whole catalog**) | Unreal (**F13**, a plan)  | Unity (**renders the whole catalog**, F12 closed 2026-09-04) |
 |--------------------|------------------------------------|-------------------------------|-------------------------------|
 | Custom geometry    | `RenderingServer.canvas_item_add_triangle_array` | Slate custom widget / RHI | UGUI: `CanvasRenderer.SetMesh`, one renderer per clip group + our own shader |
 | How the core gets in | **GDExtension in C++** (`godot-cpp`) — the core *is* the extension | the same C++ core as a module/plugin, no language bridge | the same core as a **native plugin** (`libzabloo`) behind a **C ABI**; the adapter is C# only |
@@ -405,11 +405,13 @@ canvas / let us submit custom geometry?"** — not "what widgets/layout/theming 
 | Engine provides    | draw call + input plumbing         | draw call + input             | draw call + input (Input System) |
 | Text/fonts         | our atlas + our rasterizer (`stb_truetype.h`, decided 2026-08-11) | the same, verbatim | the same, verbatim — it runs in the native plugin, so nothing is ported to C# |
 
-Since 2026-08-24 that table has one column that matters and two that are plans: **the
-core is C++ and it is shared**, so a new engine adds an adapter — a way to hand over
-triangles and a way to receive input — and nothing else. The rest of the row is the same
-code. That is also why the "we provide / engine provides" split has stayed identical
-across all three columns since the model was chosen: it was never an engine question.
+Since 2026-08-24 that table has columns that render and one that is a plan — two and one
+since 2026-09-04, when Unity closed — and the reason is **the core is C++ and it is
+shared**, so a new engine adds an adapter — a way to hand over triangles and a way to
+receive input — and nothing else. The rest of the row is the same code; F12 was the first
+time that claim was cashed, and it held. That is also why the "we provide / engine
+provides" split has stayed identical across all three columns since the model was chosen:
+it was never an engine question.
 
 The takeaway driving the IR: **don't model it as CSS/HTML and don't model it as native
 widgets.** Model it as a resolved, explicit, declarative component model **with a vector paint
