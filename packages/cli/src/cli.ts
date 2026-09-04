@@ -53,7 +53,7 @@ program
   .option("--godot", "also push each export to the running Godot game's dev mode")
   .option("--godot-port <port>", "dev-mode port of the Godot game (with --godot)", "5079")
   .option("--unity", "also push each export to the Unity editor's dev mode")
-  .option("--port <port>", "dev-mode port of the Unity editor (with --unity)", "5077")
+  .option("--unity-port <port>", "dev-mode port of the Unity editor (with --unity)", "5077")
   .option("--preview-port <port>", "port of the web preview", "5078")
   .option("--open", "open the preview in the browser")
   .option("--allow-host <host>", "extra Host the preview answers to (repeatable)", collect, [])
@@ -63,7 +63,7 @@ program
       godot?: boolean;
       godotPort: string;
       unity?: boolean;
-      port: string;
+      unityPort: string;
       previewPort: string;
       open?: boolean;
       allowHost: string[];
@@ -78,7 +78,7 @@ program
           Number(options.previewPort),
           {
             ...(options.godot ? { godot: { port: Number(options.godotPort) } } : {}),
-            ...(options.unity ? { unity: { port: Number(options.port) } } : {}),
+            ...(options.unity ? { unity: { port: Number(options.unityPort) } } : {}),
           },
           { open: options.open, allowedHosts: options.allowHost },
         );

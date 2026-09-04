@@ -245,11 +245,12 @@ namespace Zabloo.Verify
                 case Capability.DevLoop:
                     return new[]
                     {
-                        "1. In ../showcase run `pnpm dev:unity`, then press Play here (the editor's dev mode listens; UN8).",
-                        "2. Edit src/views/media.tsx: the view swaps without leaving Play; a value pushed with SetData survives the swap.",
-                        "3. Watch both logs: the CLI says `pushed to Unity … ✔`, the editor says what it reloaded and that no assets travelled.",
-                        "4. Replace src/assets/banner.png: exactly one asset fetched, then back to none. N reloads, one transfer.",
-                        "5. Stop Play and keep saving: the CLI says the editor is not reachable ONCE, then `— back` on the next Play.",
+                        "1. Turn on Zabloo › Dev Mode in the menu bar: the Console says `dev mode listening on 127.0.0.1:5077`.",
+                        "2. In ../showcase run `pnpm dev --unity`, then press Play here.",
+                        "3. Edit src/views/media.tsx: the view swaps without leaving Play; a value pushed with SetData survives the swap.",
+                        "4. Watch both logs: the CLI prints `pushed to Unity … ✔ (1 view)`, the Console `reloaded 1 view(s), no new assets` — save again, still no new assets.",
+                        "5. Replace src/assets/banner.png: `1 asset(s) fetched` exactly once, then back to `no new assets`. N reloads, one transfer.",
+                        "6. Dev mode off, keep saving: the CLI says it is not reachable ONCE, then `— back` when it is on again. Full list: README › Checking UN8 by hand.",
                     };
                 case Capability.GoldenCapture:
                     return new[]

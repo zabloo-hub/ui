@@ -13,3 +13,7 @@ PlayerSettings:
   defaultScreenHeightWeb: 600
   runInBackground: 1
   activeInputHandler: 1
+  scriptingBackend:
+    Standalone: 1
+  managedStrippingLevel:
+    Standalone: 3

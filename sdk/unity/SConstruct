@@ -21,17 +21,31 @@ Two things it writes next to each binary, and why:
   platform, restricted to that platform and, for desktop, its editor — and
   their GUIDs are fixed so re-running the install never churns anything.
 
-Only the host platform is installed: a cross-built binary is UN9's, and packing
-all five is UN11's. The envelopes are the current `dist/` of each example,
-copied because a `TextAsset` has to live under `Assets/`; `.gitignore` keeps
-them out of the repo so the playground never shows a stale build.
+The host platform is installed by default; `scons install platform=<name>`
+puts a cross-built binary in ITS slot instead — `android` and `ios` are what
+`core/`'s `scons capi platform=…` produces, and CI's `unity-plugin` job runs
+exactly this per platform to leave `Runtime/Plugins/<platform>/` complete,
+binary and `.meta` together (UN9, ZAB-202). Packing all five into the `.tgz` is
+UN11's. The envelopes are the current `dist/` of each example, copied because a
+`TextAsset` has to live under `Assets/`; `.gitignore` keeps them out of the repo
+so the playground never shows a stale build.
 """
 
 import os
 import shutil
 import sys
 
-env = Environment(ENV=os.environ)
+opts = Variables()
+opts.Add(
+    EnumVariable(
+        "platform",
+        "Which platform's binary to install from core/bin/",
+        {"darwin": "macos", "linux": "linux", "win32": "windows"}.get(sys.platform, ""),
+        ["", "macos", "linux", "windows", "android", "ios"],
+    )
+)
+env = Environment(variables=opts, ENV=os.environ)
+Help(opts.GenerateHelpText(env))
 
 ROOT = os.path.abspath(os.path.join("..", ".."))
 CORE_BIN = os.path.join(ROOT, "core", "bin")
@@ -41,13 +55,18 @@ STREAMING = os.path.join(PLAYGROUND, "Assets", "StreamingAssets")
 
 EXAMPLES = ["settings-screen", "showcase", "inventory-demo", "hello-button"]
 
-# What `scons capi` names the library, per host, and what the package calls it.
-# Windows loses the `lib` prefix: `[DllImport("zabloo")]` resolves `zabloo.dll`
-# under both Mono and IL2CPP, and `libzabloo.dll` only under Mono.
-HOST = {
-    "darwin": (["libzabloo.dylib"], os.path.join("macOS", "libzabloo.dylib")),
+# Where `scons capi` leaves the library — the host's in `core/bin/`, a
+# cross-compile's under `core/bin/<platform>/`, so that the host's `libzabloo.a`
+# can never be mistaken for iOS's — and what the package calls it. Windows loses
+# the `lib` prefix: `[DllImport("zabloo")]` resolves `zabloo.dll` under both Mono
+# and IL2CPP, and `libzabloo.dll` only under Mono. iOS is the static archive:
+# the player links the core in (`__Internal`).
+PLATFORMS = {
+    "macos": (["libzabloo.dylib"], os.path.join("macOS", "libzabloo.dylib")),
     "linux": (["libzabloo.so"], os.path.join("Linux", "x86_64", "libzabloo.so")),
-    "win32": (["zabloo.dll", "libzabloo.dll"], os.path.join("Windows", "x86_64", "zabloo.dll")),
+    "windows": (["zabloo.dll", "libzabloo.dll"], os.path.join("Windows", "x86_64", "zabloo.dll")),
+    "android": ([os.path.join("android", "libzabloo.so")], os.path.join("Android", "arm64-v8a", "libzabloo.so")),
+    "ios": ([os.path.join("ios", "libzabloo.a")], os.path.join("iOS", "libzabloo.a")),
 }
 
 META_HEAD = """fileFormatVersion: 2
@@ -174,16 +193,18 @@ def write_meta(relative):
 
 
 def install_plugin():
-    """The host's core → the package. Says exactly what is missing when it is."""
-    if sys.platform not in HOST:
-        print("install: no plugin layout for host %r (macOS, Linux and Windows are the hosts)" % sys.platform)
+    """One platform's core → its slot in the package. Says exactly what is missing when it is."""
+    platform = env["platform"]
+    if not platform:
+        print("install: no plugin layout for host %r — say which: `scons install platform=<macos|linux|windows|android|ios>`" % sys.platform)
         return 1
-    candidates, relative = HOST[sys.platform]
+    candidates, relative = PLATFORMS[platform]
     source = next((os.path.join(CORE_BIN, c) for c in candidates if os.path.exists(os.path.join(CORE_BIN, c))), None)
     if source is None:
+        how = "scons capi" if platform in ("macos", "linux", "windows") else "scons capi platform=" + platform
         print(
             "install: no native core in core/bin/ (looked for %s).\n"
-            "         Build it first: `cd core && scons capi`." % ", ".join(candidates)
+            "         Build it first: `cd core && %s`." % (", ".join(candidates), how)
         )
         return 1
     target = os.path.join(PLUGINS, relative)

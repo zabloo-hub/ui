@@ -447,8 +447,17 @@ survives it: the store lives on the document, not on the view it feeds. The push
 the tree without its asset bytes, and the game fetches only the content hashes it does not
 already hold, so replacing one image transfers one image and saving a `.tsx` transfers none.
 
-**Unity.** `pnpm dev:unity` pushes each save to `localhost:5077`; the receiver on the Unity
-side comes with the rebuilt SDK (F12).
+**Unity.** Turn on **Zabloo → Dev Mode** in the editor's menu — it listens on
+`localhost:5077` and remembers the setting — then run:
+
+```bash
+pnpm dev:unity
+```
+
+Every save rewrites the `.json` asset your `ZablooView` references and reimports it, so the
+scene is up to date whether or not you are playing; press Play and each save also hot-swaps
+the running view, keeping whatever the game pushed with `SetData`. The transport is the
+same as Godot's — the tree travels, an image is fetched once by content hash.
 
 Either way it is the exact loading path a production hot-update uses. One loading mechanism,
 three ways in: a manual import, a dev push, a platform hot-update.

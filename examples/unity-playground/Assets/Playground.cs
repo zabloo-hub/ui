@@ -19,8 +19,8 @@ using Zabloo;
 /// </summary>
 public sealed class Playground : MonoBehaviour
 {
-    /// <summary>The examples this playground can show, and the view each opens on.</summary>
-    static readonly (string file, string view)[] Sources =
+    /// <summary>The examples this playground can show, and the view each opens on. The bench walks it.</summary>
+    public static readonly (string file, string view)[] Sources =
     {
         ("settings-screen", "settings"),
         ("showcase", "motion"),
@@ -32,6 +32,21 @@ public sealed class Playground : MonoBehaviour
     [SerializeField] ZablooView view;
 
     int source;
+
+    /// <summary>Which entry of <see cref="Sources"/> is up.</summary>
+    public int Index => source;
+
+    /// <summary>The entry that is up, as the bench names it: <c>example/view</c>.</summary>
+    public string Current => Sources[source].file + "/" + Sources[source].view;
+
+    /// <summary>Shows one entry of <see cref="Sources"/> — what <b>E</b> does, driven from code (the bench).</summary>
+    public void Show(int index)
+    {
+        // The bench may call this before Start has run.
+        if (view == null) view = FindFirstObjectByType<ZablooView>();
+        source = ((index % Sources.Length) + Sources.Length) % Sources.Length;
+        Load();
+    }
 
     void Start()
     {

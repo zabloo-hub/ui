@@ -7,14 +7,14 @@ no engine and no GPU). It is the Unity counterpart of
 [`godot-playground`](../godot-playground/README.md).
 
 **Status: host channel (UN7), rendering (UN4), pointer/keyboard (UN5), the
-gamepad (UN6) and the golden corpus (UN10) in.** The scene opens and compiles,
-the envelopes load into the core, the game-facing API works — `SetData`, the id
-operations, `OnAction`/`OnDataChanged`/`OnDiagnostic` — the view can be used
-with a mouse, a finger, a keyboard and a controller, and the corpus replays
-byte for byte through a real `ZablooView` (§ *Running the corpus inside
-Unity*). Each ticket adds what it can be checked for here; the throwaway
-scenes for checking each capability are built from the **Zabloo › Verify**
-menu (§ *Checking UN10 by hand*).
+gamepad (UN6), the dev loop (UN8) and the golden corpus (UN10) in.** The scene
+opens and compiles, the envelopes load into the core, the game-facing API works
+— `SetData`, the id operations, `OnAction`/`OnDataChanged`/`OnDiagnostic` — the
+view can be used with a mouse, a finger, a keyboard and a controller, and the
+corpus replays byte for byte through a real `ZablooView` (§ *Running the corpus
+inside Unity*). Each ticket adds what it can be checked for here; the throwaway
+scenes for checking each capability are built from the **Zabloo › Verify** menu
+(§ *Checking UN10 by hand*).
 
 ## Run it
 
@@ -45,7 +45,8 @@ has nothing to do here.
 what you see is never a stale build). **E** swaps between them —
 `settings-screen`, the showcase's `motion` and `overlays` views, `inventory-demo`
 and `hello-button` — and **R** reloads the current one, which is the hot-update
-path. The log line says whether the load took.
+path. The log line says whether the load took. **B** toggles the bench HUD
+(`Assets/Bench/`): the engine's frame next to the core's counters.
 
 ## Checking UN7 by hand
 
@@ -245,6 +246,83 @@ Slots are `a`, `b`, `dpad_up/down/left/right`, `nav_x/y`, `scroll_x/y`; an
 unknown one answers `false` with a warning. An action has to be enabled by the
 game — the adapter only asks it whether it is pressed.
 
+## Checking UN8 by hand — the dev loop
+
+Doing the reload ON SAVE is `zabloo dev --unity`. The receiver
+(`sdk/unity/Editor/ZablooDevServer.cs`) was written on a machine without
+Unity — its pure half runs in `Tests/Editor/DevPushTests.cs`, the listener
+does not — so this is its exit criterion as a procedure. Turn on **Zabloo →
+Dev Mode** in the menu: the Console says `dev mode listening on
+127.0.0.1:5077`.
+
+`Playground.cs` loads its envelopes from `StreamingAssets/` by path, which is
+not a `TextAsset`, so for the reimport half give the view an asset to keep in
+sync: copy `examples/settings-screen/dist/zabloo.ir.json` into `Assets/`,
+drag it onto the `Zabloo` object's **Envelope** field and set **View Id** to
+`settings` (the `Playground` component's own `Load()` would replace it on
+Play; disable that component for this check). Then:
+
+```sh
+cd ../settings-screen && pnpm dev --unity   # then press Play here
+```
+
+- **Edit a `.tsx`** — change a label in `src/views/settings.tsx` — and the view
+  swaps in Play without touching the editor. What the game pushed with `SetData`
+  does **not** reset: the store lives on the document, so it outlives the content
+  it was feeding. `Assets/zabloo.ir.json` now holds the new label too (open it),
+  and stopping and pressing Play again opens on it — no reimport by hand.
+- **Stop Play and keep saving.** The Console says `1 view(s) in the scene, not
+  playing, no new assets` and the asset keeps updating: edit mode is in sync too.
+- **Watch both logs.** The CLI prints `pushed to Unity … ✔ (1 view)` and the
+  Console `reloaded 1 view(s), no new assets`. Save again: still `no new
+  assets`, however many times — the tree travels, the bytes do not.
+- **Replace an image** — do the same in `examples/showcase` with
+  `src/assets/banner.png` and its `media` view. The Console prints
+  `1 asset(s) fetched`, exactly once, and the saves after it are back to `no new
+  assets`. N reloads, one transfer: the point of the transport, and the number
+  the exit criterion is measured with.
+- **Unfocused editor.** Push with Unity behind your code editor: the swap is
+  painted before you alt-tab back (`runInBackground` was turned on when Play
+  started with dev mode on; the Console said so).
+- **Dev mode off, keep saving.** The CLI says the Unity dev mode is not reachable
+  **once** and then goes quiet; turn it back on and the next save says `— back`.
+- **Both engines.** With the Godot playground playing too, `pnpm dev --godot
+  --unity` prints one `pushed to` line per engine per save.
+- **Port taken.** Turn dev mode on in a second editor: it says `port 5077 is
+  taken — another editor listening?` instead of silently listening to nothing.
+
+## Checking UN9 by hand
+
+Builds, IL2CPP and the bench (ZAB-202) are the half of the milestone the golden
+corpus cannot see at all — it runs the core with no engine, no player and no
+GPU — and the machine that wrote them had no Unity, so all of it is a
+procedure. The five native binaries are CI's (`unity-plugin`); what follows
+needs the editor **with the IL2CPP module** for macOS and Windows.
+
+1. **The IL2CPP players.** `scons capi arch=universal target=release` in
+   `core/`, `scons install` here, then *File › Build Settings › Build* for
+   macOS and for Windows: the project already selects IL2CPP and *High*
+   stripping for Standalone. The checklist each player has to pass — starts on
+   `settings-screen`, cycles the examples, logs actions and values, takes a
+   controller — is the table in `sdk/unity/README.md` › *IL2CPP*. A
+   `MissingMethodException` in the player's log names a member stripping took;
+   `Runtime/link.xml` is where it is kept.
+2. **The bench.** Launch the macOS player from a terminal with
+   `-zabloo-bench -logFile -`: it walks the five entries of `Playground.Sources`,
+   warms each one up for 1,5 s, measures 4 s, prints a header and one line per
+   screen, and quits. Copy the four example rows into `docs/performance.md` ›
+   *In a real engine* › *Unity*, with the header's GPU and Unity version.
+   (Windows: `-zabloo-bench -logFile bench.log`.)
+3. **The HUD.** Without the flag, **B** shows the same numbers live, in the
+   player and in the editor — but read them in the player: the editor's
+   numbers include its own windows.
+4. **A steady frame allocates nothing.** *Window › General › Test Runner ›
+   PlayMode › AllocationTests*: two cases, an idle frame and a frame that runs
+   the whole pipeline, both must report 0 bytes. It needs the plugin installed
+   (inconclusive otherwise). A failure names which of the two, and the *GC
+   Alloc* column of the Profiler's CPU module, filtered to
+   `ZablooView.Update`, says where.
+
 ## Running the corpus inside Unity
 
 The golden corpus already passes in the core (`scons test golden`) and through
@@ -304,7 +382,7 @@ sections above (§ UN4, UN5, UN6, UN7), which stay the reference for *why*:
 | Pointer & keyboard (UN5) | `settings-screen` | § *Checking UN5 by hand* |
 | Gamepad (UN6) | `settings-screen` | § *Checking UN6 by hand* — and the milestone's exit criterion below |
 | Host channel (UN7) | `settings-screen` (set `source` for the others) | § *Checking UN7 by hand* as **`[ContextMenu]` items** on the rig: right-click the component (Inspector › ⋮) for *Host 1 … Host 6*; each logs what to expect |
-| Dev loop (UN8) | `showcase` / `media` | the five checks of the dev loop, once UN8's editor receiver is in |
+| Dev loop (UN8) | `showcase` / `media` | § *Checking UN8 by hand*: Zabloo › Dev Mode on, `pnpm dev --unity`, the log lines to expect |
 | Golden capture (UN10) | `golden/envelopes/text-wrap.json` | the 480×320 capture below |
 
 `Stats · what the last paint cost` on the same context menu prints
