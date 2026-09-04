@@ -25,6 +25,8 @@ the shape; the tickets below fill it in.
 | `Runtime/ZablooView.Pointer.cs`, `.Keyboard.cs` | UN5 | `PollPointer()`, `PollKeyboard()` — the Input System as the core's intentions; IME, on-screen keyboard, caret blink |
 | `Runtime/Input/Keys.cs`, `Wheel.cs` | UN5 | The keyboard's vocabulary (slots, shortcut, hold-to-repeat, the text sink) and the wheel's 50 px per notch |
 | `Runtime/ZablooView.Pad.cs` | UN6 | `PollPad()` |
+| `Runtime/link.xml` | UN9 | What IL2CPP's stripping must keep: the interop namespace, whole |
+| `Tests/PlayMode/AllocationTests.cs` | UN9 | A steady frame allocates nothing — the C# reading of the core's `buffer_growths == 0` |
 
 **Unity 2022.3 LTS or newer**, with the Input System package (a dependency of
 this one). It has to open in Unity 6 unchanged as well — that is the rule the
@@ -49,6 +51,114 @@ why the import settings are generated rather than committed), then copies the
 four examples' `dist/zabloo.ir.json` into
 `examples/unity-playground/Assets/StreamingAssets/`. Run it before opening the
 playground: without the binary, every `DllImport` fails at the first call.
+
+### Every platform
+
+The package ships one binary per platform, and CI builds all five on every
+pull request (the `unity-plugin` job of `.github/workflows/ci.yml`) — each in
+its slot under `Runtime/Plugins/`, `.meta` included, uploaded as
+`zabloo-unity-plugin-<platform>`:
+
+| Platform | Built with | Slot | Status |
+|---|---|---|---|
+| macOS, universal (x86_64 + arm64) | `scons capi arch=universal` on macOS | `macOS/libzabloo.dylib` | supported |
+| Windows x64 | `scons capi` on Windows (MSVC) | `Windows/x86_64/zabloo.dll` | supported |
+| Linux x64 | `scons capi` on Linux | `Linux/x86_64/libzabloo.so` | supported |
+| Android arm64-v8a | `scons capi platform=android` (the NDK) | `Android/arm64-v8a/libzabloo.so` | **compiles; not run on a device** |
+| iOS arm64 | `scons capi platform=ios` (Xcode) | `iOS/libzabloo.a`, linked in (`__Internal`) | **compiles; not run on a device** |
+
+A cross-compile builds the `capi` target and nothing else, and leaves its
+library under `core/bin/<platform>/` so the host's `libzabloo.a` can never be
+mistaken for iOS's; `scons install platform=<name>` in this directory puts it
+in its slot. Android needs `ANDROID_NDK_ROOT` (or `ANDROID_HOME` with an
+`ndk/` inside — the newest is used); iOS needs Xcode, not just the Command
+Line Tools. Android and iOS are in the same basket as the Godot addon's
+(ZAB-193): the toolchains are exercised on every PR so they cannot rot, and a
+device is where the milestone's final review of the four targets validates
+them. Consoles compile — the core is C++17 and nothing else — and are not
+validated.
+
+The universal dylib carries a `-mmacosx-version-min=10.15` for its x86_64
+slice; the arm64 slice starts at 11.0, as every arm64 Mac does. The Android
+library statically links libc++ (Unity ships no `libc++_shared.so` next to a
+plugin) and is built for 16 KB pages, which Android 15 requires.
+
+## IL2CPP
+
+**IL2CPP is a requirement, not an option.** An interop that works under Mono
+in the editor and falls over under AOT is the failure that otherwise waits for
+the console build, so the check is a real player — macOS and Windows, Scripting
+Backend IL2CPP, Managed Stripping Level *High* — built from the playground,
+whose `ProjectSettings` already say so for Standalone. What makes the interop
+AOT-safe, and where each point is held:
+
+- **No callbacks.** The C ABI hands nothing back into managed code: actions,
+  data changes and diagnostics are *drained* after the frame (`Flush()`), so
+  there is no `Marshal.GetDelegateForFunctionPointer`, no
+  `[MonoPInvokeCallback]`, and no static-delegate rule to forget. This is by
+  design of the ABI (UN2), not a discipline of the adapter.
+- **Blittable structs.** Every ABI struct in `NativeMethods.cs` is
+  `[StructLayout(Sequential)]` with blittable fields; `zb_abi_sizes()` reports
+  the native `sizeof` of each and the golden suite in Unity (UN10) asserts them
+  against `Marshal.SizeOf`, so a drifted field fails before any envelope does.
+- **No exceptions cross.** The core never throws (a refused payload is a return
+  value and a diagnostic); the C# never throws into it.
+- **Stripping.** `Runtime/link.xml` preserves the interop namespace whole.
+  Reached only through `DllImport` stubs, a struct the linker cannot prove
+  reachable is fair game at *High*, and losing one is a
+  `MissingMethodException` in the player and nothing in the editor. A few
+  kilobytes buys the one way a build could differ from Play mode.
+- **The iOS archive does not break a desktop build.** Its `.meta` restricts
+  `libzabloo.a` to iOS; the desktop players never see it.
+
+### Building the players
+
+Unity does not run in CI (see `docs/releasing.md` › *Unity in CI*), so this is
+done by hand on a machine with the editor and the IL2CPP module installed:
+
+```sh
+# 1. Both halves of the package, then the playground.
+cd core && scons capi arch=universal target=release   # or plain `scons capi` on Windows
+cd ../sdk/unity && scons install
+# 2. Open examples/unity-playground; File › Build Settings › Build to build/<platform>/.
+#    The project already selects IL2CPP + High stripping for Standalone.
+```
+
+What the player has to do, and what it means if it does not:
+
+| Check | It passes when | If not |
+|---|---|---|
+| It starts on `settings-screen` | The screen paints; the log has no `DllNotFoundException`, `EntryPointNotFoundException` or `MissingMethodException` | The plugin is not in its slot, or its `.meta` excludes this platform; a `Missing…` names a stripped member — `link.xml` |
+| **E** cycles the examples, **R** reloads | All five load; the log says `loaded` | A refused envelope is a diagnostic, not a crash |
+| Actions and values reach the log | Enter on the autofocused button logs `action: …`; a toggle logs `settings.sfx = …` | The drain is broken: `Flush()` |
+| A controller drives it | D-pad walks the focus, A activates, B closes the dropdown | UN6's PlayMode suite, in the editor |
+| Nothing differs from Play mode | The same screen, the same log lines | An IL2CPP-only failure: file it with the player's log |
+
+Both platforms are in the criterion because their loaders differ — the
+Windows player resolves `zabloo.dll` by name where macOS loads the dylib by
+path — and a plugin `.meta` wrong for one of them looks fine on the other.
+
+## The bench
+
+`examples/unity-playground` has the same two instruments as the Godot
+playground (G15): **B** toggles a HUD with the engine's frame next to the
+core's counters, and a player launched with `-zabloo-bench` walks the
+examples, warms each one up, measures it and prints one line per screen:
+
+```sh
+# macOS: the log on stdout. Windows: `-logFile bench.log`.
+build/macos/unity-playground.app/Contents/MacOS/unity-playground -zabloo-bench -logFile -
+```
+
+The numbers, and what they mean, are in
+[`docs/performance.md`](../../docs/performance.md) › *In a real engine*. The
+same document holds the budgets CI asserts on the core, which are the Unity
+adapter's too: what the core counts does not change by crossing the C ABI.
+
+`Tests/PlayMode/AllocationTests.cs` is the managed side of the same promise: a
+steady frame — one that runs the whole pipeline, and one that skips it —
+leaves the heap where it was. It is what catches a `new` per batch slipping
+into the render layer months from now.
 
 ## Install it in a game
 

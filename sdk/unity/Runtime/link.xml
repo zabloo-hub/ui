@@ -1,0 +1,17 @@
+<!--
+  What IL2CPP's managed stripping must keep, whatever the stripping level.
+
+  The interop is reached only through DllImport stubs, and at "High" stripping
+  the linker is entitled to drop any member it cannot prove reachable — a struct
+  only ever seen through a pointer, a method only a #if branch calls. Losing one
+  is a MissingMethodException in the player and nothing in the editor, which runs
+  Mono and strips nothing. Keeping the whole interop namespace costs a few
+  kilobytes and removes the one way a build could differ from Play mode here
+  (UN9, ZAB-202). Nothing else in the package needs preserving: every other type
+  is referenced from code Unity has to keep.
+-->
+<linker>
+  <assembly fullname="Zabloo.Sdk">
+    <namespace fullname="Zabloo.Sdk.Interop" preserve="all" />
+  </assembly>
+</linker>

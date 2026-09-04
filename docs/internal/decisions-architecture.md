@@ -5023,3 +5023,90 @@ real está en `examples/unity-playground/README.md` › *Checking UN6 by hand*.
 `Runtime/Input/InputOwner.cs`, `Tests/PlayMode/{PadMappingTests,InputOwnerTests,PadTests}.cs`.
 La fila de Unity en `docs/format/host-channel.md` (§ *The gamepad, and remapping it*) es de
 UN7/UN11, que tienen esa zona.
+
+## 2026-09-04 — Builds, IL2CPP y perf de Unity: el cross-compile es del `SConstruct` del core, y lo que un player mide queda escrito antes de medirse (ZAB-202, F12 UN9)
+
+**Decisión:** el G15 de Unity, con la pieza que Godot no tenía — **IL2CPP** —, y con una
+limitación que condiciona la forma del ticket: la máquina que lo escribió no tiene Unity,
+ni Xcode, ni NDK. Así que se entrega **todo lo que no necesita motor** (los cinco binarios
+del plugin por CI, el `install` por plataforma con su `.meta`, el bench y el HUD del
+playground, el test de cero alocaciones, `link.xml`, IL2CPP en los ajustes del
+playground, y la documentación con el procedimiento) y lo que sí lo necesita —los players
+IL2CPP de macOS y Windows, la tabla de perf con números, el test corriendo— queda como
+**procedimiento escrito y tabla con forma pero sin cifras**, dicho así en
+`docs/performance.md` en vez de dejar una fila que parezca medida. Es la misma situación
+que UN4, UN5 y UN6, y la resolución acordada de antemano.
+
+**El cross-compile vive en `core/SConstruct`, no en un script aparte.** `scons capi
+platform=android|ios` (y `arch=universal` en macOS) son opciones del mismo fichero que
+compila el core en el host, por el mismo motivo por el que `sdk/godot` reutiliza el suyo:
+un solo sitio que sabe qué flags lleva el core. Tres reglas que salieron de escribirlo:
+
+1. **Un cross-compile construye `capi` y nada más.** No hay tests que correr en un
+   teléfono, y compilar el runner con el clang del NDK es trabajo que solo puede fallar.
+2. **Sus objetos Y sus librerías van bajo `obj/<platform>/` y `bin/<platform>/`.** Los
+   objetos, por el hallazgo 5 de G15 (un objeto arm64 pisando el del host bajo el mismo
+   nombre). Las librerías, por una trampa que apareció al probarlo: el `libzabloo.a` del
+   host y el de iOS se llaman igual, y `scons install platform=ios` **instaló el del host**
+   —un archivo x86_64 de macOS en la carpeta de iOS— sin una queja. Ahora el install de
+   iOS busca en `core/bin/ios/` y falla con su mensaje si no hay nada.
+3. **El sysroot de macOS se guarda por TARGET, no por host** (hallazgo 3 de G15, ahora
+   también en el core): un build de iOS en el mismo Mac trae su propio SDK.
+
+Android lleva `-static-libstdc++` (Unity no empaqueta `libc++_shared.so` junto a un
+plugin), páginas de 16 KB (obligatorias desde Android 15) y `--no-undefined` (un símbolo
+sin resolver falla al enlazar, no en el primer `DllImport`). El NDK se encuentra por
+`ANDROID_NDK_ROOT` o el más nuevo bajo `$ANDROID_HOME/ndk/`, que es lo que el runner de
+GitHub tiene. macOS universal lleva `-mmacosx-version-min=10.15` en la rebanada x86_64; la
+arm64 arranca en 11.0 por sí sola. **`.dylib`, no `.bundle`**: el ticket decía bundle, UN3
+había fijado el dylib en los `.meta`, y un bundle obligaría a montar `Contents/MacOS` +
+`Info.plist` para nada.
+
+**`werror` solo donde el compilador es nuestro.** Los tres hosts lo llevan como
+`capi-tests`; los dos cross no, por el mismo argumento que `godot-extension`: el clang del
+NDK y el de Xcode traen su propio juego de avisos.
+
+**El bench se instancia solo.** `Bench.cs` entra por `[RuntimeInitializeOnLoadMethod]` y
+crea su propio `GameObject`, así que ni la escena ni el `Playground` tienen que saber que
+existe; solo le pide al playground qué ejemplo enseñar (`Show`, `Index`, `Current`, la
+única desviación de zona, y pequeña). Las columnas son las de Godot —fps por
+frames/segundos con vsync apagado, los contadores del core por `GetStats()`, los draw
+calls del motor por el `ProfilerRecorder` de render (o "n/a" donde el player no lo
+publica), `Texture.currentTextureMemory`—, con el mismo calentamiento de 1,5 s por
+ejemplo y sin columna de CPU. Y la cabecera dice **qué backend y qué tipo de build**
+produjo la línea: un player Mono de desarrollo y uno IL2CPP release no son el mismo
+número, y quien lea la tabla tiene que saber cuál mira.
+
+**El test de cero alocaciones mide con dos sondas de orden fijo, no desde la corrutina
+del test.** `GC.GetAllocatedBytesForCurrentThread` se muestrea en un `Update` con
+`DefaultExecutionOrder(-32000)` y otro con `+32000`: entre los dos solo corre el `Update`
+de la vista. La corrutina de un `[UnityTest]` se reanuda **después** de todos los `Update`,
+y su maquinaria no es lo que se mide. Dos casos —un frame quieto y uno con `MarkDirty()`
+cada frame, el pipeline entero— y ambos tienen que dar 0 tras treinta frames de
+calentamiento, más `BufferGrowths == 0`. Es el `buffer_growths = 0` del core en versión
+C#, y lo que vigila que nadie meta un `new` por batch en la capa de render.
+
+**`link.xml` preventivo.** Preserva `Zabloo.Sdk.Interop` entero. El interop se alcanza
+solo por stubs de `DllImport`, y con stripping *High* el linker puede tirar un struct que no
+prueba alcanzable; perderlo es un `MissingMethodException` en el player y nada en el
+editor. Unos KB compran la única forma en que un build podía diferir del Play mode, y se
+decide ahora porque la comprobación que lo confirmaría no se puede hacer aquí.
+
+**Unity en CI: documentado, no hecho.** GameCI + `UNITY_LICENSE` es infraestructura con
+su propio mantenimiento (licencia que caduca, versión del editor fijada, imagen por
+plataforma), y se añade cuando compre algo — el mismo argumento que el Asset Library de
+Godot. `docs/releasing.md` deja escrita la forma que tendría.
+
+**Lo que este ticket NO cierra, en voz alta:** los players IL2CPP no se han construido;
+la tabla de Unity de `docs/performance.md` tiene forma y guiones; el test PlayMode está
+escrito y compilado contra un shim, no ejecutado. Android e iOS compilan en CI y no se han
+ejecutado en dispositivo (misma cesta que ZAB-193). El procedimiento entero está en
+`examples/unity-playground/README.md` › *Checking UN9 by hand* y en
+`sdk/unity/README.md` › *IL2CPP* y *The bench*.
+
+**Dónde vive:** `core/SConstruct` (`platform=`, `arch=`, `obj/<platform>/`,
+`bin/<platform>/`), `sdk/unity/SConstruct` (`install platform=`), `.github/workflows/ci.yml`
+(job `unity-plugin`), `examples/unity-playground/Assets/Bench/Bench.cs`,
+`examples/unity-playground/ProjectSettings/ProjectSettings.asset`,
+`sdk/unity/Runtime/link.xml`, `sdk/unity/Tests/PlayMode/AllocationTests.cs`,
+`docs/performance.md`, `docs/releasing.md`.

@@ -12,6 +12,11 @@ Targets:
     scons capi            the C ABI as a shared library: core/bin/libzabloo.{dylib,so} / zabloo.dll
                           (+ core/bin/libzabloo.a for the platforms that link static);
                           `sdk/unity`'s own `scons install` copies it into the package
+    scons capi arch=universal          macOS: one dylib with x86_64 and arm64 slices
+    scons capi platform=android        core/bin/android/libzabloo.so (arm64-v8a, with the NDK:
+                                       ANDROID_NDK_ROOT or ANDROID_HOME)
+    scons capi platform=ios            core/bin/ios/libzabloo.a (arm64, with Xcode's iPhone SDK)
+                                       — a cross-compile builds `capi` and nothing else (UN9, ZAB-202)
     scons target=release  optimized, no assertions
 
 The core links nothing. No Godot, no GPU, no JSON library — that is the whole
@@ -23,12 +28,113 @@ import os
 import subprocess
 import sys
 
+HOST_PLATFORM = {"darwin": "macos", "linux": "linux", "win32": "windows"}.get(sys.platform, sys.platform)
+
 opts = Variables()
 opts.Add(EnumVariable("target", "Build profile", "debug", ["debug", "release"]))
 opts.Add(BoolVariable("werror", "Treat warnings as errors", False))
+# The platform the `capi` library is built FOR (UN9, ZAB-202). The host by
+# default; `android` and `ios` are cross-compiles, and a cross-compile builds the
+# `capi` target and nothing else — there is no running the tests on a phone from
+# here, and the static objects of a foreign arch have no business landing in
+# `src/` next to the host's (G15, finding 5).
+opts.Add(
+    EnumVariable(
+        "platform",
+        "Platform the `capi` library is built for",
+        HOST_PLATFORM,
+        ["macos", "linux", "windows", "android", "ios"],
+    )
+)
+# macOS only: `universal` (x86_64 + arm64, what Unity's macOS player and editor
+# both load), or one of the two. Applies to the SHARED library — the static
+# archive and the test runner stay the host's arch.
+opts.Add(EnumVariable("arch", "macOS architecture of the shared library", "", ["", "universal", "x86_64", "arm64"]))
 
 env = Environment(variables=opts, ENV=os.environ)
 Help(opts.GenerateHelpText(env))
+
+platform = env["platform"]
+cross = platform != HOST_PLATFORM
+if cross and platform not in ("android", "ios"):
+    print("platform=%s is not a cross-compile this file knows how to do from %s" % (platform, HOST_PLATFORM))
+    Exit(1)
+
+
+def android_ndk():
+    """Where the NDK is: the usual variables first, then the newest one under the SDK.
+
+    The GitHub runner ships an SDK with `ndk/<version>/` and sets `ANDROID_HOME`;
+    a developer's machine usually has `ANDROID_NDK_ROOT`. Either is enough.
+    """
+    for name in ("ANDROID_NDK_ROOT", "ANDROID_NDK_HOME", "ANDROID_NDK"):
+        if os.environ.get(name):
+            return os.environ[name]
+    sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+    if sdk and os.path.isdir(os.path.join(sdk, "ndk")):
+        versions = sorted(
+            os.listdir(os.path.join(sdk, "ndk")),
+            key=lambda v: [int(part) if part.isdigit() else part for part in v.split(".")],
+        )
+        if versions:
+            return os.path.join(sdk, "ndk", versions[-1])
+    return None
+
+
+if platform == "android":
+    # The NDK's clang for arm64-v8a, API 21 (Unity 2022.3's minimum). Set BEFORE
+    # the MSVC check below, which reads `CC`.
+    ndk = android_ndk()
+    if not ndk:
+        print("platform=android needs the NDK: set ANDROID_NDK_ROOT, or ANDROID_HOME with an ndk/ inside")
+        Exit(1)
+    host_tag = {"darwin": "darwin-x86_64", "linux": "linux-x86_64", "win32": "windows-x86_64"}[sys.platform]
+    toolchain = os.path.join(ndk, "toolchains", "llvm", "prebuilt", host_tag, "bin")
+    exe = ".exe" if sys.platform == "win32" else ""
+    cmd = ".cmd" if sys.platform == "win32" else ""
+    env["CC"] = os.path.join(toolchain, "aarch64-linux-android21-clang" + cmd)
+    env["CXX"] = os.path.join(toolchain, "aarch64-linux-android21-clang++" + cmd)
+    env["AR"] = os.path.join(toolchain, "llvm-ar" + exe)
+    env["RANLIB"] = os.path.join(toolchain, "llvm-ranlib" + exe)
+    # ELF conventions regardless of the host: SCons picked its link tool for the
+    # machine this runs on, and on a Mac that tool spells a shared library
+    # `-dynamiclib`.
+    env["SHLIBPREFIX"] = "lib"
+    env["SHLIBSUFFIX"] = ".so"
+    env["SHOBJSUFFIX"] = ".os"
+    env["SHCCFLAGS"] = ["$CCFLAGS", "-fPIC"]
+    env["SHLINKFLAGS"] = ["$LINKFLAGS", "-shared"]
+    env.Append(
+        LINKFLAGS=[
+            # Unity ships no `libc++_shared.so` next to a plugin: the C++ runtime
+            # goes inside.
+            "-static-libstdc++",
+            # 16 KB pages — required of every native library on Android 15+.
+            "-Wl,-z,max-page-size=16384",
+            # A symbol the plugin cannot resolve fails HERE, not at `DllImport`.
+            "-Wl,--no-undefined",
+        ]
+    )
+
+if platform == "ios":
+    # Apple's clang against the iPhone SDK, arm64, iOS 12 (Unity 2022.3's
+    # minimum). Only the static archive is built: iOS players link the core in
+    # (`DllImport("__Internal")`), so there is no dylib to make.
+    if sys.platform != "darwin":
+        print("platform=ios builds on macOS only (it needs Xcode's iPhone SDK)")
+        Exit(1)
+
+    def xcrun(*args):
+        return subprocess.run(["xcrun", "--sdk", "iphoneos"] + list(args), capture_output=True, text=True, check=False).stdout.strip()
+
+    ios_sdk = xcrun("--show-sdk-path")
+    if not ios_sdk:
+        print("platform=ios needs Xcode (not just the Command Line Tools): `xcrun --sdk iphoneos --show-sdk-path` found no SDK")
+        Exit(1)
+    env["CC"] = xcrun("--find", "clang")
+    env["CXX"] = xcrun("--find", "clang++")
+    ios_flags = ["-isysroot", ios_sdk, "-arch", "arm64", "-miphoneos-version-min=12.0"]
+    env.Append(CCFLAGS=ios_flags, LINKFLAGS=ios_flags)
 
 msvc = env["CC"] == "cl"
 
@@ -49,7 +155,10 @@ else:
 
 # macOS: SCons hands the compiler a bare environment, so it never learns where the
 # SDK lives and <cstdint> stops existing. Ask xcrun once and pass it on.
-if sys.platform == "darwin" and not msvc:
+# Guarded on the TARGET and not just the host (G15, finding 3): an iOS or Android
+# build on this same Mac brings its own sysroot, and the macOS SDK's headers on
+# top of it is how a cross-compile dies on availability macros.
+if platform == "macos" and not msvc:
     sdk = subprocess.run(
         ["xcrun", "--show-sdk-path"], capture_output=True, text=True, check=False
     ).stdout.strip()
@@ -97,34 +206,47 @@ if msvc:
     vendor_env.Append(CXXFLAGS=["/w"])
 else:
     vendor_env.Append(CXXFLAGS=["-w", "-fvisibility=hidden"])
-vendor = vendor_env.StaticObject("src/vendor/stb_truetype_impl.cpp")
+VENDOR = "src/vendor/stb_truetype_impl.cpp"
 
-library = env.StaticLibrary("bin/zabloocore", sources + vendor)
+# Where this build's objects go. The host build keeps the layout it always had
+# (`src/*.o` for the static library, `obj/capi/` for the shared one); a
+# cross-compile keeps EVERYTHING under `obj/<platform>/`, so an arm64 object
+# never overwrites the host's under the same name — the bug of G15, finding 5,
+# from the other side.
+obj_root = os.path.join("obj", platform) if cross else "obj"
+# …and its libraries under `bin/<platform>/`, for the same reason: the host's
+# `libzabloo.a` and iOS's have the same name, and an install that found the
+# wrong one would carry an x86_64 archive into a phone build in silence.
+bin_dir = os.path.join("bin", platform) if cross else "bin"
 
-# Every header, compiled ALONE.
-#
-# A header that leans on whatever its .cpp happened to include first builds fine
-# until the standard library changes underneath it: `<cstdint>` missing from
-# `diagnostics.h` compiled clean on libc++ for weeks and broke every Linux build
-# the first time CI saw it, because `enum class ... : uint8_t` stops parsing when
-# `uint8_t` is not a type yet. One translation unit per header turns that into a
-# local error at the moment it is written.
-# `src/vendor` and `src/generated` are excluded: one is not ours to keep clean,
-# the other is a byte array with a two-line header.
-headers = sorted(str(node) for node in Glob("src/*.h"))
-probes = []
-probe_dir = os.path.join("bin", "headers")
-if not os.path.isdir(probe_dir):
-    os.makedirs(probe_dir)
-for header in headers:
-    name = os.path.basename(header)
-    probe = os.path.join(probe_dir, name.replace(".h", "_alone.cpp"))
-    contents = '#include "%s"\n' % name
-    if not os.path.exists(probe) or open(probe).read() != contents:
-        with open(probe, "w") as out:
-            out.write(contents)
-    probes.append(probe)
-standalone = env.StaticLibrary("bin/zabloo-headers-alone", probes)
+if not cross:
+    vendor = vendor_env.StaticObject(VENDOR)
+    library = env.StaticLibrary("bin/zabloocore", sources + vendor)
+
+    # Every header, compiled ALONE.
+    #
+    # A header that leans on whatever its .cpp happened to include first builds fine
+    # until the standard library changes underneath it: `<cstdint>` missing from
+    # `diagnostics.h` compiled clean on libc++ for weeks and broke every Linux build
+    # the first time CI saw it, because `enum class ... : uint8_t` stops parsing when
+    # `uint8_t` is not a type yet. One translation unit per header turns that into a
+    # local error at the moment it is written.
+    # `src/vendor` and `src/generated` are excluded: one is not ours to keep clean,
+    # the other is a byte array with a two-line header.
+    headers = sorted(str(node) for node in Glob("src/*.h"))
+    probes = []
+    probe_dir = os.path.join("bin", "headers")
+    if not os.path.isdir(probe_dir):
+        os.makedirs(probe_dir)
+    for header in headers:
+        name = os.path.basename(header)
+        probe = os.path.join(probe_dir, name.replace(".h", "_alone.cpp"))
+        contents = '#include "%s"\n' % name
+        if not os.path.exists(probe) or open(probe).read() != contents:
+            with open(probe, "w") as out:
+                out.write(contents)
+        probes.append(probe)
+    standalone = env.StaticLibrary("bin/zabloo-headers-alone", probes)
 
 # --- the C ABI (UN2, ZAB-195) -------------------------------------------------
 #
@@ -179,54 +301,55 @@ capi_static_env = env.Clone()
 capi_static_env.Append(CPPPATH=["#" + version_dir])
 capi_static_objects = [
     capi_static_env.StaticObject(
-        target=os.path.join("obj", "capi-static", os.path.splitext(os.path.basename(str(source)))[0]),
+        target=os.path.join(obj_root, "capi-static", os.path.splitext(os.path.basename(str(source)))[0]),
         source=source,
     )
     for source in capi_sources
 ]
 
-# The probe: the header compiled AS C. `tests/capi_header_alone.c` includes
-# `zabloo.h` and nothing else, through the C compiler (`$CC`, not `$CXX`) — a
-# C++ construct creeping into the header fails here, at the moment it is
-# written, instead of in the first binding that tries to read it.
-probe_env = env.Clone()
-if msvc:
-    probe_env.Append(CFLAGS=["/W4", "/permissive-"])
-    if env["werror"]:
-        probe_env.Append(CFLAGS=["/WX"])
-else:
-    probe_env.Append(CFLAGS=["-std=c11", "-Wall", "-Wextra", "-Wpedantic"])
-    if env["werror"]:
-        probe_env.Append(CFLAGS=["-Werror"])
-probe_env.Append(CPPPATH=["#capi"])
-capi_probe = probe_env.StaticObject(
-    target=os.path.join("obj", "capi-static", "capi_header_alone"),
-    source="tests/capi_header_alone.c",
-)
+if not cross:
+    # The probe: the header compiled AS C. `tests/capi_header_alone.c` includes
+    # `zabloo.h` and nothing else, through the C compiler (`$CC`, not `$CXX`) — a
+    # C++ construct creeping into the header fails here, at the moment it is
+    # written, instead of in the first binding that tries to read it.
+    probe_env = env.Clone()
+    if msvc:
+        probe_env.Append(CFLAGS=["/W4", "/permissive-"])
+        if env["werror"]:
+            probe_env.Append(CFLAGS=["/WX"])
+    else:
+        probe_env.Append(CFLAGS=["-std=c11", "-Wall", "-Wextra", "-Wpedantic"])
+        if env["werror"]:
+            probe_env.Append(CFLAGS=["-Werror"])
+    probe_env.Append(CPPPATH=["#capi"])
+    capi_probe = probe_env.StaticObject(
+        target=os.path.join("obj", "capi-static", "capi_header_alone"),
+        source="tests/capi_header_alone.c",
+    )
 
-test_env = env.Clone()
-test_env.Append(CPPPATH=["#tests", "#capi"])
-if msvc:
-    # The harness reads the environment (`BENCH`, `ZB_REQUIRE_LOCALE`) through
-    # standard `getenv`, which MSVC's CRT flags as "unsafe" (C4996) and `werror`
-    # turns into a failed build. The Microsoft-only `_dupenv_s` would fix the
-    # warning by making the tests less portable — the opposite of what a
-    # cross-platform test runner is for.
-    test_env.Append(CPPDEFINES=["_CRT_SECURE_NO_WARNINGS"])
-    # 8 MB of stack, which is what macOS and Linux give a thread by default and
-    # Windows does not (1 MB). The JSON depth-cap test nests 1,034 levels deep
-    # and the parser recurses once per level: on the default Windows stack the
-    # runner dies with 0xC00000FD before the cap can answer. The cap's job is
-    # to answer INSTEAD of crashing, so a 1 MB main thread — a Unity player on
-    # Windows has one — is a finding for the core, not for this flag; this flag
-    # just makes the runner measure the same thing on every platform.
-    test_env.Append(LINKFLAGS=["/STACK:8388608"])
-tests = test_env.Program(
-    "bin/zabloo-core-tests",
-    Glob("tests/*.cpp") + capi_static_objects + capi_probe + library,
-)
+    test_env = env.Clone()
+    test_env.Append(CPPPATH=["#tests", "#capi"])
+    if msvc:
+        # The harness reads the environment (`BENCH`, `ZB_REQUIRE_LOCALE`) through
+        # standard `getenv`, which MSVC's CRT flags as "unsafe" (C4996) and `werror`
+        # turns into a failed build. The Microsoft-only `_dupenv_s` would fix the
+        # warning by making the tests less portable — the opposite of what a
+        # cross-platform test runner is for.
+        test_env.Append(CPPDEFINES=["_CRT_SECURE_NO_WARNINGS"])
+        # 8 MB of stack, which is what macOS and Linux give a thread by default and
+        # Windows does not (1 MB). The JSON depth-cap test nests 1,034 levels deep
+        # and the parser recurses once per level: on the default Windows stack the
+        # runner dies with 0xC00000FD before the cap can answer. The cap's job is
+        # to answer INSTEAD of crashing, so a 1 MB main thread — a Unity player on
+        # Windows has one — is a finding for the core, not for this flag; this flag
+        # just makes the runner measure the same thing on every platform.
+        test_env.Append(LINKFLAGS=["/STACK:8388608"])
+    tests = test_env.Program(
+        "bin/zabloo-core-tests",
+        Glob("tests/*.cpp") + capi_static_objects + capi_probe + library,
+    )
 
-Default(library, standalone, tests)
+    Default(library, standalone, tests)
 
 
 # The shared half. Everything — core, vendor, capi — is compiled again as
@@ -238,37 +361,77 @@ capi_env = env.Clone()
 capi_env.Append(CPPPATH=["#" + version_dir])
 if not msvc:
     capi_env.Append(CXXFLAGS=["-fvisibility=hidden"])
-if sys.platform == "darwin" and not msvc:
+arch_flags = []
+if platform == "macos" and not msvc:
     # Loaded by path, so the install name only has to not point at the build tree.
     capi_env.Append(LINKFLAGS=["-Wl,-install_name,@rpath/libzabloo.dylib"])
+    # `arch=universal` is what Unity wants on macOS: its editor and its player
+    # exist for both CPUs, and one `.dylib` in `Plugins/macOS/` serves both. A
+    # deployment target because a slice without one inherits the SDK's, which
+    # is newer than the machines a 2022.3 player still runs on; 10.15 is the
+    # x86_64 floor and clang lifts the arm64 slice to 11.0 by itself.
+    macos_archs = {"universal": ["x86_64", "arm64"], "x86_64": ["x86_64"], "arm64": ["arm64"]}.get(env["arch"], [])
+    if macos_archs:
+        arch_flags = ["-mmacosx-version-min=10.15"]
+        for name in macos_archs:
+            arch_flags += ["-arch", name]
+elif env["arch"]:
+    print("arch= is a macOS option (universal, x86_64, arm64); platform=%s picks its own" % platform)
+    Exit(1)
+capi_env.Append(CCFLAGS=arch_flags, LINKFLAGS=arch_flags)
 
+# The rasterizer on its own terms again (warnings off, hidden), for the same slices.
 capi_vendor_env = vendor_env.Clone()
+capi_vendor_env.Append(CCFLAGS=arch_flags)
 
 
 def capi_object(builder_env, source, stem):
-    return builder_env.SharedObject(target=os.path.join("obj", "capi", stem), source=source)
+    return builder_env.SharedObject(target=os.path.join(obj_root, "capi", stem), source=source)
 
 
 capi_shared_objects = []
 for source in sources:
     stem = os.path.splitext(os.path.relpath(str(source), "src"))[0]
     capi_shared_objects.append(capi_object(capi_env, source, os.path.join("core", stem)))
-capi_shared_objects.append(
-    capi_object(capi_vendor_env, "src/vendor/stb_truetype_impl.cpp", os.path.join("core", "vendor", "stb_truetype_impl"))
-)
+capi_shared_objects.append(capi_object(capi_vendor_env, VENDOR, os.path.join("core", "vendor", "stb_truetype_impl")))
 for source in capi_sources:
     stem = os.path.splitext(os.path.basename(str(source)))[0]
     capi_shared_objects.append(capi_object(capi_env, source, stem))
 
-capi_shared = capi_env.SharedLibrary("bin/zabloo", capi_shared_objects)
+capi_targets = []
+# iOS has no shared library to make: the player links the core in.
+if platform != "ios":
+    capi_targets.append(capi_env.SharedLibrary(os.path.join(bin_dir, "zabloo"), capi_shared_objects))
+
 # The static archive is the same code as `libzabloocore.a` plus the bridge — for
 # the platforms that link it in (iOS: `DllImport("__Internal")`).
 # `zabloo_static` under MSVC, where the DLL's import library already took
 # `zabloo.lib`; everywhere else the suffixes tell `libzabloo.a` and `libzabloo.so` apart.
-capi_static = env.StaticLibrary(
-    "bin/zabloo_static" if msvc else "bin/zabloo", sources + vendor + capi_static_objects
+if cross:
+    # A cross-compile has no host objects to reuse: the core is compiled once
+    # more, statically, under `obj/<platform>/capi-static/`.
+    static_core = [
+        env.StaticObject(
+            target=os.path.join(obj_root, "capi-static", "core", os.path.splitext(os.path.relpath(str(source), "src"))[0]),
+            source=source,
+        )
+        for source in sources
+    ] + [
+        vendor_env.StaticObject(
+            target=os.path.join(obj_root, "capi-static", "core", "vendor", "stb_truetype_impl"), source=VENDOR
+        )
+    ]
+else:
+    static_core = sources + vendor
+capi_targets.append(
+    env.StaticLibrary(os.path.join(bin_dir, "zabloo_static" if msvc else "zabloo"), static_core + capi_static_objects)
 )
-env.Alias("capi", [capi_shared, capi_static])
+env.Alias("capi", capi_targets)
+
+if cross:
+    # The only thing a cross-compile can produce — `scons platform=android` and
+    # `scons platform=android capi` mean the same.
+    Default("capi")
 
 
 
@@ -284,7 +447,7 @@ def run_bench(target, source, env):
     return subprocess.call([str(tests[0]), "bench"], env=bench_env)
 
 
-if "bench" in COMMAND_LINE_TARGETS:
+if not cross and "bench" in COMMAND_LINE_TARGETS:
     runner = env.Command("run-bench", tests, run_bench)
     env.AlwaysBuild(runner)
     env.Alias("bench", runner)
@@ -308,7 +471,7 @@ def run_tests(target, source, env):
     return subprocess.call([str(tests[0])] + test_filters[:1])
 
 
-if "test" in COMMAND_LINE_TARGETS:
+if not cross and "test" in COMMAND_LINE_TARGETS:
     runner = env.Command("run-tests", tests, run_tests)
     env.AlwaysBuild(runner)
     env.Alias("test", runner)

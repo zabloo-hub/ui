@@ -254,3 +254,88 @@ jobs:
           name: zabloo-addon-web
           path: sdk/godot/addons/zabloo/bin/
           if-no-files-found: error
+
+  # The native core for every platform the Unity package ships on (UN9,
+  # ZAB-202): `scons capi` in `core/` — `platform=` for the two cross-compiles —
+  # then `scons install platform=…` in `sdk/unity`, which is what puts the
+  # binary in its `Runtime/Plugins/<platform>/` slot AND writes the `.meta` next
+  # to it. The artifact is that slot, ready for the `.tgz` (UN11) to consume.
+  #
+  # Android and iOS COMPILE here and have not been run on a device — no phone,
+  # same basket as the Godot addon (ZAB-193), and `docs/performance.md` says
+  # so. Unity itself does not run in CI: it needs a license on the runner
+  # (docs/releasing.md › Unity in CI); the players are built by hand.
+  # `werror` only where the compiler is ours to choose: the NDK's and Xcode's
+  # clang bring their own warning sets, and the extension job makes the same
+  # allowance.
+  unity-plugin:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            flags: werror=true arch=universal
+            slot: macOS/libzabloo.dylib
+          - os: windows-latest
+            platform: windows
+            flags: werror=true
+            slot: Windows/x86_64/zabloo.dll
+          - os: ubuntu-latest
+            platform: linux
+            flags: werror=true
+            slot: Linux/x86_64/libzabloo.so
+          - os: ubuntu-latest
+            platform: android
+            flags: ""
+            slot: Android/arm64-v8a/libzabloo.so
+          - os: macos-latest
+            platform: ios
+            flags: ""
+            slot: iOS/libzabloo.a
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      # `core/SConstruct` finds the NDK under `$ANDROID_HOME/ndk/` on its own
+      # (newest version); this only says which one was used, for the log.
+      - name: The NDK this runner has
+        if: matrix.platform == 'android'
+        run: ls "$ANDROID_HOME/ndk"
+
+      - name: Build the native core
+        working-directory: core
+        shell: bash
+        run: scons target=release capi platform=${{ matrix.platform }} ${{ matrix.flags }}
+
+      # A dylib that quietly came out single-arch would load in the editor of
+      # the machine that built it and nowhere else.
+      - name: The macOS dylib carries both slices
+        if: matrix.platform == 'macos'
+        run: lipo -info core/bin/libzabloo.dylib | grep -q x86_64 && lipo -info core/bin/libzabloo.dylib | grep -q arm64
+
+      - name: Install it into the package, with its .meta
+        working-directory: sdk/unity
+        shell: bash
+        run: scons install platform=${{ matrix.platform }}
+
+      # The slot is the contract: the path the `.meta` templates in
+      # `sdk/unity/SConstruct` name, and the one the pack (UN11) will read.
+      - name: Binary and .meta are in the slot
+        shell: bash
+        run: |
+          test -s "sdk/unity/Runtime/Plugins/${{ matrix.slot }}"
+          test -s "sdk/unity/Runtime/Plugins/${{ matrix.slot }}.meta"
+          grep -q PluginImporter "sdk/unity/Runtime/Plugins/${{ matrix.slot }}.meta"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zabloo-unity-plugin-${{ matrix.platform }}
+          path: sdk/unity/Runtime/Plugins/${{ matrix.slot }}*
+          if-no-files-found: error

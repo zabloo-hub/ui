@@ -184,6 +184,36 @@ frame, vsync wait included, so under a display cap it reads ~16 ms for every
 screen and tells you nothing. What a frame costs on the CPU is measured where no
 engine can blur it, in the table above it.
 
+### Unity
+
+The Unity playground has the same bench (`examples/unity-playground/Assets/Bench/`):
+build a player and launch it with `-zabloo-bench` (see
+`sdk/unity/README.md` › *The bench*). It prints the same columns — the core's
+counters read through the C ABI, next to the engine's draw calls from the
+profiler's render counter and `Texture.currentTextureMemory` — after the same
+warm-up, with vsync off. **B** shows them live.
+
+**macOS, release player, IL2CPP, 960×600 — not yet measured.** The bench, the
+player settings and the procedure exist (UN9, ZAB-202); the machine that wrote
+them had no Unity installed, so the rows below are what the first run on a
+machine with the editor fills in. Until then this table is a shape, not a
+claim:
+
+| Screen | fps | Draw calls | Vertices | Atlases | Texture memory |
+|---|---|---|---|---|---|
+| `settings-screen` | — | — (engine: —) | — | — | — |
+| `showcase` / motion | — | — (engine: —) | — | — | — |
+| `showcase` / overlays | — | — (engine: —) | — | — | — |
+| `inventory-demo` (400 rows) | — | — (engine: —) | — | — | — |
+
+Two things are known before a number is: the **core's columns** (draw calls,
+vertices, atlases) will match Godot's row for row, because they are the same
+core producing the same frame — the corpus through the C ABI says so byte by
+byte — and the **engine's draw calls** are an upper bound rather than an
+equality. A UGUI `Canvas` batches the `CanvasRenderer`s that share a material,
+so it may report *fewer* than the core emitted; more would mean the adapter is
+splitting what the core handed over, which is the reading the column is for.
+
 ## What has been measured where
 
 | Target | Extension builds | Export runs | Frame rate measured |
@@ -192,6 +222,17 @@ engine can blur it, in the table above it.
 | Web (wasm side module) | yes | **yes, and it is interactive** | no — see below |
 | Linux, Windows | in CI | not here | no |
 | Android, iOS | in CI | **no** | **no** |
+
+And the Unity package (its native core is a plugin, built per platform by CI's
+`unity-plugin` job; the players are built by hand because Unity does not run
+in CI):
+
+| Target | Plugin builds | Player runs | Frame rate measured |
+|---|---|---|---|
+| macOS (universal dylib) | in CI | **not yet** — the IL2CPP procedure is written, not run | no |
+| Windows x64 | in CI | **not yet** — same | no |
+| Linux x64 | in CI | no | no |
+| Android arm64-v8a, iOS arm64 | in CI | **no** | **no** |
 
 ### Web
 

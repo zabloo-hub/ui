@@ -137,6 +137,32 @@ hand before it appears, and an update is the same form again on the existing ent
 Nothing about the zip changes for it: the addon is already laid out the way the Asset Library
 expects (`addons/<name>/` at the archive root).
 
+## Unity in CI
+
+The Unity package's **native core** is built in CI for all five platforms on every PR
+(`unity-plugin` in `ci.yml`, one artifact per platform with the binary in its
+`Runtime/Plugins/` slot and its `.meta`). **Unity itself does not run in CI**: the editor
+needs a license activated on the runner, and the way to get one — [GameCI](https://game.ci/)'s
+`unity-builder` and `unity-test-runner` actions with a `UNITY_LICENSE` secret (a personal
+license is activated by hand once and its `.ulf` stored as the secret; a Pro or Plus one uses
+serial + credentials) — is a piece of infrastructure with its own upkeep: a license that
+expires, an editor version pinned in the workflow, an image per platform, and a runner
+hour per build.
+
+It is documented here rather than done, for the same reason the Asset Library is: it is
+added when it buys something. What it would buy is running the PlayMode suites
+(`sdk/unity/Tests/PlayMode/`: the golden corpus inside Unity, the input tests, the
+allocation test) and building the IL2CPP players on every PR instead of by hand. What it
+costs is above. Until then the suites run in the editor, the players are built by hand
+(`sdk/unity/README.md` › *IL2CPP*), and the README says so instead of pretending coverage.
+
+When it is added, the shape is: `game-ci/unity-test-runner@v4` against
+`examples/unity-playground` with `testMode: playmode`, after the `unity-plugin` artifact of
+the runner's own platform has been downloaded into `sdk/unity/Runtime/Plugins/`; then
+`game-ci/unity-builder@v4` with `targetPlatform: StandaloneOSX` / `StandaloneWindows64` and
+the playground's IL2CPP settings. The license goes in `UNITY_LICENSE`; nothing else in the
+repo changes.
+
 ## A hotfix to a published version
 
 `main` may already carry unreleased changes a user of the published version must not get.
