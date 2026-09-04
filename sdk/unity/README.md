@@ -98,8 +98,9 @@ playground: without the binary, every `DllImport` fails at the first call.
 
 ### Every platform
 
-The package ships one binary per platform, and CI builds all five on every
-pull request (the `unity-plugin` job of `.github/workflows/ci.yml`) — each in
+The package ships one binary per platform. A pull request builds the Linux one
+(`unity-plugin` in `ci.yml`); the weekly prerelease builds all five
+(`unity-sdk.yml`, called by `prerelease.yml`) — each in
 its slot under `Runtime/Plugins/`, `.meta` included, uploaded as
 `zabloo-unity-plugin-<platform>`:
 
@@ -117,7 +118,7 @@ mistaken for iOS's; `scons install platform=<name>` in this directory puts it
 in its slot. Android needs `ANDROID_NDK_ROOT` (or `ANDROID_HOME` with an
 `ndk/` inside — the newest is used); iOS needs Xcode, not just the Command
 Line Tools. Android and iOS are in the same basket as the Godot addon's
-(ZAB-193): the toolchains are exercised on every PR so they cannot rot, and a
+(ZAB-193): the toolchains are exercised every week (`prerelease.yml`) so they cannot rot, and a
 device is where the milestone's final review of the four targets validates
 them. Consoles compile — the core is C++17 and nothing else — and are not
 validated.
@@ -338,7 +339,8 @@ corpus deliberately does not cover.
 
 Every node type of the catalog renders, and every case of the golden corpus
 reproduces its recorded metrics byte for byte — twice over: through the C ABI
-alone on every PR (`scons test capi`, on Linux, macOS and Windows), and through
+alone (`scons test capi` — Linux on every PR, macOS and Windows in the weekly
+prerelease), and through
 a real `ZablooView` on a `Canvas` in `GoldenTests` (§ *Tests*). Glyphs come
 from our own rasterizer over the TTF the core embeds, never from TextMeshPro
 or the engine's text, which is what makes a line break in the same place here
@@ -351,7 +353,7 @@ of this adapter had no Unity on it and the corpus cannot see an engine:
 |---|---|---|
 | The core, the C ABI, the JSON channel, the pad translation, the dev-push rules | **in CI, every PR** | `core-tests`, `capi-tests`, and the pure NUnit suites |
 | The adapter's plumbing end to end (size → core → `SetData` → clock → pad → `Snapshot`) | **yes, without Unity** | the PlayMode suites driven against the real plugin through a shim of `UnityEngine` |
-| The plugin builds for the five platforms | **in CI, every PR** | `unity-plugin` in `ci.yml` |
+| The plugin builds for the five platforms | **in CI** — Linux per PR, all five in the weekly prerelease | `unity-plugin` in `ci.yml`, `unity-sdk.yml` via `prerelease.yml` |
 | The editor: install from a `.tgz` in a clean project, Play, the verification scenes, the PlayMode suites in the Test Runner | **not yet run** | the procedures in [`examples/unity-playground/README.md`](../../examples/unity-playground/README.md) |
 | IL2CPP players (macOS, Windows), `settings-screen` on a pad, the frame-rate table | **not yet run** | § *IL2CPP* and § *The bench*; the table's shape in [`docs/performance.md`](../../docs/performance.md) |
 | Android and iOS on a device | **no** | the same basket as the Godot addon's (ZAB-193) |

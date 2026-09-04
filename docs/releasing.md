@@ -208,8 +208,8 @@ pattern, and nothing about the package layout changes.
 
 ## Unity in CI
 
-The Unity package's **native core** is built in CI for all five platforms on every PR
-(`unity-plugin` in `ci.yml`, one artifact per platform with the binary in its
+The Unity package's **native core** is built in CI for all five platforms in the weekly **prerelease** and on demand
+(`unity-sdk.yml` in `dry-run`, called by `prerelease.yml`; a PR builds the Linux host only — one artifact per platform with the binary in its
 `Runtime/Plugins/` slot and its `.meta`). **Unity itself does not run in CI**: the editor
 needs a license activated on the runner, and the way to get one — [GameCI](https://game.ci/)'s
 `unity-builder` and `unity-test-runner` actions with a `UNITY_LICENSE` secret (a personal
@@ -221,7 +221,7 @@ hour per build.
 It is documented here rather than done, for the same reason the Asset Library is: it is
 added when it buys something. What it would buy is running the PlayMode suites
 (`sdk/unity/Tests/PlayMode/`: the golden corpus inside Unity, the input tests, the
-allocation test) and building the IL2CPP players on every PR instead of by hand. What it
+allocation test) and building the IL2CPP players in CI instead of by hand. What it
 costs is above. Until then the suites run in the editor, the players are built by hand
 (`sdk/unity/README.md` › *IL2CPP*), and the README says so instead of pretending coverage.
 
