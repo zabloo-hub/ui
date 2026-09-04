@@ -54,7 +54,8 @@ The IR is the **keystone** of the whole system. Its full design context is in
   corpus passes through that ABI in CI and through a real `ZablooView` in the editor's
   test runner; the SDK ships as a `.tgz` on the Releases page. What has not yet been run
   on a machine with Unity is listed in the roadmap's phase 12. **F13 is the Unreal one**,
-  by the same recipe, because the release we ship has to drive all three engines plus web.
+  by the same recipe — and it comes **after** the release now being prepared, which ships
+  web + Godot + Unity (decided 2026-09-04).
 - **Content lives on the platform** and is delivered to the SDK, enabling hot-update.
 
 ## Authoring (decided 2026-07-09: React bindings first)
