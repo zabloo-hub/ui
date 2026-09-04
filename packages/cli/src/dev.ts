@@ -10,12 +10,12 @@
  * graph every time (no stale-module cache, single React instance per run).
  *
  * Watching `src/` covers `src/assets/` too, so replacing an image re-exports and
- * reloads like any other save. What travels then is only what changed: the Godot
+ * reloads like any other save. What travels then is only what changed: an engine
  * push carries the THIN envelope (no inlined `data`) plus the address of the
- * preview's `/asset/<hash>` route, and the game fetches the hashes it does not
- * already hold — the ZAB-14 transport, with the engine as its second consumer.
- * The Unity push still carries the whole envelope: its receiver knows nothing
- * about deferred bytes.
+ * preview's `/asset/<hash>` route, and the receiver fetches the hashes it does
+ * not already hold — the ZAB-14 transport, with the engines as its consumers
+ * (Godot since G14, the Unity editor since UN8). The two receivers speak the
+ * same protocol, so there is one pusher shape and an engine is a name and a port.
  */
 
 import { spawn } from "node:child_process";
@@ -69,11 +69,12 @@ async function devLoop(
 
   const godotUrl = engines.godot ? `http://127.0.0.1:${engines.godot.port}/zabloo/envelope` : null;
   const unityUrl = engines.unity ? `http://127.0.0.1:${engines.unity.port}/zabloo/envelope` : null;
-  // The Godot push is thin, so it has to say where the bytes it left out live.
-  // The preview server is already serving them, content-addressed: one asset
-  // store, two consumers (ZAB-14).
-  const pushToGodot = createPusher(godotUrl, "Godot", { assetsBase: `${preview.url}asset/` });
-  const pushToUnity = createPusher(unityUrl, "Unity");
+  // The push is thin, so it has to say where the bytes it left out live. The
+  // preview server is already serving them, content-addressed: one asset store,
+  // three consumers (ZAB-14).
+  const assetsBase = `${preview.url}asset/`;
+  const pushToGodot = createPusher(godotUrl, "Godot", assetsBase);
+  const pushToUnity = createPusher(unityUrl, "Unity", assetsBase);
 
   console.log(`zabloo dev: watching ${root}`);
   console.log(`           web preview → ${preview.url}`);
@@ -102,11 +103,11 @@ async function devLoop(
         // page prints this in the statusbar (ZAB-99), and `dist/zabloo.ir.json`
         // is the answer to "which file am I looking at" — `/Users/…/dist/…` is
         // the same answer with the part you already knew in front of it.
-        // Tree and bytes apart; the thin half is what the Godot dev mode gets too.
+        // Tree and bytes apart; the thin half is what the engine dev modes get too.
         const thin = preview.setEnvelope(envelope, projectRelative(root, outFile));
         preview.notify(); // browser preview reloads via SSE
         await pushToGodot(thin); // no-op without --godot
-        await pushToUnity(envelope); // no-op without --unity
+        await pushToUnity(thin); // no-op without --unity
       } else {
         // The failure goes where you are looking: the page keeps the last good
         // render, so without this the only report is a terminal line, and "I
@@ -159,18 +160,12 @@ function projectRelative(root: string, outFile: string): string {
   return inside.split(sep).join("/");
 }
 
-/** How a push is shaped for one engine, beyond where it goes. */
-interface PusherOptions {
-  /**
-   * Where the receiver fetches the asset bytes this push leaves out, sent as
-   * `x-zabloo-assets`. Set for an engine that speaks the deferred-resolution
-   * transport (Godot); absent means the body carries its `data` inlined (Unity).
-   */
-  assetsBase?: string;
-}
-
 /**
- * Push an envelope to an engine's dev mode; no-op when there is no target.
+ * Push a thin envelope to an engine's dev mode; no-op when there is no target.
+ *
+ * `assetsBase` is where the receiver fetches the asset bytes the push leaves
+ * out, sent as `x-zabloo-assets` — the deferred-resolution transport (ZAB-14)
+ * that both engine receivers speak. The body never carries `data` inlined.
  *
  * The unreachable warning is said ONCE and then held until the receiver answers
  * again. A game that is simply not running is the normal state of an afternoon
@@ -181,20 +176,16 @@ interface PusherOptions {
 function createPusher(
   url: string | null,
   engine: string,
-  options: PusherOptions = {},
+  assetsBase: string,
 ): (body: string) => Promise<void> {
   if (!url) return async () => {};
-  const assetsBase = options.assetsBase;
   // `null` until something has been tried: the first save must be able to warn.
   const state: { reachable: boolean | null } = { reachable: null };
   return async (body) => {
     try {
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(assetsBase === undefined ? {} : { "x-zabloo-assets": assetsBase }),
-        },
+        headers: { "content-type": "application/json", "x-zabloo-assets": assetsBase },
         body,
       });
       if (res.ok) {
