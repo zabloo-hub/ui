@@ -1,0 +1,152 @@
+# The Unity SDK's release artifact: `com.zabloo.sdk-<version>.tgz`, a UPM
+# package with a native core for every platform, attached to a GitHub Release.
+# `"com.zabloo.sdk": "file:<path to the .tgz>"` in a project's
+# `Packages/manifest.json` is the whole installation.
+#
+# Nothing here runs on a push. The SDK is not an npm package and does not ride
+# `changeset publish` — but it carries the npm `fixed` group's version anyway, so
+# one number answers "which SDK goes with the packages I installed". Publishing
+# it is a decision, like every other release in this repo: dispatch it after the
+# Version Packages PR has landed. See docs/releasing.md.
+name: Unity SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run packs the .tgz as a workflow artifact; publish attaches it to a Release"
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - publish
+
+concurrency:
+  group: unity-sdk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # One entry per slot the `PLATFORMS` table of `sdk/unity/SConstruct` names —
+  # the same matrix as ci.yml's `unity-plugin`, which is what keeps every
+  # toolchain from rotting between releases. Each runner builds the core for
+  # its platform and runs `scons install`, which puts the binary in its slot
+  # AND writes its `.meta` beside it: the two are one thing to Unity, and the
+  # pack refuses a slot that has only one of them.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            flags: werror=true arch=universal
+            slot: macOS/libzabloo.dylib
+          - os: windows-latest
+            platform: windows
+            flags: werror=true
+            slot: Windows/x86_64/zabloo.dll
+          - os: ubuntu-latest
+            platform: linux
+            flags: werror=true
+            slot: Linux/x86_64/libzabloo.so
+          - os: ubuntu-latest
+            platform: android
+            flags: ""
+            slot: Android/arm64-v8a/libzabloo.so
+          - os: macos-latest
+            platform: ios
+            flags: ""
+            slot: iOS/libzabloo.a
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install scons
+
+      - name: The NDK this runner has
+        if: matrix.platform == 'android'
+        run: ls "$ANDROID_HOME/ndk"
+
+      - name: Build the native core
+        working-directory: core
+        shell: bash
+        run: scons target=release capi platform=${{ matrix.platform }} ${{ matrix.flags }}
+
+      # A dylib that quietly came out single-arch would load in the editor of
+      # the machine that built it and nowhere else.
+      - name: The macOS dylib carries both slices
+        if: matrix.platform == 'macos'
+        run: lipo -info core/bin/libzabloo.dylib | grep -q x86_64 && lipo -info core/bin/libzabloo.dylib | grep -q arm64
+
+      - name: Install it into the package, with its .meta
+        working-directory: sdk/unity
+        shell: bash
+        run: scons install platform=${{ matrix.platform }}
+
+      - name: Binary and .meta are in the slot
+        shell: bash
+        run: |
+          test -s "sdk/unity/Runtime/Plugins/${{ matrix.slot }}"
+          test -s "sdk/unity/Runtime/Plugins/${{ matrix.slot }}.meta"
+          grep -q PluginImporter "sdk/unity/Runtime/Plugins/${{ matrix.slot }}.meta"
+
+      # The whole `Plugins/` tree, not the slot's files: Linux and Android both
+      # ship a `libzabloo.so`, and only the slot PATH tells them apart — which
+      # is what `pack-upm.mjs` matches on. Dotfiles (`.gitkeep`) stay behind.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unity-plugin-${{ matrix.platform }}
+          path: sdk/unity/Runtime/Plugins/
+          if-no-files-found: error
+
+  pack:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating the Release and its tag.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No name: every `unity-plugin-*` artifact lands under one directory, each
+      # with its `Plugins/` tree, and the pack finds each slot by its path.
+      - uses: actions/download-artifact@v4
+        with:
+          path: plugins
+          pattern: unity-plugin-*
+
+      - name: Pack the SDK
+        run: node scripts/pack-upm.mjs --plugins plugins --out dist
+
+      - name: The version this is
+        id: version
+        run: echo "value=$(node -p "require('./packages/format/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'dry-run'
+        with:
+          name: zabloo-unity-sdk
+          path: dist/com.zabloo.sdk-*.tgz
+          if-no-files-found: error
+
+      # Idempotent the same way `github-releases.mjs` is: an existing Release for
+      # this version gets the tarball uploaded into it, a new one is created.
+      - name: Attach it to the Release
+        if: inputs.mode == 'publish'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: unity-sdk@${{ steps.version.outputs.value }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" \
+              --notes "The Unity SDK for zabloo/ui ${{ steps.version.outputs.value }} — the UPM package \`com.zabloo.sdk\`. Add it to \`Packages/manifest.json\` as \`\"com.zabloo.sdk\": \"file:<path to this .tgz>\"\` (Unity 2022.3 LTS or newer, with the Input System active)."
+          fi
+          gh release upload "$TAG" dist/com.zabloo.sdk-*.tgz --clobber
