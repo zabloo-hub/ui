@@ -5170,3 +5170,70 @@ ejecutado en dispositivo (misma cesta que ZAB-193). El procedimiento entero est�
 `examples/unity-playground/ProjectSettings/ProjectSettings.asset`,
 `sdk/unity/Runtime/link.xml`, `sdk/unity/Tests/PlayMode/AllocationTests.cs`,
 `docs/performance.md`, `docs/releasing.md`.
+
+## 2026-09-04 — El corpus golden desde dentro de Unity: el reloj se planta, las escenas de verificación se construyen, y el corpus ya pasa por el adaptador real (ZAB-203, F12 UN10)
+
+**Decisión:** el corpus corre por tercera vez —tras el core (G3) y el C ABI (UN2)— **desde
+dentro de Unity**, a través de un `ZablooView` real sobre un `Canvas`
+(`sdk/unity/Tests/Golden/GoldenTests.cs`, PlayMode): viewport del caso, `SetData` **por la
+API pública** (el escritor JSON de UN7 está a prueba), dos frames de asentamiento a t=0, el
+reloj de un salto, el guion `pad` reproducido sobre un `Gamepad` de `InputTestFixture` por
+**índice del mapeo estándar** (la tabla de traducción y el volteo de Y de UN6 están a prueba),
+y `Snapshot()` comparado **byte a byte** con `golden/metrics/`. `future-major` se rechaza con
+su código. El diff es el de G3 —path, `ref` del nodo, ambos valores—, portado a `GoldenDiff`
+y con sus dos tests de forma. Más `AbiSizeTests`: `zb_abi_sizes` contra `Marshal.SizeOf` de
+los 14 structs, un test por struct para que el que falle nombre el struct.
+
+**El reloj se inyecta, y es una línea en `Runtime/`.** El snapshot depende del tiempo —
+`controls` graba la opacidad de la onda del Spinner (`0.25`, `0.889`) y `gamepad-nav` los
+110 px que el stick derecho recorre en 100 ms— y `ZablooView` leía un `Stopwatch` estático,
+así que sin un punto de inyección esos casos no podían comparar byte a byte. Entra
+`internal static Func<double> NowSource` (default: el Stopwatch) del que lee `NowMs`; como
+`Step` y `PollPad` ya pasan por `NowMs`, el runner planta el reloj sin tocar nada más y lo
+restaura en `TearDown`. Es una excepción consciente a la zona del ticket (`Runtime/` era de
+UN3), decidida dentro de esta rama en vez de en un PR aparte porque es la única línea que
+toca y sin ella el criterio de salida no existe. **El delta sigue ignorándose**: lo que
+cambia es de dónde sale el "ahora", no que un frame perdido aterrice en otro sitio.
+
+**El pad se enchufa ANTES del montaje** en los casos con guion, para que el primer frame de
+asentamiento lo conecte a t=0 — donde `replay_pad` conecta su controlador en un caso sin
+`advanceMs`. Un botón o eje que el guion pida y el adaptador no tenga en un slot **falla en
+voz alta**: un frame medido después de una pulsación que nadie leyó no es el frame que el
+guion describe (la regla de ZAB-136 para el runner del core, aplicada aquí).
+
+**Las escenas de `Assets/Verify/` son código, no ficheros `.unity`.** Un menú `Zabloo ›
+Verify › <capacidad>` (`Editor/VerifyMenu.cs`) crea la escena vacía y monta Canvas +
+`ZablooView` + un `VerifyRig` que imprime la checklist en la Console, loguea acciones, datos
+y diagnósticos, expone los pasos del canal de host como `[ContextMenu]` y captura el canvas
+con **C** (`ReadPixels` del rect de la vista al final del frame, canvas de píxel constante a
+factor 1: un píxel de dispositivo es un píxel de vista; nada de `ScreenCapture` con
+supersize, que remuestrea los glifos que se van a comparar). Un `.unity` escrito a mano es
+YAML que Unity puede descartar al abrir, y uno escrito por Unity es un diff que nadie
+revisa; diez líneas de C# son las dos cosas. Los `.meta` siguen generándose a mano.
+
+**Lo que esta máquina sí pudo verificar, y cómo.** No hay Unity, pero el shim de `dotnet`
+de UN5/UN6 ganó dos cosas: (a) un `UnityTestAttribute` que construye los casos del
+`[ValueSource]` y **itera el `IEnumerator`**, convirtiendo cada `yield return null` en un
+`Update()` de todas las `ZablooView` vivas (por reflexión sobre `Live`), con un `GameObject`
+que llama `OnEnable`/`OnDestroy` y un `Gamepad`/`StickControl` que guardan lo que
+`Press`/`Set` les ponen; y (b) `NativeArray` con memoria real, para que `Paint()` corra
+contra stubs de `Mesh`/`Texture2D`. Con `core/bin/libzabloo.dylib` recién compilado al lado
+del dll, **los 17 casos de métricas y `future-major` pasan a través del adaptador real** —
+`Update` → `Host.cs` → `SetData` por `JsonWriter` → `Step` → `Pad.cs`/`PadMapping` →
+`Snapshot` — y `AbiSizeTests` da 15/15 en macOS. Lo que eso NO prueba y queda para el
+editor: que un `Update` de Unity de verdad respete la misma secuencia por `yield`, el
+batcher del Canvas, el `InputTestFixture` real y el player IL2CPP con mando, que es el
+criterio de salida del milestone y va como procedimiento en el README del playground con la
+lista exacta de gestos y la evidencia que se adjunta al PR. Dos detalles del shim que costó
+encontrar, por si vuelve a hacer falta: NUnit marca *not runnable* un método que devuelve
+`IEnumerator` antes de que un `IWrapTestMethod` pueda actuar, así que el atributo tiene que
+ser `ITestBuilder` y construir los casos con `ExpectedResult` puesto; y su
+`ParameterDataProvider` devuelve cero valores para el `[ValueSource]` desde fuera del
+pipeline, así que el `ValueSource` se resuelve por reflexión.
+
+**Dónde vive:** `sdk/unity/Tests/Golden/{GoldenCorpus,GoldenDiff,GoldenDiffTests,GoldenTests}.cs`,
+`sdk/unity/Tests/AbiSizeTests.cs`, `sdk/unity/Runtime/ZablooView.cs` (`NowSource`),
+`examples/unity-playground/Assets/Verify/`, y los tres READMEs: `sdk/unity/README.md`
+§ *Tests*, `examples/unity-playground/README.md` (§ *Running the corpus inside Unity*,
+§ *Checking UN10 by hand*, el recorrido con mando y la captura) y `golden/README.md`
+(§ *Unity: the same corpus, twice more* y el paso de Unity en *Golden images*).

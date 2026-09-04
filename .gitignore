@@ -68,3 +68,7 @@ sdk/unity/Runtime/Plugins/**/zabloo.dll*
 # CLAUDE.md y docs/internal/ SÍ se versionan: el repo se explica solo (2026-08-23).
 # Solo lo local del entorno queda fuera:
 .claude/settings.local.json
+
+# Golden captures taken from the Unity playground (Zabloo › Verify › Golden
+# capture, then C): dated evidence for a PR, never a file for the repo (UN10).
+examples/unity-playground/Captures/
