@@ -19,6 +19,10 @@
 > que renderiza**: el batch de Unity (U1–U10) se cancela a 4/13 tipos y el SDK es una
 > **GDExtension en C++ que ES el core compartido** (ZAB-134). Fase actual: **F11**. Ver
 > la fase 11 más abajo y `decisions-architecture.md` (2026-08-24).
+> **Revisado 2026-09-04**: **F12 CERRADA** (UN1–UN11): Unity renderiza el catálogo entero
+> como adaptador fino sobre el core C++, el corpus pasa por el C ABI y por un `ZablooView`
+> real, y el SDK se distribuye como `.tgz` de UPM adjunto a una Release. La verificación en
+> un editor de verdad queda como procedimiento — ver la fase 12. Siguiente: **F13**.
 > **Revisado 2026-09-03**: la próxima versión publicada cubre **cuatro targets** — web,
 > Godot, **Unity** y **Unreal** —, así que se abren **F12 — SDK de Unity** y **F13 — SDK de
 > Unreal**, en ese orden, las dos como **adaptadores finos sobre el core C++** que nace en
@@ -251,6 +255,26 @@ camino y se consolida en F8.
     con mando en un player real (IL2CPP), `zabloo dev --unity` recarga en vivo, y el
     paquete se instala desde un `.tgz` en un proyecto limpio. Fuera, a propósito: móvil en
     dispositivo y la revisión final de los cuatro targets (misma cesta que ZAB-193).
+
+    **CERRADA 2026-09-04 (UN11, ZAB-204)**, con una reserva que hay que decir entera: los
+    once tickets se escribieron en una máquina **sin Unity**. Lo que está cerrado de verdad
+    es lo que el corpus y CI pueden ver — el core, el C ABI con el corpus pasando por él en
+    tres sistemas, el plugin compilando para las cinco plataformas, la fontanería del
+    adaptador de punta a punta (tamaño → core → `SetData` → reloj → mando → `Snapshot`)
+    contra el plugin real bajo un shim de `UnityEngine`, y la distribución (`pack-upm.mjs`
+    + workflow `unity-sdk.yml`, probados en local con el binario de macOS). Lo que queda
+    **escrito como procedimiento y no corrido**, y dónde vive cada cosa:
+
+    | Pendiente | Dónde está el procedimiento |
+    |---|---|
+    | Instalar el `.tgz` de un `dry-run` en un proyecto limpio (2022.3 y Unity 6) y ver `hello-button` con Enter → `buy` | `docs/releasing.md` › *The Unity package* |
+    | Las suites PlayMode en el Test Runner (corpus, input, alocaciones) y las escenas de verificación | `examples/unity-playground/README.md` |
+    | Los players IL2CPP de macOS/Windows y `settings-screen` con mando en uno | `sdk/unity/README.md` › *IL2CPP* |
+    | La tabla de rendimiento de Unity (hoy con forma y sin cifras) | `docs/performance.md`, con el bench de `sdk/unity/README.md` |
+    | Android e iOS en dispositivo | ZAB-193, fuera de milestone como en Godot |
+
+    Es una tarde con el editor, convertida en checklist a propósito; hasta que se corra, la
+    fila de Unity del README lo dice tal cual.
 
 13. **F13 — SDK de Unreal** (planificada 2026-09-03, sin desglosar). El core entra
     como módulo/plugin de C++ **sin puente de lenguaje**, que es lo que lo hace el

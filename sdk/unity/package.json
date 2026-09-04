@@ -2,7 +2,7 @@
   "name": "com.zabloo.sdk",
   "version": "0.0.0",
   "displayName": "zabloo SDK",
-  "description": "Renders zabloo IR content inside Unity: a thin C# adapter over the shared native core (layout, text, tessellation and the runtime all live in libzabloo). Under construction — F12. The version is a placeholder until the package is released; it will be stamped from the @zabloo/* release group.",
+  "description": "Renders zabloo IR content inside Unity: a thin C# adapter over the shared native core (layout, text, tessellation and the runtime all live in libzabloo, reached through its C ABI). The version is stamped at pack time from the @zabloo/* release group; the committed 0.0.0 is a placeholder.",
   "unity": "2022.3",
   "dependencies": {
     "com.unity.inputsystem": "1.7.0"

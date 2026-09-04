@@ -1,14 +1,14 @@
 # Getting started
 
 Build a shop screen, bind it to game data, wire a button to game code, and load the result
-in Godot. Roughly twenty minutes, no engine needed until the last step.
+in Godot or Unity. Roughly twenty minutes, no engine needed until the last step.
 
 This is the tutorial. The rest of `docs/` is the **reference** — normative pages that say
 exactly what every SDK must do. This page instead builds one screen from nothing, and links
 out whenever a concept has a page of its own.
 
-**You need** Node 22+ and pnpm. An engine — Godot 4.4+ — only for step 6; the first five
-steps run entirely in the browser preview.
+**You need** Node 22+ and pnpm. An engine — Godot 4.4+ or Unity 2022.3+ — only for step 6;
+the first five steps run entirely in the browser preview.
 
 > **Working on zabloo/ui itself?** From a clone of this repository you can scaffold into
 > the workspace instead of installing from npm — `--workspace` wires the project to the
@@ -351,10 +351,12 @@ One file, and it is the whole deliverable — [the envelope](format/envelope.md)
 }
 ```
 
+Both engines render the whole catalog from the same core; pick the one your game is in.
+
 ### Godot
 
-Godot is the engine that renders the whole catalog, so this is the shortest way to see the
-screen you just built running in a game.
+The shortest way to see the screen you just built running in a game: an addon, a node, two
+signals.
 
 **1. Install the addon.** Download `zabloo-godot-addon-<version>.zip` from the
 [latest release](https://github.com/zabloo-hub/ui/releases) and unzip it into the project,
@@ -425,10 +427,105 @@ the update and not the session — see [Loading](format/loading.md).
 
 ### Unity
 
-**Under construction.** The Unity SDK is being rebuilt as a thin adapter over the same
-native core Godot runs (F12); the earlier C# port was removed. Its package, `com.zabloo.sdk`
-under [`sdk/unity`](../sdk/unity/README.md), compiles and installs by path but renders
-nothing yet — that README tracks what works.
+The same core, reached from C#: the Unity SDK is a UPM package whose C# hands the native
+core a rect, a clock and the player's input, and uploads the triangles it gets back. What
+you write against is a component and two events.
+
+**1. Install the package.** Download `com.zabloo.sdk-<version>.tgz` from the
+[latest release](https://github.com/zabloo-hub/ui/releases) into the project — `Packages/`
+is the usual place — and add it to `Packages/manifest.json` by path:
+
+```json
+"com.zabloo.sdk": "file:com.zabloo.sdk-0.2.0.tgz"
+```
+
+(or **Window → Package Manager → + → Add package from tarball…**, which writes the same
+line). The Input System package comes with it as a dependency. Two settings the editor
+asks for once: **Active Input Handling** in *Player Settings* must be *Input System
+Package* or *Both* — the view reads the Input System's devices directly — and, for a
+player build, **Scripting Backend = IL2CPP**, which is what the SDK is validated against.
+
+> **Unity 2022.3 LTS or newer**, tested on Unity 6. The tarball carries a native core for
+> macOS (universal), Windows x64, Linux x64, Android arm64 and iOS; a change to that binary
+> needs an editor restart, because Unity never unloads a native plugin. Building it yourself
+> instead: [`sdk/unity`](https://github.com/zabloo-hub/ui/tree/main/sdk/unity).
+
+**2. Add a `ZablooView` under a `Canvas`.** Copy `dist/zabloo.ir.json` into `Assets/` (it
+imports as a `TextAsset`), create a `Canvas` (Screen Space – Overlay is the simple case),
+add an empty child stretched to the canvas and put the **Zabloo View** component on it. Two
+fields in the inspector:
+
+| Field | What it is |
+|---|---|
+| **Envelope** | The imported `zabloo.ir.json`. Loaded on enable; leave it empty to load from code with `LoadEnvelope(json)`. |
+| **View Id** | `main-menu`, the view you want — the filename of its `.tsx`. Empty means the envelope's first view. |
+
+The view's `RectTransform` is the rect the core lays out into, and that is the only piece of
+Unity layout involved: everything inside it — layout, text, hit-testing — is the core's,
+identical to the other targets. Do not add a `Selectable` or route the `EventSystem` into
+it; the view is not one and needs none.
+
+**3. Talk to it.** The whole game↔UI coupling surface of v1 is **named actions out, data
+in** — two events and `SetData`:
+
+```csharp
+using UnityEngine;
+using Zabloo;
+
+public class Shop : MonoBehaviour
+{
+    [SerializeField] ZablooView ui;
+    int gold = 1000;
+
+    void OnEnable()
+    {
+        ui.OnAction += OnAction;
+        ui.OnDataChanged += OnDataChanged;
+        ui.SetData("player.gold", gold);
+    }
+
+    void OnDisable()
+    {
+        ui.OnAction -= OnAction;
+        ui.OnDataChanged -= OnDataChanged;
+    }
+
+    void OnAction(string name, ActionContext context)
+    {
+        if (name != "buy") return;
+        gold -= 100;
+        ui.SetData("player.gold", gold);      // the bound Text updates and re-lays out
+        ui.SetData("shop.thanked", true);     // the bound `visible` reveals the row
+    }
+
+    // A control wrote its own value back into a bound path — a Toggle checked, a
+    // Slider dropped, a TextInput typed in. It fires when the player moves it and
+    // never echoes SetData.
+    void OnDataChanged(string path, object value)
+    {
+        Debug.Log($"{path} = {value}");
+    }
+}
+```
+
+`context` carries the path, key and index of the item an action fired from inside a
+[`Repeat`](components/repeat.md) — `HasContext` is `false` for one fired from the document
+itself — so a button in a row knows *which* row without a line of wiring. `SetData` takes
+what JSON can carry (primitives, strings, lists, string-keyed dictionaries), and what comes
+back on `OnDataChanged` is typed by shape: `bool`, `long`/`double`, `string`, `List<object>`,
+`Dictionary<string, object>`. Data pushed before a bound node exists applies as soon as it
+does, and survives a content swap.
+
+Beyond those, the component exposes `Reload(json)` for hot-swapping content and the per-node
+operations of the [host channel](format/host-channel.md#unity-spelling) — `SetOpen`,
+`SetChecked`, `SetValue`, `SetText`, `SetScroll`, `SetSelectedTab` — each answering `false`
+(and a console warning) when no node of that type carries that id.
+
+**4. What if the envelope is broken?** Nothing throws. `Load`, `LoadEnvelope` and `Reload`
+return `false` when a fatal diagnostic stopped the load, and the view keeps rendering
+whatever it already had; why is on the `OnDiagnostic` event, in `Diagnostics`, and in the
+console prefixed `[zabloo]`. That is what makes a corrupt hot-update cost the update and not
+the session — see [Loading](format/loading.md#in-unity).
 
 ### The dev loop, in-engine
 
@@ -447,8 +544,8 @@ survives it: the store lives on the document, not on the view it feeds. The push
 the tree without its asset bytes, and the game fetches only the content hashes it does not
 already hold, so replacing one image transfers one image and saving a `.tsx` transfers none.
 
-**Unity.** Turn on **Zabloo → Dev Mode** in the editor's menu — it listens on
-`localhost:5077` and remembers the setting — then run:
+**Unity.** Turn on **Zabloo → Dev Mode** in the editor's menu (the package adds it) — it
+listens on `localhost:5077` and remembers the setting — then run:
 
 ```bash
 pnpm dev:unity

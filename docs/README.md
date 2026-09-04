@@ -19,7 +19,7 @@ New to zabloo? Everything below is normative reference — precise, and the wron
 begin. Build a screen first:
 
 → **[Getting started](getting-started.md)** — scaffold a project, author a shop screen, bind
-it to game data, wire a button to game code, and load the envelope in Godot.
+it to game data, wire a button to game code, and load the envelope in Godot or Unity.
 
 Already have a project? [Project structure & CLI](project-structure.md) is the same ground
 as reference.
@@ -61,15 +61,17 @@ author and the tooling.
 
 ## Engines
 
-Godot is the engine that renders the whole catalog. Its SDK is a GDExtension in C++, and
-that C++ *is* the shared core — so what the format pages above call "the SDK" is, there,
-[`core/`](https://github.com/zabloo-hub/ui/tree/main/core) with a thin adapter on top.
+Godot and Unity render the whole catalog, from one shared C++ core
+([`core/`](https://github.com/zabloo-hub/ui/tree/main/core)) — so what the format pages
+above call "the SDK" is that core with a thin adapter on top: a GDExtension whose C++ *is*
+the core in Godot, a native plugin behind a C ABI with a C# adapter in Unity.
 
 | Page | What it covers |
 |---|---|
-| [The host channel](format/host-channel.md) | Every operation and callback, with its Godot spelling beside the web one. |
+| [The host channel](format/host-channel.md) | Every operation and callback, with its Godot and Unity spellings beside the web one. |
 | [`sdk/godot`](https://github.com/zabloo-hub/ui/tree/main/sdk/godot#readme) | Installing the addon, building it from source, and the in-engine dev loop. |
-| [Getting started §6](getting-started.md#6-export-and-load-it-in-the-game) | The five-minute version: install, add a `ZablooView`, connect two signals. |
+| [`sdk/unity`](https://github.com/zabloo-hub/ui/tree/main/sdk/unity#readme) | Installing the UPM package, building the native core, the dev loop, IL2CPP, and the tests that run in the editor. |
+| [Getting started §6](getting-started.md#6-export-and-load-it-in-the-game) | The five-minute version for either engine: install, add a `ZablooView`, connect two callbacks. |
 
 ## For maintainers
 

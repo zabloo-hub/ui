@@ -28,7 +28,7 @@ actions your UI fires in the console's **Actions** tab, and exposes the live han
 | [`inventory-demo`](inventory-demo/README.md) | A real screen built on data: hundreds of virtualized rows, a horizontal strip, a Collapse inside a scroller. |
 | [`settings-screen`](settings-screen/README.md) | A real screen built on controls: tabs, toggles, sliders, a dropdown and a text field, all bound. |
 | [`godot-playground`](godot-playground/README.md) | **The engine end.** A Godot project that loads the four above, one at a time, so every capability can be checked where it actually ships. |
-| [`unity-playground`](unity-playground/README.md) | The same for Unity — a scaffold while the adapter is built (F12); it opens and compiles, and renders nothing yet. |
+| [`unity-playground`](unity-playground/README.md) | The same for Unity — a project that references the SDK package by path, loads the four, replays the golden corpus through a real `ZablooView`, and carries the bench and the verification scenes. |
 
 The showcase is exhaustive and the other two zabloo projects are realistic; they are
 different questions. "How does `maxLines` behave?" is a showcase question. "How do I lay a

@@ -178,6 +178,15 @@ bipolar, so the sticks are remapped by index (`-1` switches a slot off). Naming 
 for a slot also takes any action back off it. Each answers whether the slot exists — a
 typo is answered, never fatal, like the id operations above.
 
+The **Unity** spelling is the same three, on the component, over the Input System —
+`SetPadButton("a", GamepadButton.East)`, `SetPadAction("a", inputActionReference)` (an
+`InputAction` the game already rebound; `null` hands the slot back to its button), and
+`SetPadAxis("scroll_y", PadMapping.AxisLeftY)` with `PadMapping.AxisOff` to switch a slot
+off. The factory layout is `Gamepad.current`'s standard map: south presses, east goes back,
+d-pad and left stick navigate, right stick scrolls — read as positions, so a DualShock's
+cross and circle fill the same slots with nothing configured. The slot names are the ones
+in the table.
+
 **Exactly one view reads the pad**, for the same reason exactly one reads the keyboard: a
 device belongs to the process, so two views in a scene would each walk their own focus on
 one push of the stick. See [who the keys belong to](input.md#who-the-keys-belong-to-normative).

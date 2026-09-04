@@ -38,18 +38,22 @@ authoring (React/JSX + tokens) → IR (tree + styles + events) → per-engine SD
 ## Status
 
 **On npm since 0.2.0, pre-1.0.** `@zabloo/format`, `@zabloo/react`, `@zabloo/renderer-web`,
-`@zabloo/cli` and `create-zabloo-app` are published; the Godot addon ships as a zip on the
-[Releases](https://github.com/zabloo-hub/ui/releases) page — an engine SDK is not an npm
-package — and the Unity SDK is being rebuilt (below). The IR v1 is validated in code across
-**two render targets** — a WebGL2 renderer and the Godot SDK — running the same self-render
-pipeline: own Flexbox layout pass, own tessellator, own glyph atlases.
+`@zabloo/cli` and `create-zabloo-app` are published; the engine SDKs ship on the
+[Releases](https://github.com/zabloo-hub/ui/releases) page — the Godot addon as a zip, the
+Unity SDK as a UPM `.tgz` — because an engine SDK is not an npm package. The IR v1 is
+validated in code across **three render targets** — a WebGL2 renderer, the Godot SDK and the
+Unity SDK — running the same self-render pipeline: own Flexbox layout pass, own tessellator,
+own glyph atlases.
 
-**Godot is the engine that renders.** Its SDK is a **GDExtension in C++**, and that C++
-*is* the shared core: layout, text, tessellation and the state/binding/transition runtime
-all live in [`core/`](core), with [`sdk/godot`](sdk/godot) as a thin adapter that uploads
-triangles and translates input. Because the core can produce a full view snapshot with no
-engine at all, the [golden corpus](golden/README.md) runs against it on a bare CPU in CI —
-which is why "the same envelope renders the same" is a test here and not a promise.
+**One core, three engines and the web.** The core is **C++** — layout, text, tessellation
+and the state/binding/transition runtime all live in [`core/`](core) — and every engine is a
+thin adapter over it: [`sdk/godot`](sdk/godot) is a GDExtension whose C++ *is* the core;
+[`sdk/unity`](sdk/unity) is a UPM package whose C# reaches the same core through its C ABI,
+as a native plugin; Unreal (F13) takes it as a C++ module. Each adapter uploads triangles
+and translates input, and nothing else. Because the core can produce a full view snapshot
+with no engine at all, the [golden corpus](golden/README.md) runs against it on a bare CPU
+in CI — and again through the C ABI, and again from inside Unity — which is why "the same
+envelope renders the same" is a test here and not a promise.
 
 ### Where each target stands
 
@@ -62,13 +66,13 @@ it matters if you are picking this up today:
 |---|---|---|
 | **Web renderer** (`@zabloo/renderer-web`) | **13 / 13** | Runs the whole catalog: this is where every capability lands first, and what the `zabloo dev` preview and the future visual editor render with. |
 | **Godot SDK** (`sdk/godot` + `core/`) | **13 / 13** | Renders the whole catalog, and every case of the golden corpus reproduces its recorded metrics **byte for byte** against the web renderer. Godot 4.4+. Desktop is measured; Android and iOS build in CI but have not been run on a device; web is experimental; consoles compile and are not validated. [What a frame costs](docs/performance.md). |
-| **Unity SDK** (`sdk/unity`) | **0 / 13** — under construction | Being rebuilt as a **thin adapter over the same core** (F12): a UPM package whose C# uploads the core's triangles and translates input, reaching the core through its C ABI. The earlier C# port (4 of 13 types, UI Toolkit) was removed. [Where it stands](sdk/unity/README.md). |
+| **Unity SDK** (`sdk/unity` + `core/`) | **13 / 13** | A **thin adapter over the same core** — a UPM package (`com.zabloo.sdk`) whose C# uploads the core's triangles through UGUI and translates the Input System, reaching the core as a native plugin through its C ABI. The whole golden corpus reproduces its metrics **byte for byte** through that ABI in CI and through a real `ZablooView` in the editor's test runner. Unity 2022.3 LTS+, IL2CPP. Desktop plugins build in CI; the editor-side checks (a clean install, the IL2CPP players, the frame-rate table) are written as procedures and **not yet run on a machine with Unity** — see [where it stands](sdk/unity/README.md#status). |
 
 Unreal renders nothing yet — it is *designed* in parallel (every IR decision is validated
 against all three engines) rather than implemented, and lands as a thin adapter over the
-same core rather than another port (F13, after Unity).
+same core rather than another port (F13).
 
-What the system does today — all of it in the web renderer and the Godot SDK:
+What the system does today — all of it in the web renderer, the Godot SDK and the Unity SDK:
 
 - **The full node vocabulary** — `Container`, `Text`, `Button`, `Collapse`, `ScrollView`,
   `Image`, `Overlay`, `Toggle`, `Slider`, `TextInput`, `Repeat`, `ProgressBar`, `Spinner`
@@ -106,8 +110,8 @@ What the system does today — all of it in the web renderer and the Godot SDK:
 - **Multiline text**: word wrap to the width the layout pass offers, hard breaks,
   alignment on both axes, and `clip`/`ellipsis` truncation, with every width kerned like
   the painted run. One normative algorithm over one rasterizer we own (`stb_truetype`,
-  the same TTF on every target), so a line breaks in the same place in the browser and
-  in Godot — never through the engine's own text server.
+  the same TTF on every target), so a line breaks in the same place in the browser, in
+  Godot and in Unity — never through an engine's own text server.
 - **Scrolling and clipping**: a `ScrollView` measures its children unconstrained on the
   scrolled axis and clips to its own rect (wheel, drag, and a scroll call from the game);
   `clip` is a paint prop any node can carry, and it cuts paint and hit-testing alike.
@@ -121,12 +125,12 @@ What the system does today — all of it in the web renderer and the Godot SDK:
 - **Interactivity**: SDK-owned behavior keyed by component type, named actions surfaced
   idiomatically (a Godot signal, a C# event), data-path bindings (`set_data("player.gold", …)`
   re-lays out live), and automatic spatial focus/navigation computed from the live layout
-  rects. In the web renderer and in Godot that navigation is driven by **keyboard and
+  rects. On every target that navigation is driven by **keyboard and
   gamepad alike** — d-pad/stick move the focus, A activates, B dismisses the top modal,
   the right stick scrolls, and moving the focus drags the scroll along to reveal it.
 - **Dev loop**: save a `.tsx` → `zabloo dev` re-exports into a live browser preview;
-  add `--godot` to also hot-push each save to the running Godot game — through the same
-  loading path as production hot-update.
+  add `--godot` to also hot-push each save to the running Godot game, or `--unity` to the
+  Unity editor — through the same loading path as production hot-update.
 
 ## How it works
 
@@ -134,12 +138,14 @@ What the system does today — all of it in the web renderer and the Godot SDK:
 npx create-zabloo-app my-game-ui   # scaffold a React authoring project
 pnpm dev                            # watch → live web preview
 pnpm dev:godot                      # …plus hot-push each save to the running Godot game
+pnpm dev:unity                      # …plus hot-push each save to the Unity editor
 pnpm build                          # = zabloo export → versioned IR envelope in dist/
 ```
 
 Then load the envelope with the engine SDK and it renders in-game — in Godot, drop
 [`addons/zabloo/`](sdk/godot) into the project, add a `ZablooView` to a scene and point it
-at the file. Content can also be delivered and **hot-updated** from the zabloo platform
+at the file; in Unity, add the [`com.zabloo.sdk`](sdk/unity) package, put a `ZablooView`
+under a `Canvas` and assign the imported envelope. Content can also be delivered and **hot-updated** from the zabloo platform
 without recompiling or re-shipping through stores — the dev loop uses that exact path.
 
 ## Documentation
@@ -159,7 +165,8 @@ The reference for the IR and the component catalog lives in [`docs/`](docs/READM
 To see it running rather than written down, [`examples/`](examples/README.md) has the
 `showcase` project: nine views, one per capability, live in the web preview
 (`pnpm --filter showcase-example dev`), and
-[`godot-playground`](examples/godot-playground/README.md), the Godot project that loads
+[`godot-playground`](examples/godot-playground/README.md) and
+[`unity-playground`](examples/unity-playground/README.md), the engine projects that load
 those same envelopes in-engine.
 
 ## Repository layout
@@ -175,7 +182,7 @@ ui/
 │   └── create-zabloo-app/ project scaffolder
 ├── sdk/
 │   ├── godot/             the GDExtension adapter + the installable addons/zabloo/
-│   └── unity/             com.zabloo.sdk — UPM package, a thin adapter over core/ (F12, in progress)
+│   └── unity/             com.zabloo.sdk — UPM package, a thin adapter over core/ (native plugin + C ABI)
 ├── docs/                  the format spec + the component catalog
 ├── golden/                golden envelopes: the same input must render the same on every target
 └── examples/              see examples/README.md for which one to open
@@ -184,7 +191,7 @@ ui/
     ├── inventory-demo/    a shop with real overflow — list, category strip, nested Collapse
     ├── settings-screen/   the whole form catalog composed as one real screen
     ├── godot-playground/  the Godot project that loads them, capability by capability
-    └── unity-playground/  the Unity project that hosts the adapter being built
+    └── unity-playground/  the Unity project that loads them, and runs the corpus in-engine
 ```
 
 `core/` sits at the root, a sibling of `sdk/` and `packages/`, on purpose: `packages/*`
@@ -194,8 +201,8 @@ the golden rule protects — the `sdk/*` know about their engine, the core knows
 Every authoring example is a runnable project: `pnpm --filter <name>-example dev` opens it
 in the web preview.
 
-Planned next: the Unreal adapter over the same core, the Godot addon on the Asset Library,
-and the visual editor rendering the same IR on the same core compiled to WASM.
+Planned next: the Unreal adapter over the same core, the Godot addon on the Asset Library
+and the Unity SDK on OpenUPM, and the visual editor rendering the same IR on the same core compiled to WASM.
 
 Tooling: pnpm workspaces · TypeScript (ESM) · tsup · Vitest · Biome · Changesets.
 

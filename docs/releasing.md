@@ -137,6 +137,62 @@ hand before it appears, and an update is the same form again on the existing ent
 Nothing about the zip changes for it: the addon is already laid out the way the Asset Library
 expects (`addons/<name>/` at the archive root).
 
+## The Unity package
+
+The Unity SDK does not go to npm either — a Unity game installs a UPM package, and the
+package carries a native binary per platform. It ships as **`com.zabloo.sdk-<version>.tgz`**
+attached to a GitHub Release: the package as checked in (`Runtime/`, `Editor/`, `Tests/`,
+their `.meta` files) plus `Runtime/Plugins/` with the native core for macOS (universal),
+Windows x64, Linux x64, Android arm64-v8a and iOS, each beside its `.meta`. Adding
+`"com.zabloo.sdk": "file:<path to the .tgz>"` to a project's `Packages/manifest.json` is the
+whole installation.
+
+### Versioned with the `fixed` group, like the addon
+
+The same rule as [the Godot addon's](#its-version-is-the-fixed-groups), for the same reason:
+the SDK and the packages agree on the format, and one number answers "which SDK goes with the
+packages I installed". `sdk/unity/package.json` is committed at `0.0.0` and stamped from
+`packages/format/package.json` at pack time — the tarball's name comes from `npm pack`, so it
+carries the number too.
+
+### Releasing the package
+
+The **Unity SDK** workflow, dispatched by hand. It builds the native core for each of the
+five platforms (the same matrix as CI's `unity-plugin`), runs `scons install` on each runner
+so the binary lands in its slot **with its `.meta`**, packs them with
+[`scripts/pack-upm.mjs`](../scripts/pack-upm.mjs), and either uploads the tarball as a
+workflow artifact (`dry-run`) or attaches it to the Release `unity-sdk@<version>`
+(`publish`).
+
+What has to be in `Runtime/Plugins/` is read from the `PLATFORMS` table of
+`sdk/unity/SConstruct` — the table `scons install` writes each `.meta` from — not from a list
+in the script: a slot Unity will look for and not find is a platform that silently has no
+SDK, so a missing one fails the pack. A binary without its `.meta` fails it too, because
+Unity would import the file with default settings and enable it for every platform. There
+is no optional platform; `--allow-partial` exists for a local build you only mean to open on
+this machine.
+
+Add to [Before you merge Version Packages](#before-you-merge-version-packages), when the
+release touches `core/` or `sdk/unity/`:
+
+- [ ] After the npm publish, dispatch **Unity SDK** in `dry-run`, download the artifact and
+      install it in a **clean** Unity project — 2022.3 LTS and Unity 6 — by tarball path.
+      Add a `Canvas`, a `ZablooView` with `hello-button`'s envelope, press Play, and check
+      that Enter fires `buy` on `OnAction`. That covers the editor; an IL2CPP player built
+      from the same project (`sdk/unity/README.md` › *IL2CPP*) covers the other half. Then
+      dispatch it in `publish`.
+
+### OpenUPM
+
+[OpenUPM](https://openupm.com/) is the second distribution channel and deliberately not the
+first, for the same reason as Godot's Asset Library: it is a catalog, worth an entry once
+there is something to show. It serves packages **from git tags** of a public repository, so
+listing there would mean committing the native binaries under `Runtime/Plugins/` on a
+release branch (the checkout ships none — they are build products, and `scons install` puts
+them in place); the `.tgz` route exists because a git URL cannot carry them otherwise. When
+it happens, the submission is a form on the site with the repository URL and the tag
+pattern, and nothing about the package layout changes.
+
 ## Unity in CI
 
 The Unity package's **native core** is built in CI for all five platforms on every PR

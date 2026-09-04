@@ -5237,3 +5237,74 @@ pipeline, así que el `ValueSource` se resuelve por reflexión.
 § *Tests*, `examples/unity-playground/README.md` (§ *Running the corpus inside Unity*,
 § *Checking UN10 by hand*, el recorrido con mando y la captura) y `golden/README.md`
 (§ *Unity: the same corpus, twice more* y el paso de Unity en *Golden images*).
+
+## 2026-09-04 — Distribución del SDK de Unity: un `.tgz` de UPM con la versión del grupo `fixed`, y el `SConstruct` como manifiesto de lo que va dentro (ZAB-204, F12 UN11)
+
+**Decisión:** el SDK de Unity se distribuye como **`com.zabloo.sdk-<version>.tgz`** adjunto a
+una GitHub Release (`unity-sdk@<version>`), y ese `<version>` es **el del grupo `fixed` de
+npm**, leído de `packages/format/package.json` al empaquetar y estampado en `package.json`
+— la regla de G17 (2026-09-03) aplicada al segundo motor, por el mismo motivo: el SDK y los
+paquetes se ponen de acuerdo en exactamente una cosa, el formato, y un número contesta "qué
+SDK va con los paquetes que instalé". El `package.json` committeado se queda en `0.0.0`,
+como el `plugin.cfg` de Godot: es un placeholder que el pack sustituye. **OpenUPM** queda
+como paso documentado, como el Asset Library — es un catálogo, y sirve paquetes **desde tags
+de git**, lo que obligaría a committear los binarios nativos; el `.tgz` existe justamente
+porque una URL de git no puede llevarlos.
+
+**Lo que va dentro lo dice la tabla `PLATFORMS` de `sdk/unity/SConstruct`, no una lista en
+el script.** El ticket decía "se lee de los `.meta` de `Plugins/`", y al escribirlo resultó
+que eso no puede ser la fuente: los `.meta` están **gitignorados** (UN3 los genera junto al
+binario, porque Unity borra un `.meta` cuyo asset falta) y viajan en el artifact de CI con
+su binario, así que un artifact ausente tampoco trae su `.meta` y no habría nada que echar
+en falta. La fuente committeada real es la tabla de la que `scons install` escribe cada
+`.meta` — el `SConstruct` es para el paquete de Unity lo que el `.gdextension` es para el
+addon —, y `pack-upm.mjs` la lee con la única forma que tiene (`"<platform>": ([…],
+os.path.join(…))`) en vez de evaluar Python: un cambio de forma falla en el pack, en voz
+alta, y no en un tarball.
+
+**Un binario y su `.meta` son UNA cosa.** Un slot con solo el binario es un fallo distinto
+de un slot vacío: Unity importa el fichero con ajustes por defecto y lo **habilita para
+todas las plataformas**, con lo que el editor de macOS puede intentar cargar el `.so` de
+Linux. Así que el pack exige los dos por slot y dice cuál de las dos mitades falta. Y **no
+hay plataforma opcional**: a diferencia del addon (web experimental), las cinco del
+`SConstruct` son obligatorias; `--allow-partial` existe para un build local de una sola
+plataforma que solo se va a abrir en esa máquina.
+
+**El slot se identifica por su RUTA, no por el nombre del fichero.** Linux y Android
+comparten `libzabloo.so`; solo `Linux/x86_64/…` y `Android/arm64-v8a/…` los distinguen. De
+ahí una decisión del workflow que difiere del de Godot: cada runner sube **el árbol
+`Runtime/Plugins/` entero** (el job `unity-plugin` de `ci.yml` sube los ficheros del slot,
+planos), y el pack empareja cada fichero con el slot cuya ruta termina en él. Un fichero
+con nombre de plugin que no está en ningún slot se reporta como *extra* en vez de contarse
+como esa plataforma.
+
+**Lo que se empaqueta es el checkout menos tres cosas:** `SConstruct` y su `.meta` (un
+juego nunca corre `scons`), los dotfiles (`.gitkeep` sostiene los directorios vacíos en git;
+Unity ignora dotfiles), y lo que un `scons install` local hubiera dejado en un slot — los
+plugins salen del plan, nunca del checkout. `Tests/` viaja, que es la convención UPM
+(`testables`). Y `npm pack` en vez de un tar propio: un `.tgz` con raíz `package/` es
+exactamente lo que `Packages/manifest.json` acepta por `file:`, y npm es quien define esa
+forma. El tarball se relee (`tar -tzf`) al final para comprobar que cada slot incluido
+está dentro con su `.meta`, porque el tarball es el contrato y es lo que hay que comprobar.
+
+**Lo que este ticket NO puede verificar, dicho como en todos los de F12:** la máquina no
+tiene Unity. El pack está probado en local con el binario de macOS (`--allow-partial`:
+falla sin el flag nombrando los cuatro slots ausentes, y con él produce el tarball
+correcto), el test cubre las reglas contra el `SConstruct` real, y el workflow es la
+matriz de `unity-plugin` que ya pasa en cada PR. Instalar el `.tgz` en un proyecto limpio
+(2022.3 y Unity 6) y ver `hello-button` con Enter → `buy` queda como checklist en
+`docs/releasing.md` › *The Unity package*, y la fila de Unity del README lo dice tal cual
+en vez de afirmar un 13/13 sin reserva.
+
+**F12 se cierra con esa reserva escrita entera** en el roadmap (fase 12): lo que CI y el
+corpus ven está cerrado; lo que pide un editor —la instalación limpia, las suites PlayMode
+en el Test Runner, los players IL2CPP, la tabla de perf— está escrito como procedimiento,
+paso a paso, para que sea una tarde con el editor y no una investigación. Es la misma
+honestidad que 2026-08-24 fijó para las plataformas del addon ("compila, no validado"),
+aplicada esta vez a un motor entero.
+
+**Dónde vive:** `scripts/pack-upm.mjs` (+ `.test.mjs`), `.github/workflows/unity-sdk.yml`,
+`docs/releasing.md` › *The Unity package*, `sdk/unity/README.md` › *Install it in a game* y
+*Status*, `docs/getting-started.md` §6 *Unity*, `docs/troubleshooting.md` › *In Unity*, y el
+barrido de `README.md`, `docs/README.md`, `docs/format/host-channel.md`, `examples/README.md`
+y `packages/create-zabloo-app`.

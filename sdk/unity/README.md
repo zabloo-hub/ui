@@ -1,18 +1,21 @@
 # sdk/unity
 
-The Unity adapter — **under construction (F12)**. It is a UPM package,
-`com.zabloo.sdk`, whose C# does only what an adapter does: hand the shared
-native core a rect, a clock and the player's input, upload the triangles it
-returns, and expose actions and data the way a C# game expects them. Layout,
-text, tessellation and the whole runtime live in [`core/`](../../core), reached
-through its C ABI (`core/capi/`) — the same core, verbatim, that Godot runs.
+The Unity adapter. It is a UPM package, `com.zabloo.sdk`, whose C# does only
+what an adapter does: hand the shared native core a rect, a clock and the
+player's input, upload the triangles it returns, and expose actions and data
+the way a C# game expects them. Layout, text, tessellation and the whole
+runtime live in [`core/`](../../core), reached through its C ABI
+(`core/capi/`) as a native plugin — the same core, verbatim, that Godot runs.
+Every node type of the catalog renders, and the golden corpus reproduces its
+metrics byte for byte through the ABI and through a real `ZablooView` (see
+[Status](#status) for what has and has not been checked on a machine with
+Unity).
 
 This is **not** the C# port that was cancelled at 4 of 13 node types
 (2026-08-24); that one is in the history (`git log -- sdk/unity`, before
-ZAB-196) and does not come back. What is here today is the scaffold: the
-package, the component's lifecycle, and stubs for the host channel. The
+ZAB-196) and does not come back. The
 [decision](../../docs/internal/decisions-architecture.md) and the plan explain
-the shape; the tickets below fill it in.
+the shape; the table says which ticket wrote what.
 
 | File | Ticket | What it contains |
 |---|---|---|
@@ -203,22 +206,61 @@ into the render layer months from now.
 
 ## Install it in a game
 
-Until it is released (UN11 — a `.tgz` on the GitHub Release, versioned with the
-`@zabloo/*` packages), reference it by path from `Packages/manifest.json`:
+**From a release.** Download `com.zabloo.sdk-<version>.tgz` from the
+[Releases](https://github.com/zabloo-hub/ui/releases) page (the tag is
+`unity-sdk@<version>`; the version is the one the `@zabloo/*` packages carry)
+into the project — `Packages/` is the usual place — and add it to
+`Packages/manifest.json` by path, or use **Window → Package Manager → + → Add
+package from tarball…**, which writes the same line:
+
+```json
+"com.zabloo.sdk": "file:com.zabloo.sdk-0.2.0.tgz"
+```
+
+The tarball is the package as checked in here plus a native core in every
+slot of `Runtime/Plugins/` — macOS universal, Windows x64, Linux x64, Android
+arm64-v8a and iOS — each beside the `.meta` that restricts it to its
+platform. The Input System package is a dependency and comes with it.
+**Unity 2022.3 LTS or newer**, and it has to open in Unity 6 unchanged — that
+is the rule the playground checks. Two settings the editor asks for once:
+**Active Input Handling** must be *Input System Package* or *Both*, and a
+player build wants **Scripting Backend = IL2CPP** (§ *IL2CPP*).
+
+**From this checkout** — to work on the adapter, or before a release exists —
+reference the directory by path instead, after putting a native core in it
+(§ *Build locally*):
 
 ```json
 "com.zabloo.sdk": "file:../../path/to/ui/sdk/unity"
 ```
 
-Then add a **Zabloo View** component to a `RectTransform` under a `Canvas`.
-The component's inspector takes the envelope (a `TextAsset`) and the view id;
-the game talks to it through `LoadEnvelope`, `SetData`, `OnAction` and
-`OnDataChanged` — the host channel, spelled for C# in
+Either way, then add a **Zabloo View** component to a `RectTransform` under a
+`Canvas`. The component's inspector takes the envelope (`dist/zabloo.ir.json`
+imported as a `TextAsset`) and the view id; the game talks to it through
+`Load`/`LoadEnvelope`, `SetData`, `OnAction` and `OnDataChanged` — the host
+channel, spelled for C# in
 [`docs/format/host-channel.md`](../../docs/format/host-channel.md#unity-spelling)
-and documented member by member in `ZablooView.Host.cs`. A game can load,
-push data, drive controls by id, hear the actions and values that produces,
-and the player can use the view with a mouse, a finger and a keyboard; the
-gamepad is UN6.
+and documented member by member in `ZablooView.Host.cs`. A game can load, push
+data, drive controls by id, hear the actions and values that produces, and the
+player can use the view with a mouse, a finger, a keyboard and a gamepad.
+[Getting started §6](../../docs/getting-started.md#unity) is the walk-through;
+[Troubleshooting › In Unity](../../docs/troubleshooting.md#in-unity) the sharp
+edges.
+
+A change to the native binary needs an **editor restart**: Unity never unloads
+a native plugin once a `DllImport` has resolved.
+
+### How it is packed
+
+`scripts/pack-upm.mjs` at the repo root builds the tarball the release carries
+(the **Unity SDK** workflow runs it after compiling the core for every
+platform): it stages this directory without `SConstruct` and the dotfiles,
+stamps `package.json` with the `@zabloo/*` version, drops each platform's
+binary and `.meta` into its slot, and runs `npm pack`. Which slots exist is
+read from the `PLATFORMS` table of the `SConstruct` here — the same table
+`scons install` writes the `.meta` files from — and a slot that was not built
+fails the pack rather than shipping a platform that silently has no SDK. The
+ritual around it is in [`docs/releasing.md`](../../docs/releasing.md#the-unity-package).
 
 ## Input
 
@@ -291,3 +333,29 @@ listener around them.
 package by path and opens on a `Canvas` with one view. It is where the adapter
 is checked against a real engine, which is the half of the work the golden
 corpus deliberately does not cover.
+
+## Status
+
+Every node type of the catalog renders, and every case of the golden corpus
+reproduces its recorded metrics byte for byte — twice over: through the C ABI
+alone on every PR (`scons test capi`, on Linux, macOS and Windows), and through
+a real `ZablooView` on a `Canvas` in `GoldenTests` (§ *Tests*). Glyphs come
+from our own rasterizer over the TTF the core embeds, never from TextMeshPro
+or the engine's text, which is what makes a line break in the same place here
+and in the web renderer.
+
+What has been checked **where**, honestly, because the machine that wrote most
+of this adapter had no Unity on it and the corpus cannot see an engine:
+
+| | Checked | How |
+|---|---|---|
+| The core, the C ABI, the JSON channel, the pad translation, the dev-push rules | **in CI, every PR** | `core-tests`, `capi-tests`, and the pure NUnit suites |
+| The adapter's plumbing end to end (size → core → `SetData` → clock → pad → `Snapshot`) | **yes, without Unity** | the PlayMode suites driven against the real plugin through a shim of `UnityEngine` |
+| The plugin builds for the five platforms | **in CI, every PR** | `unity-plugin` in `ci.yml` |
+| The editor: install from a `.tgz` in a clean project, Play, the verification scenes, the PlayMode suites in the Test Runner | **not yet run** | the procedures in [`examples/unity-playground/README.md`](../../examples/unity-playground/README.md) |
+| IL2CPP players (macOS, Windows), `settings-screen` on a pad, the frame-rate table | **not yet run** | § *IL2CPP* and § *The bench*; the table's shape in [`docs/performance.md`](../../docs/performance.md) |
+| Android and iOS on a device | **no** | the same basket as the Godot addon's (ZAB-193) |
+
+The first three rows are what CI holds; the next two are one afternoon with
+the editor, written down step by step so that afternoon is a checklist and not
+an investigation.
