@@ -1,5 +1,24 @@
 # @zabloo/renderer-web
 
+## 0.3.0
+
+### Patch Changes
+
+- [#108](https://github.com/zabloo-hub/ui/pull/108) [`dadfe43`](https://github.com/zabloo-hub/ui/commit/dadfe4344b3270a6259f30d7b950fb0607f340fa) Thanks [@zamoks95](https://github.com/zamoks95)! - An `Overlay` with `anchor.trigger: "press"` no longer times out: `autoCloseMs` is ignored on
+  a popover, as it already was on a `"hover"` one — a menu is dismissed, not timed out. An
+  anchored overlay whose trigger is `manual` is unaffected and still counts down.
+
+- [#115](https://github.com/zabloo-hub/ui/pull/115) [`22f369c`](https://github.com/zabloo-hub/ui/commit/22f369c8aa64a6e6cc3f78a90b606b04e3549107) Thanks [@zamoks95](https://github.com/zamoks95)! - The performance scenes the bench and the budget suite run on moved out of the package and
+  into `golden/perf/`, so the C++ core measures the same frames. Nothing in the published
+  renderer changed; if you imported `src/perf/scenes.ts` directly it is now a reader of those
+  files and no longer defines them.
+
+- [#107](https://github.com/zabloo-hub/ui/pull/107) [`be8b66a`](https://github.com/zabloo-hub/ui/commit/be8b66a8449b3918ef2e3b4315f462a92d4b9415) Thanks [@zamoks95](https://github.com/zamoks95)! - A `Slider` being nudged with an arrow key no longer fires `onCommit` when the game
+  disables it mid-gesture. It is cancelled instead, which is what the pointer's drag
+  already did and what the component's contract says: the value never settled.
+- Updated dependencies []:
+  - @zabloo/format@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes

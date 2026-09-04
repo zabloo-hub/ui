@@ -1,5 +1,32 @@
 # @zabloo/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- [#113](https://github.com/zabloo-hub/ui/pull/113) [`7cd0184`](https://github.com/zabloo-hub/ui/commit/7cd01840b954b9e88260eca35399244a07bbcc03) Thanks [@zamoks95](https://github.com/zamoks95)! - `zabloo dev --godot` pushes each save to a running Godot game, which hot-swaps its views
+  through the same loading path a platform hot-update takes — data the game pushed with
+  `set_data` survives the swap. The receiver is the `ZablooDevMode` autoload that enabling
+  the Zabloo addon installs; `--godot-port` (default `5079`) moves the port.
+
+  That push carries the envelope **without its asset bytes**, plus the address of the
+  preview's `/asset/<hash>` route, and the game fetches only the content hashes it does not
+  already hold. A save in a project with megabytes of images now moves kilobytes, and an
+  image is transferred once however many reloads follow.
+
+  An engine dev mode that is not listening is reported **once** instead of on every save, with
+  one line when it answers again. `--unity` is unchanged and still sends the whole envelope.
+
+- [#128](https://github.com/zabloo-hub/ui/pull/128) [`d07f7e4`](https://github.com/zabloo-hub/ui/commit/d07f7e415b176e448f41a1b2cee841b980863bb9) Thanks [@zamoks95](https://github.com/zamoks95)! - **Breaking:** `zabloo dev --port` is now `--unity-port` (default still `5077`), the mirror of `--godot-port`. Update any script that passed `--port`.
+
+  `zabloo dev --unity` pushes each save to the Unity editor's dev mode (menu **Zabloo → Dev Mode** in the rebuilt SDK), which rewrites and reimports the `.json` asset the scene's views reference and, while playing, hot-swaps them through the same loading path a platform hot-update takes. The push now carries the envelope **without its asset bytes**, exactly like `--godot`: the editor fetches only the content hashes it does not already hold, so an image is transferred once however many reloads follow. `--godot --unity` pushes to both.
+
+### Patch Changes
+
+- Updated dependencies [[`dadfe43`](https://github.com/zabloo-hub/ui/commit/dadfe4344b3270a6259f30d7b950fb0607f340fa), [`22f369c`](https://github.com/zabloo-hub/ui/commit/22f369c8aa64a6e6cc3f78a90b606b04e3549107), [`be8b66a`](https://github.com/zabloo-hub/ui/commit/be8b66a8449b3918ef2e3b4315f462a92d4b9415)]:
+  - @zabloo/renderer-web@0.3.0
+  - @zabloo/format@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes
